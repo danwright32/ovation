@@ -179,13 +179,17 @@ Where Downbeat later sends a client detail that differs from Ovation's copy, Ova
 
 ---
 
-## 8. What has to change in Downbeat
+## 8. What Downbeat provides
 
-Ovation cannot meet two of its requirements without work in a different repository. This is not optional scope. All three are filed in `danwright32/downbeat` as issues 426, 427 and 428, in the `Ungrouped` milestone, and none of the work has been started.
+This section described work Downbeat had to do before Ovation could be built. **All of it shipped on 2026-08-27**, as issues 426 to 431 in `danwright32/downbeat` and 3193 in `danwright32/overture`. What follows is the contract Ovation is now built against, not a request. The authoritative version lives in `Integration/OvertureExport/CONTRACT.md` in the Downbeat repository, which carries a table naming every consumer of these surfaces.
 
-1. The export must carry each booking's real start and end time. Without it Ovation cannot price anything, because the current file holds only whole day strings. Verified small on 2026-08-27: `Shoot.startDate` and `Shoot.endDate` are already full date and time values on the model, and `OvertureExportService.bookingInputs` simply formats them down to day strings. The change is in the formatting and the contract version, not in reaching data that is not there.
-2. The export must carry the re run marker Downbeat already stores, or Ovation will draft a duplicate invoice every time a booking is re run.
-3. Downbeat must write the booking handoff queue described in section 6, or a booking committed while Ovation is not opened is lost after seven days with nothing anywhere reporting it.
+1. **The handoff queue.** Directory `~/Library/Application Support/Ovation/booking-queue/`, one file per booking named `<BOOKING-UUID>.json`, written atomically at commit. A Debug launch writes to `booking-queue.debug` instead, and a test process writes nothing at all.
+2. **Each record is self contained.** It carries the booking, the client and the venue as they were at the moment of commit, rather than pointing at the export file. This is deliberate: the export is current state, so a client edited or removed after the commit would change what an unconsumed record resolves to. The frozen values are what makes requirement 6's "show both and ask" possible, since Ovation can compare what was true at booking against what Downbeat says now.
+3. **The record carries the shoot's real start and end instants**, so Ovation can price the invoice, and `isRerunOf`, so a re-run adds a note to the invoice that already exists rather than drafting a second one.
+4. **The file is named for the booking id**, which makes the write idempotent: a commit retry lands on the same path and replaces it rather than queueing the shoot twice.
+5. **Downbeat reports its own failures.** A booking it cannot queue raises a problem naming that shoot, and it deliberately never retracts, because a later booking queueing cleanly says nothing about the one that did not. So Ovation is not the only thing standing between a commit and a missing invoice.
+6. **A re-run replaces the predecessor's row rather than deleting it** (downbeat#429, Dan's decision 2026-08-27). Before that fix, re-running an upcoming shoot removed its days from the export and Overture's scout stopped suppressing nights already booked. It also meant a second re-run of the same booking answered "Booking not found". Both are fixed, and it is why `isRerunOf` now reaches a saved row at all.
+7. **The export version gate.** Overture now accepts any version at or above a minimum rather than an exact set (overture#3193). Ovation must do the same. Refusing a payload whole because its version is unfamiliar produces empty data that is indistinguishable from the data genuinely being gone (L255).
 
 ---
 
@@ -228,7 +232,7 @@ Directional, not committed.
 1. Sections 5, 6 and 7 need Dan's confirmation. Every decision in them is his, recorded from the interview, but recorded by me.
 2. Items 9.3, 9.4 and 9.5 need Dan's accountant. 9.3 blocks relying on the first export.
 3. Item 9.7 needs Dan to correct the two draft lists in this document.
-4. Section 8 needs a decision from Dan about when the Downbeat work happens. Ovation cannot meet its second success measure without item 8.3.
+4. Section 8 needs nothing. The Downbeat and Overture work it once asked for shipped on 2026-08-27, so the second success measure is no longer blocked by another repository.
 
 ---
 
