@@ -71,11 +71,11 @@ Not for: anyone else. There are no other users, no roles and no sharing. Ovation
 
 1. Every committed Downbeat booking becomes a draft invoice, and Ovation can report bookings received against invoices created, naming any difference.
 2. An invoice can also be created from scratch, with no booking behind it, for work not booked through Downbeat.
-3. Pricing is $250 per hour, computed from each show's real times, exact to one decimal, with a one hour minimum, one line per show.
+3. Pricing is $250 per hour, computed from the booking's real start and end times, exact to one decimal, with a one hour minimum. One Downbeat booking is one show, so one invoice carries one photography line plus whatever extras Dan adds. A run of three nights arrives as three bookings and becomes three invoices.
 4. Line items pick from a fixed list of service types. A new type can be added from inside an invoice without going to settings first. Proposed starting list: Photography (hourly), Rush turnaround, Preview images, Referral credit (negative).
 5. Sales tax of 8.875% applies to the whole subtotal, is skipped for clients recorded as exempt, and is applied with a visible warning where the client's status was never recorded. A missing status is not the same as "not exempt", and Ovation says so on the draft.
 6. Invoice numbers come from one continuous sequence starting at 1123. A cancelled invoice keeps its number.
-7. The invoice is dated the last show date of its booking, which for a single show booking is simply the shoot date, and is due 14 days later. Overridable per client and per invoice. Ovation warns at send time when the due date is already close or past.
+7. The invoice is dated its booking's shoot date and is due 14 days later. Overridable per client and per invoice. Ovation warns at send time when the due date is already close or past.
 8. A referral credit appears as its own line. One hour is earned per hour of the referred client's first booking, once only, credited when that first invoice is marked paid. Ovation keeps the balance per client and warns when a booking is flagged as spending credit the client does not have.
 9. The PDF carries Dan Wright Photography's identity, the client name alone in the Bill to block, the line items, tax, total, the payment instructions and the note to customer, all from settings.
 10. Sending goes through Gmail from a review screen showing the exact PDF and the exact recipients, prefilled from the client's contract email with a CC available. Ovation records what it sent, to whom, and when.
@@ -95,6 +95,7 @@ Not for: anyone else. There are no other users, no roles and no sharing. Ovation
 16a. Signature images and tracking pixels are ignored. Because that is a filter matching on shape, it must be tested against the receipts it has to PRESERVE and not only the junk it has to catch (L104): a small receipt image looks very like a logo, and an over matching filter reads exactly like the feature working.
 17. Ovation saves the expense record before it touches the email, then moves the logged message to a Logged subfolder. Nothing is deleted.
 18. Amount, vendor and date are read on the Mac by two readers, and a field is filled only where both agree. Where they disagree the field is left empty with both readings shown. Nothing is ever guessed.
+18a. **This is measured before the rest of the expense half is built.** Both readers are run over a set of Dan's real receipts, photographed and digital, and the agreement rate is recorded per field. Neither reader's accuracy on receipts is known today, and the precedent cited for the design was measured on typed questionnaires, not on a till receipt photographed at an angle. If they rarely agree, filing an expense is typing, which is the single thing most likely to make Dan stop using this half of the product. That has to be known in the first week rather than in January.
 19. Every expense carries a category from Dan's own list, and every category maps to a Schedule C line. Proposed starting list, to be corrected: Gear to Supplies or Assets, Software to Office expense, Travel to Travel, Insurance to Insurance, Contract labour to Contract labor, Professional fees to Legal and professional, Marketing to Advertising, Meals to Meals.
 19a. The completeness of that map is enforced by a test, not by a default branch, so a category added without a mapping fails loudly rather than landing somewhere plausible in the export (L113).
 20. A single purchase above a configurable threshold is flagged as a likely asset rather than an expense, visibly and overridably. The threshold is a suggestion, not a determination.
@@ -148,6 +149,8 @@ Not for: anyone else. There are no other users, no roles and no sharing. Ovation
 
 Oldest first within each group. Today's shoots outrank overdue invoices because sending today's invoice is a thing done once and now, while chasing can happen any time this week. This ordering replaces the estimate trick Dan used in QuickBooks to keep far off work out of his view.
 
+**What one booking is.** Downbeat's booking flow books a whole run in one pass, but it saves one `Booking` row per show, each holding a single date, a single time range and a single venue (`ShowCommitPlan` in `BookingDraftBatch.swift`, committed one plan at a time by `BatchCommitOrchestrator`). So "a booking" throughout this document means one performance, and a three night run reaches Ovation as three of them.
+
 **The booking handoff.** Downbeat writes one small file per committed booking into a queue. Ovation reads it, creates the invoice, saves it, and only then removes the queue file. The order matters: saving first means a crash loses nothing, while acknowledging first would lose the invoice. Downbeat's seven day sweep is untouched, so timing stops mattering entirely. A re run is marked as such and creates nothing new, only a note on the invoice that already exists.
 
 **Cancellations.** Downbeat has no concept of a cancelled booking and cannot tell Ovation about one, so cancelling is done in Ovation. Because Ovation cannot distinguish a cancelled shoot from an invoice Dan forgot, it surfaces drafts whose shoot has passed without being sent, and never guesses which they are.
@@ -171,16 +174,16 @@ Where Downbeat later sends a client detail that differs from Ovation's copy, Ova
 5. **Tracking contractor payments for 1099 reporting.** Payments to people file as ordinary expenses under a contract labour category. The obligation remains Dan's.
 6. **Sales tax filing support.** The accountant files the periodic returns from the same records.
 7. **A second Mac, and any phone version.** Filing a receipt from elsewhere works by emailing it.
-8. **Combining several bookings onto one invoice.** One booking, one invoice, always.
+8. **Combining several bookings onto one invoice.** One booking, one invoice, always. This is decided knowing what it costs: Downbeat saves one booking per show, so a client who books a three night run receives three invoices, with three numbers and three due dates, for what they think of as one job. Dan chose this over grouping runs (2026-08-27), and the alternative remains available later, see 10.6.
 9. **Anything about delivering photographs.** Galleries, exports and delivery stay in Downbeat and OmniFocus.
 
 ---
 
 ## 8. What has to change in Downbeat
 
-Ovation cannot meet two of its requirements without work in a different repository. This is not optional scope.
+Ovation cannot meet two of its requirements without work in a different repository. This is not optional scope. All three are filed in `danwright32/downbeat` as issues 426, 427 and 428, in the `Ungrouped` milestone, and none of the work has been started.
 
-1. The export must carry each show's real start and end time. Without it Ovation cannot price anything, because the current file holds only whole day strings.
+1. The export must carry each booking's real start and end time. Without it Ovation cannot price anything, because the current file holds only whole day strings. Verified small on 2026-08-27: `Shoot.startDate` and `Shoot.endDate` are already full date and time values on the model, and `OvertureExportService.bookingInputs` simply formats them down to day strings. The change is in the formatting and the contract version, not in reaching data that is not there.
 2. The export must carry the re run marker Downbeat already stores, or Ovation will draft a duplicate invoice every time a booking is re run.
 3. Downbeat must write the booking handoff queue described in section 6, or a booking committed while Ovation is not opened is lost after seven days with nothing anywhere reporting it.
 
@@ -216,6 +219,7 @@ Directional, not committed.
 3. **Retiring Downbeat's QuickBooks era tasks.** Pending Dan, see 9.11.
 4. **Sales tax period reporting.** Worth revisiting if the accountant starts asking for quarterly totals.
 5. **Line item extraction from receipts.** If the readers prove good enough, splitting a multi item purchase would make the asset threshold accurate on bulk buys, which it currently is not.
+6. **Grouping a run onto one invoice.** Declined in section 7 item 8. The reason to revisit it is a client asking why they received three invoices for one engagement. It would need Downbeat to tag the bookings from a single pass with a shared run identifier, since consecutive dates alone are not proof they were one job.
 
 ---
 
