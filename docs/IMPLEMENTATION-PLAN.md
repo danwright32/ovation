@@ -109,19 +109,62 @@ cd "$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketin
 
 **This step exists because without it, step one of this plan destroys a working app.** The installed Overture is commit `2ddd4bc6` (2026-08-24). The fix that widens its version gate to a minimum, `bdd85404` (2026-08-27), is on Overture's main and is **not** in that build. CONTRACT.md: Overture "decodes the WHOLE file or none of it, so a change it refuses costs it the client roster too, not just the part that changed." Installing a v3 Downbeat first would make Overture's scout stop suppressing nights Dan is already shooting and lose its 31-client roster, on the first action of the plan, against hard constraint 4.
 
-1. Build and install Overture from main. **The tree must be clean at this moment**, which 0.2.0a has just established, and this command re-checks rather than trusting that:
+> **CORRECTED 2026-08-27** after the lessons audit and reality check. The commands below replace an
+> earlier pair that were wrong in three ways, each of which would have let the plan destroy Overture
+> on its first action while reporting success. (a) The verdict ended `|| echo "STOP..."`, so it exited
+> zero on both outcomes and could only be judged by reading a line of its output, which is exactly
+> L184; any `&&` chain, `set -e` or agent treating it as a command would have read STOP as success.
+> (b) It asserted a clean tree AFTER the install, but `mac/build-install.sh` runs `xcodegen generate`
+> and rewrites the tracked `project.pbxproj`, so a perfectly good install dirties the tree and fails
+> its own check. The tree that matters is the one the bundle was built FROM. (c) It compared
+> `provenance` against `main` with `[ "$P" = "main" ]`, but `build-provenance.sh` prints one of `main`,
+> `branch` or `unknown`, and its own header states `unknown` is a real answer covering a checkout with
+> no origin or an unreachable remote. So a network outage read as a wrong build and got the same
+> sentence, which is L11 and L119 in one line.
+
+1. Capture the tree state **before** installing, because that is the tree the bundle is built from, then install:
 
 ```
-cd "$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketing/Outreach/Overture" && test -z "$(git status --porcelain)" && git checkout main && git pull && test -z "$(git status --porcelain)" && ./mac/build-install.sh
+cd "$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketing/Outreach/Overture" && git checkout main && git pull && git status --porcelain > /tmp/overture-pre-install-tree.txt && test ! -s /tmp/overture-pre-install-tree.txt && ./mac/build-install.sh
 ```
 
-2. Prove the **installed bundle**, not just the recorded commit. This must print the first line:
+If that stops before installing, the tree was dirty beforehand. Read `/tmp/overture-pre-install-tree.txt`, resolve it through 0.2.0a, and start this step again.
+
+2. Judge the **installed bundle**, with three outcomes and three exit codes, so nothing downstream can read a refusal as a pass:
 
 ```
-cd "$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketing/Outreach/Overture" && R=~/Library/Application\ Support/Overture/installed-build.json && C=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('$R')))['commit'])") && P=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('$R'))).get('provenance','ABSENT'))") && git merge-base --is-ancestor bdd85404 "$C" && [ "$P" = "main" ] && [ -z "$(git status --porcelain)" ] && echo "OVERTURE INSTALLED BUILD HAS THE GATE FIX, FROM MAIN, FROM A CLEAN TREE" || echo "STOP: DO NOT INSTALL DOWNBEAT V3"
+cd "$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketing/Outreach/Overture" && python3 - <<'PY'
+import json, os, subprocess, sys
+GATE_FIX = "bdd85404"
+rec = os.path.expanduser("~/Library/Application Support/Overture/installed-build.json")
+def cannot(reason):
+    print("CANNOT MEASURE: " + reason, file=sys.stderr); sys.exit(2)
+try:
+    d = json.load(open(rec))
+except FileNotFoundError:
+    cannot("no installed-build.json, so nothing records what is installed")
+except Exception as e:
+    cannot("installed-build.json is unreadable: %s" % e)
+commit = d.get("commit")
+if not commit: cannot("installed-build.json records no commit")
+prov = d.get("provenance", "ABSENT")
+pre = open("/tmp/overture-pre-install-tree.txt").read() if os.path.exists("/tmp/overture-pre-install-tree.txt") else None
+if pre is None: cannot("no pre-install tree record from step 1, so tree cleanliness is unknown")
+if prov == "ABSENT": cannot("installed-build.json records no provenance, which means NOT RECORDED, never main")
+if prov == "unknown": cannot("provenance is 'unknown', a real answer meaning the remote could not be reached; retry when online")
+if subprocess.run(["git","merge-base","--is-ancestor",GATE_FIX,commit]).returncode != 0:
+    print("STOP: DO NOT INSTALL DOWNBEAT V3. Installed commit %s does not contain the version gate fix %s." % (commit[:8], GATE_FIX), file=sys.stderr); sys.exit(1)
+if prov != "main":
+    print("STOP: DO NOT INSTALL DOWNBEAT V3. Installed build came from '%s', not main." % prov, file=sys.stderr); sys.exit(1)
+if pre.strip():
+    print("STOP: DO NOT INSTALL DOWNBEAT V3. The tree was dirty before the install:\n" + pre, file=sys.stderr); sys.exit(1)
+print("OVERTURE INSTALLED BUILD HAS THE GATE FIX, FROM MAIN, FROM A CLEAN TREE")
+PY
 ```
 
-3. Only if step 2 printed the first line, proceed to 0.2.
+3. Proceed to 0.2 only on **exit code 0**. Exit 1 means stop. Exit 2 means the check could not measure, which is not permission to continue: resolve what it names and run it again.
+
+4. Guard, added to the guards table and seen to fail before it is trusted (L1): run this against an `installed-build.json` whose commit predates the gate fix and assert a **non-zero exit**, not merely the printed word. Then run it with `provenance` set to `unknown` and assert exit **2**, distinct from the exit 1 a branch build produces.
 
 **Why the check has three conditions and not one.** Reading only the recorded `commit` is the exact L70 self-consistent shape this plan warns about elsewhere. Overture's `mac/build-install.sh:118-140` builds `installed-build.json` from `git rev-parse HEAD` and records **nothing about uncommitted changes**. So in the case where the tree is dirty in files that happen not to differ between branches, the checkout succeeds, work in progress is installed, and a commit-only check reads the recorded field and **passes while vouching for a bundle it never inspected**. Downbeat records `dirtyFiles` for precisely this reason, citing downbeat#424 and the 2026-08-23 incident where "the record said 4a1cde0 while the bundle was 4a1cde0 plus changes that only became b51286a afterwards", and adds that "reading that silence as a clean tree would have an old record vouch for something nothing checked (L11, L98)". Ovation cannot read a field Overture does not write, so the check asserts the clean tree **in the same breath as the install**, when the two are adjacent in time, and asserts `provenance == "main"` because Overture does record that and a branch build is exactly what a commit-ancestry test cannot see.
 
@@ -179,7 +222,28 @@ The earlier draft assumed all of this existed. None of it does, and Phase 1.1's 
 2. **A stable self-signed identity, before the first folder grant is requested.** Port `Downbeat/setup-signing.sh`. Its own header records why: ad-hoc signing mints a new code identity on every install, and folder permission grants are keyed to that identity, so an ad-hoc build re-prompts for access already granted after every rebuild. PRD 5.29's "folder Dan chooses" for backups walks straight into this. Run it once, before Phase 1.8 ever asks for a folder.
 3. **`build-install.sh`, writing `installed-build.json` with the UNION of what the two siblings record**, after the bundle verifiably lands. **Neither sibling writes the set Ovation needs**, so this is not "exactly as both siblings do": Overture writes `{version, commit, commitDate, repoPath, provenance}` and Downbeat writes `{version, commit, commitDate, repoPath, signingIdentity?, dirtyFiles?}`. Ovation writes `{version, commit, commitDate, repoPath, signingIdentity, dirtyFiles, provenance}`, because its own installed-consumer guard needs all three kinds of information: **which commit**, **whether the tree was clean**, and **whether it came from main**. Optional fields keep Downbeat's convention that absent means NOT RECORDED, never "clean" or "main", and any reader treats an absent field as CANNOT MEASURE (L11, L98). That record is the only reason 0.2.0's check was possible at all.
 4. **`scripts/install-git-hooks.sh` and `scripts/git-hooks/pre-push`,** ported from Downbeat, run once. Until this lands the style gate and the test gate do not apply to this repository, whatever the plan says about them.
-5. **The test lock, decided rather than left open.** Downbeat's `scripts/run-tests.sh:50` reads `LOCK_DIR="${TEST_LOCK_DIR:-/tmp/xcodebuild-tests.lock}"` and its header asserts the lock "is shared with Overture deliberately... A lock only one project takes is not a lock." Overture locks `/tmp/overture-mac-tests.lock`, and `xcodebuild-tests.lock` appears nowhere in its tree, so the sharing is not true today. A third macOS app running `xcodebuild` on this Mac with no lock decision corrupts the other suites' runs and teaches Dan to distrust a red suite, which is the failure Downbeat's script says it exists to prevent. **Recommended: Ovation's runner takes `/tmp/xcodebuild-tests.lock`, and a same-commit change points Overture's `mac/scripts/run-tests-locked.sh` at the same directory**, making Downbeat's comment true. That touches a script, not either app, so hard constraint 4 is intact, but it is Dan's call (see escalated decisions). **Two things any change to Overture's runner must respect:** it must keep the existing environment override seam rather than hardcoding a second path, and it must not assume one source tree per repository, because `.claude/worktrees/agent-*` holds full copies of the Overture sources and a runner or linter finding its inputs by a default recursive glob collects them (L234). **Fallback if Overture is off-limits:** Ovation takes **both** existing lock directories in a fixed order (`xcodebuild-tests.lock` then `overture-mac-tests.lock`) and the reconciliation is filed as a tracked issue. Neither sibling takes two locks, so a fixed order cannot deadlock. **Do not ship a third app that locks a fourth file.**
+5. **The test lock, decided rather than left open.** Downbeat's `scripts/run-tests.sh:50` reads `LOCK_DIR="${TEST_LOCK_DIR:-/tmp/xcodebuild-tests.lock}"` and its header asserts the lock "is shared with Overture deliberately... A lock only one project takes is not a lock." Overture locks `/tmp/overture-mac-tests.lock`, and `xcodebuild-tests.lock` appears nowhere in its tree, so the sharing is not true today. A third macOS app running `xcodebuild` on this Mac with no lock decision corrupts the other suites' runs and teaches Dan to distrust a red suite, which is the failure Downbeat's script says it exists to prevent. > **CORRECTED 2026-08-27.** The recommendation and the fallback below were both mechanically
+> impossible as originally written, and the reason is worth stating because it is the whole
+> difficulty: **the two siblings do not merely lock different paths, they use different mechanisms.**
+> Verified in both scripts today. Downbeat acquires by `mkdir "$LOCK_DIR"` on `/tmp/xcodebuild-tests.lock`
+> (`scripts/run-tests.sh:59`), a DIRECTORY used as a mutex because `mkdir` is atomic everywhere.
+> Overture acquires by `flock "${LOCK_FILE}"` on `/tmp/overture-mac-tests.lock`
+> (`mac/scripts/run-tests-locked.sh:547` and `:753`), a regular FILE, using
+> `/opt/homebrew/bin/flock`, whose absence the script checks for at `:470` and tells you to
+> `brew install flock`. The two cannot coexist at one path: `flock` opens with `O_CREAT` and cannot
+> open an existing directory that way, while `mkdir` on a path already holding a regular file
+> returns `EEXIST`, which Downbeat's loop reads as "lock held" and then waits out
+> `TEST_LOCK_TIMEOUT`, thirty minutes by default, before calling `claim-stale-lock.sh`. So
+> "point Overture's runner at the same directory" is a mechanism rewrite, not a path edit, and
+> "take both existing lock directories" is wrong because only one of the two is a directory.
+
+**The real options, all of which are achievable:**
+
+- **A. Ovation takes both, by the mechanism each one uses**, in a fixed order: `mkdir` on `/tmp/xcodebuild-tests.lock` first, then `flock` on `/tmp/overture-mac-tests.lock`. Ovation then genuinely excludes both siblings, touches neither repository, and cannot deadlock because neither sibling takes two locks. It does not fix the pre-existing defect that Downbeat and Overture still do not exclude each other, which is filed as its own issue. It also inherits Overture's Homebrew `flock` dependency, so Ovation's runner must check for it and say so rather than failing obscurely.
+- **B. Convert Overture's runner to `mkdir` on the shared directory**, making Downbeat's header comment true and removing the `flock` dependency from the estate entirely. One mechanism, one path, all three apps excluding each other. It changes a script in a repository being actively worked on, and Overture's runner is 700 lines with the lock taken at two separate sites.
+- **C. Ovation takes only Downbeat's directory lock**, and the full reconciliation is filed as a tracked issue for later. Simplest, and Ovation excludes Downbeat but not Overture, so an Overture suite and an Ovation suite can still collide.
+
+**Two things any change to Overture's runner must respect:** it must keep the existing environment override seam rather than hardcoding a second path, and it must not assume one source tree per repository, because `.claude/worktrees/agent-*` holds full copies of the Overture sources and a runner or linter finding its inputs by a default recursive glob collects them (L234). **Whichever is chosen, do not ship a third app that locks a fourth file.**
 6. **The port discipline, applied to every ported artifact and not only to the Gmail files (L501).** This plan ports at least eleven things one line at a time: Downbeat's `.gitignore`, `Downbeat/setup-signing.sh`, `Downbeat/build-install.sh`, `scripts/install-git-hooks.sh`, `scripts/git-hooks/pre-push`, `scripts/test-export-consumer-version.sh`, `Downbeat/Persistence/StoreSchemaGuard.swift`, `CooperativePoolTests`, `scripts/measure-questionnaire-ocr.sh` and `scripts/verify-questionnaire-samples.sh`, plus Overture's `mac/project.yml` and `mac/Overture/App/StoreLocation.swift`, and in 5.0 the seven Gmail and OAuth files plus `ReplyDetection.swift`'s Sent predicate. A clone copies the pattern **as first written**, including every value already corrected in the original, and the clone's own note that it follows a proven pattern is what makes it read as safe. This plan has already caught one instance of exactly that in itself: the earlier draft "ported Downbeat's identity guard as it stood before L217 corrected it". So the remedy is generalised rather than left on the one case that was noticed:
    - **Every ported file carries a header naming its source repository, path and commit.** No exceptions, and no "ported from Downbeat" without the commit.
    - **The porting issue lists every constant, threshold, path and exemption entry in the ported file, with the rule it has to satisfy for Ovation**, re-checked at the moment of the port rather than inherited. Rotation counts, lock paths, cap sizes, sample thresholds and exemption lists are each a place where the original's current version and the version being copied can differ.
@@ -338,7 +402,7 @@ Milestone: `Year end tax export`. Dan's order, unchanged, and the reason it is f
 - **Seen to fail:** a fixture with no completed run in 40 days, staleness problem **raised**; a fixture with a completed zero-row run yesterday, staleness problem **NOT raised** and the zero-row notice **raised**; an empty store, **neither raised**; and a run that threw, which must still write a record.
 - The rehearsal count is then something the system can substantiate from its own records, and the plan claims only what the run record shows.
 
-Cash basis is assumed, not confirmed (9.3), see escalated decisions. It blocks *relying* on the first export, not building it.
+**SETTLED 2026-08-27, and the opposite way round.** This sentence assumed a cash basis. Dan confirmed an ACCRUAL basis: income counts when an invoice is ISSUED, whether or not it has been paid, so an unpaid invoice is income for the year it was billed and a December invoice paid in January belongs entirely to December. See PRD requirement 24. It no longer blocks anything, because it is answered, but it does mean this milestone's export keys on invoice dates rather than payment dates and must include unpaid invoices, which is a change from what the rest of this section assumes. PRD 9.3 stays open only to record that the answer came from Dan's recall rather than from his accountant, and PRD 26a now requires a real partial year export to be put in front of the accountant before this milestone can close, which settles both in one conversation.
 
 ---
 
@@ -545,6 +609,8 @@ So the "bookings received" side is derived independently of the ledger:
 - **5.42:** stored totals are checked against the parts they are made of rather than trusted because they were written.
 - **The 0.1 privacy floor applies to every script, probe and report in every phase.** Counts, ids, field names and booleans. Never a client, venue or vendor name, an email address, a subject or a body.
 - **The 0.4.6 port discipline applies to every ported artifact**, not only the Gmail files: a header naming source repository, path and commit; a per-constant re-check in the porting issue; the sibling's open issues named; and an ancestry check that the recorded source commit is on the sibling's current main.
+- **CORRECTED 2026-08-27: the porting issue carries a behavioural DIFF, not only a table of constants** (L501). The original discipline enumerated "every constant, threshold, path and exemption entry", which is scoped entirely to values, and the correction most likely to be missed is not a value at all. Verified today in `scripts/test-pre-push-hook.sh`, one of the artifacts this plan ports: it carries a fix dated 2026-08-27 whose whole content is a line of shell. Its `hook()` helper runs `env -u SKIP_TEST_RUN -u FORCE_TEST_RUN -u SKIP_STYLE_CHECK -u SKIP_TEST_CHECK -u SKIP_EXPORT_CONSUMER_CHECK` before invoking the hook, and its own comment records why: without it, under `SKIP_TEST_RUN=1` the harness went from 36 passed and 0 failed to 15 passed with 21 failed, because the documented one push escape hatch was silently switching off twenty one of the checks policing the very gate it escapes, at the exact moment somebody had already decided to push past a refusal (downbeat#433, L259). A constants table would not have carried that line across.
+- So: the porting issue diffs the ported file against the sibling's current main and explains every behavioural difference, not only the numeric ones. `env -u SKIP_TEST_RUN -u FORCE_TEST_RUN -u SKIP_STYLE_CHECK -u SKIP_TEST_CHECK` is named as a required carry over for the pre-push harness specifically. Guard, seen to fail before it is trusted: run Ovation's ported harness under `SKIP_TEST_RUN=1` and assert its own passed and failed counts are unchanged from a clean environment.
 - **Nested checkouts are excluded from every guard and every test glob, by name** (L234). Overture's `.claude/worktrees/agent-*` proves they exist in this estate, and a default recursive glob collects a second full copy of every source file.
 - Every milestone ends with a `/production-ready` self-check scoped to the files it touched: error paths, data scoping, a failure-path test.
 - **Milestones, per hard constraint 5c: one per feature, from the start.** `Year end tax export`, `QuickBooks migration import`, `Expenses and receipt intake`, `Invoicing and sending`, `Downbeat booking queue consumer`, `Shared Google sign in package` (in the new package repo), and `Ungrouped` for the genuinely standalone. Each names a feature, carries no punctuation, and is at most 8 words, per `~/.claude/skills/milestone/NAMING.md`. Every issue carries a priority label (`priority-p0` to `priority-p4`) and at least one category label. Each milestone's description carries its **frozen scope note**, listing the foundation issues assigned to it, so the enumerate-and-freeze discipline survives without a theme milestone.
