@@ -82,7 +82,7 @@ Not for: anyone else. There are no other users, no roles and no sharing. Ovation
 10a. Dan cannot mark an invoice Sent by hand. Sent is only ever observed, by one of two routes: Ovation sent it, or Ovation found a message carrying that invoice number in the Gmail Sent folder and derived it. The second route exists because Ovation already reads that mailbox, and because a flag written only by actions inside the product is permanently wrong for work done in the mail client instead (L162, and the same defect already shipped in Overture as `replyHandledAt`). An invoice sent from Spark stops claiming to be a draft; the invoice records which route established it.
 11. A sent invoice can be edited and resent. Ovation keeps the history of what changed and the PDF of every version sent.
 12. An overdue invoice can produce a drafted reminder that Dan reviews before it goes. Nothing is ever sent to a client without Dan seeing it.
-13. Cancelling an invoice that carries payments asks what happened to the money and records a refund with its own date, so a payment received in one year and returned in the next is correct in both.
+13. Cancelling an invoice that carries payments asks what happened to the money and records a refund with its own date. Under the accrual basis confirmed in 24, cancelling matters more than it did: the invoice itself was income in the year it was issued, so cancelling one issued in a PRIOR tax year removes income from a return already filed. Ovation must refuse to silently cancel such an invoice, and instead say which filed year it belongs to, so Dan can raise it with his accountant rather than discovering the discrepancy later.
 
 ### Payments
 
@@ -112,7 +112,8 @@ Not for: anyone else. There are no other users, no roles and no sharing. Ovation
 ### Export
 
 23. A year end export produces income.csv and expenses.csv for any date range, defaulting to the calendar year.
-24. Income is on a cash basis: one row per payment received, dated by when the money arrived.
+24. **Income is on an accrual basis: one row per invoice issued, dated by the invoice date, whether or not it has been paid.** Dan confirmed this on 2026-08-27, having first answered the opposite before the term was explained, and reaffirmed it after being told plainly that it is a fact about his filed returns rather than a preference. Three consequences follow and each is a change from what this document said earlier. An unpaid invoice IS income for the year it was issued, so the export cannot exclude it. An invoice issued in December and paid the following January belongs entirely to the December year. And payment dates, while still recorded and still exported, no longer decide which tax year anything falls in.
+24a. Because unpaid invoices are income, the export carries the payment state on every row, so an invoice that was billed and never collected can be identified. Writing one off as a bad debt is a decision for Dan and his accountant, not something Ovation does, but the export must make such an invoice findable rather than silently indistinguishable from a paid one.
 25. income.csv carries sales tax as its own column so it can be totalled by period for the accountant's sales tax filings.
 26. Any single receipt can be exported on its own in one action.
 
@@ -204,7 +205,7 @@ This section described work Downbeat had to do before Ovation could be built. **
 
 1. **The QuickBooks subscription cost is unrecorded.** Owner: Dan. Without it the primary measure has no baseline.
 2. **The volume of 2026 records is unknown.** Owner: Dan. It decides how the importer is built and how long migration takes.
-3. **Cash basis is assumed, not confirmed.** Owner: Dan, with his accountant. If the return is filed on another basis the export is quietly wrong in a way nothing in the app can detect. Confirm before relying on the first export.
+3. **The accrual basis is confirmed by Dan, not by his accountant, and that is worth one more check.** Settled 2026-08-27, see requirement 24. Recorded here rather than closed because of how it was arrived at: Dan first answered the opposite, changed to accrual once the question was put concretely, and reaffirmed after being told it is a fact about his filed returns rather than a preference. He is entitled to that call and the export is built on it. The two minute confirmation, if he ever wants it, is line F of any past Schedule C, which asks for the accounting method and has a box ticked for Cash or Accrual. If that box says Cash, requirement 24 and everything keyed to it are wrong.
 4. **The asset threshold is proposed, not confirmed.** Owner: Dan, with his accountant. $2,500 is the IRS de minimis safe harbour, but it is an election made on the return and Section 179 may make it moot. Note also that the threshold is per item while Ovation sees a receipt total, so it is right on single item purchases and wrong on bulk ones.
 5. **Whether sales tax applies to rush and preview charges is unconfirmed.** Owner: Dan, with his accountant. Ovation currently taxes the whole subtotal, matching invoice 1057.
 6. **The QuickBooks export format is unverified.** Owner: Dan. A sample of the real CSVs is needed before the importer is built.

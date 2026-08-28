@@ -1,5 +1,19 @@
 # Ovation implementation plan
 
+> **CORRECTION, 2026-08-27, after this plan was written.**
+> This plan assumes income is reported on a CASH basis, one row per payment received. That
+> assumption is now wrong. Dan confirmed on 2026-08-27 that his returns use an ACCRUAL basis:
+> income counts when an invoice is issued, whether or not it has been paid. See PRD requirement
+> 24 and open question 9.3. Two places below are directly contradicted (the export section and
+> the escalated decision about cash basis), and anything keyed to payment dates deciding a tax
+> year needs re-reading against PRD 24 before it is built.
+>
+> A second correction: this plan was written against PRD 5.18, which specified two independent
+> on-device receipt readers that had to agree. That design was impossible (the on-device language
+> model takes no image input) and PRD 5.18a now replaces it with a single reader whose own
+> alternative candidates provide the ambiguity signal.
+
+
 ## What decides this plan
 
 Ovation is a seven year tax record, not a feature set. Its primary success measure (PRD 4) is a single event in January that cannot be retried, with no dry run (9.10). So the build spends its earliest work on the substrate that cannot be retrofitted, then runs Dan's settled build order (5b) on top of it unchanged.
