@@ -17,9 +17,8 @@
 > This plan was written against PRD 5.18, which specified two independent on-device receipt
 > readers that had to agree. That design was impossible (the on-device language model takes no
 > image input) and PRD 5.18a now replaces it with a single reader whose own alternative candidates
-> provide the ambiguity signal. **Phase 4.0 below still disagrees with 18a about photographed
-> receipts, and that disagreement is marked OPEN there for Dan's decision rather than resolved
-> silently in either direction.**
+> provide the ambiguity signal. Phase 4.0 follows 18a for photographed receipts (Dan's decision, 2026-08-28), and logs
+> arithmetic self-consistency beside every fill so a confident misread is countable.
 
 
 ## What decides this plan
@@ -487,30 +486,21 @@ Requirement 5.18 is Dan's and is not being re-litigated. What follows delivers i
 
 - **Digital receipt with a text layer (PDF, HTML email body): two genuinely independent readers.** Text-layer extraction reads the embedded text; Vision OCR reads the **rasterized page pixels**. Different error profiles, real corroboration. Fill only where both agree (5.18 as written).
 - **`RecognizeDocumentsRequest` is added as the structure reader** (verified at `Vision.swiftinterface:2219`, with `textRecognitionOptions` at 2260, `barcodeDetectionOptions` at 2261, and a `DocumentObservation` result at 2454 exposing tables, rows, columns and cells). It reads layout, tables and barcodes, which is directly what pulling a total out of a receipt needs, and it is the enabling API for PRD 10.5 line-item extraction if the readers prove good enough. **It is explicitly labelled NOT independent corroboration for a numeric field**: it is the same OCR family as the `topCandidates` path, so it cannot vote against it.
-- **Photographed receipt, image only: measured before anything fills a field (L248, L70).** The earlier draft resolved this by filling the field from Vision alone whenever Vision's **own** `topCandidates` and confidence looked clear. Those come from the same recognizer whose reading they judge, so they can establish only that Vision is self-consistent, never that it is correct, and a confidently wrong `88.20` for `38.20` produces exactly the signal a correct read produces. Probe 4b measures the candidates for a genuinely independent check. Until it lands:
-   - **no field is filled from one reader.** An image-only receipt leaves amount, vendor and date **empty with the top candidates shown**, which is what 5.18 asks for.
-   - `singleReaderDecisive` survives as a log outcome **redefined to mean "not filled, one reader only"**. It never fills anything.
-   - If probe 4b finds nothing that clears its written bar, that goes to Dan **explicitly, as a change to a settled requirement**, not as a rendering of one.
+- **Photographed receipt, image only: filled whenever Vision is clear, exactly as PRD 18a says (Dan's decision, 2026-08-28).** Vision's own alternative candidates and per observation confidence are the ambiguity signal: a clear top candidate fills the field, a close second candidate (for instance `$88.20` against `$38.20`) leaves it empty with both shown. The cost is stated so nobody rediscovers it: those candidates come from the recognizer whose reading they judge (L70), so a confidently wrong read fills the field with no flag. Two things soften that without changing the rule:
+   - **Arithmetic self-consistency is computed and logged on every receipt where the three numbers are readable** (subtotal, tax, total). It does not gate the fill. A fill whose arithmetic fails is logged as its own outcome, `filledButArithmeticFailed`, and shown on the filing screen as a warning beside the field, so the 18b measurement and the running 18b record can say how often a clear read was also a wrong one. Probe 4b still runs, and if it shows that rate is material it goes back to Dan as a change to this decision.
+   - `singleReaderDecisive` means what its name says again: **one reader, clear, field filled.**
    - A FoundationModels pass may still run to **label** which text span is the amount, vendor or date, and is recorded as a labeller, never counted as corroboration on a numeric value.
 
 **The agreement log records four outcomes, never two** (L11, L98):
 1. `corroborated`, two independent readers agreed, field filled.
-2. `singleReaderDecisive`, one reader only, **field not filled**, candidates shown.
+2. `singleReaderDecisive`, one reader only, clear, **field filled** (photographed receipts, PRD 18a).
+2a. `filledButArithmeticFailed`, filled, but subtotal plus tax did not equal the total read, warning shown.
 3. `disagreed` / `ambiguous`, field left empty, both readings shown.
 4. `secondReaderUnavailable`, no second reader existed for this input shape, or the labeller failed. **Never folded into "disagreed."** Folding an unavailable reader into a disagreement is the L11 failure, and it is how a systemic reader outage disguises itself as ordinary noise (18a, L77).
 
 The log records **counts and field names only, never receipt contents** (18a), and it is inside the 1.9 isolation floor. **Every entry also records the reader's identity: the Vision request revision and the OS build it ran on (PRD 18c, L25).** Vision changes under a system update with no build and no code change, and the regression it would produce reads as caution (more fields left empty), so a rate that cannot be pinned to the reader that produced it cannot show a regression at all. The 18b measurement records the same pair in its result.
 
-> **OPEN, for Dan (2026-08-28). This section and PRD 18a disagree about photographed receipts, and
-> neither document may be built from until he decides.** PRD 18a, which Dan approved, fills a field
-> when Vision's own alternative candidates are unambiguous. This section says no field is ever filled
-> from one reader until probe 4b finds an independent check, on the grounds that Vision's candidates
-> come from the recognizer whose reading they judge (L70). Under this section's version the
-> photographed half can never reach the 90% bar agreed in 18d, by construction. The recommendation
-> put to Dan: fill from Vision only when the top candidate is clear **and** the arithmetic check
-> (subtotal plus tax equals total) holds, since that is an independent constraint and it is the one
-> that catches `88.20` read for `38.20`. Whichever he chooses is written into both documents in the
-> same change.
+**Decided 2026-08-28:** the disagreement between this section and PRD 18a about photographed receipts is closed in favour of 18a as written; see the bullet above.
 
 **The measurement, with its pass marks written before the run (L246, L1, L249).** A number whose pass mark is set after it arrives gets rationalized. So the numbers below go in the issue body now, and **Dan's agreement or correction is recorded in that issue, quoted from what he actually said and carrying its own date**, before the run starts. They are two different measurements with two different meanings, and calling both "18b" would hide that:
 
