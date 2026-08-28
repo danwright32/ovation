@@ -1,17 +1,25 @@
 # Ovation implementation plan
 
-> **CORRECTION, 2026-08-27, after this plan was written.**
-> This plan assumes income is reported on a CASH basis, one row per payment received. That
-> assumption is now wrong. Dan confirmed on 2026-08-27 that his returns use an ACCRUAL basis:
-> income counts when an invoice is issued, whether or not it has been paid. See PRD requirement
-> 24 and open question 9.3. Two places below are directly contradicted (the export section and
-> the escalated decision about cash basis), and anything keyed to payment dates deciding a tax
-> year needs re-reading against PRD 24 before it is built.
+> **REVISED 2026-08-28.** The 2026-08-27 header correction about the accrual basis has been folded
+> into the body: Phase 2, 1.5 and the guards table now describe an ACCRUAL export (PRD 24), one row
+> per issued invoice dated by invoice date, and no longer say "cash basis" anywhere. A header
+> correction standing over a body that contradicts it is read as the body by whoever builds from
+> it, so the body was rewritten rather than annotated.
 >
-> A second correction: this plan was written against PRD 5.18, which specified two independent
-> on-device receipt readers that had to agree. That design was impossible (the on-device language
-> model takes no image input) and PRD 5.18a now replaces it with a single reader whose own
-> alternative candidates provide the ambiguity signal.
+> Also on 2026-08-28: Phase 0.3 was corrected against `docs/CUSTODY.md` (a v2 snapshot already
+> existed at a different path), probes 1 to 3 were dropped because PRD 42a and 42b already measured
+> their answers, probe 5 was aligned with PRD 17a (the Logged move is required, not a fallback),
+> the 4.2 attachment key was aligned with PRD 22a, and the PRD requirements that had no home in
+> this plan (3a, 3b, 5.10b, 5.13, 18c, 22b, 29b, 38, 38a, 41a, 41b) were given one. Phases 0.2.0a,
+> 0.2.0 and 0.2 are Dan's own steps now (his instruction, 2026-08-28); the agent measures before
+> and after and never runs the installs.
+>
+> This plan was written against PRD 5.18, which specified two independent on-device receipt
+> readers that had to agree. That design was impossible (the on-device language model takes no
+> image input) and PRD 5.18a now replaces it with a single reader whose own alternative candidates
+> provide the ambiguity signal. **Phase 4.0 below still disagrees with 18a about photographed
+> receipts, and that disagreement is marked OPEN there for Dan's decision rather than resolved
+> silently in either direction.**
 
 
 ## What decides this plan
@@ -22,8 +30,12 @@ Everything asserted below was measured on this Mac on 2026-08-27. Where a claim 
 
 ### Verified before writing this
 
+**Every row below is a measurement dated 2026-08-27 or 2026-08-28, not a current fact.** Two rows had already gone stale within a day (Overture's branch state, and the custody folder). The step that depends on a row re-measures it before acting and never reads this table as current (L175, L244).
+
 | Claim | How it was checked | Result |
 | --- | --- | --- |
+| **All 20 stored Downbeat bookings carry a real time of day** (2026-08-28) | read `ZBOOKING.ZSHOOTDATA` from a read-only open of Downbeat's store, decoded `startDate`, counted | **0 at local midnight, 20 with a time**, 0 undecodable. `OvertureExportBuilder.swift:103` maps `shoot.startDate` straight into `startsAt`, so the **v3 re-export WILL carry usable shoot times for the 19 old bookings**. `CUSTODY.md`'s earlier sentence that hours would have to come from Dan or QuickBooks was true only of the v2 file |
+| **A v2 custody snapshot already exists** (2026-08-28) | `ls ~/Library/Application Support/Ovation/custody/` | `downbeat-export-2026-08-27.json` plus its `.sha256`, captured 2026-08-27 21:26, recorded in `docs/CUSTODY.md`. The `Apps/Ovation-custody` folder an earlier draft of 0.3 named **does not exist** |
 | Installed Downbeat predates the handoff work | `strings /Applications/Downbeat.app/Contents/MacOS/Downbeat` | 0 hits `booking-queue`, 0 `startsAt`, 0 `endsAt`, **4 `blockedDates`** (control literal, so the zeroes are real absence, L70). **`isRerunOf` also shows 4 and is NOT usable evidence**: it predates v3 as a model property |
 | **Installed Overture lacks the version gate fix** | `installed-build.json` commit `2ddd4bc6`, dated 2026-08-24; `git merge-base --is-ancestor bdd85404 2ddd4bc6` | **exit 1, NOT an ancestor.** `bdd85404` "Accept future downbeat-export versions instead of an exact set (#3197)", 2026-08-27, is on Overture's main and is **not in the installed app** |
 | **Overture's checkout is NOT on main and its state moves** | `git rev-parse --abbrev-ref HEAD`, `git status --porcelain`, `git diff --name-only main..HEAD` | branch `one-shot-deep-link-channels-1927`, **HEAD commit `45ec26a4` is not on main**, 5 files differ from main (`mac/Overture.xcodeproj/project.pbxproj`, `mac/Overture/App/RootView.swift`, `mac/Overture/UI/QueueView.swift`, `mac/OvertureTests/LeadDeepLinkTests.swift`, `mac/OvertureTests/OneShotChannelGuardTests.swift`). The tree was **dirty earlier today and is clean now**, because that work was committed onto the branch in between. **This state is not knowable in advance and must be measured, never assumed** |
@@ -32,7 +44,7 @@ Everything asserted below was measured on this Mac on 2026-08-27. Where a claim 
 | The existing guard cannot see the deployed pair | `scripts/test-export-consumer-version.sh` (Downbeat root) | it resolves `<repo>/mac/Overture/Domain/DownbeatExport.swift`, a **source checkout**. It passes green while the deployed pair is broken (L3, L4). It already has the correct three-outcome shape and says CANNOT MEASURE when Overture is not on the machine |
 | **A Debug Downbeat does NOT use an in-memory store** | `Downbeat/DownbeatApp.swift:39-44`; `grep -rn isDebugBuild --include=*.swift` | `isStoredInMemoryOnly: true` is gated on `AppStoreConfiguration.isRunningUnderTests()`, **never on `isDebugBuild`**. `isDebugBuild` appears in exactly two production places, both in `Downbeat/App/AppStoreConfiguration.swift`: `overtureExportURL` (line 85) and `bookingHandoffQueueURL` (line 121). **Debug isolates two file paths and nothing else** |
 | **Downbeat's own comment asserts an isolation that does not exist** | `Downbeat/App/AppStoreConfiguration.swift`, doc comment on `bookingHandoffQueueURL` | "Under a Debug build: a sibling directory. `Downbeat/Downbeat` is launched from Xcode with a throwaway in-memory store, so anything it commits is fictional." **That sentence is false.** A Debug Run opens the real store and runs the real side effects |
-| Queue directory | `ls ~/Library/Application Support/Ovation/` | does not exist |
+| Queue directory | `ls ~/Library/Application Support/Ovation/` | `booking-queue/` does not exist. The `Ovation/` folder itself now exists because it holds `custody/` (2026-08-28), so a check for the queue must test the `booking-queue` path, never its parent |
 | Live export | `~/Library/Application Support/Overture/downbeat-export.json` | `version 2`, `exportedAt 2026-08-23T19:18:44Z`, 20 bookings, **19 in the future**, 31 clients, earliest future 2026-10-25, latest 2027-06-13, **no `startsAt` on any booking** |
 | **Tax status is absent on every booked client** | parsed the live export | 31 clients, **6 carry `isTaxExempt`** (5 true), so **25 do not**. The 20 bookings resolve to **3 distinct clientIds**; **2 of those have rows in `clients[]` and NEITHER carries `isTaxExempt`** |
 | **One booking's clientId does not resolve** | same parse | **1 of 20** (`FF803523-...`, shoot 2026-08-18) carries a `clientId` with no matching row in `clients[]` |
@@ -66,6 +78,8 @@ Everything asserted below was measured on this Mac on 2026-08-27. Where a claim 
 ## Phase 0, day zero, before a line of Ovation code
 
 Five actions, in this order. Order matters: **0.2.0 exists because the first draft of this plan would have broken Overture on its first command, and 0.2.0a exists because the second draft would have failed on its first line with a git error and no remedy.**
+
+**Who does what (Dan, 2026-08-28: "don't worry about updating the apps. I'll do that").** 0.2.0a, 0.2.0 and 0.2 are Dan's steps. The agent does not run `build-install.sh` in either sibling, does not check out branches in Overture, and does not launch either app. What the agent still does: measure the installed state before Dan starts (so the starting point is recorded), hand him the numbered steps below with one command per block, and run the verdict checks after he says he is done. The one ordering rule that protects his data is unchanged and is the whole reason 0.2.0 sits before 0.2: **Overture is reinstalled from `main` first, and Downbeat only after the 0.2.0 verdict passes**, or Overture refuses the v3 export whole and loses its 31-client roster.
 
 ### 0.1 Make the repo private, write a real `.gitignore`, and set the privacy floor
 
@@ -164,6 +178,8 @@ PY
 
 3. Proceed to 0.2 only on **exit code 0**. Exit 1 means stop. Exit 2 means the check could not measure, which is not permission to continue: resolve what it names and run it again.
 
+   **When Dan runs the install by hand** rather than through the step 1 block, `/tmp/overture-pre-install-tree.txt` does not exist and the check exits 2 for tree cleanliness. That is the honest answer, not a defect: nothing recorded the tree at the moment the bundle was built, and Overture's `installed-build.json` cannot say (see the follow-up below). The remedy is either to run the step 1 block as written, or for Dan to confirm the tree was clean at the moment he ran the install, which the agent records as his statement and not as a measurement. The commit ancestry and `provenance` halves of the check still measure normally.
+
 4. Guard, added to the guards table and seen to fail before it is trusted (L1): run this against an `installed-build.json` whose commit predates the gate fix and assert a **non-zero exit**, not merely the printed word. Then run it with `provenance` set to `unknown` and assert exit **2**, distinct from the exit 1 a branch build produces.
 
 **Why the check has three conditions and not one.** Reading only the recorded `commit` is the exact L70 self-consistent shape this plan warns about elsewhere. Overture's `mac/build-install.sh:118-140` builds `installed-build.json` from `git rev-parse HEAD` and records **nothing about uncommitted changes**. So in the case where the tree is dirty in files that happen not to differ between branches, the checkout succeeds, work in progress is installed, and a commit-only check reads the recorded field and **passes while vouching for a bundle it never inspected**. Downbeat records `dirtyFiles` for precisely this reason, citing downbeat#424 and the 2026-08-23 incident where "the record said 4a1cde0 while the bundle was 4a1cde0 plus changes that only became b51286a afterwards", and adds that "reading that silence as a clean tree would have an old record vouch for something nothing checked (L11, L98)". Ovation cannot read a field Overture does not write, so the check asserts the clean tree **in the same breath as the install**, when the two are adjacent in time, and asserts `provenance == "main"` because Overture does record that and a branch build is exactly what a commit-ancestry test cannot see.
@@ -190,25 +206,41 @@ The installed binary cannot write the queue. Until it is replaced, every commit 
    - **No throwaway booking is committed, in Debug or Release.** If for some later reason one is unavoidable, it is **dated in the past** so `BookingRetention` sweeps it, and every side effect is enumerated and removed by name: the booking folder, the OmniFocus tasks, the Fantastical events, the store row, any roster edit.
 5. **File `downbeat#`: the doc comment on `AppStoreConfiguration.bookingHandoffQueueURL` asserts an in-memory store under Debug that the code does not provide.** This is a comment that reads as a safety guarantee while the code provides none, in the file that decides where a record Ovation turns into a real invoice gets written. It has its own issue in `danwright32/downbeat`, milestone `Ungrouped`, `priority-p2`, category `correctness`, filed in the same change as this step, and it is fixed by correcting the sentence (Debug isolates the export path and the queue path, and nothing else), not by relying on it.
 
-### 0.3 Copy the v3 export to a custody location, immediately
+### 0.3 The two custody snapshots: one exists, one is taken after Dan's Downbeat reinstall
 
 **This is the genuinely unrecoverable one.** `BookingHandoffQueue.write` is called from exactly one place, `CommitOrchestrator.swift:915`, at commit. There is no backfill. The already-committed future bookings running to 2027-06-13 were committed under the old binary and **will never emit a queue file**, no matter when the consumer ships. `BookingRetention.retentionDays` is 7, so the `Booking` row is deleted seven days after the shoot and the recovery window closes one shoot at a time from 2026-11-01.
 
-The v3 export rewrites in full on launch, so after 0.2 it carries `startsAt`/`endsAt`. Copy it out. The custody folder **does not exist**, so the command creates it, copies, and records the hash in one block:
+> **CORRECTED 2026-08-28.** The earlier draft of this step created a folder at `Apps/Ovation-custody`
+> and took one v3 snapshot. Two things were wrong. A snapshot had **already been taken** on
+> 2026-08-27 21:26, at `~/Library/Application Support/Ovation/custody/`, and recorded with its hash
+> in `docs/CUSTODY.md`; the plan and the custody note named different folders and only one existed.
+> And that existing snapshot is **version 2**, so it carries `startDate`/`endDate` day strings and no
+> `startsAt`/`endsAt` instants. **`docs/CUSTODY.md` is the record of where these files are.** This
+> step is written against it, and any change to a path or a hash goes there first.
+
+**Snapshot 1, already taken, is the record of WHICH bookings existed.** `downbeat-export-2026-08-27.json`, version 2, 20 bookings, 31 clients, hash in `CUSTODY.md`. It is verified by hash at every read. It is the only record of the 2026-08-18 booking (the one retention sweeps at Dan's next Downbeat launch, and the one whose `clientId` does not resolve), so the reconciliation in Phase 6 reads its **ids** from this file.
+
+**Snapshot 2 is taken by the agent immediately after Dan reports 0.2 done, and is the record of the shoot TIMES.** The v3 export rewrites in full on launch, and it will carry real instants: measured 2026-08-28, all 20 stored bookings hold a non-midnight `startDate`, and `OvertureExportBuilder.swift:103` maps that value into `startsAt` unrounded. It goes in the **same** custody folder, so there is one place and one note:
 
 ```
-mkdir -p "$HOME/Non-icloudDocuments/Apps/Ovation-custody" && cp "$HOME/Library/Application Support/Overture/downbeat-export.json" "$HOME/Non-icloudDocuments/Apps/Ovation-custody/downbeat-export-v3-snapshot-2026-08-27.json" && shasum -a 256 "$HOME/Non-icloudDocuments/Apps/Ovation-custody/downbeat-export-v3-snapshot-2026-08-27.json" | tee "$HOME/Non-icloudDocuments/Apps/Ovation-custody/downbeat-export-v3-snapshot-2026-08-27.json.sha256"
+cp "$HOME/Library/Application Support/Overture/downbeat-export.json" "$HOME/Library/Application Support/Ovation/custody/downbeat-export-v3-$(date +%F).json" && shasum -a 256 "$HOME/Library/Application Support/Ovation/custody/downbeat-export-v3-$(date +%F).json" | tee "$HOME/Library/Application Support/Ovation/custody/downbeat-export-v3-$(date +%F).json.sha256"
 ```
 
 Verify it landed. This must print the file size and the same hash:
 
 ```
-ls -l "$HOME/Non-icloudDocuments/Apps/Ovation-custody/downbeat-export-v3-snapshot-2026-08-27.json" && shasum -a 256 -c "$HOME/Non-icloudDocuments/Apps/Ovation-custody/downbeat-export-v3-snapshot-2026-08-27.json.sha256"
+ls -l "$HOME/Library/Application Support/Ovation/custody/"downbeat-export-v3-*.json && shasum -a 256 -c "$HOME/Library/Application Support/Ovation/custody/"downbeat-export-v3-*.json.sha256
 ```
 
-The custody folder is outside the repository entirely, and `Ovation-custody` is a sibling of `Ovation` under `Apps/`, not inside it, so no future recursive walk in the repo can reach it.
+Then the agent adds a second table to `docs/CUSTODY.md` for it, in the same change, with the version, the hash, and the counts below.
 
-**Assert 19, not 20.** `BookingSweep.run` fires on launch from `LaunchMigrations.swift:2987`, and the 2026-08-18 booking is 9 days past a 7 day window, so it is gone before the v3 export is written. The assertion is: **19 bookings, every one carrying `startsAt` and `endsAt`, earliest 2026-10-25, latest 2027-06-13.** An agent following the old "all 20 bookings" wording would have stopped on a failed assertion for a correct system.
+**Assert 19, not 20, on snapshot 2.** `BookingSweep.run` fires on launch from `LaunchMigrations.swift:2987`, and the 2026-08-18 booking is 9 days past a 7 day window, so it is gone before the v3 export is written. The assertion is: **version 3, 19 bookings, every one carrying `startsAt` and `endsAt`, earliest 2026-10-25, latest 2027-06-13.** An agent following the old "all 20 bookings" wording would have stopped on a failed assertion for a correct system. Snapshot 1 keeps 20.
+
+**Where the custody folder sits, and what that decides.** `Application Support/Ovation/custody/` is inside Ovation's own Application Support directory, beside where the queue and the store will live. Three consequences, each decided here rather than discovered:
+- **It is inside the backup set** (1.8, PRD 29b). These files are the only record that 19 shoots existed and how long they ran, and a backup that omits them is not self-contained.
+- **It is a needle source for the 0.1 identity guard**, alongside the live export, because it carries the same 31 client names and 5 venue names.
+- **It is outside the 1.9 test floor's writable set**: no test may create, modify or delete a file under `custody/`, and the resolver returns nil under tests exactly as the queue resolver does.
+- **Ovation never writes here itself.** The folder is written by the agent at custody time and read by Phase 6. `Ovation deletes nothing automatically` (5.30) covers it, and a Debug Ovation reads the same folder as Release because the files are facts about Dan's bookings, not app state.
 
 **The backfill source lacks the guarantee the queue has, and the plan says so rather than assuming it (L214, L521).** A handoff record is self-contained by design, so a later roster edit cannot change what an unconsumed record resolves to. The export is not: `bookings` and `clients` are separate arrays joined by `clientId`. The live file already contains an instance of the failure, 1 of 20 bookings pointing at a client with no row. So Phase 6's backfill carries an explicit refusal: **a snapshot row whose `clientId` does not resolve in that same snapshot's `clients[]` is named and refused. It is never turned into a shell client and never silently priced.** That the one live instance happens to be the booking retention removes is luck, not a guarantee, and the refusal is what makes it not matter.
 
@@ -252,15 +284,11 @@ The earlier draft assumed all of this existed. None of it does, and Phase 1.1's 
 
 ---
 
-## Phase 0b, six probes, in parallel with the foundation work
+## Phase 0b, four probes, in parallel with the foundation work
 
 Each probe is one day at most, has its **kill condition written down before the run**, and a named plan B. They are on a different critical path from the build (probe 4 is gated on Dan gathering receipts, which no amount of build work accelerates). **Every probe obeys the 0.1 privacy floor: counts, ids and booleans out, never content.**
 
-**Probe 1, SwiftData `.unique` on a business key, on this machine.** Half a day. Write two objects sharing a `@Attribute(.unique)` business key into a real store on macOS 26.5, then read back the original row's other fields. The destructive-upsert premise is unmeasured and L246 says measure the hardest thing the plan depends on. *Kill condition:* if `.unique` refuses the second write cleanly and leaves the original intact, the invoice-number allocator drops its "collision destroys data" justification and rests on L127 alone. *Either way the allocator ships*; the probe decides how much it has to defend against. Downbeat's silence proves nothing here: all 9 of its `.unique` uses are on surrogate UUIDs where a collision cannot occur.
-
-**Probe 2, `@Attribute(.externalStorage)` file location.** Half a day. Write a blob through it, find where it landed relative to the store file, and check whether a `cp -R` of the store folder carries it. *Kill condition:* none needed. Ovation stores blobs as its own files plus SHA-256 regardless, because the backup must enumerate them. The probe records the decision as measured rather than assumed.
-
-**Probe 3, `Decimal` persistence fidelity.** Two hours. Persist `Decimal(0.1)`, round-trip it, compare bit-exactly against the same value stored as `Int64` minor units. *Kill condition:* none. Money is `Int64` minor units regardless.
+**Probes 1, 2 and 3 are dropped (2026-08-28), because two are already measured and one decided nothing.** Probe 1 asked whether a SwiftData `.unique` collision refuses or destroys. **PRD 42a measured it on 2026-08-28, Swift 6.3.3 on macOS 26.5.1: the save did not throw and the fetch returned one row holding the SECOND value.** So every place that would lean on uniqueness checks for the existing record in Ovation's own code and refuses before writing, and 1.10's allocator keeps its full defence. One consequence that goes into Phase 2 rather than being left here: **even the surrogate `id: UUID` is a silent overwrite on collision, so no invoice, expense or ledger row id may ever be DERIVED from a booking id, a message id or any other external identifier.** A re-run or a re-intake carrying the same external id would otherwise replace the original with no error anywhere. Probe 2 asked where `.externalStorage` puts its bytes. **PRD 42b measured it: a hidden folder beside the database, which Downbeat's backup does not copy while its verification passes.** 1.7 stands on that measurement. Probe 3 had no kill condition and changed nothing: money is `Int64` minor units regardless. The numbering of the remaining probes is kept so cross-references elsewhere in this plan still resolve.
 
 **Probe 4a, digital receipts, genuine two-reader agreement.** See Phase 4.0. 20 to 30 of Dan's real digital receipts (PDF and HTML email bodies). Two independent readers: text-layer extraction and Vision OCR over the rasterized page. Per field agreement rate.
 
@@ -270,7 +298,19 @@ Each probe is one day at most, has its **kill condition written down before the 
    - **arithmetic self-consistency**: subtotal plus tax against the separately-read total. An independent *constraint*, not an independent reader, and the one candidate that actually catches the failure mode that matters, since a misread `88.20` for `38.20` fails the sum while a self-sourced confidence score does not
    - **barcode or QR payload** where the receipt carries one, via `barcodeDetectionOptions`. Genuinely independent of OCR where present; measure how often it is present at all
 
-**Probe 5, `gmail.modify` grant.** One day. Attempt the OAuth consent flow requesting `gmail.modify` against Dan's account with an unverified desktop client. No app in this estate has ever held this scope. *Plan B is written now, not after it fails, and is arguably better anyway:* do not write to the mailbox at all. Record the Gmail message id in Ovation's own durable consumed-message ledger and exclude those ids from the intake query. Identical "never file the same receipt twice" guarantee, zero mailbox mutation, and it removes risk 9.13 entirely.
+**Probe 5, `gmail.modify` grant.** One day. Attempt the OAuth consent flow requesting `gmail.modify` against Dan's account. No app in this estate has ever held this scope.
+
+> **CORRECTED 2026-08-28 against PRD 17a.** The earlier draft named a plan B ("do not write to the
+> mailbox at all, keep a consumed-message ledger instead") and called it arguably better. Dan
+> decided the opposite on 2026-08-27: **moving the message to Logged is required**, because an
+> empty Receipts folder is how he knows a receipt was filed, and a refused permission is "a
+> blocker to solve rather than a fallback to accept". So the ledger route is **not a shipping
+> design** and 4.2 no longer branches on it. The consumed-message ledger is still written
+> (belt and braces, and the reason in 4.2 step 8 stands), but it is never the only acknowledgement.
+
+- *Kill condition:* the grant is refused, or the token it yields cannot perform a label modify on a message in Dan's own mailbox. Either result **goes to Dan as a blocker**, with what Google said, and does not switch the plan to a fallback.
+- **Reuse Overture's existing OAuth client and Google Cloud project, and verify that rather than assume it.** Overture already holds `gmail.readonly` and `gmail.send`, both in the same restricted tier as `gmail.modify` (PRD 17a), with refresh tokens that have stayed valid for weeks. A **new** client on a consent screen left in "Testing" publishing status gets refresh tokens that **expire after seven days**, which would surface months later as Ovation randomly logging Dan out of Gmail. The probe records which project and client id it used and the consent screen's publishing status, so the token lifetime Ovation depends on is a measured fact and not an inherited one (L82, L25).
+- Adding a scope to an existing client forces a fresh consent. The probe confirms the re-consent does not disturb Overture's existing token (different app, separate token file), and says so by count of Overture sends that still succeed afterwards, never by content.
 
 **Probe 6, derived-Sent match against a real mailbox (PRD 5.10a, risk 9.14), judging by Gmail's own committed state marker (L181).** Half a day, read-only, `gmail.readonly` only. **The probe has no mode that returns message content.**
 
@@ -328,13 +368,14 @@ So: **the build order below is unchanged, and the foundation is still built firs
 
 **1.4 `Money`, Int64 minor units.** One type, no `Double` and no `Decimal` anywhere in the store or in arithmetic. Explicit rounding rule at exactly one place: the tax computation. 8.875% of a subtotal in cents, rounded half-up, applied to the **whole subtotal** matching invoice 1057 (5.5), with 9.5 unresolved, so the rate and its base are stored on the invoice, not read from settings at render time. **Rates are frozen onto the invoice at creation**, so a settings change never silently rewrites a sent document. Property tests: no sequence of line items can make the sum of parts disagree with the stored total (5.42).
 
-**1.5 `BusinessCalendar`.** One helper, `America/New_York` pinned, used for every business date (5.31). Never the host clock's zone. Tests at month, year and midnight boundaries with a **pinned clock**, including the case that decides everything: a payment at 2026-12-31 23:30 America/New_York, which is 2027-01-01 UTC. **Seen to fail:** the same assertions re-run with `TZ=Pacific/Auckland` **set by the test itself**, not inherited (L504).
+**1.5 `BusinessCalendar`.** One helper, `America/New_York` pinned, used for every business date (5.31). Never the host clock's zone. Tests at month, year and midnight boundaries with a **pinned clock**, including the case that decides everything under the accrual basis (PRD 24): an **invoice whose date instant is 2026-12-31 23:30 America/New_York**, which is 2027-01-01 UTC, must key to 2026. The same instant as a payment date exercises the payment columns and the sales tax period, which still matter for 25 even though they no longer decide the year. **Seen to fail:** the same assertions re-run with `TZ=Pacific/Auckland` **set by the test itself**, not inherited (L504).
 
 **1.6 Day-keys stamped at write.** Every record carries an immutable `businessDayKey` string computed by `BusinessCalendar` at the moment of writing, alongside its instant. Derived-at-read dates drift when the host zone changes; a stamped key does not (L37). The export groups on the stamped key.
 
 **1.7 Blob storage, files plus SHA-256.** Receipt images and invoice PDFs are files under `Application Support/Ovation/documents/`, referenced by relative path and content hash. Not `@Attribute(.externalStorage)`. The reason is not the probe result: the **backup must enumerate every referenced blob**, and a hidden sibling directory the backup does not copy while `verify()` still passes is the shape of L98.
 
 **1.8 Backup and restore (5.29, L7).** Dated, self-contained backups to a folder Dan chooses, requested **after** Phase 0.4's stable signing identity exists so the grant is not re-prompted on every rebuild. Rolling set. **Verification enumerates every referenced document and checks its hash**, not merely that the database opens. A backup that cannot be read back is reported as a failure, never as silence, and it reaches Dan through the one launch presenter (1.13). Restore is offered in the app and **backs up the current state before overwriting it** (L5). Rotation evicts the oldest only after the new one verifies.
+   - **What a backup contains is enumerated here, not left to whoever writes it (PRD 29b):** the store and its write ahead log, the documents directory addressed by hash, both consumed-identifier ledgers, the referral ledger, the Problems store, the export run records, and the `custody/` folder from 0.3. **It EXCLUDES the credential store.** A backup that lands in a folder Dan chooses, which on this Mac may sync to a Synology, must never carry a long lived refresh token granting send and modify on his mailbox. **A guard asserts no backup archive contains the token file**, by name and by content hash, and it is seen to fail by planting the token file in the staging set before it is trusted (L1, L19). A restore that does not require re-authorising Gmail is its own decision with its own sign off, never a side effect of being thorough.
 
 **1.9 Test isolation floor (5.29a, L2, L191, L196, L201, L215).** The earlier draft listed paths only, which covers the way in and not the way out. Two facts drive the size of this: **Overture's Gmail, OAuth and reply-detection sources contain zero occurrences of `isRunningUnderTests` or any equivalent refusal across all 15 files and 2230 lines**, and Phase 5.0 vendors seven of them whole-file into Ovation. So a test exercising the 4.2 intake path with Dan's real token on disk talks to his real mailbox, and under the `gmail.modify` route relabels his real receipts. A test write into either consumed-identifier ledger is equally unrecoverable: it permanently suppresses that booking's invoice or that message's receipt.
 
@@ -371,6 +412,7 @@ The floor covers, structurally, and **the list below is the complete enumeration
    - **Every launch-time condition routes through one presenter holding the identity of what is showing**, never a set of independent booleans. A second condition arriving is then a **decision** the code makes (queue it, refuse it, replace it) rather than whichever one SwiftUI happens to honour.
    - **The durable Problems surface is the home for all of them**, and any modal is a shortcut into it, never the only place a condition is visible (L126). A condition that persists in the data must not be reachable only from a notice that clears.
    - **Seen to fail:** raise two launch conditions in one launch and assert **both** are reachable and correctly identified; and replace one with another while it is showing and assert the content changes with it (L243).
+   - **Ovation is single window on purpose, and asserts it (PRD 41b, L238).** A flag on shared application state is presented once per surface bound to it, so a menu bar item or a deep link that opened a second window would put up a second copy of every notice above, and dismissing one would leave the other. The single running copy guard in 1.3 cannot see this, because a second window is the same process. So the app declares one window, the menu bar item (6.32) and any URL handler bring that window forward rather than opening another, and a test asserts that a second open request results in one window. This lives in the same issue as the presenter because they are one design.
 
 **Two guards carried alongside 1.13, an hour each, because their whole value is existing before the code they judge:**
    - **`CooperativePoolTests`**, Downbeat's source-level detector for `Task.detached` doing blocking work on the cooperative pool, ported under the 0.4.6 discipline with **an empty exemption list**, and **seen to fail on a planted use before being trusted** (L241, L233: an inherited exemption entry with no reason is evidence nobody reasoned about it). Ovation runs Vision on every receipt, so this defect is otherwise pre-ordained.
@@ -383,26 +425,29 @@ The floor covers, structurally, and **the list below is the complete enumeration
 Milestone: `Year end tax export`. Dan's order, unchanged, and the reason it is first: the export is what the primary success measure depends on.
 
 - The full domain model on top of Phase 1's types: `Client`, `Invoice`, `LineItem`, `Payment`, `Refund`, `Expense`, `ExpenseCategory`, `ReferralLedgerEntry`, `ServiceType`. `@Attribute(.unique)` on surrogate `id: UUID` only.
-- `income.csv` and `expenses.csv` for any date range, defaulting to the calendar year (5.23). Income on a **cash basis**, one row per payment received, dated by when the money arrived (5.24). Sales tax as its own column (5.25). Single-receipt export in one action (5.26).
+- `income.csv` and `expenses.csv` for any date range, defaulting to the calendar year (5.23). **Income on an ACCRUAL basis: one row per ISSUED invoice, dated by the invoice date, whether or not it has been paid** (PRD 24, Dan 2026-08-27). Every row carries the payment state (unpaid, partly paid, paid, cleared, cancelled, refunded) and the payment dates and amounts as columns (24a), so an invoice billed and never collected is findable rather than indistinguishable from a paid one. Payment dates no longer decide the year. Sales tax as its own column (5.25). Single-receipt export in one action (5.26).
+- **A draft is not income, and that makes 5.10a tax-critical.** Accrual counts income when an invoice is issued, and Sent is only ever observed (5.10a), never asserted by hand. So the set of invoices on the return is exactly the set whose Sent was established, by Ovation's own send or by the derived Gmail match, and an invoice sent from Spark that the match misses is **missing income**. Three things follow: (a) the export selects on Sent established, never on creation; (b) **drafts whose shoot has passed and were never issued are counted and named in the export manifest**, as their own line, never silently excluded; (c) probe 6 and the 5.10a match are on the tax path, not only the daily friction path, and their false negative rate is measured before this milestone closes (PRD 9.14).
+- **Two questions for the accountant that this export cannot answer for itself, recorded in PRD 9.3 and asked in the same conversation as the accrual confirmation.** Which date is the issue date for the year: the invoice date (the shoot date, 5.7) or the day it was sent, since a December 30 shoot invoiced January 3 lands in different years under each. And how a refund made in a later year is reported under accrual. Until answered, the export keys on the **invoice date** and marks the choice in the manifest, and no refund fixture asserts a year.
+- **No invoice, expense or ledger row id is derived from an external identifier** (booking id, message id, QuickBooks row). PRD 42a measured that a colliding surrogate id silently replaces the original with no error, so a re-run or a re-intake carrying the same external id must create a fresh id and find the existing row through Ovation's own lookup, never land on it by construction.
 - Category to Schedule C mapping, **completeness enforced by a test over the enum, not by a default branch** (5.19a, L113). **Seen to fail:** add a category in the test, assert the suite goes red naming it.
 - Expenses with no receipt carry the mark into the CSV (5.21). Imported 2026 expenses likewise (5.28).
 
-**The export proves it is complete, not merely that it totals (L517).** The Schedule C map test plus 5.42 check a total against its own parts and therefore cannot see a row that never entered the export at all. The failure that ruins January is silent: a payment whose stamped day key sits on a range boundary, or an expense that falls out of both files, leaves a CSV that is well formed, totals cleanly against itself, and is short. A payment received in one year and refunded in the next (5.13) is exactly where an item can land in neither file or in both. So:
-- The export emits a **manifest produced by the same predicate that selects the rows**: rows out and sum out, per file (L16).
-- A reconciliation asserts that **every payment, refund and expense in the store whose stamped day key falls in the range appears in exactly ONE output row**, and that no row appears twice, looped over the boundary combinations.
-- **Seen to fail:** a fixture payment at 2026-12-31 23:30 America/New_York asserted **into** the 2026 file and **out of** the 2027 one; and a payment received 2026-12-30, refunded 2027-01-02, asserted into exactly one row in each year's file.
+**The export proves it is complete, not merely that it totals (L517).** The Schedule C map test plus 5.42 check a total against its own parts and therefore cannot see a row that never entered the export at all. The failure that ruins January is silent: an invoice whose stamped day key sits on a range boundary, an invoice whose Sent was never established, or an expense that falls out of both files, leaves a CSV that is well formed, totals cleanly against itself, and is short. So:
+- The export emits a **manifest produced by the same predicate that selects the rows**: rows out and sum out, per file, plus the count of unissued past-shoot drafts it did NOT include (L16).
+- A reconciliation asserts that **every issued invoice and every expense in the store whose stamped day key falls in the range appears in exactly ONE output row**, that no row appears twice, and that every payment and refund in the store is attached to exactly one exported invoice row or is named in the manifest as belonging to an invoice outside the range, looped over the boundary combinations.
+- **Seen to fail:** a fixture invoice dated 2026-12-31 23:30 America/New_York asserted **into** the 2026 file and **out of** the 2027 one; an invoice issued 2026-12-30 and paid 2027-01-15 asserted into the 2026 file **only**, with its payment shown in that row; and a draft whose shoot passed 2026-12-10 and was never sent asserted **out of** the file and **into** the manifest's unissued count.
 
 **The monthly rehearsal is made real, not asserted, and its alarm does not cry wolf (L27, L98, L514, L36, L11).** The earlier draft said the export "runs monthly from this phase onward" and then claimed the credit. Nothing made it happen and nothing noticed when it did not. Ovation does nothing while closed (6.32), Dan is the only user, there is no scheduler, and a missed month looks identical to a healthy one. So the rehearsal is built as a mechanism, with the alarm keyed correctly:
 - Every export writes a **durable dated run record** carrying rows out and sums out per file, **written on every exit path including failure, in a `finally`** (L514). The run record is **inside the 1.9 isolation floor** (see 1.9), so the suite cannot write one.
 - A run that produced zero rows records **zero rows as its own outcome**, never as success (L98).
 - **The staleness alarm keys on the last export RUN THAT COMPLETED, whatever its outcome, not on the last successful one.** The earlier draft had these two sentences contradicting each other in the direction that costs: Phase 2 is the first milestone and ships against an **empty store**, so every rehearsal from then until the Phase 3 import produces zero rows, which the plan has deliberately defined as not-success. The alarm would be raised on the first day and stand for months with nothing Dan could do to clear it, training him to ignore the one surface carrying the plan's forcing function against PRD 9.10 (L36). Keyed on completion, a legitimately empty period clears it.
 - **A zero-row run gets its own, differently worded notice**, naming the range it looked at and that it found nothing in it. "Nobody has run an export in 35 days" and "the export ran and correctly found nothing" are different situations and need different messages (L11).
-- **The staleness problem is suppressed entirely until the store first holds a payment or an expense**, and the issue says so rather than leaving it to be discovered. Before then there is nothing an export could be stale about.
+- **The staleness problem is suppressed entirely until the store first holds an issued invoice or an expense**, and the issue says so rather than leaving it to be discovered. Before then there is nothing an export could be stale about.
 - Both notices reach Dan through the **one launch presenter** (1.13), never as independent alerts.
 - **Seen to fail:** a fixture with no completed run in 40 days, staleness problem **raised**; a fixture with a completed zero-row run yesterday, staleness problem **NOT raised** and the zero-row notice **raised**; an empty store, **neither raised**; and a run that threw, which must still write a record.
 - The rehearsal count is then something the system can substantiate from its own records, and the plan claims only what the run record shows.
 
-**SETTLED 2026-08-27, and the opposite way round.** This sentence assumed a cash basis. Dan confirmed an ACCRUAL basis: income counts when an invoice is ISSUED, whether or not it has been paid, so an unpaid invoice is income for the year it was billed and a December invoice paid in January belongs entirely to December. See PRD requirement 24. It no longer blocks anything, because it is answered, but it does mean this milestone's export keys on invoice dates rather than payment dates and must include unpaid invoices, which is a change from what the rest of this section assumes. PRD 9.3 stays open only to record that the answer came from Dan's recall rather than from his accountant, and PRD 26a now requires a real partial year export to be put in front of the accountant before this milestone can close, which settles both in one conversation.
+**This milestone cannot close on its own, and the plan says so rather than letting the dependency be discovered at the end.** PRD 26a requires a real partial year export in front of Dan's accountant before `Year end tax export` closes, and it has to be a partial year that includes the QuickBooks import, which is Phase 3, the next milestone. So the closing criterion is: **every issue in this milestone done, then Phase 3's import run, then the export sent to the accountant with their reply recorded and dated, then this milestone closes.** Phase 3 can open while this one is waiting. That accountant conversation also carries PRD 9.3 (the accrual basis rests on Dan's recall, line F of any past Schedule C settles it in two minutes), the issue date rule and the refund rule from the bullets above, 9.4 (asset threshold) and 9.5 (tax on rush and preview). One conversation, all of them, written into the milestone description so nobody has to remember the list.
 
 ---
 
@@ -423,6 +468,8 @@ Milestone: `QuickBooks migration import`. Kept at position 2, per Dan. Gated on 
 - Partial failure records the attempt on the rows it failed, not only on the ones it completed (L47).
 - Nothing is deleted from QuickBooks. The CSVs are kept in custody, in `.quickbooks-samples`, outside the tree and covered by 0.1's never-staged check.
 - **Seen to fail:** a fixture with a malformed row in the **middle** of the file, not at the end (L165).
+
+**What the sample request has to ask for, under accrual (PRD 24, 9.6).** The 2026 return filed from Ovation is the imported QuickBooks invoices (January to the cutover) plus Ovation's own. So one CSV is not enough. The request names three things: **the invoice list** with invoice number, date, client, lines, tax and total; **the payments or transactions export** so every imported invoice carries its payment state (24a) and payment dates; and **the invoices open at the end of 2025**, because an invoice issued in 2025 and paid in 2026 is 2025 income under accrual and must be imported as a prior year invoice carrying a 2026 payment, never as 2026 income. The importer refuses by name a payment whose invoice it cannot find, and the report counts prior year invoices separately.
 
 If Dan has not produced a sample when this milestone opens, it **pauses** rather than being reordered around, and the pause is reported.
 
@@ -452,7 +499,18 @@ Requirement 5.18 is Dan's and is not being re-litigated. What follows delivers i
 3. `disagreed` / `ambiguous`, field left empty, both readings shown.
 4. `secondReaderUnavailable`, no second reader existed for this input shape, or the labeller failed. **Never folded into "disagreed."** Folding an unavailable reader into a disagreement is the L11 failure, and it is how a systemic reader outage disguises itself as ordinary noise (18a, L77).
 
-The log records **counts and field names only, never receipt contents** (18a), and it is inside the 1.9 isolation floor.
+The log records **counts and field names only, never receipt contents** (18a), and it is inside the 1.9 isolation floor. **Every entry also records the reader's identity: the Vision request revision and the OS build it ran on (PRD 18c, L25).** Vision changes under a system update with no build and no code change, and the regression it would produce reads as caution (more fields left empty), so a rate that cannot be pinned to the reader that produced it cannot show a regression at all. The 18b measurement records the same pair in its result.
+
+> **OPEN, for Dan (2026-08-28). This section and PRD 18a disagree about photographed receipts, and
+> neither document may be built from until he decides.** PRD 18a, which Dan approved, fills a field
+> when Vision's own alternative candidates are unambiguous. This section says no field is ever filled
+> from one reader until probe 4b finds an independent check, on the grounds that Vision's candidates
+> come from the recognizer whose reading they judge (L70). Under this section's version the
+> photographed half can never reach the 90% bar agreed in 18d, by construction. The recommendation
+> put to Dan: fill from Vision only when the top candidate is clear **and** the arithmetic check
+> (subtotal plus tax equals total) holds, since that is an independent constraint and it is the one
+> that catches `88.20` read for `38.20`. Whichever he chooses is written into both documents in the
+> same change.
 
 **The measurement, with its pass marks written before the run (L246, L1, L249).** A number whose pass mark is set after it arrives gets rationalized. So the numbers below go in the issue body now, and **Dan's agreement or correction is recorded in that issue, quoted from what he actually said and carrying its own date**, before the run starts. They are two different measurements with two different meanings, and calling both "18b" would hide that:
 
@@ -477,16 +535,19 @@ Who may call it and whose data it touches, stated explicitly: intake runs only f
 4. **Save each expense record and its blob, and verify each blob's SHA-256 reads back** (5.17). Order is the whole design, same as the booking queue.
 5. **The unit of work is the ATTACHMENT and so is the unit of acknowledgement (L47, L66).** The earlier draft acknowledged the **message** whole: it saved "the expense record and its blob" (singular), moved the email, and appended the message id to a ledger keyed on that id. A message carrying three receipts where the second blob write fails would then be acknowledged whole: the ledger records the message id as consumed, the move takes it out of the Receipts label, and **the two receipts that never saved have no record that they were ever attempted**. It is unrecoverable in the way that matters: 5.30 forbids automatic deletion but nothing puts the message back into scope, and the intake query now excludes that message id for ever. The 5.16a signature filter makes it likelier rather than rarer, since a small real receipt image wrongly filtered is silently one of the members that never lands. So:
    - **the move and the ledger append happen only after EVERY attachment the message yielded has saved and read back by hash**
-   - **on a partial failure, the attempt is recorded against each failed attachment**, keyed on message id **plus attachment id**, in the Problems store with its own reason
+   - **on a partial failure, the attempt is recorded against each failed attachment**, in the Problems store with its own reason, under the same key the next bullet defines
+   - **the attachment key is one Ovation can recompute, never one Gmail mints (PRD 22a, L186, L127):** message id **plus the receipt file's own SHA-256 plus the part index** (to separate two byte-identical attachments in one message). Gmail's attachment id is stored for fetching and is **never** part of the key, because its stability across separate fetches of the same message is not guaranteed, and a key that changes makes the record unfindable, which files a duplicate expense into a seven year tax record. **Proved before it is trusted:** fetch the same message twice and assert the key is identical, then assert the second run finds the record.
    - **the message stays in Receipts**, and re-intake is **idempotent per attachment**, not per message, so a re-run completes the members that failed without duplicating the ones that succeeded
    - **Seen to fail:** a three-attachment fixture where the second blob write throws, asserting **no ledger entry, no label move, and three named per-attachment records, two saved and one failed**
 6. **Capture what a reversal would need, BEFORE the move (L97, hard constraint 5d).** The move is what removes the message from the Receipts label, so afterwards the information needed to put it back no longer exists anywhere unless it was captured first. Recording that a move happened and recording the message id is not the same as recording what to restore. So: **read and store the message's full label id set immediately before the move, in the same durable record that logs the move, and make the reversal restore that exact set** rather than reconstructing it. **Seen to fail:** a fixture where a message carries Receipts plus one unrelated user label, asserting the reversal restores **both**.
 7. **Re-check scope at the moment of the write, not at the moment of the query (L157, hard constraint 5d).** Asserting the label exists at query time checks the **label**; the constraint asks that the **message** is in scope. Dan works in Spark on the same mailbox while Ovation runs, so a message can lose the Receipts label, or be moved by him, in the gap between listing and writing. So: **re-read the target message's current label set immediately before the move and refuse the move, loudly and by message id, if it no longer carries the Receipts label.** Use a conditional modify where the Gmail API offers one. **Seen to fail:** a double that strips the label between list and move, asserting the move is refused **by name**, not silently skipped.
-8. Mark the message consumed, once step 5's condition is met. Under `gmail.modify`: move to the Logged sublabel, nothing deleted, nothing archived. Under the ledger fallback: append the message id to the durable consumed-message ledger and exclude it from the intake query. **Either way the ledger is written**, because the mailbox is an external system whose state is a request and not a fact (L127), and because a message moved by hand in Spark must not re-file. Assume it runs twice: intake is idempotent on the attachment key. The ledger is inside the 1.9 refusal.
+8. Mark the message consumed, once step 5's condition is met: **move it to the Logged sublabel, nothing deleted, nothing archived** (PRD 17, 17a). This is the required route, not one of two. **The consumed-message ledger is written as well**, because the mailbox is an external system whose state is a request and not a fact (L127), and because a message moved by hand in Spark must not re-file. Assume it runs twice: intake is idempotent on the attachment key. The ledger is inside the 1.9 refusal. If the move fails after the expense saved, that is a Problems entry naming the message id and the ledger still holds the id, so the receipt is filed once and the empty-folder signal Dan relies on is reported as broken rather than faked.
 
 ### 4.3 The rest of the expense half
 
 Categories with the enforced Schedule C map (built in Phase 2). Asset-threshold flag, configurable, **visible and overridable, a suggestion and not a determination** (5.20), with the per-item versus receipt-total caveat from 9.4 stated in the UI itself rather than only in the PRD. Duplicate flag on same vendor plus amount plus date, **flagged, never blocked or merged** (5.22). Expenses with no receipt allowed and marked (5.21).
+
+**Every expense state is reachable from a surface, and a property test proves each lands in exactly one (PRD 22b, L45, L517).** The same discipline as the invoice list in 5.2, applied here because the states multiply faster: waiting in the unfiled queue, filed, no receipt, duplicate flagged, asset flagged, imported from QuickBooks with no image, read confidently, left empty for doubt, and **a per-attachment failure that has no expense row at all**. That last one is the dangerous case, because a record with no row and no screen exists only in the data, and filtered views are the only way Dan reaches any of these. **Seen to fail:** construct the per-attachment failure record with no expense row and assert the suite goes red naming it before the surface exists.
 
 ---
 
@@ -518,6 +579,8 @@ The extraction happens here, at the start of Phase 5, because the scope set is n
 
 **The package makes the scope set an explicit per-consumer choice** (L503, L124). Overture today requests `gmail.send`, `gmail.readonly`, `gmail.settings.basic` and has never held `gmail.modify`. If the package carries a default scope list, Downbeat and Overture silently inherit mailbox-modify on their next migration, and an over-broad permission is invisible because the code never attempts what it is not meant to do, while a missing one fails loudly on the first run. So the package has **no default**: each consumer names its scopes, and a consumer that names none fails to compile.
 
+**The package strips line breaks from every value that reaches a header (PRD 5.10b).** Overture's message builder writes the subject, the recipient and the sender name straight into the headers with no such stripping, and encodes the subject only when it contains non ASCII, so a plain ASCII subject carrying a line break becomes an additional header, for instance a second recipient. Harmless in Overture today, not in Ovation, whose subjects carry the client name and shoot name. The fix lives in the package so both apps get it. **Seen to fail:** a subject and a display name each carrying `\r\n` followed by a header line, asserting the built message has exactly the headers the reviewed screen showed and the injected line arrives as body text or is refused (L64).
+
 **The package carries the test refusal (1.9), not just Ovation's copy.** The vendored originals have none: **zero of the 15 files carry `isRunningUnderTests` or any equivalent**. Putting the refusal only in Ovation would hand Downbeat and Overture an unrefusing client at migration.
 
 Downbeat and Overture migrate later, behind tracked issues, per 5a. Do not refactor them now.
@@ -530,13 +593,15 @@ So, before the first send: **a bulk roster pass.** One screen listing every clie
 
 While there: **1 of 31 clients has no contract email**. **`contractEmail` is a non-optional `String` in the export model** (`mac/Overture/Domain/DownbeatExport.swift:12`), so that client carries an **empty string, not an absent key**. Both this roster pass and 5.38's refusal test for **empty after trimming whitespace**, never for nil. A nil check would find nothing and report the roster clean.
 
+**Empty is not the only bad shape, and the roster pass lists all of them (PRD 38, 38a, 5a, L150, L257).** Measured 2026-08-27 against the live export, of 30 non empty contract email values **two cannot be parsed as a single address**: one is 22 characters containing a space and no `@` at all (human text sitting in an address field), and one is 70 characters carrying two comma separated addresses. Both pass "not empty after trimming". And **two clients share a single contract email**, which is what makes Phase 6's "unknown id matching exactly one contract email" refuse as a many-match (L521). So the validator is written against what the send path can consume, exactly one address (one `@`, no whitespace, no comma or semicolon, a dot in the domain), and each failure has its own named reason distinct from the empty case. The roster screen lists every client that is empty, unparseable, or **in conflict with another client**, with the count it started from. Ovation never splits a multi address value and never sends to both. Both measured values go in as fixtures, redacted to shape (L155). **Seen to fail:** the two fixture shapes are each refused by their own reason; the shared-email pair produces a conflict row on the roster screen and a many-match refusal in the Phase 6 matcher.
+
 ### 5.1 Thinnest vertical slice, one booking to one PDF in one client's inbox
 
 Before the invoice list, the eight-way sort, filters, reminders or referral credits exist. This is the only thing in the plan that addresses the daily-friction criterion early.
 
 ### 5.2 The rest of half one
 
-- Pricing at $250/hour from the record's real `startsAt`/`endsAt`, exact to one decimal, one hour minimum (5.3). One booking is one show is one invoice (7.8).
+- Pricing at $250/hour from the record's real `startsAt`/`endsAt`, exact to one decimal, one hour minimum (5.3). One booking is one show is one invoice (7.8). **A duration that is zero, negative, or implausibly long is refused by name rather than priced** (PRD 3b, L50, L23): the two instants are parsed, checked, and only then reach arithmetic, so a nonsense pair can never become a well formed invoice. The plausibility ceiling is a named constant with its reason (a shoot does not run 24 hours), not a guess buried in a comparison. **And one comparison against reality (PRD 3a):** once real bookings carry times, the priced hours for two or three shoots Dan already invoiced through QuickBooks are compared against those invoices, because a wrong reading of what the instants mean would be invisible in every other test.
 - Service types from a fixed list, extensible from inside an invoice (5.4).
 - Tax: exempt clients skipped; a client whose status was never recorded gets a visible warning that **blocks the send** (5.5, L67), with 5.0a's bulk pass as the route out.
 - Dated the shoot date, due 14 days later, overridable per client and per invoice, anchored to the stored invoice date and never recomputed from today (5.7, L74). Warn at send time when the due date is already close or past.
@@ -547,7 +612,8 @@ Before the invoice list, the eight-way sort, filters, reminders or referral cred
    - This is not optional caution. Gmail returns unsent drafts in the same collections as real mail, and every other attribute the match could use (the invoice number, a PDF attachment, a recipient on the invoice) is carried identically by a draft Dan started in Spark and abandoned. Since 5.10a forbids him from retracting Sent by hand, an abandoned draft would stamp the invoice Sent permanently and silently. overture#2918 is the same defect in the same mailbox.
    - **More than one invoice matching a number is a refusal, never a pick** (L521, and see 1.10 for why the importer is now blocked from creating that situation at all).
 - Edit and resend keeps the history and the PDF of every version sent (5.11). Reminders are drafted for review; nothing is ever sent without Dan seeing it (5.12).
-- Cancelling an invoice carrying payments asks what happened to the money and records a refund with its own date, so a payment received in one year and returned in the next is correct in both (5.13).
+- Cancelling an invoice carrying payments asks what happened to the money and records a refund with its own date (5.13). **Under accrual, cancelling an invoice issued in a PRIOR tax year removes income from a return already filed, so Ovation refuses to cancel it silently**: it names the filed year the invoice belongs to and leaves the invoice standing until Dan has raised it with his accountant. A "filed year" is one the export has been run for and marked as filed by Dan, recorded on the run record from Phase 2, never inferred from the calendar. **Seen to fail:** an invoice dated in a year marked filed, cancel attempted, assert the refusal names that year; the same invoice in an unfiled year, assert the cancel proceeds.
+- **Every outbound sentence gets a cold read, rendered, in the state that produces it, before this milestone closes (PRD 41a, L21).** The payment block on the PDF, the note to customer, the covering note on a send, and the reminder body are the only writing in the product with no reader on Dan's side, and Overture paid for exactly this omission. **The check that the rendered PDF's payment block is not truncated is derived from the rendered artifact**, never from the settings string it came from, since the current QuickBooks invoice truncates it mid word (PRD 9.16). Seen to fail: a payment block long enough to overflow its box, asserting the check goes red on the rendered page.
 - Payments: any number per invoice, date, amount and method, **paid in full calculated and never typed** (5.14). Check gains a Cleared step; Zelle, Venmo and PayPal do not (5.15).
 - **Assume it runs twice:** the send is PDF render, then Gmail send, then record what was sent. The Gmail send is the external side effect. Record the intent before sending, reconcile after, and never let a crash between the two produce either a sent-but-unrecorded invoice (invisible) or a recorded-but-unsent one (a lie). The reconciliation uses the same fail-closed derived-Sent predicate as 5.10a.
 
@@ -645,7 +711,18 @@ Every one has a planted defect written in the same commit as the guard.
 | Single-instance guard | a Debug Ovation running while the suite launches (the suite must still run) |
 | Launch presenter | two launch conditions raised in one launch (both reachable and correctly identified); one condition replaced by another while showing (content changes with it) |
 | Schedule C map completeness | a category added with no mapping |
-| Export completeness | a payment at 2026-12-31 23:30 America/New_York (in 2026, out of 2027); a payment refunded across the year boundary (exactly one row in each file) |
+| Export completeness (accrual) | an invoice dated 2026-12-31 23:30 America/New_York (in 2026, out of 2027); an invoice issued 2026-12-30 and paid 2027-01-15 (in the 2026 file only, payment shown on the row); a never-sent draft whose shoot has passed (out of the file, counted in the manifest) |
+| Prior year cancel refusal | an invoice dated in a year marked filed, cancel attempted (refused, names the year); the same in an unfiled year (proceeds) |
+| Backup credential exclusion | the Gmail token file planted in the staging set (archive refused or the guard goes red) |
+| Backup set completeness | a backup missing the `custody/` folder or a ledger (verification fails naming it) |
+| Single window | a second open request via the menu bar item and via a URL (one window results) |
+| Header line break stripping | a subject and a display name each carrying `\r\n` plus a header line (headers unchanged from the reviewed screen) |
+| Contract email validation | the 22 character no `@` shape and the 70 character two address shape (each refused by its own reason); two clients sharing one email (conflict row, and a many-match refusal in the matcher) |
+| Duration refusal | zero, negative and 30 hour durations (each refused by name, never priced) |
+| Attachment key stability | the same message fetched twice (identical key, second run finds the record) |
+| Expense state partition | a per-attachment failure record with no expense row, red before the surface exists; every state combination lands in exactly one view |
+| Rendered payment block | a payment block long enough to overflow its box (check goes red on the rendered page, not the settings string) |
+| Reader identity | an agreement log entry with the Vision revision or OS build missing (refused, never written) |
 | Export run record | a run that produced zero rows (records zero rows, not success); a run that threw (still writes a record) |
 | Export staleness alarm | no completed run in 40 days (raised); a completed zero-row run yesterday (NOT raised, zero-row notice raised instead); an empty store (neither raised) |
 | Invoice number allocator | an imported fixture carrying 1130, then an allocation (allocator refuses); an allocation of 1130, then an import of 1130 (**importer** refuses by name); two allocators held at the decision point |
