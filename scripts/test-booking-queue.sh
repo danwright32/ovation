@@ -33,7 +33,17 @@ harness_temp_dir WORK
 UUID_A="B1D4F0E2-8C3A-4F1B-9E77-0A2C6D5E4F31"
 UUID_B="7A2E9C10-4B6D-4E88-A3F5-C1094D7E2B60"
 
-queue() { local d="$WORK/$1"; rm -rf "$d"; mkdir -p "$d"; printf '%s' "$d"; }
+# The name is REQUIRED, and that is not defensiveness for its own sake. An empty
+# $1 makes this `rm -rf "$WORK/"`, which takes every other case's fixture with
+# it, and `set -u` does not catch it because an empty parameter is set (L5). The
+# harness guards $WORK itself for the same reason; this guards the half it
+# cannot see.
+queue() {
+    [ -n "${1:-}" ] || { echo "REFUSED: queue() needs a name"; exit 1; }
+    local d="$WORK/$1"
+    [ -n "${WORK:-}" ] || { echo "REFUSED: no temp directory"; exit 1; }
+    rm -rf "$d"; mkdir -p "$d"; printf '%s' "$d"
+}
 
 # Shaped from Downbeat's BookingHandoffRecord, with a deliberately fictional
 # client so that no real name is ever written into this repository (L155).
