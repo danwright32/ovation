@@ -55,6 +55,12 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIR_LOCK="${OVATION_DIR_LOCK:-/tmp/xcodebuild-tests.lock}"
 FILE_LOCK="${OVATION_FILE_LOCK:-/tmp/overture-mac-tests.lock}"
 TIMEOUT="${OVATION_LOCK_TIMEOUT:-1800}"
+# The poll interval is a seam from the day it is written, not a retrofit. A hard
+# coded delay makes every test that crosses this loop wait for real, and this
+# loop is crossed by every case that stages a held lock (L524, L290). The default
+# is what a person waiting on a sibling's build should pay; a test sets it low
+# and exercises the same code instantly.
+POLL="${OVATION_LOCK_POLL_INTERVAL:-1}"
 FLOCK_BIN="${OVATION_FLOCK_BIN:-/opt/homebrew/bin/flock}"
 TEST_COMMAND="${OVATION_TEST_COMMAND:-}"
 UNLOCKED_COMMAND="${OVATION_UNLOCKED_COMMAND:-}"
@@ -137,7 +143,7 @@ while :; do
     echo "       If nothing is running, remove ${DIR_LOCK} and try again." >&2
     exit 3
   fi
-  sleep 1
+  sleep "${POLL}"
 done
 
 echo "==> Holding both locks. Running Ovation's tests."

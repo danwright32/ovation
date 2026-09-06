@@ -33,6 +33,7 @@ run_runner() {
     OVATION_DIR_LOCK="$DIR_LOCK" \
     OVATION_FILE_LOCK="$FILE_LOCK" \
     OVATION_LOCK_TIMEOUT="${TIMEOUT_OVERRIDE:-2}" \
+    OVATION_LOCK_POLL_INTERVAL="${POLL_OVERRIDE:-0.05}" \
     OVATION_FLOCK_BIN="${FLOCK_OVERRIDE:-/opt/homebrew/bin/flock}" \
     OVATION_TEST_COMMAND="${1:-true}" \
     OVATION_UNLOCKED_COMMAND="${2:-true}" \
@@ -67,7 +68,11 @@ rmdir "$DIR_LOCK"
 #    the tool Ovation does not own.
 if [ -x "/opt/homebrew/bin/flock" ]; then
     : > "$FILE_LOCK"
-    ( /opt/homebrew/bin/flock "$FILE_LOCK" sleep 5 ) &
+    # Held until the test RELEASES it, not for a fixed number of seconds. A
+    # timed holder asserts about machine load: too short and it lets go before
+    # the test has observed anything, too long and every run pays for it (L290).
+    HOLD_SENTINEL="$WORK/hold-1"; : > "$HOLD_SENTINEL"
+    ( /opt/homebrew/bin/flock "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL" ) &
     HOLDER=$!
     # Wait for the holder to actually HAVE the lock, rather than sleeping and
     # hoping: a fixed wait asserts about machine load, not about the lock (L290).
@@ -80,7 +85,7 @@ if [ -x "/opt/homebrew/bin/flock" ]; then
         "$([ "$ST4" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
     check "and it names that lock too" \
         "$(mentions "$OUT4" "$FILE_LOCK")" "yes"
-    kill "$HOLDER" 2>/dev/null || true
+    rm -f "$HOLD_SENTINEL"
     wait "$HOLDER" 2>/dev/null || true
 else
     check "Overture's file lock also stops Ovation running" "skipped-no-flock" "skipped-no-flock"
@@ -170,7 +175,8 @@ rmdir "$DIR_LOCK"
 #     holds neither while waiting, and still cannot deadlock.
 if [ -x "/opt/homebrew/bin/flock" ]; then
     : > "$FILE_LOCK"
-    ( /opt/homebrew/bin/flock "$FILE_LOCK" sleep 6 ) &
+    HOLD_SENTINEL2="$WORK/hold-2"; : > "$HOLD_SENTINEL2"
+    ( /opt/homebrew/bin/flock "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL2" ) &
     HOLDER2=$!
     waited=0
     while /opt/homebrew/bin/flock -n "$FILE_LOCK" true 2>/dev/null; do
@@ -199,7 +205,7 @@ if [ -x "/opt/homebrew/bin/flock" ]; then
     done
     check "Downbeat's lock is released between attempts, not held for the whole wait" \
         "$([ "$seen_free" -eq 1 ] && echo released || echo held-throughout)" "released"
-    kill "$HOLDER2" 2>/dev/null || true; wait "$HOLDER2" 2>/dev/null || true
+    rm -f "$HOLD_SENTINEL2"; wait "$HOLDER2" 2>/dev/null || true
     wait "$RUNNER" 2>/dev/null || true
     check "and neither lock is left behind afterwards" \
         "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
