@@ -1,0 +1,65 @@
+#!/bin/bash
+# Refuse a push whose suite is red.
+#
+# ovation#11. This runs on EVERY push from this clone, whoever makes it: Dan's
+# terminal, Xcode's source control panel, any git client. That is why it exists
+# separately from the harness level gates, which only see pushes made through
+# Claude Code.
+#
+# It runs through scripts/run-tests.sh, so a push takes both siblings' locks
+# exactly as an ordinary test run does and cannot corrupt a Downbeat or Overture
+# run that is already going (ovation#12).
+#
+# JUDGED BY EXIT CODE, never by a line of output. A tool's final line is
+# routinely a different measurement than its verdict, and usually the more
+# reassuring of the two (L184).
+#
+# SCOPE, stated so its limits are not mistaken for coverage: this checks that the
+# suite is green. It does NOT yet check the things the plan wants a pre-push to
+# check, because the guards do not exist yet. Each is added by the issue that
+# builds it, rather than being listed here as if it were already covered:
+#   the identity guard                      ovation#5
+#   the custody never staged check          ovation#4
+#   the ported artifact ancestry check      already exists, added below
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# The documented one push escape hatch. It ANNOUNCES itself, because an override
+# that can happen quietly is one that happens by accident, and it is good for
+# this one push only.
+if [ -n "${SKIP_TEST_RUN:-}" ]; then
+    echo "pre-push: SKIP_TEST_RUN is set, so the suite was NOT run." >&2
+    echo "pre-push: this push is going out unverified, deliberately." >&2
+    exit 0
+fi
+
+# The ported artifact check first: it is seconds, it needs no lock, and it
+# catches a port made from a stale checkout before a full suite is paid for.
+# CANNOT MEASURE (exit 2) is not a pass, so it blocks too, and NO PORTED
+# ARTIFACTS (exit 3) is only correct until the first port lands.
+if [ -x "${REPO_ROOT}/scripts/check-ported-artifacts.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-ported-artifacts.sh"; then
+        echo "pre-push: the ported artifact check did not pass. Push refused." >&2
+        exit 1
+    fi
+fi
+
+# Injectable so scripts/test-git-hooks.sh can measure the GATE without paying for
+# a real suite run (L2, L291). The default is the real thing.
+TEST_COMMAND="${OVATION_HOOK_TEST_COMMAND:-}"
+if [ -n "${TEST_COMMAND}" ]; then
+    bash -c "${TEST_COMMAND}"
+else
+    "${REPO_ROOT}/scripts/run-tests.sh"
+fi
+STATUS=$?
+
+if [ "${STATUS}" -ne 0 ]; then
+    echo "pre-push: the suite is RED. Push refused." >&2
+    echo "pre-push: fix it, or push this one time with SKIP_TEST_RUN=1, which says so." >&2
+    exit 1
+fi
+
+echo "pre-push: unit suite is green." >&2
+exit 0
