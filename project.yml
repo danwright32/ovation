@@ -13,6 +13,14 @@ options:
     # macOS 26, and the only SDK installed on this machine is macOS 26.5. A 14.0
     # target would let code that cannot run on the target compile cleanly and
     # push every failure to runtime (L501, L188).
+    #
+    # THE CONSEQUENCE, PUT TO DAN AND CONFIRMED BY HIM 2026-09-05: this is a hard
+    # floor. Ovation will not install or run on any Mac older than macOS 26. His
+    # config lists a second Mac, and he confirmed that this machine is the only
+    # target, so the floor is accepted rather than merely inherited. Anyone
+    # raising or lowering this line is changing that decision, not just a number,
+    # which is why the premise is recorded here in a form that can be re-measured
+    # rather than as a dated sentence somewhere else (L316).
     macOS: "26.0"
   createIntermediateGroups: true
 settings:
