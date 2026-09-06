@@ -48,6 +48,17 @@ fi
 # that it READS a real sibling and reports about it. Section 6 proves the seam is
 # honoured rather than assuming it (L322).
 WORK="$(mktemp -d)"
+# REFUSE rather than delete a path built from an empty variable. `set -u` catches
+# an UNSET variable, not an empty one, so a failed mktemp would leave WORK empty
+# and new_tree below would run `rm -rf "/tree1"` against a path at the filesystem
+# root. That path almost certainly does not exist, and "it happens not to exist"
+# is exactly the reasoning L5 exists to stop. Every rm here is scoped to a
+# directory this file created seconds earlier, and this is what keeps that true.
+if [ -z "${WORK:-}" ] || [ ! -d "$WORK" ]; then
+    echo "FAIL: could not create a temp directory, so nothing was checked"
+    echo "      refusing to run: every cleanup below is scoped to it"
+    exit 1
+fi
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
 # A stand-in sibling: a real git repo with a main branch and a second commit on a
@@ -69,7 +80,7 @@ NOT_ON_MAIN="$(cd "$SIB" && git rev-parse unmerged)"
 
 # The tree of "Ovation files" the check scans. A fresh one per case, so no case
 # can pass because of a file another case left behind.
-new_tree() { local d="$WORK/tree$1"; rm -rf "$d"; mkdir -p "$d"; echo "$d"; }
+new_tree() { local d="$WORK/tree$1"; [ -n "$WORK" ] || exit 1; rm -rf "$d"; mkdir -p "$d"; echo "$d"; }
 port_header() { printf '# Ported-From: %s %s @ %s\n' "$1" "$2" "$3"; }
 
 run_check() {
