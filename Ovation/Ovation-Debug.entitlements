@@ -2,7 +2,40 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Lets Xcode attach a debugger. Debug only: the Release entitlements file
+	     is empty, and scripts/lib/bundle-identity-checks.sh asserts that. -->
 	<key>com.apple.security.get-task-allow</key>
+	<true/>
+	<!-- ovation#59, and Dan signed this off on 2026-09-06 as a Debug only
+	     change.
+
+	     WHY IT IS HERE. Under hardened runtime macOS refuses to load code into a
+	     process unless it is signed with a matching Team ID. Ovation's signing
+	     identity deliberately has none, so the app and the hosted test bundle
+	     both report TeamIdentifier=not set, and macOS treats two unset teams as
+	     different rather than the same. The hosted bundle therefore could not
+	     load at all:
+
+	       The bundle "OvationHostedTests" couldn't be loaded ...
+	       mapping process and mapped file (non-platform) have different Team IDs
+
+	     This is the same class of failure as ovation#30, which was solved by
+	     REMOVING the thing that needed the exemption (the Debug dylib). That
+	     route does not exist here: loading a bundle into the app is what a
+	     hosted test IS.
+
+	     WHAT IT COSTS, stated rather than discovered later. On the DEBUG build
+	     only, macOS stops checking that loaded code is signed by the same
+	     identity. That build already carries get-task-allow above, so any
+	     process can already attach a debugger and read its memory; it is not a
+	     security boundary. The Release build keeps hardened runtime, an empty
+	     entitlements file, and now a check asserting it never gains this key.
+
+	     The alternatives, and why not: turning hardened runtime off on Debug
+	     disables protections nothing here needs disabled, and a paid Apple
+	     Developer team would make the signatures match but costs money for a
+	     problem an entitlement solves for nothing. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
 	<true/>
 </dict>
 </plist>

@@ -32,7 +32,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "bundle identity judgement tests" 16
+harness_begin "bundle identity judgement tests" 18
 
 TARGET="scripts/lib/bundle-identity-checks.sh"
 require_target "$TARGET"
@@ -77,10 +77,22 @@ adhoc_signature() {
 
 GOOD_FLAGS='0x10000(runtime)'
 NO_FLAGS='0x0(none)'
+# The Debug entitlements as this machine actually builds them: a debugger may
+# attach, and library validation is off so the hosted test bundle can load
+# (ovation#59). Release carries neither.
 DEBUGGABLE='{
   "com.apple.security.get-task-allow" => true
+  "com.apple.security.cs.disable-library-validation" => true
 }'
 NOT_DEBUGGABLE='{
+}'
+# Debug missing the exemption the hosted suite needs. Its own case below.
+DEBUGGABLE_VALIDATING='{
+  "com.apple.security.get-task-allow" => true
+}'
+# Release carrying the exemption that belongs to Debug alone.
+RELEASE_UNVALIDATING='{
+  "com.apple.security.cs.disable-library-validation" => true
 }'
 
 REL_SIG="$(signature com.danwright.ovation 'Ovation Local Signing' "$GOOD_FLAGS")"
@@ -101,9 +113,9 @@ outcome() {
 # 1. The healthy pair. Both configurations as this machine actually builds them.
 # ---------------------------------------------------------------------------
 check "a correct Release bundle passes every judgement" \
-    "$(outcome Release "$REL_SIG" "$NOT_DEBUGGABLE")" "5 5 0"
+    "$(outcome Release "$REL_SIG" "$NOT_DEBUGGABLE")" "6 6 0"
 check "a correct Debug bundle passes every judgement" \
-    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE")" "5 5 0"
+    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE")" "6 6 0"
 
 # ---------------------------------------------------------------------------
 # 2. SEEN TO FAIL: ovation#9's actual defect.
@@ -117,21 +129,21 @@ check "a correct Debug bundle passes every judgement" \
 # the runtime flag, so every other reading said the app was protected (L188).
 # ---------------------------------------------------------------------------
 check "a Release bundle a debugger can attach to is REFUSED" \
-    "$(outcome Release "$REL_SIG" "$DEBUGGABLE")" "5 4 1"
+    "$(outcome Release "$REL_SIG" "$DEBUGGABLE")" "6 4 2"
 
 # And the inverse, which is a real defect too: without it Xcode cannot attach
 # and debugging the app is silently broken.
 check "a Debug bundle a debugger CANNOT attach to is refused" \
-    "$(outcome Debug "$DBG_SIG" "$NOT_DEBUGGABLE")" "5 4 1"
+    "$(outcome Debug "$DBG_SIG" "$NOT_DEBUGGABLE")" "6 4 2"
 
 # ---------------------------------------------------------------------------
 # 3. The identity. This is the whole of plan 1.1's isolation: macOS keys the
 #    data directory, the TCC grants and the Gmail login to this string.
 # ---------------------------------------------------------------------------
 check "a Release bundle wearing the Debug identifier is refused" \
-    "$(outcome Release "$DBG_SIG" "$NOT_DEBUGGABLE")" "5 4 1"
+    "$(outcome Release "$DBG_SIG" "$NOT_DEBUGGABLE")" "6 5 1"
 check "a Debug bundle wearing the Release identifier is refused" \
-    "$(outcome Debug "$REL_SIG" "$DEBUGGABLE")" "5 4 1"
+    "$(outcome Debug "$REL_SIG" "$DEBUGGABLE")" "6 5 1"
 
 # ---------------------------------------------------------------------------
 # 4. Ad hoc signing, the world before ovation#9. It mints a NEW code identity on
@@ -140,15 +152,15 @@ check "a Debug bundle wearing the Release identifier is refused" \
 #    Two judgements fail together: no stable authority, and an adhoc signature.
 # ---------------------------------------------------------------------------
 check "an ad hoc signed Release bundle is refused" \
-    "$(outcome Release "$(adhoc_signature com.danwright.ovation)" "$NOT_DEBUGGABLE")" "5 3 2"
+    "$(outcome Release "$(adhoc_signature com.danwright.ovation)" "$NOT_DEBUGGABLE")" "6 4 2"
 check "an ad hoc signed Debug bundle is refused" \
-    "$(outcome Debug "$(adhoc_signature com.danwright.ovation.debug)" "$DEBUGGABLE")" "5 3 2"
+    "$(outcome Debug "$(adhoc_signature com.danwright.ovation.debug)" "$DEBUGGABLE")" "6 4 2"
 
 # A bundle signed by SOMETHING ELSE is not Ovation's stable identity either,
 # even though it is not ad hoc.
 check "a bundle signed by another authority is refused" \
     "$(outcome Release "$(signature com.danwright.ovation 'Apple Development: someone' "$GOOD_FLAGS")" \
-        "$NOT_DEBUGGABLE")" "5 4 1"
+        "$NOT_DEBUGGABLE")" "6 5 1"
 
 # ---------------------------------------------------------------------------
 # 5. Hardened runtime, judged on the FLAGS and not on the word.
@@ -160,10 +172,10 @@ check "a bundle signed by another authority is refused" \
 # ---------------------------------------------------------------------------
 check "a Release bundle with no hardened runtime is refused" \
     "$(outcome Release "$(signature com.danwright.ovation 'Ovation Local Signing' "$NO_FLAGS")" \
-        "$NOT_DEBUGGABLE")" "5 4 1"
+        "$NOT_DEBUGGABLE")" "6 5 1"
 check "a Debug bundle with no hardened runtime is refused" \
     "$(outcome Debug "$(signature com.danwright.ovation.debug 'Ovation Local Signing' "$NO_FLAGS")" \
-        "$DEBUGGABLE")" "5 4 1"
+        "$DEBUGGABLE")" "6 5 1"
 
 # ---------------------------------------------------------------------------
 # 6. Empty input is a REFUSAL, not a pass. A caller whose codesign call failed
@@ -179,11 +191,26 @@ check "empty signature text fails rather than passing" \
 #    configuration is how the Release half goes missing again without anything
 #    noticing (L288).
 # ---------------------------------------------------------------------------
-check "the function reports how many judgements it makes" "$(bundle_identity_checks_count)" "5"
+# ---------------------------------------------------------------------------
+# SEEN TO FAIL: the library validation judgement, in both directions.
+#
+# ovation#59. Debug carries com.apple.security.cs.disable-library-validation so
+# the hosted test bundle can load into it. Removing it breaks nothing visibly:
+# the hosted suite fails to load with a dyld message about Team IDs, which reads
+# as a build problem rather than as a setting somebody changed. And an exemption
+# added for a test bundle is exactly the kind that spreads by being copied into
+# the file it must never reach.
+# ---------------------------------------------------------------------------
+check "a Debug bundle that cannot load the hosted tests is refused" \
+    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE_VALIDATING")" "6 5 1"
+check "a Release bundle carrying the Debug only exemption is REFUSED" \
+    "$(outcome Release "$REL_SIG" "$RELEASE_UNVALIDATING")" "6 5 1"
+
+check "the function reports how many judgements it makes" "$(bundle_identity_checks_count)" "6"
 check "and Release runs exactly that many" \
-    "$(outcome Release "$REL_SIG" "$NOT_DEBUGGABLE" | cut -d' ' -f1)" "5"
+    "$(outcome Release "$REL_SIG" "$NOT_DEBUGGABLE" | cut -d' ' -f1)" "6"
 check "and Debug runs exactly that many" \
-    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE" | cut -d' ' -f1)" "5"
+    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE" | cut -d' ' -f1)" "6"
 
 # ---------------------------------------------------------------------------
 # 8. An unknown configuration is refused rather than silently judged as Debug.

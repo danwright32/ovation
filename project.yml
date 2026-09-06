@@ -5,6 +5,19 @@
 # the source are called out where they sit. Verified 2026-09-05 that the recorded
 # commit is Overture's current main and that mac/project.yml is identical there.
 name: Ovation
+packages:
+  # ADDED BY ovation#59, on the condition this file already recorded: "added with
+  # the FIRST test that has to inspect a rendered view, which will be plan 1.13's
+  # launch presenter". This is that issue.
+  #
+  # WHY IT IS WORTH THE DEPENDENCY. The precedent plan 1.13 rests on is
+  # postroll#846 and #855, where several presenters shared one surface, one
+  # heading landed over another's buttons, and EVERY MODEL LEVEL TEST PASSED
+  # while it was happening. A presenter tested only through its own properties
+  # would not have caught it, because the defect lives in the binding.
+  ViewInspector:
+    url: https://github.com/nalexn/ViewInspector
+    from: "0.10.0"
 options:
   bundleIdPrefix: com.danwright
   deploymentTarget:
@@ -178,13 +191,6 @@ targets:
 # DELIBERATELY ABSENT, with the condition for adding them recorded rather than
 # left to be rediscovered:
 #
-#   OvationHostedTests and the ViewInspector package. The source carries both,
-#   for the handful of tests that render a real SwiftUI view and therefore need
-#   a running host. Ovation has no such view yet, and adding a dependency for
-#   work that does not exist is the kind of inherited weight this port exists to
-#   avoid. They are added with the FIRST test that has to inspect a rendered
-#   view, which will be plan 1.13's launch presenter.
-#
 #   LSMultipleInstancesProhibited. Plan 1.3 wants a second running copy to stand
 #   aside and NAME the copy it stood aside for, and it says explicitly not to
 #   implement that with this key: it appears only in Overture's Info.plist, and
@@ -192,6 +198,30 @@ targets:
 #   makes the xctest host fail to launch, killing the run after a full build.
 #   Downbeat implements the refusal in application code instead, which is the
 #   sibling pattern rather than a workaround.
+  # THE HOSTED SUITE, and it is deliberately tiny.
+  #
+  # ViewInspector renders a real SwiftUI view, which needs the host process, so
+  # this target keeps TEST_HOST and pays the launch risk the pure suite exists to
+  # avoid. That is the whole point of the split: a launch fault costs these few
+  # files rather than everything, and the pure suite still reports.
+  #
+  # NOTHING GOES IN HERE THAT DOES NOT HAVE TO RENDER. A test that can be written
+  # against a presenter, a store or a value belongs in OvationTests, where a
+  # broken app cannot take it down with it.
+  OvationHostedTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: OvationHostedTests
+    dependencies:
+      - target: Ovation
+      - package: ViewInspector
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.danwright.ovation.hostedtests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Ovation.app/Contents/MacOS/Ovation"
+        BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
   # The pure suite's own scheme, and the reason is measured in the source, not
   # theoretical. With both targets in ONE scheme, -only-testing on the pure
@@ -211,6 +241,8 @@ schemes:
       targets:
         Ovation: all
         OvationTests: [test]
+        OvationHostedTests: [test]
     test:
       targets:
         - OvationTests
+        - OvationHostedTests

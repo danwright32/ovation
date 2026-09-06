@@ -34,7 +34,7 @@
 # How many assertions one call makes. A caller derives its declared total from
 # this rather than writing the number twice, because two numbers that must agree
 # drift and the one that drifts is the declaration nobody re-reads (L70).
-bundle_identity_checks_count() { printf '5'; }
+bundle_identity_checks_count() { printf '6'; }
 
 bundle_identity_checks() {
     local config="$1" sig="$2" ents="$3"
@@ -109,5 +109,32 @@ bundle_identity_checks() {
     else
         check "the debug build DOES let a debugger attach, or Xcode cannot debug it" \
             "$(printf '%s' "$ents" | grep -c 'get-task-allow')" "1"
+    fi
+
+    # 6. LIBRARY VALIDATION, WHICH IS THE OTHER HALF OF WHAT HARDENED RUNTIME IS
+    #    FOR, and it is asserted in BOTH directions rather than one.
+    #
+    # `com.apple.security.cs.disable-library-validation` stops macOS checking
+    # that code loaded into the process is signed by the same identity. Debug
+    # carries it deliberately (ovation#59, signed off by Dan on 2026-09-06):
+    # without it the hosted test bundle cannot load at all, because Ovation's
+    # signing identity has no Team ID and macOS treats two unset teams as
+    # different. That build already carries get-task-allow above, so it is not a
+    # security boundary.
+    #
+    # RELEASE MUST NEVER GAIN IT. The shipping build holds Gmail refresh tokens
+    # and seven years of tax records, and an exemption added for a test bundle is
+    # exactly the kind that spreads by being copied into the wrong file.
+    #
+    # And DEBUG IS ASSERTED TO STILL HAVE IT, because removing it does not break
+    # anything visibly: it makes the hosted suite fail to load with a dyld
+    # message about Team IDs, which reads as a build problem rather than as a
+    # setting somebody changed.
+    if [ "$config" = "Release" ]; then
+        check "the shipping build still validates the code it loads" \
+            "$(printf '%s' "$ents" | grep -c 'disable-library-validation')" "0"
+    else
+        check "the debug build allows the hosted test bundle to load" \
+            "$(printf '%s' "$ents" | grep -c 'disable-library-validation')" "1"
     fi
 }

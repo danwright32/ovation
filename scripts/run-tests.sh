@@ -63,6 +63,7 @@ TIMEOUT="${OVATION_LOCK_TIMEOUT:-1800}"
 POLL="${OVATION_LOCK_POLL_INTERVAL:-1}"
 FLOCK_BIN="${OVATION_FLOCK_BIN:-/opt/homebrew/bin/flock}"
 TEST_COMMAND="${OVATION_TEST_COMMAND:-}"
+HOSTED_TEST_COMMAND="${OVATION_HOSTED_TEST_COMMAND:-}"
 UNLOCKED_COMMAND="${OVATION_UNLOCKED_COMMAND:-}"
 
 DIR_LOCK_HELD=""
@@ -157,6 +158,47 @@ else
   bash -c "${TEST_COMMAND}"
 fi
 STATUS=$?
+
+# ---------------------------------------------------------------------------
+# THE HOSTED SUITE, still under both locks.
+#
+# ovation#59 added OvationHostedTests, which renders real SwiftUI views and
+# therefore launches the app. It is a SECOND xcodebuild invocation rather than a
+# wider scheme, because the pure suite must stay in a scheme the app is not part
+# of: a broken app cannot then fail, slow, or even be needed by the run that
+# reports on 100+ domain tests.
+#
+# A NARROWED RUN THAT MATCHES NOTHING PRINTS SUCCESS. `-only-testing:` with a
+# path that resolves to no tests makes xcodebuild print ** TEST SUCCEEDED ** and
+# exit 0, so a renamed target would silently stop running these while the gate
+# stayed green (L98, L288). The count is read back and a run that executed no
+# tests is refused.
+if [ "${STATUS}" -eq 0 ]; then
+  if [ -n "${TEST_COMMAND}" ] && [ -z "${HOSTED_TEST_COMMAND}" ]; then
+    # Said out loud rather than skipped silently: the runner is being measured
+    # with an injected command, so the real hosted run would be meaningless here.
+    echo "==> Hosted suite skipped: the pure command was injected and no hosted one was."
+  else
+    echo "==> Running the hosted suite (it launches the app)"
+    if [ -n "${HOSTED_TEST_COMMAND}" ]; then
+      HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1)"
+    else
+      HOSTED_OUTPUT="$(xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme Ovation \
+        -destination 'platform=macOS' -only-testing:OvationHostedTests test 2>&1)"
+    fi
+    HOSTED_STATUS=$?
+    printf '%s\n' "${HOSTED_OUTPUT}"
+
+    if [ "${HOSTED_STATUS}" -ne 0 ]; then
+      STATUS="${HOSTED_STATUS}"
+    elif ! printf '%s' "${HOSTED_OUTPUT}" | grep -qE 'Test run with [1-9][0-9]* test'; then
+      echo "Error: the hosted run reported success and executed NO tests." >&2
+      echo "       A -only-testing: path that matches nothing does exactly this." >&2
+      echo "       Nothing about the launch surface was verified." >&2
+      STATUS=6
+    fi
+  fi
+fi
 
 # Judge by the EXIT CODE, never by a line of output: a tool's final line is
 # routinely a different measurement than its verdict, and usually the more

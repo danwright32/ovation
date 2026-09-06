@@ -18,7 +18,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "test runner lock tests" 24
+harness_begin "test runner lock tests" 29
 
 TARGET="scripts/run-tests.sh"
 REPO_ROOT_SCRIPTS="$PWD/scripts"
@@ -270,6 +270,34 @@ stage_offender() {
     printf '#!/bin/bash\nCONFIG="${1:-Debug}"\necho "$CONFIG"\n' > "$1"
 }
 stage_offender "$STAGE/test-offender.sh"
+# ---------------------------------------------------------------------------
+# THE HOSTED SUITE (ovation#59). A second xcodebuild invocation, narrowed with
+# -only-testing, and a narrowed run that matches nothing prints ** TEST
+# SUCCEEDED ** and exits 0 (L98, L288).
+# ---------------------------------------------------------------------------
+hosted_run() {
+    OVATION_UNLOCKED_COMMAND=true \
+    OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
+    OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+    OVATION_TEST_COMMAND="true" OVATION_HOSTED_TEST_COMMAND="${1}" \
+    "$TARGET" 2>&1
+}
+hosted_status() { hosted_run "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+
+check "a hosted run that executed tests passes" \
+    "$(hosted_status 'echo "Test run with 5 tests in 1 suite passed"')" "0"
+check "a hosted run that reported success and executed NOTHING is refused" \
+    "$(hosted_status 'echo "** TEST SUCCEEDED **"')" "6"
+check "and it says that nothing about the launch surface was verified" \
+    "$(hosted_run 'echo "** TEST SUCCEEDED **"' | grep -c 'executed NO tests')" "1"
+check "a hosted run that failed fails the whole run with its own status" \
+    "$(hosted_status 'echo "Test run with 5 tests in 1 suite failed"; exit 7')" "7"
+check "with no hosted command injected, the skip is announced rather than silent" \
+    "$(OVATION_UNLOCKED_COMMAND=true \
+       OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
+       OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+       OVATION_TEST_COMMAND="true" "$TARGET" 2>&1 | grep -c 'Hosted suite skipped')" "1"
+
 check "a suite reading its own \$1 is caught" \
     "$(positional_readers "$STAGE")" "test-offender.sh"
 
