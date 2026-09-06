@@ -97,6 +97,42 @@ unreadable or mismatched is a named outcome that blocks the backfill. Phase 6 pr
 CURRENT export wherever a booking id is still present there, and from this snapshot only for ids
 retention has since swept; it never prices from the version 2 file, which has no times.
 
+## handoff-record-sample-2026-09-06.json
+
+The first real `BookingHandoffRecord` that has ever existed, written by the installed Downbeat
+through its own commit path on 2026-09-06 while proving plan 0.2 step 4 (ovation#3).
+
+| Field | Value |
+| --- | --- |
+| Path | `~/Library/Application Support/Ovation/custody/handoff-record-sample-2026-09-06.json` |
+| SHA-256 | `b83af4f2b77f71145dd0b6ad9d770ebc1c8ea0c330832e3e0aab021141bd34ef` |
+| Captured | 2026-09-06 |
+| Record version | 3 |
+| Size | 749 bytes |
+| Contents | one booking, `venue` absent, client and shoot entirely fabricated |
+
+**This one is unlike the two above: it holds no real client.** The booking was a throwaway committed
+deliberately, with a fabricated client, a fabricated shoot and a one-off venue, so that the proof
+would never touch a real customer. It is kept because it is the only measured example of the record
+shape Ovation must consume, and recreating it costs another throwaway booking with an OmniFocus
+project, a calendar event and a folder that only Dan can remove.
+
+**One field still has to be scrubbed before it can enter this repository.** `client.hostingSite`
+carries a real vendor name from Downbeat's Settings; everything else in the file is invented. The
+repository is public, so that single value is the difference between a safe fixture and a leak.
+ovation#29 is where the scrubbed copy lands, and this file stays here as the unscrubbed original so
+the scrub can be checked against what was actually produced.
+
+**What it settled.** `venue` is ABSENT on an ad hoc venue rather than present and empty, which is the
+part of the contract a source reading is most likely to get wrong, and it confirmed the record
+carries both the day strings and the instants. `scripts/check-booking-queue.sh` was written against
+the source before any record existed and passed this one unchanged, which is the only evidence that
+reading was right (L52).
+
+**How it must be read.** Same as the two above: hash verified at every read, and absent, unreadable
+or mismatched is its own named outcome. Unlike them, nothing depends on it at runtime; losing it
+costs a throwaway booking, not a record of work that happened.
+
 ## What this folder is to Ovation
 
 Decided 2026-08-28, recorded here so the app and its guards agree:
