@@ -16,7 +16,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "project configuration tests" 8
+harness_begin "project configuration tests" 21
 
 require_target "project.yml"
 
@@ -94,5 +94,110 @@ CORE_TARGETS="$(grep -o 'BlueprintName = "[^"]*"' \
     Ovation.xcodeproj/xcshareddata/xcschemes/OvationCore.xcscheme 2>/dev/null | sort -u | tr '\n' ' ')"
 check "the pure scheme builds ONLY the test bundle, never the app" \
     "$CORE_TARGETS" 'BlueprintName = "OvationTests" '
+
+# ---------------------------------------------------------------------------
+# THE SIGNING RULES, ASSERTED FROM THE SETTINGS SIDE.
+#
+# ovation#26. scripts/test-built-bundle-identity.sh judges the BUILT bundles, so
+# it is only ever as current as the last build: a configuration change made
+# without a rebuild is invisible to it. Nothing asserted the settings themselves,
+# so removing hardened runtime or pointing Release at the Debug entitlements went
+# red nowhere until somebody happened to rebuild both configurations.
+#
+# THE TWO SIDES MUST STAY INDEPENDENT. One reads what the configuration SAYS and
+# needs no build; the other reads what the toolchain PRODUCED. A guard whose two
+# sides come from one reading can only prove that reading is self consistent,
+# never that it is correct (L70), so these deliberately do not consult the
+# bundle and the bundle suite deliberately does not consult these.
+#
+# An mtime comparison was tried first as the cover for staleness and MEASURED to
+# fail in both directions; see the note in test-built-bundle-identity.sh. This is
+# the honest cover instead.
+
+# 1. HARDENED RUNTIME, on both. Without it the entitlement check below is
+#    meaningless, because the runtime is what makes an entitlement a restriction
+#    rather than a note.
+check "Release declares the hardened runtime" \
+    "$(setting Release ENABLE_HARDENED_RUNTIME)" "YES"
+check "Debug declares the hardened runtime too" \
+    "$(setting Debug ENABLE_HARDENED_RUNTIME)" "YES"
+
+# 2. THE STABLE IDENTITY, and specifically NOT "-", which is ad hoc.
+#
+# Ad hoc signing mints a NEW code identity on every install and macOS keys folder
+# permission grants to that identity, so an ad hoc build re-asks for access
+# already granted after every rebuild. PRD 5.29 has Ovation writing dated backups
+# to a folder Dan chooses, and those backups are the only copy of a seven year
+# tax record (ovation#9).
+for CONFIG in Release Debug; do
+    check "$CONFIG signs with Ovation's own stable identity, not ad hoc" \
+        "$(setting "$CONFIG" CODE_SIGN_IDENTITY)" "Ovation Local Signing"
+done
+
+# 3. BASE ENTITLEMENT INJECTION OFF, on both, and this is the setting whose
+#    absence produced the real defect.
+#
+# An empty entitlements FILE was tried first and changed nothing: Xcode injects a
+# base set on top of whatever the file says whenever it believes it is signing
+# for development, and a self signed identity with no provisioning profile looks
+# exactly like one. The file and this flag are ONE fact and both need asserting,
+# because either alone reads as protection while protecting nothing (L188).
+for CONFIG in Release Debug; do
+    check "$CONFIG does not let Xcode inject its own base entitlements" \
+        "$(setting "$CONFIG" CODE_SIGN_INJECT_BASE_ENTITLEMENTS)" "NO"
+done
+
+# 4. EACH CONFIGURATION POINTS AT ITS OWN FILE. Pointing Release at the Debug
+#    file is a one word change that ships a debuggable shipping build.
+REL_ENTS="$(setting Release CODE_SIGN_ENTITLEMENTS)"
+DBG_ENTS="$(setting Debug CODE_SIGN_ENTITLEMENTS)"
+check "Release points at the shipping entitlements file" \
+    "$REL_ENTS" "Ovation/Ovation.entitlements"
+check "Debug points at its own entitlements file" \
+    "$DBG_ENTS" "Ovation/Ovation-Debug.entitlements"
+check "and the two are genuinely different files" \
+    "$([ "$REL_ENTS" != "$DBG_ENTS" ] && echo different || echo same)" "different"
+
+# 5. AND WHAT THOSE FILES ACTUALLY SAY.
+#
+# Read by CONVERTING them rather than with `plutil -lint`, which reports
+# "Unexpected character {" on JSON that plutil -extract reads without complaint,
+# measured 2026-09-06. These are XML plists so lint would work, but the two
+# readers are kept the same across this repository so nobody has to remember
+# which file type takes which.
+readable_plist() { plutil -convert xml1 -o /dev/null -- "$1" >/dev/null 2>&1; }
+grants_debugger() {
+    # Prints yes when the file grants get-task-allow, no when it does not.
+    #
+    # THE DOTS ARE ESCAPED, and that is not decoration. `plutil -extract` treats
+    # `.` as a key path SEPARATOR, so the unescaped key is read as four nested
+    # levels (com, then apple, then security, then get-task-allow) and reports
+    # "invalid key path" on a file that plainly contains the key. Written
+    # unescaped first and caught by this very assertion going red against the
+    # Debug file on 2026-09-06: the file grants it, the built bundle carries it,
+    # and only the reader was wrong. Unnoticed, it would have reported the
+    # SHIPPING file as safe for the same wrong reason, which is the direction
+    # that never gets investigated.
+    if [ "$(plutil -extract 'com\.apple\.security\.get-task-allow' raw -o - "$1" 2>/dev/null)" = "true" ]; then
+        echo yes
+    else
+        echo no
+    fi
+}
+
+check "the shipping entitlements file is there and parses" \
+    "$([ -f "$REL_ENTS" ] && readable_plist "$REL_ENTS" && echo readable || echo "missing-or-unreadable")" "readable"
+check "the debug entitlements file is there and parses" \
+    "$([ -f "$DBG_ENTS" ] && readable_plist "$DBG_ENTS" && echo readable || echo "missing-or-unreadable")" "readable"
+
+# `com.apple.security.get-task-allow` lets ANY process attach a debugger and read
+# the app's memory. Ovation will hold Gmail refresh tokens carrying send and
+# modify rights on Dan's mailbox, and seven years of tax records.
+check "the shipping entitlements file does NOT let a debugger attach" \
+    "$(grants_debugger "$REL_ENTS")" "no"
+# And the inverse is a real defect too: without it Xcode cannot attach and
+# debugging is silently broken.
+check "the debug entitlements file DOES, or Xcode cannot debug the app" \
+    "$(grants_debugger "$DBG_ENTS")" "yes"
 
 harness_end

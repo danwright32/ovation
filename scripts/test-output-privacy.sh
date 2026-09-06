@@ -65,7 +65,7 @@ JSON
 
 # Derived by the GUARD, not by this file. One needle per line.
 NEEDLE_FILE="$WORK/needles.txt"
-python3 - "$EXPORT" "$NEEDLE_FILE" <<'PY'
+python3 -B - "$EXPORT" "$NEEDLE_FILE" <<'PY'
 import importlib.util, sys
 from importlib.machinery import SourceFileLoader
 loader = SourceFileLoader("guard", "scripts/check-identity-leaks.sh")

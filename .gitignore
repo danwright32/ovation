@@ -62,3 +62,12 @@ Package.pins
 # and left a real venue name sitting in four test files. Ovation has no such file
 # and must not grow one: a guard whose needles come from a list somebody has to
 # maintain is a guard that goes blind when the list is missing (ovation#5).
+
+# Python bytecode. scripts/check-identity-leaks.sh is a Python program, and
+# scripts/test-output-privacy.sh imports it as a module to reuse its needle
+# derivation rather than keeping a second copy. That import used to leave a
+# __pycache__ directory in scripts/. The suite now runs python with -B so none
+# is written at all, and this entry is the second line of defence rather than
+# the fix: an ignored artifact is still an artifact somebody's guard has to walk.
+__pycache__/
+*.pyc
