@@ -67,6 +67,18 @@ if [ -x "${REPO_ROOT}/scripts/check-identity-leaks.sh" ]; then
     fi
 fi
 
+# Money is Int64 minor units and hours are tenths (plan 1.4). `Money` carries no
+# floating point constructor, which makes the mistake impossible INSIDE the money
+# type and says nothing about a `Double` declared anywhere else, so this refuses
+# one anywhere in the app's sources. Fast: it walks Swift files and prints paths,
+# line numbers and type names only.
+if [ -x "${REPO_ROOT}/scripts/check-money-types.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-money-types.sh"; then
+        echo "pre-push: a floating point type reached the app sources. Push refused." >&2
+        exit 1
+    fi
+fi
+
 # Injectable so scripts/test-git-hooks.sh can measure the GATE without paying for
 # a real suite run (L2, L291). The default is the real thing.
 TEST_COMMAND="${OVATION_HOOK_TEST_COMMAND:-}"

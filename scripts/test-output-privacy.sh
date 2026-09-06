@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 17
+harness_begin "output privacy tests" 19
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -201,12 +201,33 @@ check "and none when it reports a hash mismatch" \
     "$(leaks_in "$(OVATION_CUSTODY_NOTE="$NOTE" ./scripts/check-custody-files.sh 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------
+# The money type guard. It walks Swift sources, and a comment on a money line is
+# exactly where a client name would sit, so it reports the file, the line number
+# and the type name and NEVER the line itself.
+# ---------------------------------------------------------------------------
+MONEY_ROOT="$WORK/money-sources"
+mkdir -p "$MONEY_ROOT"
+cat > "$MONEY_ROOT/Pricing.swift" <<SWIFT
+// The rate agreed with $CLIENT for the $SHOOT at $VENUE.
+struct Pricing {
+    let rate: Double
+}
+SWIFT
+check "the money guard prints no identity when it finds a forbidden type" \
+    "$(leaks_in "$(OVATION_MONEY_SCAN_ROOT="$MONEY_ROOT" ./scripts/check-money-types.sh 2>&1)")" \
+    "clean"
+printf 'struct Pricing {\n    let rateInCents: Int64\n}\n' > "$MONEY_ROOT/Pricing.swift"
+check "and none when the sources are clean" \
+    "$(leaks_in "$(OVATION_MONEY_SCAN_ROOT="$MONEY_ROOT" ./scripts/check-money-types.sh 2>&1)")" \
+    "clean"
+
+# ---------------------------------------------------------------------------
 # COMPLETENESS. A hand written list of covered scripts silently exempts whatever
 # nobody remembered to add, and the exempted one is the one this suite exists
 # for (L96, L247). So the list is asserted against what is actually on disk, and
 # a new check script fails HERE until somebody points it at the fixture.
 # ---------------------------------------------------------------------------
-COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-identity-leaks.sh check-ported-artifacts.sh check-preconditions.sh check-sibling-installs.sh"
+COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-identity-leaks.sh check-money-types.sh check-ported-artifacts.sh check-preconditions.sh check-sibling-installs.sh"
 ON_DISK="$(cd scripts && ls -1 check-*.sh | sort | tr '\n' ' ')"
 check "every check script on disk is covered by this suite" \
     "$(printf '%s' "$ON_DISK" | tr -s ' ' | sed 's/ $//')" \
