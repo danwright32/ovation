@@ -39,7 +39,7 @@ struct DocumentStoreTests {
         let second = try store.store(bytes, extension: "pdf")
 
         #expect(first == second)
-        #expect(store.allFiles().count == 1)
+        #expect(try store.allFiles().count == 1)
     }
 
     @Test("different bytes land somewhere different, even under the same extension")
@@ -51,7 +51,7 @@ struct DocumentStoreTests {
         let second = try store.store(Data("version two".utf8), extension: "pdf")
 
         #expect(first.relativePath != second.relativePath)
-        #expect(store.allFiles().count == 2)
+        #expect(try store.allFiles().count == 2)
     }
 
     // MARK: verifying, one outcome per way it can be wrong
@@ -161,7 +161,7 @@ struct DocumentStoreTests {
         let kept = try store.store(Data("a receipt".utf8), extension: "pdf")
         let orphaned = try store.store(Data("nobody points at this".utf8), extension: "pdf")
 
-        let unreferenced = store.unreferencedFiles(given: [kept])
+        let unreferenced = try store.unreferencedFiles(given: [kept])
 
         #expect(unreferenced == [orphaned.relativePath])
     }
@@ -173,7 +173,30 @@ struct DocumentStoreTests {
         let one = try store.store(Data("one".utf8), extension: "pdf")
         let two = try store.store(Data("two".utf8), extension: "pdf")
 
-        #expect(store.unreferencedFiles(given: [one, two]).isEmpty)
+        #expect(try store.unreferencedFiles(given: [one, two]).isEmpty)
+    }
+
+    @Test("a documents folder that is not there REFUSES rather than reporting no documents")
+    func anAbsentRootIsNotAnEmptyOne() throws {
+        // Answering empty would make "I could not look" and "there is nothing
+        // here" the same answer, and the call site with consequences is
+        // unreferencedFiles: ovation#57's backup would carry that as a clean
+        // bill of health (L215, L98). Caught by the push advisory on the commit
+        // that introduced it.
+        let scratch = try Scratch()
+        let store = DocumentStore(root: scratch.root.appendingPathComponent("never-made"))
+
+        #expect(throws: DocumentStoreError.self) { try store.allFiles() }
+        #expect(throws: DocumentStoreError.self) { try store.unreferencedFiles(given: []) }
+    }
+
+    @Test("and an empty documents folder answers empty, in the same fixture")
+    func anEmptyRootIsEmpty() throws {
+        let scratch = try Scratch()
+        let store = DocumentStore(root: scratch.root)
+
+        #expect(try store.allFiles().isEmpty)
+        #expect(try store.unreferencedFiles(given: []).isEmpty)
     }
 
     // MARK: where it lives

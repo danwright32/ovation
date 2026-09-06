@@ -148,10 +148,24 @@ struct DocumentStore {
     // MARK: what the backup has to be able to walk
 
     /// Every file under the documents root, as relative paths, sorted.
-    func allFiles() -> [String] {
+    ///
+    /// IT THROWS RATHER THAN ANSWERING EMPTY when it cannot look. A missing or
+    /// unwalkable documents folder and a folder holding no documents are
+    /// different facts, and returning an empty list for both makes the first
+    /// indistinguishable from the second (L215). It matters most at the one call
+    /// site that has consequences: `unreferencedFiles` would report no orphans,
+    /// and ovation#57's backup would carry that as a clean bill of health.
+    func allFiles() throws -> [String] {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw DocumentStoreError.rootUnavailable(root.path)
+        }
         guard let walker = fileManager.enumerator(at: root,
                                                   includingPropertiesForKeys: [.isRegularFileKey],
-                                                  options: [.skipsHiddenFiles]) else { return [] }
+                                                  options: [.skipsHiddenFiles]) else {
+            throw DocumentStoreError.rootUnavailable(root.path)
+        }
         var found: [String] = []
         for case let url as URL in walker {
             let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
@@ -170,9 +184,9 @@ struct DocumentStore {
     /// direction: bytes nothing points at are either a lost reference or rubbish,
     /// and both are worth knowing rather than being carried silently in every
     /// backup forever.
-    func unreferencedFiles(given references: [DocumentReference]) -> [String] {
+    func unreferencedFiles(given references: [DocumentReference]) throws -> [String] {
         let referenced = Set(references.map(\.relativePath))
-        return allFiles().filter { !referenced.contains($0) }
+        return try allFiles().filter { !referenced.contains($0) }
     }
 
     // MARK: the addressing rule, in one place
@@ -191,6 +205,9 @@ struct DocumentStore {
 }
 
 enum DocumentStoreError: Error, Equatable {
+    /// The documents folder is not there, or is not a folder. Never reported as
+    /// "no documents".
+    case rootUnavailable(String)
     case pathRefused(String)
     case couldNotWrite(String, String)
 }
