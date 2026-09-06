@@ -46,6 +46,26 @@ SKIP_DIRS = {".git", "worktrees", "node_modules", "DerivedData", "build", ".buil
 # Binary and generated shapes there is no point reading.
 SKIP_SUFFIXES = (".png", ".jpg", ".jpeg", ".pdf", ".zip", ".store", ".xcuserstate")
 
+# A PLACEHOLDER IS NOT AN IDENTITY.
+#
+# Found on the guard's first real run against Dan's data. It refused on PRD.md,
+# twice on one line, and the needle was "TBD": one of the nineteen real bookings
+# carries venueName "TBD" because its venue is not decided yet, and the PRD says
+# TBD twice in ordinary prose meaning exactly that.
+#
+# This is the RULE rather than an exemption naming that file (L362). A
+# placeholder is a value the data uses to mean "not set". It identifies nobody,
+# it is by construction an ordinary word or abbreviation, and searching for it
+# can only ever produce noise, in every file, for ever.
+#
+# Dropped needles are COUNTED AND REPORTED, so a run whose needle set was thinned
+# by this cannot read as a run that searched for everything (L98).
+PLACEHOLDERS = {
+    "tbd", "t.b.d.", "tba", "n/a", "na", "none", "null", "nil", "unknown",
+    "unnamed", "untitled", "test", "example", "placeholder", "-", "?", "??",
+    "pending", "not set", "no venue", "to be decided", "to be confirmed",
+}
+
 
 def needles_from_export(path, source_name, problems):
     """Client, venue and booking identities out of one export shaped file."""
@@ -146,6 +166,11 @@ def main():
             print("    " + p)
         print("    Nothing was verified. This is not a pass.")
         return 2
+
+    dropped = sorted(n for n in needles if n.strip().lower() in PLACEHOLDERS)
+    needles = {n for n in needles if n.strip().lower() not in PLACEHOLDERS}
+    if dropped:
+        print("Dropped %d placeholder value(s) that identify nobody." % len(dropped))
 
     if not needles:
         print("REFUSED: no needles could be derived, so nothing was searched for.")

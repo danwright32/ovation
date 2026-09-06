@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 19
+harness_begin "identity guard tests" 23
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -162,5 +162,55 @@ OUT11="$(run_guard "$T11" "$WORK/nosuch-but-custody-exists.json" "$CUST")"
 ST11=$?
 check "names are derived from the custody snapshot as well as the export" \
     "$([ "$ST11" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+
+# 12. A PLACEHOLDER IS NOT AN IDENTITY, and must never become a needle.
+#
+#     Found on the first real run against Dan's data. The guard refused on
+#     PRD.md, twice on one line. The needle was "TBD": one of the nineteen real
+#     bookings carries venueName "TBD" because its venue is not decided yet, and
+#     the PRD says TBD twice in ordinary prose meaning exactly that.
+#
+#     The fix is the RULE, not an exemption naming PRD.md (L362). A placeholder
+#     is a value the data uses to mean "not set". It identifies nobody, it is by
+#     construction a common word, and searching for it can only ever produce
+#     noise, in every file, for ever.
+PLACEHOLDER="$WORK/placeholder.json"
+cat > "$PLACEHOLDER" <<'JSON'
+{"version":3,"clients":[{"id":"c1","displayName":"Zzfixture Chorale","contractEmail":"a@zz.invalid","email":""}],
+ "venues":[{"id":"v1","name":"TBD"}],
+ "bookings":[{"id":"b1","clientId":"c1","clientDisplayName":"Zzfixture Chorale","venueName":"TBD","shootName":"N/A"}]}
+JSON
+T12="$(tree placeholder)"
+printf 'The cost is TBD, see 9.1. The count is TBD, see 9.2.
+Status: N/A
+Owner: Unknown
+' > "$T12/notes.md"
+OUT12="$(run_guard "$T12" "$PLACEHOLDER")"; ST12=$?
+check "placeholder values in the data do not become needles" "$ST12" "0"
+check "and the guard SAYS it dropped them, so coverage is not overstated" \
+    "$(if printf '%s' "$OUT12" | grep -qi "placeholder"; then echo yes; else echo no; fi)" "yes"
+
+# 13. But a real name in the SAME export is still caught, so the placeholder
+#     filter cannot have simply emptied the needle set (L159).
+T13="$(tree placeholder_real)"
+printf 'client: Zzfixture Chorale
+' > "$T13/x.txt"
+OUT13="$(run_guard "$T13" "$PLACEHOLDER")"; ST13=$?
+check "and a real name from that same export is still caught" \
+    "$([ "$ST13" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+
+# 14. An export of NOTHING BUT placeholders derives no needles at all, and that
+#     is the refusal, not a clean report. Otherwise the filter becomes a way to
+#     silently empty the guard.
+ALLPLACEHOLDER="$WORK/allplaceholder.json"
+cat > "$ALLPLACEHOLDER" <<'JSON'
+{"version":3,"clients":[],"venues":[{"id":"v1","name":"TBD"}],
+ "bookings":[{"id":"b1","venueName":"Unknown","shootName":"N/A"}]}
+JSON
+T14="$(tree allplaceholder)"; printf 'TBD
+' > "$T14/y.txt"
+OUT14="$(run_guard "$T14" "$ALLPLACEHOLDER")"; ST14=$?
+check "an export of nothing but placeholders is REFUSED, not reported clean" \
+    "$([ "$ST14" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
 
 harness_end

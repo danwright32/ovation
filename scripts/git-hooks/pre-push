@@ -18,7 +18,7 @@
 # suite is green. It does NOT yet check the things the plan wants a pre-push to
 # check, because the guards do not exist yet. Each is added by the issue that
 # builds it, rather than being listed here as if it were already covered:
-#   the identity guard                      ovation#5, still to come
+#   the identity guard                      ovation#5, added below
 #   the custody never staged check          ovation#4, added below
 #   the ported artifact ancestry check      added below
 set -uo pipefail
@@ -53,6 +53,16 @@ fi
 if [ -x "${REPO_ROOT}/scripts/check-custody-not-staged.sh" ]; then
     if ! "${REPO_ROOT}/scripts/check-custody-not-staged.sh"; then
         echo "pre-push: custody data reached git. Push refused." >&2
+        exit 1
+    fi
+fi
+
+# The identity guard last of the three fast checks, because it walks the whole
+# tree. It refuses if a real client, venue or vendor name appears anywhere,
+# including in files .gitignore excludes, and it prints paths and counts only.
+if [ -x "${REPO_ROOT}/scripts/check-identity-leaks.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-identity-leaks.sh"; then
+        echo "pre-push: a real identity appears in the tree. Push refused." >&2
         exit 1
     fi
 fi
