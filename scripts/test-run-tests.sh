@@ -18,9 +18,10 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "test runner lock tests" 21
+harness_begin "test runner lock tests" 24
 
 TARGET="scripts/run-tests.sh"
+REPO_ROOT_SCRIPTS="$PWD/scripts"
 require_target "$TARGET"
 harness_temp_dir WORK
 
@@ -213,5 +214,87 @@ else
     check "Downbeat's lock is released between attempts, not held for the whole wait" "skip" "skip"
     check "and neither lock is left behind afterwards" "skip" "skip"
 fi
+
+# ---------------------------------------------------------------------------
+# NO SUITE MAY TAKE A SUITE LEVEL ARGUMENT.
+#
+# ovation#25, and this is the class rather than the instance (L30). The runner
+# above discovers its suites by glob and runs each one with NO arguments, so it
+# can only ever invoke a suite ONE way. A suite that reads a positional
+# parameter therefore runs for ever in its DEFAULT mode, its other cases never
+# run at all, and its name still appears in every green report (L413).
+#
+# That is not hypothetical here. scripts/test-built-bundle-identity.sh took the
+# configuration as $1 and defaulted to Debug, so its RELEASE assertions, the
+# ones that had caught a real security defect hours earlier in ovation#9, never
+# ran in the suite or in the pre push gate. A reader saw "built bundle identity
+# tests" pass and concluded the shipping bundle was checked (L400, L98).
+#
+# WHAT THIS CATCHES, AND WHAT IT DOES NOT, said plainly rather than left to be
+# inferred from its name. It flags an UNINDENTED read of $1: that is where the
+# defect lived, and it is the only place a suite can read its own arguments
+# before any function is entered. It deliberately does not flag a $1 inside a
+# function (that is the function's own parameter, which every suite here uses),
+# an escaped \$1 written into a generated script by a heredoc, or an indented
+# `bash -c '...$1...'` whose $1 belongs to the inner shell. An indented top
+# level read would slip through, and that is the known limit.
+#
+# The over match direction is checked as deliberately as the under match one,
+# because the shape being matched is not unique to the defect and a guard that
+# fires on healthy files is one people learn to skip (L104, L378).
+positional_readers() {
+    local dir="$1" f found=""
+    for f in "$dir"/test-*.sh; do
+        [ -f "$f" ] || continue
+        if grep -nE '^[^[:space:]#]' "$f" \
+            | grep -vE ':[A-Za-z_][A-Za-z0-9_]*\(\)' \
+            | grep -qE '(^|[^\\])\$\{?1([^0-9]|$)'; then
+            found="${found}$(basename "$f") "
+        fi
+    done
+    printf '%s' "${found% }"
+}
+
+STAGE="$WORK/suitescan"
+mkdir -p "$STAGE"
+
+# 1. SEEN TO FAIL, on the exact line this issue removed.
+#
+# The fixture is written from INSIDE a function, and that is not a style choice.
+# A guard that hunts for a pattern has to name that pattern in order to look for
+# it, so the first version of this staged the offending line at the top level of
+# this very file and the guard correctly reported test-run-tests.sh itself
+# (L245). Indented, the line is where every other suite's parameters live, and
+# the guard is deliberately blind there.
+stage_offender() {
+    printf '#!/bin/bash\nCONFIG="${1:-Debug}"\necho "$CONFIG"\n' > "$1"
+}
+stage_offender "$STAGE/test-offender.sh"
+check "a suite reading its own \$1 is caught" \
+    "$(positional_readers "$STAGE")" "test-offender.sh"
+
+# 2. AND IT DOES NOT FIRE ON THE LEGITIMATE USES EVERY SUITE HERE ALREADY MAKES.
+rm -f "$STAGE/test-offender.sh"
+cat > "$STAGE/test-innocent.sh" <<'INNOCENT'
+#!/bin/bash
+mentions() { if printf '%s' "$1" | grep -q "$2"; then echo yes; else echo no; fi; }
+tree() {
+    local d="$1"
+    printf '%s\n' "$d"
+}
+cat > /dev/null <<'STUB'
+case "\$1" in
+  find-identity) echo none ;;
+esac
+STUB
+    ( bash -c 'while [ -e "$1" ]; do sleep 1; done' _ /tmp/sentinel ) &
+INNOCENT
+check "and a suite using \$1 only inside its own functions is not" \
+    "$(positional_readers "$STAGE")" ""
+
+# 3. And the real tree is clean, which is the assertion that goes red the day
+#    somebody writes the twelfth suite with a parameter.
+check "no suite in this repository takes a suite level argument" \
+    "$(positional_readers "$REPO_ROOT_SCRIPTS")" ""
 
 harness_end
