@@ -83,7 +83,11 @@ app_path() {
 # ---------------------------------------------------------------------------
 for CONFIG in $CONFIGURATIONS; do
     APP="$(app_path "$CONFIG")/Ovation.app"
-    BUILD_IT="xcodebuild -project Ovation.xcodeproj -scheme Ovation -configuration $CONFIG -destination 'platform=macOS' build"
+    # The remedy names the command that fixes BOTH configurations, not just this
+    # one. A refusal here almost always means neither has been built (a fresh
+    # clone, cleared DerivedData, or a runner), so a remedy naming one leaves the
+    # reader to hit the same wall again on the next configuration (L148, L406).
+    BUILD_IT="bash scripts/build-products.sh   (builds Debug and Release under the sibling locks)"
 
     if [ ! -d "$APP" ]; then
         harness_cannot_measure "there is no $CONFIG product at $APP" "build it first: $BUILD_IT"
