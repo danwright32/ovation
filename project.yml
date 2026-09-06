@@ -34,14 +34,25 @@ settings:
     # brokered by the sandbox. Same answer as both siblings.
     ENABLE_APP_SANDBOX: NO
     ENABLE_HARDENED_RUNTIME: YES
-    # DELIBERATELY STILL WRONG, AND OWNED BY ovation#9. "-" is ad hoc signing,
-    # which mints a NEW code identity on every install. Folder permission grants
-    # are keyed to that identity, so an ad hoc build re prompts for access
-    # already granted after every rebuild. ovation#9 replaces this with a stable
-    # self signed identity, and it must land BEFORE Phase 1.8 ever asks Dan for
-    # a folder. Recorded here rather than silently inherited, because a value
-    # copied from a proven pattern is exactly the one nobody revisits (L501).
-    CODE_SIGN_IDENTITY: "-"
+    # A STABLE, SELF SIGNED IDENTITY. Dan ran scripts/setup-signing.sh on
+    # 2026-09-06 and this is now in his login keychain, alongside the three
+    # siblings' equivalents, each distinct so a given app's signer is
+    # identifiable.
+    #
+    # It is NOT "-", and that is the whole point of ovation#9. Ad hoc signing
+    # mints a NEW code identity on every install, and macOS keys folder
+    # permission grants to that identity, so an ad hoc build re prompts for
+    # access already granted after every single rebuild. PRD 5.29 has Ovation
+    # writing dated backups to a folder Dan chooses and plan 1.8 is where it
+    # first asks, so this had to land first. Those backups are the only copy of
+    # a seven year tax record.
+    #
+    # A machine without this identity cannot build Ovation, which is correct
+    # rather than unfortunate: the alternative is silently falling back to ad hoc
+    # and reintroducing the defect with nothing saying so (L98). Run
+    # scripts/setup-signing.sh once per machine; it is idempotent.
+    CODE_SIGN_IDENTITY: "Ovation Local Signing"
+    CODE_SIGN_STYLE: Manual
     DEVELOPMENT_TEAM: ""
 targets:
   Ovation:
@@ -72,10 +83,35 @@ targets:
         OVATION_URL_SCHEME: ovation
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
+        # ENTITLEMENTS ARE DECLARED PER CONFIGURATION, and this is a security
+        # fix rather than tidiness.
+        #
+        # `com.apple.security.get-task-allow` lets any process attach a debugger
+        # and read the app's memory. Xcode adds it automatically when it thinks
+        # it is signing a development build, and a self signed identity with no
+        # provisioning profile looks exactly like one, so the moment ovation#9
+        # landed BOTH configurations got it. ENABLE_HARDENED_RUNTIME was YES the
+        # whole time and both bundles carried the runtime flag, so every reading
+        # of the configuration said the app was protected while its main
+        # protection was switched off (L188).
+        #
+        # Release ships with an EMPTY entitlements file: Ovation will hold Gmail
+        # refresh tokens carrying send and modify rights on Dan's mailbox, and
+        # seven years of tax records.
+        #
+        # Debug keeps it, or Xcode cannot attach and debugging is broken.
+        CODE_SIGN_ENTITLEMENTS: Ovation/Ovation.entitlements
+        # An entitlements FILE is not enough on its own. Xcode INJECTS a set of
+        # base entitlements on top of whatever the file says whenever it believes
+        # it is signing for development, and get-task-allow is in that set. An
+        # empty file was tried first and changed nothing, which is the point: the
+        # value the configuration sets is not the value in force (L188).
+        CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.danwright.ovation.debug
           OVATION_URL_SCHEME: ovation-debug
+          CODE_SIGN_ENTITLEMENTS: Ovation/Ovation-Debug.entitlements
   # The PURE suite, UNHOSTED on purpose, adopted from the source rather than
   # retrofitted later, because the reason it exists there is measured and applies
   # to Ovation from its first test.

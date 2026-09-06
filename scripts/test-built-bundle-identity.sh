@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
 
 CONFIG="${1:-Debug}"
-harness_begin "built bundle identity tests ($CONFIG)" 3
+harness_begin "built bundle identity tests ($CONFIG)" 5
 # Ask with the SAME scheme the build used. Querying by target alone resolves a
 # different build location than a scheme build writes to, so the path would be
 # correct-looking and empty, and this check would refuse on every run for a
@@ -36,41 +36,55 @@ EXPECTED_ID="com.danwright.ovation"
 [ "$CONFIG" = "Debug" ] && EXPECTED_ID="com.danwright.ovation.debug"
 check "the signed bundle carries the $CONFIG identity" "$IDENT" "$EXPECTED_ID"
 
-# Hardened runtime, asserted PER CONFIGURATION, because the two differ and only
-# one of them ships.
+# THE SIGNING IDENTITY, now that ovation#9 has been run.
 #
-# Measured 2026-09-05 on the signed bundles, not on the build setting, because a
-# value the configuration sets is only in force if nothing downstream recomputes
-# it (L188):
+# INVERTED 2026-09-06, in the same change that consumed the old assertion (L373).
+# This suite used to PIN ad hoc signing, deliberately, and said in its own
+# comment that going red would mean ovation#9 had worked. Dan ran
+# scripts/setup-signing.sh, "Ovation Local Signing" is in his login keychain
+# alongside the three siblings' identities, and project.yml now points at it. A
+# test left asserting the old world goes permanently red for a reason that looks
+# exactly like a real defect.
 #
-#     Release  flags=0x10002(adhoc,runtime)   hardened runtime IS in force
-#     Debug    flags=0x2(adhoc)               it is not
-#
-# The Debug case is deliberate and is not a defect: hardened runtime blocks a
-# debugger attaching, so Xcode drops it for a Debug ad hoc build. Asserting it
-# there would be asserting that debugging is broken.
-#
-# What ships is Release, and Release has it. Both are pinned here so that a
-# change to either is a deliberate, visible edit rather than something noticed
-# later on a signed artifact nobody looked at.
-if [ "$CONFIG" = "Release" ]; then
-    check "hardened runtime is in force on the configuration that ships" \
-        "$(printf '%s' "$SIG" | grep -c 'runtime')" "1"
-else
-    check "hardened runtime is off in Debug, deliberately, so a debugger can attach" \
-        "$(printf '%s' "$SIG" | grep -c 'runtime')" "0"
-fi
+# Why it matters, restated so nobody relaxes it later: ad hoc signing mints a NEW
+# code identity on every install, and macOS keys folder permission grants to that
+# identity. PRD 5.29 has Ovation writing backups to a folder Dan chooses, and
+# plan 1.8 is where it first asks. A backup feature that re-asks after every
+# rebuild is one he stops trusting, and those backups are the only copy of a
+# seven year tax record.
+check "the bundle is signed with Ovation's own stable identity" \
+    "$(printf '%s' "$SIG" | grep -c 'Authority=Ovation Local Signing')" "1"
+check "and it is NOT ad hoc signed any more" \
+    "$(printf '%s' "$SIG" | grep -c 'Signature=adhoc')" "0"
 
-# Signing is still ad hoc in BOTH, which is what ovation#9 replaces with a stable
-# self signed identity. That issue is about FOLDER GRANTS, not about hardened
-# runtime: an ad hoc build mints a new code identity on every install, and TCC
-# grants are keyed to that identity, so a granted folder is re prompted after
-# every rebuild. Plan 1.8 asks Dan for a backup folder, so #9 lands first.
+# HARDENED RUNTIME, RE-MEASURED AFTER THE IDENTITY CHANGE rather than assumed to
+# be unaffected by it, which is exactly what the previous version of this suite
+# said to do (L188). It changed: under ad hoc signing Debug had no runtime flag
+# at all, and with a real identity BOTH configurations carry it.
+check "hardened runtime is in force" \
+    "$(printf '%s' "$SIG" | grep -c 'runtime')" "1"
+
+# AND THE ENTITLEMENT THAT DECIDES WHETHER IT MEANS ANYTHING.
 #
-# WHEN THIS GOES RED: that is ovation#9 having worked. Update it in the same
-# commit that ships the identity (L373), rather than leaving a test asserting a
-# world that no longer exists.
-check "signing is still ad hoc, which ovation#9 replaces" \
-    "$(printf '%s' "$SIG" | grep -c 'adhoc')" "2"
+# `com.apple.security.get-task-allow` lets any process attach a debugger and read
+# the app's memory. With it present, hardened runtime is declared and its main
+# protection is switched off, so reading the flag alone says the app is protected
+# when it is not (L188).
+#
+# Debug NEEDS it, or Xcode cannot attach and debugging is broken.
+# Release MUST NOT HAVE IT. Ovation will hold Gmail refresh tokens carrying send
+# and modify rights on Dan's mailbox, and seven years of tax records.
+#
+# Found 2026-09-06, the moment the stable identity landed: Xcode was adding it to
+# BOTH, because a self signed identity with no provisioning profile is treated as
+# a development signing setup.
+ENTS="$(codesign -d --entitlements - --xml "$APP" 2>/dev/null | plutil -p - 2>/dev/null)"
+if [ "$CONFIG" = "Release" ]; then
+    check "the shipping build does NOT let a debugger attach" \
+        "$(printf '%s' "$ENTS" | grep -c 'get-task-allow')" "0"
+else
+    check "the debug build DOES let a debugger attach, or Xcode cannot debug it" \
+        "$(printf '%s' "$ENTS" | grep -c 'get-task-allow')" "1"
+fi
 
 harness_end
