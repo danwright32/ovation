@@ -15,28 +15,15 @@
 # these ask xcodebuild what the setting actually came out as.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
-PASS=0; FAIL=0
-check() {
-    if [ "$2" = "$3" ]; then
-        PASS=$((PASS+1))
-    else
-        FAIL=$((FAIL+1))
-        echo "FAIL: $1"
-        echo "      expected '$3', got '$2'"
-    fi
-}
+. "$(dirname "$0")/lib/test-harness.sh"
+harness_begin "project configuration tests" 8
 
-if [ ! -f project.yml ]; then
-    echo "FAIL: project.yml is missing, so nothing was checked"
-    exit 1
-fi
+require_target "project.yml"
 
 XCODEGEN="${XCODEGEN:-/opt/homebrew/bin/xcodegen}"
 if [ ! -x "$XCODEGEN" ]; then
-    echo "CANNOT MEASURE: xcodegen is not at $XCODEGEN"
-    echo "  install it with: brew install xcodegen"
-    echo "  refusing to report a pass on a project that was never generated"
-    exit 2
+    harness_cannot_measure "xcodegen is not at $XCODEGEN" \
+        "install it with: brew install xcodegen"
 fi
 
 # Regenerate, so what is asserted is what project.yml currently produces and not
@@ -108,5 +95,4 @@ CORE_TARGETS="$(grep -o 'BlueprintName = "[^"]*"' \
 check "the pure scheme builds ONLY the test bundle, never the app" \
     "$CORE_TARGETS" 'BlueprintName = "OvationTests" '
 
-echo "project configuration tests: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ]
+harness_end

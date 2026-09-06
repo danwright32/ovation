@@ -9,18 +9,10 @@
 # bundle on disk.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
-PASS=0; FAIL=0
-check() {
-    if [ "$2" = "$3" ]; then
-        PASS=$((PASS+1))
-    else
-        FAIL=$((FAIL+1))
-        echo "FAIL: $1"
-        echo "      expected '$3', got '$2'"
-    fi
-}
+. "$(dirname "$0")/lib/test-harness.sh"
 
 CONFIG="${1:-Debug}"
+harness_begin "built bundle identity tests ($CONFIG)" 3
 # Ask with the SAME scheme the build used. Querying by target alone resolves a
 # different build location than a scheme build writes to, so the path would be
 # correct-looking and empty, and this check would refuse on every run for a
@@ -30,10 +22,8 @@ APP="$(xcodebuild -project Ovation.xcodeproj -scheme Ovation -configuration "$CO
     | awk '$1 == "BUILT_PRODUCTS_DIR" && $2 == "=" { print $3; exit }')/Ovation.app"
 
 if [ ! -d "$APP" ]; then
-    echo "CANNOT MEASURE: no built product at $APP"
-    echo "  build it first: xcodebuild -project Ovation.xcodeproj -scheme Ovation -destination 'platform=macOS' build"
-    echo "  refusing to report a pass on a bundle that was never built"
-    exit 2
+    harness_cannot_measure "no built product at $APP" \
+        "build it first: xcodebuild -project Ovation.xcodeproj -scheme Ovation -destination 'platform=macOS' build"
 fi
 
 SIG="$(codesign -d --verbose=2 "$APP" 2>&1)"
@@ -83,5 +73,4 @@ fi
 check "signing is still ad hoc, which ovation#9 replaces" \
     "$(printf '%s' "$SIG" | grep -c 'adhoc')" "2"
 
-echo "built bundle identity tests ($CONFIG): $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ]
+harness_end

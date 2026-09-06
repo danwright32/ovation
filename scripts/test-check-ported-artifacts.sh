@@ -26,22 +26,11 @@
 #   be trusted by the time it matters (L98, L182).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
-PASS=0; FAIL=0
-check() {
-    if [ "$2" = "$3" ]; then
-        PASS=$((PASS+1))
-    else
-        FAIL=$((FAIL+1))
-        echo "FAIL: $1"
-        echo "      expected '$3', got '$2'"
-    fi
-}
+. "$(dirname "$0")/lib/test-harness.sh"
+harness_begin "ported artifact check tests" 27
 
 TARGET="scripts/check-ported-artifacts.sh"
-if [ ! -x "$TARGET" ]; then
-    echo "FAIL: $TARGET is missing or not executable, so nothing was checked"
-    exit 1
-fi
+require_target "$TARGET"
 
 # Everything below runs against throwaway repositories in a temp directory. The
 # check only ever reads, so the risk is not that it writes somewhere real but
@@ -59,7 +48,9 @@ if [ -z "${WORK:-}" ] || [ ! -d "$WORK" ]; then
     echo "      refusing to run: every cleanup below is scoped to it"
     exit 1
 fi
-trap 'rm -rf "$WORK"' EXIT INT TERM
+# Registered THROUGH the harness, never as our own `trap ... EXIT`: bash keeps
+# one EXIT trap and ours would silently replace the harness's crash guard.
+harness_on_exit 'rm -rf "$WORK"'
 
 # A stand-in sibling: a real git repo with a main branch and a second commit on a
 # branch that was never merged.
@@ -228,5 +219,4 @@ check "and it still does not match its own marker" \
 check "and it does not report the repository as empty now that a port exists" \
     "$(printf '%s' "$OUT10" | grep -c "NO PORTED ARTIFACTS")" "0"
 
-echo "ported artifact check tests: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ]
+harness_end
