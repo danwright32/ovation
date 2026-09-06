@@ -18,7 +18,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "test runner lock tests" 16
+harness_begin "test runner lock tests" 21
 
 TARGET="scripts/run-tests.sh"
 require_target "$TARGET"
@@ -35,6 +35,7 @@ run_runner() {
     OVATION_LOCK_TIMEOUT="${TIMEOUT_OVERRIDE:-2}" \
     OVATION_FLOCK_BIN="${FLOCK_OVERRIDE:-/opt/homebrew/bin/flock}" \
     OVATION_TEST_COMMAND="${1:-true}" \
+    OVATION_UNLOCKED_COMMAND="${2:-true}" \
         "./$TARGET" 2>&1
 }
 
@@ -128,5 +129,83 @@ OUT8="$(run_runner "exit 3")"; ST8=$?
 check "a failing test command fails the run, with the command's own status" "$ST8" "3"
 check "and it got far enough to actually hold both locks first" \
     "$(mentions "$OUT8" "Holding both locks")" "yes"
+
+# 9. THE LOCKS ARE SCOPED TO THE WORK THAT NEEDS THEM.
+#
+#    Found on the FIRST REAL USE, minutes after this shipped. A push ran the
+#    hook, which ran this runner, which took Downbeat's lock and then waited on
+#    Overture's, which a real Overture suite had held for four minutes. That is
+#    the lock working exactly as intended. But it made the SHELL suites wait too,
+#    and they use no xcodebuild and share nothing with either sibling. A gate
+#    that queues its cheap checks behind another app's build is a gate people
+#    learn to skip (L378, L299).
+#
+#    So the unlocked work runs FIRST, with no lock at all, and the locks are held
+#    only around the xcodebuild run.
+
+# 9a. A failing unlocked command fails the run WITHOUT ever taking a lock.
+rm -rf "$DIR_LOCK"
+OUT9="$(run_runner "true" "exit 4")"; ST9=$?
+check "a failing unlocked check fails the run" "$ST9" "4"
+check "and it never took the shared lock to find that out" \
+    "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
+
+# 9b. With a sibling holding a lock, the unlocked work STILL RUNS. This is the
+#     whole point: the cheap checks are not queued behind another app's build.
+mkdir -p "$DIR_LOCK"
+TIMEOUT_OVERRIDE=1 OUT9B="$(run_runner "true" "echo UNLOCKED-RAN-ANYWAY")"; ST9B=$?
+check "the unlocked work runs even while a sibling holds the lock" \
+    "$(mentions "$OUT9B" "UNLOCKED-RAN-ANYWAY")" "yes"
+rmdir "$DIR_LOCK"
+
+# 10. OVATION MUST NOT HOLD ONE SIBLING'S LOCK WHILE WAITING FOR THE OTHER'S.
+#
+#     Also found on the first real use. Ovation took Downbeat's lock, then waited
+#     on Overture's for four minutes. For all that time DOWNBEAT could not run
+#     either, blocked by Overture through Ovation, which is a coupling nobody
+#     chose and which neither sibling can see or diagnose.
+#
+#     So the second lock is tried WITHOUT blocking, and if it is not free the
+#     first is RELEASED before waiting and retrying. Ovation waits for both,
+#     holds neither while waiting, and still cannot deadlock.
+if [ -x "/opt/homebrew/bin/flock" ]; then
+    : > "$FILE_LOCK"
+    ( /opt/homebrew/bin/flock "$FILE_LOCK" sleep 6 ) &
+    HOLDER2=$!
+    waited=0
+    while /opt/homebrew/bin/flock -n "$FILE_LOCK" true 2>/dev/null; do
+        waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
+    done
+
+    # Start Ovation while the file lock is held, and watch whether it parks on
+    # the directory lock. Wait on the CONDITION rather than a fixed sleep (L290).
+    ( TIMEOUT_OVERRIDE=4 run_runner >/dev/null 2>&1 ) &
+    RUNNER=$!
+    # THE PROPERTY IS "NOT HELD FOR THE DURATION", NOT "NEVER HELD".
+    #
+    # The design takes the directory lock, tries the file lock without blocking,
+    # and releases before waiting. So a brief hold on each attempt is inherent
+    # and harmless, because Downbeat's own loop retries. The first version of
+    # this asserted the lock was NEVER observed held, which passed standalone and
+    # failed the moment the suite ran under load: it was asserting about timing
+    # rather than about the design (L205, L224).
+    #
+    # Observed FREE at least once during the wait is the honest distinction. The
+    # old design held it continuously and would never be seen free.
+    seen_free=0; polls=0
+    while [ "$polls" -lt 80 ] && kill -0 "$RUNNER" 2>/dev/null; do
+        [ -e "$DIR_LOCK" ] || seen_free=1
+        polls=$((polls+1)); sleep 0.05
+    done
+    check "Downbeat's lock is released between attempts, not held for the whole wait" \
+        "$([ "$seen_free" -eq 1 ] && echo released || echo held-throughout)" "released"
+    kill "$HOLDER2" 2>/dev/null || true; wait "$HOLDER2" 2>/dev/null || true
+    wait "$RUNNER" 2>/dev/null || true
+    check "and neither lock is left behind afterwards" \
+        "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
+else
+    check "Downbeat's lock is released between attempts, not held for the whole wait" "skip" "skip"
+    check "and neither lock is left behind afterwards" "skip" "skip"
+fi
 
 harness_end

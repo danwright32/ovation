@@ -36,6 +36,18 @@
 # Because the directory lock does not self clear, THE TRAP IS THE WHOLE OF
 # OVATION'S CRASH SAFETY on that half, and it runs on every exit path rather than
 # only the tidy one (L515, L514).
+#
+# THE LOCKS ARE SCOPED TO THE WORK THAT ACTUALLY NEEDS THEM, and that was learned
+# on the first real use rather than reasoned out. Minutes after this shipped, a
+# push ran the hook, which ran this runner, which took Downbeat's lock and then
+# waited on Overture's, which a real Overture suite had held for four minutes.
+# The lock was working exactly as intended. What was wrong is that it made the
+# SHELL suites wait too, and they run no xcodebuild and share nothing with either
+# sibling. A gate that queues its cheap checks behind another app's build is a
+# gate people learn to skip (L378, L299).
+#
+# So: the unlocked work runs FIRST and fails fast, and the locks are taken only
+# around the xcodebuild run.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,6 +57,7 @@ FILE_LOCK="${OVATION_FILE_LOCK:-/tmp/overture-mac-tests.lock}"
 TIMEOUT="${OVATION_LOCK_TIMEOUT:-1800}"
 FLOCK_BIN="${OVATION_FLOCK_BIN:-/opt/homebrew/bin/flock}"
 TEST_COMMAND="${OVATION_TEST_COMMAND:-}"
+UNLOCKED_COMMAND="${OVATION_UNLOCKED_COMMAND:-}"
 
 DIR_LOCK_HELD=""
 FLOCK_FD=""
@@ -64,6 +77,23 @@ trap release_locks EXIT INT TERM
 # is the one that will be absent on a fresh machine. Say so BY NAME with the
 # remedy rather than failing obscurely: a refusal whose message does not say what
 # to do leaves the reader facing the same command with no way to learn why (L148).
+# ---------------------------------------------------------------------------
+# PHASE ONE, unlocked. Nothing here touches xcodebuild or any shared state, so
+# it must not wait behind a sibling's build.
+# ---------------------------------------------------------------------------
+if [ -n "${UNLOCKED_COMMAND}" ]; then
+  bash -c "${UNLOCKED_COMMAND}" || exit $?
+else
+  echo "==> Running the shell suites (no lock needed)"
+  for s in "${REPO_ROOT}"/scripts/test-*.sh; do
+    [ -x "$s" ] || continue
+    "$s" || exit $?
+  done
+fi
+
+# ---------------------------------------------------------------------------
+# PHASE TWO, locked. Only xcodebuild needs to exclude the siblings.
+# ---------------------------------------------------------------------------
 if [ ! -x "${FLOCK_BIN}" ]; then
   echo "Error: flock was not found at ${FLOCK_BIN}." >&2
   echo "       Ovation's test runner takes Overture's lock, which uses it." >&2
@@ -72,44 +102,51 @@ if [ ! -x "${FLOCK_BIN}" ]; then
   exit 2
 fi
 
-# 1. DOWNBEAT'S LOCK FIRST. mkdir is atomic on every filesystem that matters,
-#    which is why it is the primitive rather than a check followed by a create.
-echo "==> Waiting for the shared xcodebuild lock at ${DIR_LOCK}"
-waited=0
-until mkdir "${DIR_LOCK}" 2>/dev/null; do
-  waited=$((waited+1))
-  if [ "${waited}" -gt "${TIMEOUT}" ]; then
-    echo "Error: gave up waiting for ${DIR_LOCK} after ${TIMEOUT}s." >&2
-    echo "       Another xcodebuild run is holding it, or a previous one died." >&2
+# BOTH LOCKS, TAKEN WITHOUT EVER HOLDING ONE WHILE WAITING FOR THE OTHER.
+#
+# The first version took Downbeat's, then waited on Overture's. On its first real
+# use it sat there for four minutes, and for all of that time DOWNBEAT could not
+# run either: blocked by Overture, through Ovation, a coupling nobody chose and
+# which neither sibling can see or diagnose.
+#
+# So the second is tried WITHOUT BLOCKING, and if it is not free the first is
+# RELEASED before waiting and trying again. Ovation waits for both and holds
+# neither while waiting. The fixed order still stands for the acquisition itself,
+# and since nothing is ever held across a wait there is nothing to deadlock on.
+echo "==> Waiting for both test locks (${DIR_LOCK}, ${FILE_LOCK})"
+: > "${FILE_LOCK}" 2>/dev/null || true
+elapsed=0
+while :; do
+  if mkdir "${DIR_LOCK}" 2>/dev/null; then
+    DIR_LOCK_HELD=1
+    printf '%s:%s\n' "$(basename "${REPO_ROOT}")" "$$" > "${DIR_LOCK}/owner" 2>/dev/null || true
+    # Non blocking. If Overture has it, we do not queue holding Downbeat's.
+    exec 9>"${FILE_LOCK}" || { echo "Error: cannot open ${FILE_LOCK}" >&2; exit 3; }
+    if "${FLOCK_BIN}" -n 9; then
+      FLOCK_FD=9
+      break
+    fi
+    exec 9>&- 2>/dev/null || true
+    release_locks
+  fi
+  elapsed=$((elapsed+1))
+  if [ "${elapsed}" -gt "${TIMEOUT}" ]; then
+    echo "Error: gave up waiting for the test locks after ${TIMEOUT}s." >&2
+    echo "       ${DIR_LOCK} is Downbeat's, ${FILE_LOCK} is Overture's." >&2
+    echo "       An Overture test run is holding it, or a previous run died." >&2
     echo "       If nothing is running, remove ${DIR_LOCK} and try again." >&2
     exit 3
   fi
   sleep 1
 done
-DIR_LOCK_HELD=1
-printf '%s:%s\n' "$(basename "${REPO_ROOT}")" "$$" > "${DIR_LOCK}/owner" 2>/dev/null || true
-
-# 2. OVERTURE'S LOCK SECOND, always. Held through a file descriptor rather than
-#    by wrapping the command, so the same shell holds both and the trap above can
-#    release both.
-echo "==> Waiting for Overture's lock at ${FILE_LOCK}"
-: > "${FILE_LOCK}" 2>/dev/null || true
-exec 9>"${FILE_LOCK}" || { echo "Error: cannot open ${FILE_LOCK}" >&2; exit 3; }
-if ! "${FLOCK_BIN}" -w "${TIMEOUT}" 9; then
-  echo "Error: gave up waiting for ${FILE_LOCK} after ${TIMEOUT}s." >&2
-  echo "       An Overture test run is holding it." >&2
-  exit 3
-fi
-FLOCK_FD=9
 
 echo "==> Holding both locks. Running Ovation's tests."
 
 # The command is injectable so the suite can measure the LOCKING without paying
 # for a three minute xcodebuild (L2, L291). The default is the real thing.
 if [ -z "${TEST_COMMAND}" ]; then
-  bash -c 'for s in "'"${REPO_ROOT}"'"/scripts/test-*.sh; do "$s" || exit 1; done' \
-    && xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme OvationCore \
-       -destination 'platform=macOS' test
+  xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme OvationCore \
+    -destination 'platform=macOS' test
 else
   bash -c "${TEST_COMMAND}"
 fi
