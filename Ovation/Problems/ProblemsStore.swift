@@ -91,10 +91,19 @@ final class ProblemsStore {
         do {
             records = try journal.load()
         } catch {
-            // Nothing to do about it here beyond saying so. An empty store and a
-            // store that could not be read are different facts (L215), and the
-            // second one is itself a problem.
-            noteJournalFailure(now: Date(timeIntervalSinceReferenceDate: 0))
+            // An empty store and a store that could not be read are different
+            // facts (L215), and this is the second one. It gets its OWN kind and
+            // its own sentence: a read that failed is not a write that failed,
+            // and a message may claim only what its check measured (L11).
+            let id = Problem.identity(kind: .problemsJournalUnreadable, subject: nil)
+            let now = Date(timeIntervalSinceReferenceDate: 0)
+            problems[id] = Problem(
+                id: id, kind: .problemsJournalUnreadable, subject: nil,
+                sentence: "Ovation could not read its record of problems, so anything reported "
+                    + "before now is not in the list below. Nothing has been lost from the file.",
+                firstRaised: now, lastRaised: now, occurrences: 1,
+                acknowledgedAt: nil, resolvedAt: nil, resolutionReason: nil)
+            if !order.contains(id) { order.append(id) }
             return
         }
 

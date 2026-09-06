@@ -34,6 +34,11 @@ extension ProblemKind {
     /// No export has been run for long enough to be worth saying (ovation#64).
     static let exportStale = ProblemKind("export.stale")
 
+    /// The problems journal could not be READ at all, so this session started
+    /// with no history. A different fact from not being able to write one, and
+    /// it needs a different sentence (L11).
+    static let problemsJournalUnreadable = ProblemKind("problems.journal-unreadable")
+
     /// The problems journal was read, and some of what it held did not decode.
     static let problemsJournalDamaged = ProblemKind("problems.journal-damaged")
 

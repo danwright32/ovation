@@ -169,6 +169,21 @@ struct ProblemsStoreTests {
         #expect(!store.open.contains { $0.kind == .problemsJournalDamaged })
     }
 
+    @Test("a journal that cannot be READ says that, not that it could not be written")
+    func aFailedReadIsItsOwnSentence() {
+        // Two different facts. The file being unreadable at launch means this
+        // session starts with no history; the file being unwritable means
+        // anything reported in this session will be gone next time. A message may
+        // claim only what its check measured (L11).
+        let store = ProblemsStore(journal: RefusingProblemsJournal())
+
+        store.load()
+
+        #expect(store.open.contains { $0.kind == .problemsJournalUnreadable })
+        #expect(!store.open.contains { $0.kind == .problemsJournalUnwritable })
+        #expect(store.open.first?.sentence.contains("could not read") == true)
+    }
+
     @Test("a journal that cannot be written does not lose the problem from the screen")
     func aFailedWriteStillRaisesTheProblem() {
         // The journal is how a problem survives a relaunch. It is not how the
