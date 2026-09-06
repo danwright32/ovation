@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 15
+harness_begin "output privacy tests" 17
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -182,13 +182,31 @@ check "the preconditions entry point prints no identity when a check passes" \
     "$(leaks_in "$(OVATION_PRECONDITION_CHECKS="$PWD/scripts/check-booking-queue.sh" \
         OVATION_BOOKING_QUEUE="$QUEUE" ./scripts/check-preconditions.sh 2>&1)")" "clean"
 
+# 7. The custody verifier. Its whole job is to touch files whose CONTENTS are
+#    the most sensitive on this disk, so the assertion that it never opens one
+#    for anything but hashing is the point rather than a formality.
+CUSTODY_FILE="$WORK/recorded.json"
+cp "$EXPORT" "$CUSTODY_FILE"
+NOTE="$WORK/note.md"
+{
+    printf '# Custody records\n\n'
+    printf '## recorded.json\n\n| Field | Value |\n| --- | --- |\n'
+    printf '| Path | `%s` |\n' "$CUSTODY_FILE"
+    printf '| SHA-256 | `%s` |\n' "$(shasum -a 256 "$CUSTODY_FILE" | cut -d' ' -f1)"
+} > "$NOTE"
+check "the custody verifier prints no identity when a file verifies" \
+    "$(leaks_in "$(OVATION_CUSTODY_NOTE="$NOTE" ./scripts/check-custody-files.sh 2>&1)")" "clean"
+printf 'changed\n' >> "$CUSTODY_FILE"
+check "and none when it reports a hash mismatch" \
+    "$(leaks_in "$(OVATION_CUSTODY_NOTE="$NOTE" ./scripts/check-custody-files.sh 2>&1)")" "clean"
+
 # ---------------------------------------------------------------------------
 # COMPLETENESS. A hand written list of covered scripts silently exempts whatever
 # nobody remembered to add, and the exempted one is the one this suite exists
 # for (L96, L247). So the list is asserted against what is actually on disk, and
 # a new check script fails HERE until somebody points it at the fixture.
 # ---------------------------------------------------------------------------
-COVERED="check-booking-queue.sh check-custody-not-staged.sh check-identity-leaks.sh check-ported-artifacts.sh check-preconditions.sh check-sibling-installs.sh"
+COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-identity-leaks.sh check-ported-artifacts.sh check-preconditions.sh check-sibling-installs.sh"
 ON_DISK="$(cd scripts && ls -1 check-*.sh | sort | tr '\n' ' ')"
 check "every check script on disk is covered by this suite" \
     "$(printf '%s' "$ON_DISK" | tr -s ' ' | sed 's/ $//')" \
