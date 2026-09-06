@@ -31,7 +31,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "sibling install verdict tests" 16
+harness_begin "sibling install verdict tests" 18
 
 TARGET="scripts/check-sibling-installs.sh"
 require_target "$TARGET"
@@ -108,6 +108,19 @@ check "an install from a branch other than main is BLOCKED" \
 OUT_BRANCH="$(run_check "$BRANCH_RECORD" "$REPO" "$GOOD_EXPORT" "$OLD")"
 check "and it names the provenance it actually found" \
     "$(says "$OUT_BRANCH" "a-feature-branch")" "yes"
+
+# 'unknown' is NOT 'not main'. Overture's build_provenance prints exactly one of
+# main, branch or unknown, and its own header says unknown covers a checkout with
+# no origin, a remote that cannot be reached and a capped fetch, none of which may
+# ever be reported as a branch build: an accusation made from an index that is
+# merely incomplete tells Dan his ordinary install came from an unmerged branch,
+# and reinstalling would not clear it (L119, L11). So it cannot be measured.
+UNKNOWN_PROV="$WORK/unknown-prov.json"; record "$UNKNOWN_PROV" "$NEW" unknown
+check "an install whose provenance could not be classified cannot be measured" \
+    "$(status_of "$UNKNOWN_PROV" "$REPO" "$GOOD_EXPORT" "$OLD")" "2"
+OUT_UNK="$(run_check "$UNKNOWN_PROV" "$REPO" "$GOOD_EXPORT" "$OLD")"
+check "and it does not accuse the install of coming from a branch" \
+    "$(says "$OUT_UNK" "branch")" "no"
 
 V2_EXPORT="$WORK/v2.json"; export_file "$V2_EXPORT" 2
 check "an export that is still version 2 is BLOCKED" \

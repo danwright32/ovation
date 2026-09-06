@@ -109,10 +109,24 @@ if ! git -C "$REPO" merge-base --is-ancestor "$GATE" "$INSTALLED" 2>/dev/null; t
         "it will refuse a version ${WANT_VERSION} export outright and lose its roster; reinstall Overture from main first"
 fi
 
-if [ "$PROVENANCE" != "main" ]; then
-    blocked "the installed Overture came from '${PROVENANCE}', not main" \
-        "a build from a branch is a build whose contents nobody can state; reinstall from main"
-fi
+# THREE PROVENANCES, NOT TWO. Overture's build_provenance prints exactly one of
+# `main`, `branch` or `unknown`, and its own header is explicit that `unknown`
+# covers a checkout with no origin, an unreachable remote and a capped fetch.
+# None of those may be reported as a branch build: an accusation made from an
+# index that is merely incomplete would say an ordinary install came from
+# unmerged work, and reinstalling would not clear it (L119). So it is the third
+# outcome, and its message claims only what was actually measured (L11).
+case "$PROVENANCE" in
+    main) ;;
+    unknown)
+        cannot_measure "Overture's installer could not classify where this build came from" \
+            "it records 'unknown' when the checkout has no origin, the remote could not be reached, or the fetch was capped; re-run the installer with the network up"
+        ;;
+    *)
+        blocked "the installed Overture came from unmerged work, not main" \
+            "its installer recorded provenance '${PROVENANCE}'; a build nobody can state the contents of is running against the live store, so reinstall from main"
+        ;;
+esac
 
 # ---------------------------------------------------------------------------
 # DOWNBEAT, judged by the artifact it produced rather than by its own record.
