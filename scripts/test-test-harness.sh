@@ -217,5 +217,50 @@ check "and the crash guard does NOT overwrite it with never reported" \
 check "and it never claims a pass" \
     "$(printf '%s' "$OUT9" | grep -c "passed, 0 failed")" "0"
 
+# 10. THE TEMP DIRECTORY IS THE HARNESS'S JOB TOO.
+#     Every suite that needs scratch space was writing the same three lines by
+#     hand: mktemp, a guard against it having failed, and a cleanup. The guard is
+#     the one that gets dropped, and `set -u` does NOT catch it, because an empty
+#     variable is set. A suite that skipped it would run `rm -rf "/whatever"` at
+#     the filesystem root, and "that path happens not to exist" is the reasoning
+#     L5 exists to stop. Same answer as the exit trap: take it out of the suite's
+#     hands.
+suite tempdir <<SUITE
+#!/bin/bash
+cd "$PWD" || exit 1
+. "$PWD/$HARNESS"
+harness_begin "temp dir" 1
+harness_temp_dir d
+echo "\$d" > "$WORK/reported-dir"
+touch "\$d/a-file"
+check "the directory exists and is writable" "\$([ -f "\$d/a-file" ] && echo yes)" "yes"
+harness_end
+SUITE
+OUT10="$(run tempdir)"; ST10=$?
+check "a suite can get a temp directory from the harness" "$ST10" "0"
+DIR10="$(cat "$WORK/reported-dir" 2>/dev/null)"
+check "and it was a real directory, not an empty string" \
+    "$([ -n "$DIR10" ] && echo named || echo empty)" "named"
+check "and the harness removed it when the suite ended" \
+    "$([ -e "$DIR10" ] && echo left-behind || echo removed)" "removed"
+
+# 11. And it is removed on the CRASH path too, not only the tidy one (L515).
+suite tempdir_dies <<SUITE
+#!/bin/bash
+cd "$PWD" || exit 1
+. "$PWD/$HARNESS"
+harness_begin "temp dir dies" 3
+harness_temp_dir d
+echo "\$d" > "$WORK/reported-dir-2"
+touch "\$d/a-file"
+exit 0
+SUITE
+OUT11="$(run tempdir_dies)"; ST11=$?
+DIR11="$(cat "$WORK/reported-dir-2" 2>/dev/null)"
+check "a suite that dies is still refused when it used a temp dir" \
+    "$([ "$ST11" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+check "and the temp directory was still removed" \
+    "$([ -e "$DIR11" ] && echo left-behind || echo removed)" "removed"
+
 echo "test harness tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

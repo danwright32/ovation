@@ -20,12 +20,9 @@ harness_begin "setup-signing tests" 10
 TARGET="scripts/setup-signing.sh"
 require_target "$TARGET"
 
-WORK="$(mktemp -d)"
-if [ -z "${WORK:-}" ] || [ ! -d "$WORK" ]; then
-    echo "REFUSED: could not create a temp directory, so nothing was checked"
-    exit 1
-fi
-harness_on_exit 'rm -rf "$WORK"'
+# Created, guarded against a failed mktemp, and removed by the harness on every
+# exit path. The suite never writes an rm of its own (ovation#19).
+harness_temp_dir WORK
 
 # A stub standing in for /usr/bin/security. It records what it was asked to do,
 # so the test can assert the script did NOT reach the creating steps when the

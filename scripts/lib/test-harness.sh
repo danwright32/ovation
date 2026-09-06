@@ -13,7 +13,8 @@
 #     . "$(dirname "$0")/lib/test-harness.sh"
 #     harness_begin "what this suite is about" <how many assertions it runs>
 #     require_target "path/to/the/thing/under/test"
-#     harness_on_exit 'rm -rf "$WORK"'   # never `trap ... EXIT` yourself
+#     harness_temp_dir WORK                  # created, guarded and cleaned up for you
+#     harness_on_exit 'some other cleanup'   # never `trap ... EXIT` yourself
 #     harness_cannot_measure "why" "remedy"   # exits 2: proved nothing either way
 #     check "description" "$actual" "$expected"
 #     harness_end
@@ -80,6 +81,34 @@ harness_begin() {
     PASS=0
     FAIL=0
     trap _harness_exit_guard EXIT
+}
+
+# Scratch space, created and cleaned up BY THE HARNESS.
+#
+# Every suite needing one was writing the same three lines by hand: mktemp, a
+# guard against it having failed, and a cleanup. The guard is the one that gets
+# dropped, and `set -u` does not catch it, because an empty variable is set, not
+# unset. A suite that skipped it would run `rm -rf` on a path built from nothing,
+# at the filesystem root, and "that path happens not to exist" is precisely the
+# reasoning L5 exists to stop. So it is not the suite's job.
+#
+# It SETS A NAMED VARIABLE rather than printing the path, and that is not a style
+# choice. A `$(...)` substitution runs in a SUBSHELL, so a cleanup registered
+# inside one is registered in a shell that exits immediately and never reaches
+# the suite. The first version printed, and the directories were left behind on
+# disk while every other assertion passed.
+#
+#     harness_temp_dir WORK    # then use "$WORK"
+harness_temp_dir() {
+    local _var="$1" _d
+    _d="$(mktemp -d)"
+    if [ -z "${_d:-}" ] || [ ! -d "$_d" ]; then
+        _HARNESS_ENDED=1
+        echo "REFUSED: could not create a temp directory, so nothing was checked." >&2
+        exit 1
+    fi
+    harness_on_exit "rm -rf '$_d'"
+    printf -v "$_var" '%s' "$_d"
 }
 
 # The thing under test must exist. Absent is a refusal naming what was missing,

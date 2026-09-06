@@ -36,21 +36,9 @@ require_target "$TARGET"
 # check only ever reads, so the risk is not that it writes somewhere real but
 # that it READS a real sibling and reports about it. Section 6 proves the seam is
 # honoured rather than assuming it (L322).
-WORK="$(mktemp -d)"
-# REFUSE rather than delete a path built from an empty variable. `set -u` catches
-# an UNSET variable, not an empty one, so a failed mktemp would leave WORK empty
-# and new_tree below would run `rm -rf "/tree1"` against a path at the filesystem
-# root. That path almost certainly does not exist, and "it happens not to exist"
-# is exactly the reasoning L5 exists to stop. Every rm here is scoped to a
-# directory this file created seconds earlier, and this is what keeps that true.
-if [ -z "${WORK:-}" ] || [ ! -d "$WORK" ]; then
-    echo "FAIL: could not create a temp directory, so nothing was checked"
-    echo "      refusing to run: every cleanup below is scoped to it"
-    exit 1
-fi
-# Registered THROUGH the harness, never as our own `trap ... EXIT`: bash keeps
-# one EXIT trap and ours would silently replace the harness's crash guard.
-harness_on_exit 'rm -rf "$WORK"'
+# Created, guarded against a failed mktemp, and removed by the harness on every
+# exit path. The suite never writes an rm of its own (ovation#19).
+harness_temp_dir WORK
 
 # A stand-in sibling: a real git repo with a main branch and a second commit on a
 # branch that was never merged.
