@@ -76,6 +76,31 @@ Everything asserted below was measured on this Mac on 2026-08-27. Where a claim 
 
 ## Phase 0, day zero, before a line of Ovation code
 
+> **CORRECTED 2026-09-05, and it retires most of 0.2.0a, 0.2.0 and 0.2.** Every installed build
+> figure this phase was written against had been replaced before anyone acted on it. **Measured
+> 2026-09-05:** Overture is installed at `f78a3def` (2026-09-04, `provenance: main`), which already
+> contains `bdd85404`, the widened version gate. Downbeat is installed at `1f5b470a` (2026-08-29)
+> and is **already emitting a version 3 export**: 19 bookings, 31 clients, 5 venues, all 19 carrying
+> `startsAt` and `endsAt`. So the ordering hazard those three steps exist to prevent, a v3 Downbeat
+> reaching an Overture that would refuse the whole file and lose its 31 client roster, **has already
+> passed safely**. No reinstall of either sibling is required, and Overture's checkout was never
+> touched, which turned out to matter: it held two uncommitted files modified minutes before the
+> measurement, so another session was live in it.
+>
+> **What survives from those steps:** 0.2 step 4 only, the end to end proof that a booking Dan
+> commits leaves a file in the real `booking-queue/` directory. `Application Support/Ovation/` holds
+> only `custody/`, so nothing has been committed since the v3 Downbeat went in. That proof is the
+> entry criterion for Phase 6 and has months of slack.
+>
+> **Snapshot 2 has been taken**, on 2026-09-05, with all ten of the assertions below passing. See
+> `docs/CUSTODY.md`.
+>
+> **The lesson, recorded rather than repeated:** this phase's premise was a value read once about
+> something living outside this repository, with no action inside it to hang a re-read on, so it
+> went stale invisibly and its silence read as an assurance (L175). The measurements below are dated
+> for the same reason, and any of them is to be re-measured rather than trusted before it decides
+> anything.
+
 Five actions, in this order. Order matters: **0.2.0 exists because the first draft of this plan would have broken Overture on its first command, and 0.2.0a exists because the second draft would have failed on its first line with a git error and no remedy.**
 
 **Who does what (Dan, 2026-08-28: "don't worry about updating the apps. I'll do that").** 0.2.0a, 0.2.0 and 0.2 are Dan's steps. The agent does not run `build-install.sh` in either sibling, does not check out branches in Overture, and does not launch either app. What the agent still does: measure the installed state before Dan starts (so the starting point is recorded), hand him the numbered steps below with one command per block, and run the verdict checks after he says he is done. The one ordering rule that protects his data is unchanged and is the whole reason 0.2.0 sits before 0.2: **Overture is reinstalled from `main` first, and Downbeat only after the 0.2.0 verdict passes**, or Overture refuses the v3 export whole and loses its 31-client roster.
@@ -120,7 +145,7 @@ cd "$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketin
 
 ### 0.2.0 Reinstall Overture from main, and prove the INSTALLED BUNDLE, BEFORE any Downbeat install
 
-**This step exists because without it, step one of this plan destroys a working app.** The installed Overture is commit `2ddd4bc6` (2026-08-24). The fix that widens its version gate to a minimum, `bdd85404` (2026-08-27), is on Overture's main and is **not** in that build. CONTRACT.md: Overture "decodes the WHOLE file or none of it, so a change it refuses costs it the client roster too, not just the part that changed." Installing a v3 Downbeat first would make Overture's scout stop suppressing nights Dan is already shooting and lose its 31-client roster, on the first action of the plan, against hard constraint 4.
+**This step existed because without it, step one of this plan would have destroyed a working app. It is now satisfied and needs no action; the reasoning is kept because it is why the ordering rule exists.** When this was written the installed Overture was commit `2ddd4bc6` (2026-08-24), and the fix that widens its version gate to a minimum, `bdd85404` (2026-08-27), was on Overture's main and **not** in that build. **Measured 2026-09-05: the installed Overture is now `f78a3def` (2026-09-04, from `main`) and it DOES contain `bdd85404`.** CONTRACT.md: Overture "decodes the WHOLE file or none of it, so a change it refuses costs it the client roster too, not just the part that changed." Installing a v3 Downbeat first would make Overture's scout stop suppressing nights Dan is already shooting and lose its 31-client roster, on the first action of the plan, against hard constraint 4.
 
 > **CORRECTED 2026-08-27** after the lessons audit and reality check. The commands below replace an
 > earlier pair that were wrong in three ways, each of which would have let the plan destroy Overture
@@ -219,7 +244,7 @@ The installed binary cannot write the queue. Until it is replaced, every commit 
 
 **Snapshot 1, already taken, is the record of WHICH bookings existed.** `downbeat-export-2026-08-27.json`, version 2, 20 bookings, 31 clients, hash in `CUSTODY.md`. It is verified by hash at every read. It is the only record of the 2026-08-18 booking (the one retention sweeps at Dan's next Downbeat launch, and the one whose `clientId` does not resolve), so the reconciliation in Phase 6 reads its **ids** from this file.
 
-**Snapshot 2 is taken by the agent immediately after Dan reports 0.2 done, and is the record of the shoot TIMES.** The v3 export rewrites in full on launch, and it will carry real instants: measured 2026-08-28, all 20 stored bookings hold a non-midnight `startDate`, and `OvertureExportBuilder.swift:103` maps that value into `startsAt` unrounded. It goes in the **same** custody folder, so there is one place and one note:
+**Snapshot 2 is the record of the shoot TIMES, and it was TAKEN on 2026-09-05**, with no reinstall needed because Downbeat had already been reinstalled on 2026-08-29 and was already emitting version 3. It is `downbeat-export-v3-2026-09-05.json`, hash recorded in `docs/CUSTODY.md`, and every assertion below was checked against it after capture: all ten passed. The v3 export rewrites in full on launch and carries real instants, as predicted: measured 2026-08-28, all 20 stored bookings held a non-midnight `startDate`, and `OvertureExportBuilder.swift:103` maps that value into `startsAt` unrounded. Re-measured on the captured snapshot, **zero of the 19 start at local midnight in America/New_York**. It goes in the **same** custody folder, so there is one place and one note:
 
 ```
 cp "$HOME/Library/Application Support/Overture/downbeat-export.json" "$HOME/Library/Application Support/Ovation/custody/downbeat-export-v3-$(date +%F).json" && shasum -a 256 "$HOME/Library/Application Support/Ovation/custody/downbeat-export-v3-$(date +%F).json" | tee "$HOME/Library/Application Support/Ovation/custody/downbeat-export-v3-$(date +%F).json.sha256"

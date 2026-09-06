@@ -37,25 +37,60 @@ differences, which is exactly what a healthy run reports (L98).
 bookings have day strings but no `startsAt` or `endsAt`. An earlier version of this note said the
 hours would have to come from Dan or from QuickBooks. **That was wrong, measured 2026-08-28:** all
 20 stored Downbeat bookings hold a `startDate` with a real time of day (0 at local midnight), and
-`OvertureExportBuilder.swift:103` maps that instant unrounded into `startsAt`. So once Dan installs
-the version 3 Downbeat and launches it, the re-export carries usable times for every booking still
-in the store, and the second snapshot below captures them. This file remains the only record of
+`OvertureExportBuilder.swift:103` maps that instant unrounded into `startsAt`. That prediction held: the
+version 3 re-export carries usable times for every booking still in the store, and the second
+snapshot below captured them on 2026-09-05. This file remains the only record of
 WHICH bookings existed, including the one retention sweeps at that launch.
 
-## downbeat-export-v3-<date>.json (to be captured)
+## downbeat-export-v3-2026-09-05.json
 
-Taken by the agent immediately after Dan reports the version 3 Downbeat installed and launched
-(implementation plan 0.3, snapshot 2). Same folder as the file above. Fill this table in the same
-change as the capture; a blank row here after the capture is a defect.
+Snapshot 2, the record of the shoot TIMES. **Captured 2026-09-05.** No reinstall was needed: the
+Downbeat installed on 2026-08-29 was already writing a version 3 export, and the Overture installed
+on 2026-09-04 already carried the widened version gate, so the ordering hazard plan 0.2.0 exists to
+prevent had already passed. See the correction at the end of this section.
 
 | Field | Value |
 | --- | --- |
-| Path | `~/Library/Application Support/Ovation/custody/downbeat-export-v3-<date>.json` |
-| SHA-256 | not yet captured |
-| Captured | not yet captured |
-| Export version | expected 3 |
-| Contents | expected 19 bookings, every one carrying `startsAt` and `endsAt`, 31 clients |
-| Future range | expected 2026-10-25 to 2027-06-13 |
+| Path | `~/Library/Application Support/Ovation/custody/downbeat-export-v3-2026-09-05.json` |
+| SHA-256 | `14a5b3ef98b69b2a6d7da387dd215415b7fcf844d2bbd4e7c144855947a719b6` |
+| Captured | 2026-09-05 |
+| Export version | 3 |
+| exportedAt | 2026-08-29T15:07:27Z |
+| Contents | 19 bookings, every one carrying `startsAt` and `endsAt`, 31 clients, 5 venues |
+| Future range | 2026-10-25 to 2027-06-13 |
+| Size | 20,220 bytes |
+
+**Every assertion the plan wrote in advance was checked against this file after capture, and all
+ten passed:** version 3; 19 bookings; 31 clients; 5 venues; every booking carrying both `startsAt`
+and `endsAt`; earliest 2026-10-25; latest 2027-06-13; **zero bookings at local midnight in
+America/New_York**, which is what makes the times real rather than date placeholders; and **zero
+bookings whose `clientId` fails to resolve in this snapshot's own `clients[]`**.
+
+**Why `exportedAt` is a week older than the capture date, and why that is correct.** Downbeat
+rewrites this file on launch, and Downbeat was last launched on 2026-08-29 (its store and this
+export both stop there), so nothing in it has changed since. The file is current with respect to
+what Downbeat holds; it is not a stale read of a moving target. Snapshot 1 has the same shape:
+captured 2026-08-27, exported 2026-08-23.
+
+**The 20th booking is gone, exactly as predicted.** Snapshot 1 holds 20; this holds 19. Retention
+swept the 2026-08-18 booking at a Downbeat launch, and that booking was also the one whose
+`clientId` did not resolve. Snapshot 1 remains the only record that it existed, which is the reason
+that file is kept rather than superseded.
+
+**How it must be read.** Same as the file above: hash verified at every read, and absent,
+unreadable or mismatched is a named outcome that blocks the backfill. Phase 6 prices from the
+CURRENT export wherever a booking id is still present there, and from this snapshot only for ids
+retention has since swept; it never prices from the version 2 file, which has no times.
+
+> **CORRECTED 2026-09-05.** The section above previously said this snapshot would be taken "after
+> Dan reports the version 3 Downbeat installed and launched", and the paragraph before it said "once
+> Dan installs the version 3 Downbeat and launches it". Both were written on 2026-08-28 against
+> installed builds that had already been replaced by the time anyone acted on them: Overture was
+> reinstalled 2026-09-04 from `main` at `f78a3def`, which already contains the version gate fix
+> `bdd85404`, and Downbeat was reinstalled 2026-08-29 at `1f5b470a` and was already emitting version
+> 3. A recorded fact about something living OUTSIDE this repository is only true on the day it is
+> written, and nothing here re-read it (L175). The wording is corrected in place rather than
+> annotated on top, because a correction standing over a contradicting body is read as the body.
 
 **How it must be read.** Same as the file above: hash verified at every read, and absent,
 unreadable or mismatched is a named outcome that blocks the backfill. Phase 6 prices from the
