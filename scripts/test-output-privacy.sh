@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 14
+harness_begin "output privacy tests" 15
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -173,13 +173,22 @@ check "the custody check prints no identity" \
 check "the ported artifact check prints no identity" \
     "$(leaks_in "$(OVATION_PORT_SCAN_ROOT="$TREE" ./scripts/check-ported-artifacts.sh 2>&1)")" "clean"
 
+# 6. The preconditions entry point, which RELAYS other checks' output indented
+#    under their names. A relay is worth covering in its own right: it can leak
+#    something none of the scripts it runs would have leaked on their own, and it
+#    is the one a person actually invokes, so its output is the one that reaches
+#    a transcript. The seams below are inherited by the checks it launches.
+check "the preconditions entry point prints no identity when a check passes" \
+    "$(leaks_in "$(OVATION_PRECONDITION_CHECKS="$PWD/scripts/check-booking-queue.sh" \
+        OVATION_BOOKING_QUEUE="$QUEUE" ./scripts/check-preconditions.sh 2>&1)")" "clean"
+
 # ---------------------------------------------------------------------------
 # COMPLETENESS. A hand written list of covered scripts silently exempts whatever
 # nobody remembered to add, and the exempted one is the one this suite exists
 # for (L96, L247). So the list is asserted against what is actually on disk, and
 # a new check script fails HERE until somebody points it at the fixture.
 # ---------------------------------------------------------------------------
-COVERED="check-booking-queue.sh check-custody-not-staged.sh check-identity-leaks.sh check-ported-artifacts.sh check-sibling-installs.sh"
+COVERED="check-booking-queue.sh check-custody-not-staged.sh check-identity-leaks.sh check-ported-artifacts.sh check-preconditions.sh check-sibling-installs.sh"
 ON_DISK="$(cd scripts && ls -1 check-*.sh | sort | tr '\n' ' ')"
 check "every check script on disk is covered by this suite" \
     "$(printf '%s' "$ON_DISK" | tr -s ' ' | sed 's/ $//')" \
