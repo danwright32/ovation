@@ -1,5 +1,5 @@
 #!/bin/bash
-# The suite for scripts/check-money-types.sh.
+# The suite for scripts/check-forbidden-constructs.sh.
 #
 # ovation#53, plan 1.4. Money is Int64 minor units and the type carries no
 # floating point constructor, which makes the mistake impossible to write INSIDE
@@ -13,7 +13,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
 
-TARGET="scripts/check-money-types.sh"
+TARGET="scripts/check-forbidden-constructs.sh"
 
 # The per type cases are DERIVED from the script's own list, so a type added
 # there arrives with a case rather than being forbidden by a check nothing
@@ -22,15 +22,15 @@ TARGET="scripts/check-money-types.sh"
 FORBIDDEN="$([ -x "./$TARGET" ] && "./$TARGET" --list 2>/dev/null)"
 FORBIDDEN_COUNT="$(printf '%s\n' "$FORBIDDEN" | grep -c .)"
 
-harness_begin "money type tests" $((17 + FORBIDDEN_COUNT))
+harness_begin "forbidden construct tests" $((21 + FORBIDDEN_COUNT))
 require_target "$TARGET"
 harness_temp_dir WORK
 
 run_on() {
-    OVATION_MONEY_SCAN_ROOT="$1" OVATION_MONEY_ALLOWLIST="${2-}" "./$TARGET" 2>&1
+    OVATION_CONSTRUCT_SCAN_ROOT="$1" OVATION_CONSTRUCT_ALLOWLIST="${2-}" "./$TARGET" 2>&1
 }
 status_on() {
-    OVATION_MONEY_SCAN_ROOT="$1" OVATION_MONEY_ALLOWLIST="${2-}" "./$TARGET" >/dev/null 2>&1
+    OVATION_CONSTRUCT_SCAN_ROOT="$1" OVATION_CONSTRUCT_ALLOWLIST="${2-}" "./$TARGET" >/dev/null 2>&1
     printf '%s' "$?"
 }
 
@@ -49,6 +49,15 @@ struct Hours {
     let tenths: Int64
 }
 SWIFT
+
+# THE RULES THEMSELVES ARE ASSERTED, not only the cases derived from them.
+# Deriving both the loop and the declared total from the script's own list means
+# DELETING a rule shrinks the coverage and the expectation together, and the run
+# stays green while the rule is gone (L70). These two are the floor.
+check "the money rule is still declared" \
+    "$(printf '%s\n' "$FORBIDDEN" | grep -c '^Double$')" "1"
+check "the calendar rule is still declared" \
+    "$(printf '%s\n' "$FORBIDDEN" | grep -c '^Calendar\.current$')" "1"
 
 check "a tree with no floating point types passes" "$(status_on "$CLEAN")" "0"
 check "and it says how many files it actually looked at" \
@@ -70,6 +79,10 @@ check "the refusal names the file and the line" \
     "$(run_on "$BAD" | grep -c 'Charge.swift:2')" "1"
 check "the refusal names the type it found" \
     "$(run_on "$BAD" | grep -c 'Double')" "1"
+check "the refusal names WHICH rule fired, because the two forbid different things" \
+    "$(run_on "$BAD" | grep -c '^floating point money: ')" "1"
+check "and says nothing about the rule that did not fire" \
+    "$(run_on "$BAD" | grep -c '^ambient calendar: ')" "0"
 check "the refusal does NOT print the source line, which is how a comment would leak" \
     "$(run_on "$BAD" | grep -c 'struct Charge')" "0"
 
@@ -138,7 +151,7 @@ check "an allowlist covering every file in the root refuses rather than passing"
     "$(status_on "$EVERYTHING" "Animation.swift # the only file, and it is exempt")" "2"
 
 check "a refused allowlist says which entry it refused" \
-    "$(OVATION_MONEY_SCAN_ROOT="$ALLOWED" OVATION_MONEY_ALLOWLIST="Gone.swift # a reason" \
+    "$(OVATION_CONSTRUCT_SCAN_ROOT="$ALLOWED" OVATION_CONSTRUCT_ALLOWLIST="Gone.swift # a reason" \
         "./$TARGET" 2>&1 | grep -c 'Gone.swift')" "1"
 
 # ---------------------------------------------------------------------------

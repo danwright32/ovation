@@ -72,8 +72,8 @@ fi
 # type and says nothing about a `Double` declared anywhere else, so this refuses
 # one anywhere in the app's sources. Fast: it walks Swift files and prints paths,
 # line numbers and type names only.
-if [ -x "${REPO_ROOT}/scripts/check-money-types.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-money-types.sh"; then
+if [ -x "${REPO_ROOT}/scripts/check-forbidden-constructs.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-forbidden-constructs.sh"; then
         echo "pre-push: a floating point type reached the app sources. Push refused." >&2
         exit 1
     fi
