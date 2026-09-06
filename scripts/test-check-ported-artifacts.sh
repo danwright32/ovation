@@ -206,13 +206,27 @@ check "and a tree holding only such prose reports no artifacts, not a failure" \
 
 # 10. The real repository, scanned with the real default roots. This is the case
 #     the seam deliberately hides from every case above, and it is where case 9's
-#     defect actually lived. Ovation has no ports yet, so the honest answer is
-#     the empty one, and anything else means the scanner is matching its own
-#     machinery again.
+#     defect actually lived.
+#
+#     INVERTED 2026-09-05, in the same change that consumed it (L373). It used to
+#     assert that Ovation had NO ported artifacts, which was true for about an
+#     hour: project.yml then landed carrying a real header, ported from
+#     Overture's mac/project.yml. A test whose premise is that a change has not
+#     yet been made is consumed by that change shipping, and left behind it goes
+#     permanently red for a reason that looks exactly like a real defect.
+#
+#     What it asserts now is the stronger thing anyway: the real ports resolve
+#     against the real siblings, through the real default search roots, which no
+#     other case can reach.
 OUT10="$(OVATION_PORT_SCAN_ROOT="$PWD" "./$TARGET" 2>&1)"; ST10=$?
-check "scanning Ovation itself finds no ported artifacts yet" "$ST10" "3"
-check "and in particular it does not match its own marker" \
+check "scanning Ovation itself verifies its real ports against the real siblings" \
+    "$ST10" "0"
+check "and project.yml is one of them, reported OK" \
+    "$(printf '%s' "$OUT10" | grep -c '^OK: project.yml')" "1"
+check "and it still does not match its own marker" \
     "$(printf '%s' "$OUT10" | grep -c "UNREADABLE HEADER")" "0"
+check "and it does not report the repository as empty now that a port exists" \
+    "$(printf '%s' "$OUT10" | grep -c "NO PORTED ARTIFACTS")" "0"
 
 echo "ported artifact check tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

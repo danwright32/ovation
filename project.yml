@@ -1,0 +1,143 @@
+# Ported-From: danwright32/overture mac/project.yml @ 8968e380350ec5d59a3dfdfd767e1f3ebf3cf687
+#
+# Port discipline: docs/PORT-DISCIPLINE.md. Every constant below was re-checked
+# against what OVATION needs rather than inherited, and the two that differ from
+# the source are called out where they sit. Verified 2026-09-05 that the recorded
+# commit is Overture's current main and that mac/project.yml is identical there.
+name: Ovation
+options:
+  bundleIdPrefix: com.danwright
+  deploymentTarget:
+    # CHANGED FROM THE SOURCE, which says 14.0. Ovation cannot inherit that.
+    # Phase 4 reads receipts with Vision's RecognizeDocumentsRequest, which is
+    # macOS 26, and the only SDK installed on this machine is macOS 26.5. A 14.0
+    # target would let code that cannot run on the target compile cleanly and
+    # push every failure to runtime (L501, L188).
+    macOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Ovation reads a backup folder Dan chooses (PRD 5.29) and its own
+    # Application Support directory, and the folder grant model in ovation#9
+    # depends on those grants being keyed to a stable code identity rather than
+    # brokered by the sandbox. Same answer as both siblings.
+    ENABLE_APP_SANDBOX: NO
+    ENABLE_HARDENED_RUNTIME: YES
+    # DELIBERATELY STILL WRONG, AND OWNED BY ovation#9. "-" is ad hoc signing,
+    # which mints a NEW code identity on every install. Folder permission grants
+    # are keyed to that identity, so an ad hoc build re prompts for access
+    # already granted after every rebuild. ovation#9 replaces this with a stable
+    # self signed identity, and it must land BEFORE Phase 1.8 ever asks Dan for
+    # a folder. Recorded here rather than silently inherited, because a value
+    # copied from a proven pattern is exactly the one nobody revisits (L501).
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+targets:
+  Ovation:
+    type: application
+    platform: macOS
+    sources:
+      - path: Ovation
+    dependencies:
+      # Plan 1.2: the store schema guard reads the store's raw sqlite_master to
+      # confirm the file is Ovation's own before ModelContainer ever opens it.
+      # Core Data does not throw on a foreign file, it creates its tables inside
+      # whatever it is handed and reports success.
+      - sdk: libsqlite3.tbd
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Ovation/Info.plist
+        # Release keeps the canonical identity (the resident /Applications
+        # copy). Debug carries a .debug suffix so a dev run is a DISTINCT app to
+        # macOS, with its own TCC grants and its own data directory. Plan 1.1 is
+        # built directly on this: the suffix is not cosmetic, it is the entire
+        # isolation mechanism keeping a dev run from sharing a store, a write
+        # ahead log, a Gmail login or a backup folder with the resident copy.
+        PRODUCT_BUNDLE_IDENTIFIER: com.danwright.ovation
+        # Same reasoning. Debug needs its own URL scheme so LaunchServices
+        # cannot route an ovation:// open to the wrong build. Read by the single
+        # window handler in plan 1.13 and by Info.plist's CFBundleURLTypes.
+        OVATION_URL_SCHEME: ovation
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.danwright.ovation.debug
+          OVATION_URL_SCHEME: ovation-debug
+  # The PURE suite, UNHOSTED on purpose, adopted from the source rather than
+  # retrofitted later, because the reason it exists there is measured and applies
+  # to Ovation from its first test.
+  #
+  # Overture's #1967: every Swift test used to run inside the launched app, so
+  # any fault that stopped the app staying open took all of them at once. On
+  # 2026-08-01 a crowded menu bar did exactly that and nothing in the Mac app
+  # could be verified, reported only as a runner that "exited with code 0 while
+  # preparing to run tests". Ovation raises at least six independent conditions
+  # at launch (plan 1.13), several of them refusals whose whole purpose is to be
+  # seen, so it has MORE ways to fail at launch than Overture did.
+  #
+  # It reaches the app's code by COMPILING IT IN rather than linking a host,
+  # which is why there is no TEST_HOST and no dependency on the Ovation target.
+  # Every declaration keeps its existing visibility, so this costs no access
+  # control churn and adds no public API surface. The trade is that those sources
+  # compile a second time.
+  #
+  # OvationApp.swift is the one file it cannot take, because it carries @main.
+  OvationTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: OvationTests
+      - path: Ovation
+        excludes:
+          - "App/OvationApp.swift"
+          - "Info.plist"
+    dependencies:
+      - sdk: libsqlite3.tbd
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.danwright.ovation.tests
+# DELIBERATELY ABSENT, with the condition for adding them recorded rather than
+# left to be rediscovered:
+#
+#   OvationHostedTests and the ViewInspector package. The source carries both,
+#   for the handful of tests that render a real SwiftUI view and therefore need
+#   a running host. Ovation has no such view yet, and adding a dependency for
+#   work that does not exist is the kind of inherited weight this port exists to
+#   avoid. They are added with the FIRST test that has to inspect a rendered
+#   view, which will be plan 1.13's launch presenter.
+#
+#   LSMultipleInstancesProhibited. Plan 1.3 wants a second running copy to stand
+#   aside and NAME the copy it stood aside for, and it says explicitly not to
+#   implement that with this key: it appears only in Overture's Info.plist, and
+#   Overture's own test runner records that a running Debug app holding that lock
+#   makes the xctest host fail to launch, killing the run after a full build.
+#   Downbeat implements the refusal in application code instead, which is the
+#   sibling pattern rather than a workaround.
+schemes:
+  # The pure suite's own scheme, and the reason is measured in the source, not
+  # theoretical. With both targets in ONE scheme, -only-testing on the pure
+  # bundle still made xcodebuild prepare and launch the app host, so a
+  # deliberately broken app produced "Test run ... passed" AND a non zero exit at
+  # the same time. This scheme builds ONLY the test bundle, so a broken app
+  # cannot fail this run and does not even need to compile for it to report.
+  OvationCore:
+    build:
+      targets:
+        OvationTests: [test]
+    test:
+      targets:
+        - OvationTests
+  Ovation:
+    build:
+      targets:
+        Ovation: all
+        OvationTests: [test]
+    test:
+      targets:
+        - OvationTests
