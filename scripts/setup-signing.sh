@@ -67,6 +67,12 @@ identity_exists() {
 
 if identity_exists; then
   echo "==> Identity '$IDENTITY' already exists. Nothing to do."
+  # Somebody re-running this is usually somebody whose builds are prompting.
+  # "Nothing to do" and nothing else leaves them facing the same dialog with no
+  # way to learn why (L109).
+  echo "    If builds are stopping at a keychain dialog, that dialog is asking to"
+  echo "    use this key. Answer 'Always Allow', NOT 'Allow': Allow grants it once"
+  echo "    and it returns on every subsequent build."
   exit 0
 fi
 
@@ -112,6 +118,37 @@ CNF
 "$SECURITY" import "$TMP/identity.p12" -k "$LOGIN_KEYCHAIN" -P ovation \
   -T /usr/bin/codesign -A >/dev/null
 
+# THE PARTITION LIST, WHICH IS THE ACTUAL GATE. ovation#24.
+#
+# The `-T /usr/bin/codesign -A` above exists precisely to pre-authorise codesign
+# so a build never raises a dialog. IT DID NOT WORK. Measured 2026-09-06: Dan ran
+# this script, it reported success, the identity was genuinely created, and the
+# first build then blocked on a macOS keychain dialog for several minutes with
+# nothing saying so. The build printed nothing unusual and simply did not finish;
+# the only evidence was SecurityAgent sitting beside a waiting codesign. A wait
+# that cannot be told from a hang is the worse of the two (L110).
+#
+# Since macOS Sierra the access control that actually decides is the key's
+# PARTITION LIST, which neither -A nor -T sets. This sets it.
+#
+# NO PASSWORD IS PASSED HERE, and that is deliberate rather than an oversight.
+# `-k <password>` would put Dan's login keychain password on a command line,
+# where it reaches the process table, the shell history and any transcript. Left
+# off, `security` asks him for it directly, which is the only place it belongs.
+echo "==> Authorising codesign to use the key (macOS will ask for your login password)"
+if ! "$SECURITY" set-key-partition-list -S apple-tool-:,apple:,codesign: -s \
+    "$LOGIN_KEYCHAIN" >/dev/null 2>&1; then
+  # NOT a failure of the setup. The identity exists and is usable; what is
+  # missing is the pre-authorisation, so builds will prompt. Saying nothing here
+  # would leave that dialog unexplained, which is the whole defect this fixes
+  # (L11).
+  PARTITION_SET=no
+  echo "    The partition list could not be set (a wrong password, or a keychain that"
+  echo "    refused). The identity is still fine. Builds will raise the dialog below."
+else
+  PARTITION_SET=yes
+fi
+
 echo "==> Trusting the certificate for code signing (enter your login password if prompted)"
 "$SECURITY" add-trusted-cert -r trustRoot -p codeSign -k "$LOGIN_KEYCHAIN" "$TMP/cert.pem"
 
@@ -122,6 +159,17 @@ if identity_exists; then
   echo "==> Done. '$IDENTITY' is in your login keychain."
   echo "    Next: tell Claude, and project.yml is pointed at it. Until then Ovation"
   echo "    still ad hoc signs, so nothing is broken by waiting."
+  echo
+  # SAID WHATEVER THE PARTITION LIST DID. The old ending implied you were
+  # finished, and the next build then stopped for minutes with no explanation.
+  # This is the half that holds even if the half above turns out not to work on
+  # some machine, which is why it is unconditional (L400).
+  echo "    ONE MORE THING. Your first build may still stop at a keychain dialog"
+  echo "    asking to use this key. That is normal and it is not an error."
+  echo "    Answer 'Always Allow', NOT 'Allow': Allow grants it once and the dialog"
+  echo "    comes back on every subsequent build."
+  echo "    A build waiting on it looks exactly like a slow build, so if one seems"
+  echo "    to hang, look for the dialog before looking at anything else."
 else
   echo "Error: the identity was not created. Nothing above should be trusted." >&2
   echo "       Check the output for what security or openssl reported." >&2

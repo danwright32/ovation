@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "setup-signing tests" 10
+harness_begin "setup-signing tests" 18
 
 TARGET="scripts/setup-signing.sh"
 require_target "$TARGET"
@@ -33,6 +33,8 @@ make_security() {
 echo "\$@" >> "$WORK/security-calls"
 case "\$1" in
   find-identity) cat "$WORK/identities" ;;
+  import) [ -f "$WORK/import-does-nothing" ] || printf '  1) ABC "Ovation Local Signing"\n     1 valid identities found\n' > "$WORK/identities"; exit 0 ;;
+  set-key-partition-list) [ -f "$WORK/partition-fails" ] && exit 1; exit 0 ;;
   *) exit 0 ;;
 esac
 STUB
@@ -90,9 +92,14 @@ check "and it reports the identity as existing" \
     "$(printf '%s' "$OUT2" | grep -c "already exists")" "1"
 
 # 3. Absent: it must attempt creation, and must trust the certificate.
+#
+# The import is made to change nothing here, so the identity is still absent when
+# the script reads back, which is what case 4 below asserts on.
 reset_calls
 printf '     0 valid identities found\n' > "$WORK/identities"
+: > "$WORK/import-does-nothing"
 OUT3="$(run_target)"; ST3=$?
+rm -f "$WORK/import-does-nothing"
 check "an absent identity reaches the trust step" \
     "$(calls_matching "$WORK/security-calls" "add-trusted-cert")" "1"
 
@@ -100,6 +107,10 @@ check "an absent identity reaches the trust step" \
 #    not there. That must be an ERROR, not a cheerful finish: a setup script that
 #    reports success while the thing it set up does not exist is worse than one
 #    that fails, because the next step trusts it (L98, L12).
+#
+#    The stub otherwise makes the import SUCCEED, because that is what the real
+#    world does and the cases below depend on it. This one case turns that off,
+#    which is what makes it a test of the failure rather than of the fixture.
 check "creation that did not take is an error, not a success" \
     "$([ "$ST3" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
 check "and it says the identity was not created" \
@@ -112,5 +123,63 @@ check "and it does NOT tell Dan to go and rebuild" \
 #    given app is identifiable.
 check "it creates Ovation's own identity, not the port source's" \
     "$(grep -c 'Downbeat Local Signing' "$TARGET")" "0"
+
+# ---------------------------------------------------------------------------
+# THE KEYCHAIN PROMPT. ovation#24.
+#
+# `security import ... -T /usr/bin/codesign -A` exists precisely to pre-authorise
+# codesign so a build never raises a dialog. IT DID NOT WORK. On 2026-09-06 Dan
+# ran this script, it reported success, the identity was genuinely created, and
+# the first build then blocked on a macOS keychain dialog for several minutes
+# with nothing saying so: the build printed nothing unusual and simply did not
+# finish, and the only evidence was SecurityAgent sitting beside a waiting
+# codesign. A wait that cannot be told from a hang is the worse of the two
+# (L110).
+#
+# Since macOS Sierra the real gate is the key's PARTITION LIST, which `-A` and
+# `-T` do not set, so that is added here.
+#
+# WHAT THIS SUITE CANNOT PROVE, said plainly rather than implied by its passing
+# (L400): whether the prompt is actually gone. That only reproduces on a machine
+# that has never authorised this key, and this one now has. What is asserted is
+# that the partition list is set, and that the script SAYS what may still happen,
+# which is the half that holds whatever the first half turns out to do.
+reset_calls
+printf '  0 valid identities found\n' > "$WORK/identities"
+rm -f "$WORK/partition-fails"
+OUT_NEW="$(run_target)"
+
+check "it sets the key partition list, which is the real gate since Sierra" \
+    "$(calls_matching "$WORK/security-calls" "set-key-partition-list")" "1"
+check "and the list names codesign" \
+    "$(calls_matching "$WORK/security-calls" "codesign:")" "1"
+check "and it does that AFTER importing the key, not before" \
+    "$(awk '/import/{i=NR} /set-key-partition-list/{p=NR} END{print (i>0 && p>i) ? "after" : "not-after"}' "$WORK/security-calls")" "after"
+
+check "it warns that the first build may still stop for a keychain dialog" \
+    "$(printf '%s' "$OUT_NEW" | grep -ci "keychain dialog")" "1"
+check "and it names Always Allow, because Allow grants it once and it comes back" \
+    "$(printf '%s' "$OUT_NEW" | grep -c "Always Allow")" "1"
+
+# A partition list that could not be set is its own outcome. The identity still
+# exists and is usable, so this must not fail the script, and it must not be
+# silent either: the person will meet the dialog and needs to know why (L11).
+reset_calls
+: > "$WORK/partition-fails"
+printf '  0 valid identities found\n' > "$WORK/identities"
+OUT_PART="$(run_target)"; ST_PART=$?
+rm -f "$WORK/partition-fails"
+check "a partition list that could not be set does not fail the setup" "$ST_PART" "0"
+check "but it says so, rather than leaving the dialog unexplained" \
+    "$(printf '%s' "$OUT_PART" | grep -ci "partition")" "1"
+
+# 3. THE ALREADY PRESENT PATH must reach the person who ran this BECAUSE builds
+#    are prompting. Telling them "nothing to do" and stopping leaves them facing
+#    the same dialog with no way to learn why (L109).
+reset_calls
+printf '  1) ABC "Ovation Local Signing"\n     1 valid identities found\n' > "$WORK/identities"
+OUT_EXISTS="$(run_target)"
+check "an existing identity still explains what to do if builds are prompting" \
+    "$(printf '%s' "$OUT_EXISTS" | grep -ci "Always Allow")" "1"
 
 harness_end
