@@ -18,9 +18,9 @@
 # suite is green. It does NOT yet check the things the plan wants a pre-push to
 # check, because the guards do not exist yet. Each is added by the issue that
 # builds it, rather than being listed here as if it were already covered:
-#   the identity guard                      ovation#5
-#   the custody never staged check          ovation#4
-#   the ported artifact ancestry check      already exists, added below
+#   the identity guard                      ovation#5, still to come
+#   the custody never staged check          ovation#4, added below
+#   the ported artifact ancestry check      added below
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -41,6 +41,18 @@ fi
 if [ -x "${REPO_ROOT}/scripts/check-ported-artifacts.sh" ]; then
     if ! "${REPO_ROOT}/scripts/check-ported-artifacts.sh"; then
         echo "pre-push: the ported artifact check did not pass. Push refused." >&2
+        exit 1
+    fi
+fi
+
+# Custody next, also seconds and also needing no lock. This is the one that
+# matters most while the repository is public: it asks whether a real receipt or
+# a real QuickBooks export has ever entered git history, which .gitignore cannot
+# answer, because an ignore entry added after a file was committed hides it from
+# git status while leaving it in every clone.
+if [ -x "${REPO_ROOT}/scripts/check-custody-not-staged.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-custody-not-staged.sh"; then
+        echo "pre-push: custody data reached git. Push refused." >&2
         exit 1
     fi
 fi
