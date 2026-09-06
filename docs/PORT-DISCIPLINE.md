@@ -133,7 +133,7 @@ maintains.
 | `mac/project.yml` | overture | ovation#8 |
 | `mac/Overture/App/StoreLocation.swift` | overture | Year end tax export, 1.1 (ovation#51) |
 | `Downbeat/App/AppStoreConfiguration.swift`, the launch scope predicate only | downbeat | Year end tax export, 1.1 (ovation#51) |
-| `Downbeat/Persistence/StoreSchemaGuard.swift` | downbeat | Year end tax export, 1.2 |
+| `Downbeat/Persistence/StoreSchemaGuard.swift` | downbeat | Year end tax export, 1.2 (ovation#52) |
 | `CooperativePoolTests` | downbeat | Ungrouped |
 | `scripts/test-export-consumer-version.sh` | downbeat | Downbeat booking queue consumer |
 | `scripts/measure-questionnaire-ocr.sh` | downbeat | Expenses and receipt intake |
