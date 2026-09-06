@@ -16,7 +16,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "project configuration tests" 21
+harness_begin "project configuration tests" 22
 
 require_target "project.yml"
 
@@ -199,5 +199,23 @@ check "the shipping entitlements file does NOT let a debugger attach" \
 # debugging is silently broken.
 check "the debug entitlements file DOES, or Xcode cannot debug the app" \
     "$(grants_debugger "$DBG_ENTS")" "yes"
+
+# 6. NO SEPARATE DEBUG DYLIB, and this one is a fix rather than a preference.
+#
+# Xcode's default splits Debug's code into `Ovation.debug.dylib` so previews and
+# hot reload can work. Under the hardened runtime a loaded library must validate
+# against the loading process's Team ID, and the self signed identity from
+# ovation#9 has none, so dyld refused the dylib and the Debug build did not launch
+# AT ALL from 2026-09-06 until ovation#30.
+#
+# Nothing caught it because each of the three settings is individually correct:
+# both binaries were signed by the same identity, both reported
+# `TeamIdentifier=not set`, and the built bundle suite passed throughout. It was
+# found the first time anything launched the app (L417).
+#
+# Asserted from the settings rather than left to the launch smoke check, because
+# that check is run deliberately and this must go red on a push.
+check "Debug builds no separate debug dylib, which hardened runtime cannot load" \
+    "$(setting Debug ENABLE_DEBUG_DYLIB)" "NO"
 
 harness_end

@@ -34,6 +34,35 @@ settings:
     # brokered by the sandbox. Same answer as both siblings.
     ENABLE_APP_SANDBOX: NO
     ENABLE_HARDENED_RUNTIME: YES
+    # NO SEPARATE DEBUG DYLIB, and this is a fix rather than a preference.
+    #
+    # Xcode's default is YES, which splits Debug's code into
+    # `Ovation.debug.dylib` (plus a `__preview.dylib`) so SwiftUI previews and
+    # hot reload can work. Under ENABLE_HARDENED_RUNTIME above, a loaded library
+    # must validate against the loading process's TEAM ID, and the self signed
+    # identity below deliberately has none. So dyld refused the dylib and THE
+    # DEBUG BUILD DID NOT LAUNCH AT ALL, from 2026-09-06 until ovation#30:
+    #
+    #   Library not loaded: @rpath/Ovation.debug.dylib
+    #   Reason: ... mapping process and mapped file have different Team IDs
+    #
+    # Nothing caught it, because all three settings are individually correct.
+    # Both binaries were signed by the same identity, both reported
+    # `TeamIdentifier=not set`, and the built bundle suite passed throughout.
+    # Release builds no such dylib and was never affected, so the half that
+    # ships was healthy and the harm sat in the half developers use (L142, L417).
+    #
+    # THE ALTERNATIVE WAS REJECTED. Adding
+    # `com.apple.security.cs.disable-library-validation` to the Debug
+    # entitlements would also fix it, by switching off the check that is
+    # refusing, on the configuration that already carries get-task-allow.
+    # Removing the thing that needs the exemption beats granting the exemption.
+    #
+    # THE COST, stated rather than discovered later: no SwiftUI previews and no
+    # hot reload. Neither is used today. Anyone turning this back on is choosing
+    # to make the Debug build unlaunchable unless they also give it a real Team
+    # ID, which is why scripts/test-project-configuration.sh pins it.
+    ENABLE_DEBUG_DYLIB: NO
     # A STABLE, SELF SIGNED IDENTITY. Dan ran scripts/setup-signing.sh on
     # 2026-09-06 and this is now in his login keychain, alongside the three
     # siblings' equivalents, each distinct so a given app's signer is
