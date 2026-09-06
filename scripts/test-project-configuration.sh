@@ -91,5 +91,22 @@ check "the pure test target is unhosted, so a launch fault cannot take the whole
 check "the app links sqlite3, which the store schema guard needs" \
     "$(grep -c 'libsqlite3.tbd' project.yml)" "2"
 
+# THE PURE SCHEME MUST BUILD ONLY THE TEST BUNDLE. This is the entire reason two
+# schemes exist rather than one with -only-testing, and if the app target were
+# ever added to it the isolation would vanish silently while every test still
+# passed (L98).
+#
+# Proved BEHAVIOURALLY on 2026-09-05, which is what makes this assertion worth
+# pinning rather than a restatement of the config: OvationApp.swift was
+# deliberately broken, the app scheme produced 22 compile errors, and the
+# OvationCore scheme still ran and reported 2 tests passing. That proof cannot
+# run here (it edits a source file, and a crash mid-run would leave it broken),
+# so the cheap structural assertion stands in for it and this comment records
+# what validated it.
+CORE_TARGETS="$(grep -o 'BlueprintName = "[^"]*"' \
+    Ovation.xcodeproj/xcshareddata/xcschemes/OvationCore.xcscheme 2>/dev/null | sort -u | tr '\n' ' ')"
+check "the pure scheme builds ONLY the test bundle, never the app" \
+    "$CORE_TARGETS" 'BlueprintName = "OvationTests" '
+
 echo "project configuration tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -1,5 +1,3 @@
-import Foundation
-
 /// Facts about the running build that more than one place needs to agree on.
 ///
 /// This exists so the pure test target has something real from the app module to
@@ -15,10 +13,4 @@ enum OvationBuild {
     /// two spellings of the identifier would silently open a second one.
     static let mainWindowID = "ovation.main"
 
-    /// The bundle identifier the running build actually has, read at run time
-    /// rather than asserted, because the value that matters is the one the
-    /// system resolved and not the one the configuration set (L188).
-    static var bundleIdentifier: String {
-        Bundle.main.bundleIdentifier ?? ""
-    }
 }
