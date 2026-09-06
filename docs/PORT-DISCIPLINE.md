@@ -131,7 +131,8 @@ maintains.
 | `scripts/git-hooks/pre-push` | downbeat | ovation#11 |
 | `scripts/run-tests.sh` lock handling | downbeat | ovation#12 |
 | `mac/project.yml` | overture | ovation#8 |
-| `mac/Overture/App/StoreLocation.swift` | overture | Year end tax export, 1.1 |
+| `mac/Overture/App/StoreLocation.swift` | overture | Year end tax export, 1.1 (ovation#51) |
+| `Downbeat/App/AppStoreConfiguration.swift`, the launch scope predicate only | downbeat | Year end tax export, 1.1 (ovation#51) |
 | `Downbeat/Persistence/StoreSchemaGuard.swift` | downbeat | Year end tax export, 1.2 |
 | `CooperativePoolTests` | downbeat | Ungrouped |
 | `scripts/test-export-consumer-version.sh` | downbeat | Downbeat booking queue consumer |
