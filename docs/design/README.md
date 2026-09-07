@@ -14,9 +14,8 @@ three things in it are web idioms that must be translated rather than copied:
    tier is that, not a link.
 2. The window chrome, the traffic lights and the menu bar are drawn by hand here and are
    drawn by the system in the real app.
-3. Type is fetched from Google Fonts, so **this file needs the network to look right**.
-   Without it the faces fall back and the design reads differently. The intended faces are
-   named below so the record survives the fetch failing.
+3. Type is drawn by the system in a real app. Here the faces are **embedded in the file**,
+   so it needs no network at all (see below).
 
 ## What the design settles
 
@@ -31,6 +30,18 @@ three things in it are web idioms that must be translated rather than copied:
 | Counts | Four, in the sidebar card, each appearing exactly once. No inventory counts: a number in the chrome only ever means this many things need you. |
 | Idle invoices | Disclosures at the foot, with Sent awaiting payment open by default. No "Nothing to do" label above them: the group names already say it. |
 | Colour | Espresso `#3B2B21`. Light mode only, deliberately (PRD 43). No red anywhere (PRD 45). |
+
+## It needs nothing external
+
+**Zero network requests.** The three typefaces are embedded as base64 inside the file, so it
+renders identically with no internet, forever. Latin subset only, since the page is pure
+ASCII. Archivo is a variable font and Google serves one identical file for all four weights,
+verified by hash, so it is embedded once with a weight range rather than four times, which
+saved 105KB. All three families are open licensed (OFL), so embedding is permitted. The file
+is 119KB as a result, up from 30KB, which is the price of the record being self contained.
+
+`invoice-list.png` is a rendering of the same file at 2x, framed to the window, for when an
+image is more convenient than opening the page.
 
 ## Type
 
