@@ -83,6 +83,8 @@ rather than unblocking it.
    main list is earned by frequency, and deciding not to bill is rare. It lives inside the
    invoice instead, so this list is unchanged. See PRD 5.1c, which also records what that
    costs.
-3. **Money held against a client has no surface at all.** A payment is now its own record
-   and what is not yet allocated sits on the client (PRD 5.14a), which is also where a
-   deposit lands. The list is invoices, so there is currently nowhere for it to appear.
+3. ~~Money held against a client has no surface~~ **Settled 2026-09-07 as far as it can be
+   here: it lives under Clients, not on this list.** It belongs to a client rather than to
+   any invoice. How it appears is deliberately left until the Clients screen is designed as
+   a whole, rather than deciding one element of a screen that does not exist and settling
+   the screen by accident. Tracked as ovation#98. See PRD 5.14a.
