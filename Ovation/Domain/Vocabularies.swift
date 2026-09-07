@@ -157,3 +157,23 @@ enum TaxStatus: String, CaseIterable, Codable, Hashable, Sendable {
         }
     }
 }
+
+/// Where an invoice stands on money. PRD 5.14.
+///
+/// Three answers, and every one of them is DERIVED from what is allocated to the
+/// invoice rather than stored on it, so nothing can be marked paid out of money
+/// nobody sent. A zero invoice is `paid` the moment it exists, which is correct:
+/// PRD 5.1b makes a zero total legitimate, and nothing is outstanding on it.
+enum InvoicePaymentState: String, CaseIterable, Codable, Hashable, Sendable {
+    case unpaid = "unpaid"
+    case partlyPaid = "partly-paid"
+    case paid = "paid"
+
+    var exportLabel: String {
+        switch self {
+        case .unpaid: return "Unpaid"
+        case .partlyPaid: return "Partly paid"
+        case .paid: return "Paid"
+        }
+    }
+}

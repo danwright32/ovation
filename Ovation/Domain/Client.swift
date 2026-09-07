@@ -32,8 +32,21 @@ final class Client {
     @Relationship(deleteRule: .nullify, inverse: \Invoice.client)
     var invoices: [Invoice] = []
 
+    @Relationship(deleteRule: .nullify, inverse: \Payment.client)
+    var payments: [Payment] = []
+
     init(name: String, taxStatus: TaxStatus) {
         self.name = name
         self.taxStatus = taxStatus
     }
+
+    /// Money Ovation is holding on this client's behalf: what arrived, less what
+    /// is spoken for. PRD 5.14a says this is a real state rather than an error,
+    /// and it is where a deposit taken before the shoot sits.
+    ///
+    /// DERIVED, NEVER STORED, and computed from the same predicate every payment
+    /// uses, so this number and the payments a screen lists cannot disagree (L16).
+    ///
+    /// IT IS NOT REFERRAL CREDIT. See the header on `Payment`.
+    var moneyHeld: Money { Money.sum(of: payments.map(\.unallocated)) }
 }

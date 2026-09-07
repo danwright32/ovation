@@ -25,6 +25,9 @@ enum OvationSchema {
         Shoot.self,
         LineItem.self,
         ServiceType.self,
+        Payment.self,
+        PaymentAllocation.self,
+        Refund.self,
     ]
 
     static var schema: Schema { Schema(models) }

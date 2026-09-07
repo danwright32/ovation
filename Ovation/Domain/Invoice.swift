@@ -110,6 +110,15 @@ final class Invoice {
     @Relationship(deleteRule: .cascade, inverse: \LineItem.invoice)
     var lineItems: [LineItem] = []
 
+    /// NULLIFY, NOT CASCADE, and the difference is PRD 5.14d. An allocation is a
+    /// statement about money that actually arrived, so it outlives the invoice it
+    /// was pointed at; cancelling RELEASES it rather than destroying it.
+    @Relationship(deleteRule: .nullify, inverse: \PaymentAllocation.invoice)
+    var allocations: [PaymentAllocation] = []
+
+    @Relationship(deleteRule: .cascade, inverse: \Refund.invoice)
+    var refunds: [Refund] = []
+
     init(
         client: Client?,
         kind: InvoiceKind,
@@ -167,6 +176,34 @@ final class Invoice {
     }
 
     var total: Money { taxableAmount + tax }
+
+    // MARK: what has been paid against it
+
+    /// CALCULATED, NEVER TYPED (PRD 5.14). It reads through the allocations that
+    /// still stand, so a released one stops counting the moment it is released
+    /// and nothing has to remember to undo a flag.
+    var amountPaid: Money {
+        Money.sum(of: allocations.filter { $0.releasedOn == nil }.map(\.amount))
+    }
+
+    var amountOutstanding: Money { total - amountPaid }
+
+    /// Where this invoice stands on money alone.
+    ///
+    /// IT SAYS NOTHING ABOUT SENDING OR CANCELLING, which are different facts on
+    /// different fields. The invoice list's groups (ovation#49) and the export's
+    /// payment state column (ovation#61) compose this with `sentStatus` and
+    /// `closure`; folding them together here would give one field two meanings
+    /// and make a cancelled unpaid invoice indistinguishable from an open one.
+    ///
+    /// CLEARED IS DELIBERATELY NOT ONE OF THESE. PRD 5.15 puts cleared on the
+    /// payment, so one check clears once however many invoices it settled, and an
+    /// invoice can never be cleared on its own.
+    var paymentState: InvoicePaymentState {
+        if amountPaid <= .zero && total > .zero { return .unpaid }
+        if amountPaid >= total { return .paid }
+        return .partlyPaid
+    }
 
     // MARK: what it says about itself
 
