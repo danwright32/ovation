@@ -1,0 +1,237 @@
+import Foundation
+import SQLite3
+import SwiftData
+import Testing
+@testable import Ovation
+
+/// Plan 1.2, ovation#88. The four steps in order: identify, checkpoint, back up,
+/// then open.
+///
+/// WHY A SEQUENCE RATHER THAN FOUR CALLS. ovation#52 built the identify step and
+/// ovation#57 built the backup step, and both closed with nothing running them,
+/// so `StoreSchemaGuard` was written, tested, and called by NOTHING. A refusal
+/// that runs nowhere is not a safeguard, and every check in it read as one
+/// (L3, L98). The ordering is the requirement: each step exists to protect the
+/// one after it, so a sequence that runs them in the wrong order, or that
+/// carries on past a refusal, has the parts and none of the protection.
+@MainActor
+struct StoreLaunchSequenceTests {
+
+    // MARK: the order is the requirement
+
+    @Test("a clean launch runs all four steps, in order, and opens")
+    func theHappyPathRunsEverything() throws {
+        let world = try World()
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open"])
+        #expect(world.store.open.isEmpty)
+    }
+
+    @Test("a foreign store REFUSES, and nothing after the identify step runs")
+    func aForeignStoreStopsTheSequence() throws {
+        // The failure the guard exists for, and the reason the order matters.
+        // Core Data does not throw on a foreign file: it creates its missing
+        // tables inside whatever it is handed and opens what looks like an empty
+        // store, destroying the other app's data. Checkpointing or backing up
+        // first would also be writing to a file that is not ours.
+        let world = try World()
+        try world.writeForeignStore()
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        guard case .refused = outcome else {
+            Issue.record("a foreign store was not refused, it returned \(outcome)")
+            return
+        }
+        #expect(world.recorder.steps == ["identify"])
+        #expect(world.store.open.contains { $0.kind == .foreignStore })
+    }
+
+    @Test("the refusal says what was found and that nothing was touched")
+    func theRefusalIsSpecific() throws {
+        let world = try World()
+        try world.writeForeignStore()
+
+        _ = world.sequence.run(now: world.instant)
+
+        let problem = try #require(world.store.open.first { $0.kind == .foreignStore })
+        // A message may claim only what its check actually measured (L11), and
+        // the claim that nothing was touched is only true because the sequence
+        // stops here rather than after the backup.
+        #expect(problem.sentence.contains("Nothing has been opened or changed."))
+    }
+
+    @Test("a checkpoint that could not complete stops the sequence BEFORE the backup")
+    func aFailedCheckpointStopsTheBackup() throws {
+        // This is the whole reason the checkpoint sits where it does. Backing up
+        // a store whose log still holds the rows produces an archive that
+        // restores an empty database and verifies clean, so carrying on past a
+        // failed checkpoint would manufacture exactly the reassuring corrupt
+        // backup the verification cannot see (L63).
+        let world = try World(checkpoint: { _ in .failed(detail: "a reader is holding it open") })
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        guard case .refused = outcome else {
+            Issue.record("a failed checkpoint did not stop the sequence, it returned \(outcome)")
+            return
+        }
+        #expect(world.recorder.steps == ["identify", "checkpoint"])
+        #expect(!world.recorder.steps.contains("backup"))
+    }
+
+    @Test("a first launch with no store yet checkpoints nothing and still opens")
+    func aFirstLaunchIsOrdinary() throws {
+        // A fresh install has no store. Treating that as a failed checkpoint
+        // would raise a problem on every first run, which is a guard firing on
+        // the commonest case rather than the dangerous one (L11).
+        let world = try World(withStore: false)
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        #expect(world.store.open.isEmpty)
+    }
+
+    // MARK: a failed backup is reported, and does not lock Dan out
+
+    @Test("a backup that fails is RAISED but the app still opens")
+    func aFailedBackupIsReportedNotFatal() throws {
+        // Deliberate, and the reason is stated because the opposite is also
+        // defensible. Refusing to open would leave Dan unable to invoice
+        // because a folder on a Synology was unreachable, which is a worse
+        // failure than the one being guarded against. So it is reported.
+        //
+        // This becomes a REFUSAL once ovation#105 can say whether opening would
+        // run a migration, because that is the case where opening without a
+        // backup can lose data rather than merely leave it unprotected.
+        let world = try World(backup: { _ in throw BackupError.couldNotWrite("Backups") })
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        #expect(world.store.open.contains { $0.kind == .backupFailed })
+        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open"])
+    }
+
+    @Test("the backup failure names which half failed")
+    func theBackupFailureNamesItsHalf() throws {
+        // ovation#87 asks for two labels, not one: an archive that could not be
+        // WRITTEN and one that was written and did not VERIFY are different
+        // failures needing different sentences (L11).
+        let world = try World(backup: { _ in throw BackupError.couldNotWrite("Backups") })
+
+        _ = world.sequence.run(now: world.instant)
+
+        let problem = try #require(world.store.open.first { $0.kind == .backupFailed })
+        #expect(problem.sentence.lowercased().contains("could not be written"))
+    }
+
+    // MARK: fixtures
+
+    /// A real store directory, a recorder that says which steps ran, and seams
+    /// for the checkpoint and the backup so a test never has to make a real one
+    /// fail by damaging the machine.
+    @MainActor
+    private struct World {
+        let directory: URL
+        let storeURL: URL
+        let store: ProblemsStore
+        let recorder: Recorder
+        let sequence: StoreLaunchSequence
+        let instant = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+        final class Recorder: @unchecked Sendable {
+            private(set) var steps: [String] = []
+            func record(_ step: String) { steps.append(step) }
+        }
+
+        init(withStore: Bool = true,
+             checkpoint: (@Sendable (URL) -> StoreCheckpoint.Outcome)? = nil,
+             backup: (@Sendable (Date) throws -> URL)? = nil) throws {
+            directory = URL.temporaryDirectory
+                .appending(path: "ovation-launch-\(UUID().uuidString)",
+                           directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: directory,
+                                                    withIntermediateDirectories: true)
+            storeURL = directory.appending(path: "Ovation.store")
+            if withStore {
+                let schema = Schema([Client.self])
+                let container = try ModelContainer(
+                    for: schema,
+                    configurations: ModelConfiguration(schema: schema, url: storeURL))
+                let context = ModelContext(container)
+                context.insert(Client(name: "Ashgrove Chamber Players", taxStatus: .neverRecorded))
+                try context.save()
+            }
+
+            store = ProblemsStore(journal: InMemoryProblemsJournal())
+            let recorder = Recorder()
+            self.recorder = recorder
+
+            sequence = StoreLaunchSequence(
+                storeURL: storeURL,
+                problems: store,
+                checkpoint: { url in
+                    recorder.record("checkpoint")
+                    return checkpoint?(url) ?? StoreCheckpoint.run(storeURL: url)
+                },
+                takeBackup: { now in
+                    recorder.record("backup")
+                    if let backup { return try backup(now) }
+                    return URL(fileURLWithPath: "/dev/null")
+                },
+                openContainer: { url in
+                    recorder.record("open")
+                    let schema = Schema([Client.self])
+                    return try ModelContainer(
+                        for: schema,
+                        configurations: ModelConfiguration(schema: schema, url: url))
+                },
+                identify: { url in
+                    recorder.record("identify")
+                    return StoreSchemaGuard.inspect(
+                        storeURL: url,
+                        ownEntityTables: StoreSchemaGuard.entityTableNames(
+                            for: Schema([Client.self])))
+                })
+        }
+
+        /// A database that is plainly somebody else's: real SQLite, carrying
+        /// tables Ovation has never heard of.
+        ///
+        /// EVERY STATEMENT IS CHECKED. A first version renamed Ovation's own
+        /// table and ignored the result, so when the rename matched nothing the
+        /// fixture silently produced Ovation's own store and the test failed
+        /// against a case it had never built (L100).
+        func writeForeignStore() throws {
+            try? FileManager.default.removeItem(at: storeURL)
+            try? FileManager.default.removeItem(
+                at: directory.appending(path: "Ovation.store-wal"))
+            try? FileManager.default.removeItem(
+                at: directory.appending(path: "Ovation.store-shm"))
+
+            var handle: OpaquePointer?
+            guard sqlite3_open_v2(storeURL.path, &handle,
+                                  SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
+                  let handle else {
+                sqlite3_close(handle)
+                throw FixtureFailure.couldNotBuildForeignStore
+            }
+            defer { sqlite3_close(handle) }
+            for table in ["ZBOOKING", "ZPROSPECT"] {
+                guard sqlite3_exec(handle, "CREATE TABLE \(table) (Z_PK INTEGER PRIMARY KEY);",
+                                   nil, nil, nil) == SQLITE_OK else {
+                    throw FixtureFailure.couldNotBuildForeignStore
+                }
+            }
+        }
+    }
+
+    enum FixtureFailure: Error {
+        case couldNotBuildForeignStore
+    }
+}
