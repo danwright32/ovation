@@ -49,7 +49,24 @@ is pure ASCII**, so no pipe between here and a browser can mangle it.
 
 ## What is still open
 
-`ovation#95` where the venue and shoot times live. `ovation#97` whether a three night run
-is one invoice or three, which is blocking. `ovation#18` the app icon, which was waiting on
-the palette and is now unblocked. The receipts queue and the review and send screen are not
-designed yet.
+`ovation#95` where the venue and shoot times live. `ovation#18` the app icon, which was
+waiting on the palette and is now unblocked. The receipts queue and the review and send
+screen are not designed yet.
+
+**ovation#97 is answered, and its answers opened three things this design does not cover.**
+It was listed here as blocking on whether a three night run is one invoice or three. It was
+not blocking: the PRD had answered it, in three places. What the interview of 2026-09-06
+found instead is that the recorded answer was WRONG, and correcting it changes this design
+rather than unblocking it.
+
+1. **A row assumes one shoot, and an invoice no longer does.** Dan bills the engagement, so
+   a Wednesday rehearsal and a Saturday concert go on one invoice (PRD 5.1a). The row draws
+   a single shoot name and a single shoot date, and there is no decided answer for what it
+   shows when the invoice covers two.
+2. **Dismissing a draft is a new action with no word yet.** A booking now has three endings,
+   not one, and the third is Dan deciding not to bill it (PRD 5.1b). Every other action on
+   the list is a word on the right of the row, and this one has to sit beside them without
+   reading as destructive, since it is a decision and not a delete.
+3. **Money held against a client has no surface at all.** A payment is now its own record
+   and what is not yet allocated sits on the client (PRD 5.14a), which is also where a
+   deposit lands. The list is invoices, so there is currently nowhere for it to appear.
