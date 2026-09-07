@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import SwiftData
 import Testing
 @testable import Ovation
@@ -72,6 +73,46 @@ struct StoreCheckpointTests {
             return
         }
         #expect(!detail.isEmpty)
+    }
+
+    @Test("a checkpoint that could not complete is a FAILURE, not a quiet success")
+    func aBusyCheckpointRefuses() throws {
+        // The defect this test was written against, found by the push hook's
+        // lesson check against L5 and confirmed here. PRAGMA wal_checkpoint
+        // returns SQLITE_OK even when it moved NOTHING: the verdict is the busy
+        // flag in its result row, not its return code (L184 in reverse, and
+        // L156). A first implementation read only the return code, so with a
+        // reader active it reported a clean checkpoint having consolidated
+        // nothing, and the backup that followed would have copied a store file
+        // still carrying no rows.
+        let world = try World()
+
+        // A second connection holding an open read transaction, which is what
+        // blocks a TRUNCATE checkpoint. Deterministic: no sleeping, no racing.
+        var reader: OpaquePointer?
+        #expect(sqlite3_open_v2(world.storeURL.path, &reader,
+                                SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(reader) }
+        #expect(sqlite3_exec(reader, "BEGIN; SELECT count(*) FROM sqlite_master;",
+                             nil, nil, nil) == SQLITE_OK)
+
+        let outcome = StoreCheckpoint.run(storeURL: world.storeURL)
+
+        guard case .failed(let detail) = outcome else {
+            Issue.record("a blocked checkpoint reported \(outcome), which the backup would trust")
+            return
+        }
+        #expect(detail.contains("could not be completed"))
+
+        // And the log was NOT emptied, which is what "could not be completed"
+        // means for TRUNCATE and is the state the next step must not trust.
+        //
+        // A first draft asserted the store file still carried no rows, and that
+        // was FALSE: a blocked checkpoint can copy frames into the database and
+        // still fail to reset the log, so the two are separate facts. The test
+        // caught the wrong claim, which is the point of asserting a consequence
+        // rather than a belief about the mechanism.
+        #expect(try world.logByteCount() > 0)
     }
 
     // MARK: fixtures

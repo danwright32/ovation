@@ -48,11 +48,14 @@ enum StoreCheckpoint {
     /// Moves everything in the write ahead log into the store file and empties
     /// the log.
     ///
-    /// TRUNCATE rather than PASSIVE or FULL. PASSIVE gives up silently when a
-    /// reader is active, which would return success having moved nothing, and
-    /// that is the one answer this must never give. TRUNCATE also empties the
-    /// log file rather than leaving its bytes in place, so a copy taken
-    /// afterwards cannot carry a stale log that contradicts the store.
+    /// TRUNCATE rather than PASSIVE or FULL, because it also empties the log
+    /// file rather than leaving its bytes in place, so a copy taken afterwards
+    /// cannot carry a stale log that contradicts the store.
+    ///
+    /// The mode is NOT what makes this safe. Every mode, TRUNCATE included,
+    /// gives up when a reader is active and reports that in its result row
+    /// rather than in its return code. Reading the row is what makes it safe,
+    /// and the first version of this file did not.
     nonisolated static func run(storeURL: URL) -> Outcome {
         guard FileManager.default.fileExists(atPath: storeURL.path) else {
             return .noStoreFile
@@ -74,8 +77,40 @@ enum StoreCheckpoint {
             return .failed(detail: message(from: handle, fallback: "not a database"))
         }
 
-        if sqlite3_exec(handle, "PRAGMA wal_checkpoint(TRUNCATE);", nil, nil, nil) != SQLITE_OK {
+        // THE VERDICT IS THE RESULT ROW, NOT THE RETURN CODE, and reading only
+        // the return code is a defect that shipped here once. `PRAGMA
+        // wal_checkpoint` answers SQLITE_OK even when it moved NOTHING: it hands
+        // back one row of three integers, and the first is a BUSY flag saying it
+        // gave up because a reader was active. Judging it by the call's success
+        // is judging a command by the wrong signal (L184), and it fails in the
+        // reassuring direction: a clean report over a store that is still not
+        // self sufficient, which the backup then copies and verifies.
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "PRAGMA wal_checkpoint(TRUNCATE);", -1,
+                                 &statement, nil) == SQLITE_OK else {
             return .failed(detail: message(from: handle, fallback: "the checkpoint was refused"))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            // No row at all is not success. It means the pragma did not answer,
+            // and an unanswered question must never read as a clean run (L98).
+            return .failed(detail: message(from: handle,
+                                           fallback: "the checkpoint reported nothing"))
+        }
+
+        let busy = sqlite3_column_int(statement, 0)
+        let pagesLeftInLog = sqlite3_column_int(statement, 1)
+
+        guard busy == 0 else {
+            return .failed(detail: "the checkpoint could not be completed, "
+                           + "a reader is holding the store open")
+        }
+        guard pagesLeftInLog == 0 else {
+            // TRUNCATE is supposed to leave nothing behind. Anything left means
+            // the store is not self sufficient, whatever the flags said.
+            return .failed(detail: "the checkpoint could not be completed, "
+                           + "\(pagesLeftInLog) page(s) remain in the log")
         }
 
         return .checkpointed
