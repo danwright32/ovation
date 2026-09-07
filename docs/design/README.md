@@ -220,6 +220,50 @@ not: what is left is the design, plus two things that are behaviour rather than 
 a name changes the client, which is what the real screen does and is the only way to see the
 rule at work. The day switch shows the quiet state, which is where the zero rule is visible.
 
+### Round 5, settled 2026-09-07: the roster gets its own screen, and it is not there when it is empty
+
+Four places were rendered for the roster clean up. Dan took the first, its own screen holding
+everything that stops an invoice going out, **and added two rules with it**: only show that
+screen when there are clients needing fixing, and put broken addresses above tax statuses because
+a broken address matters more.
+
+**The premise had to be corrected first, and it shrank the job to almost nothing.** The round was
+built on ovation#40's framing, that an empty contract email is a gap. Dan: "not having a contract
+email is the default. Most clients don't have this because the person that hired me is the person
+I email the contract/invoices to." So a client has TWO addresses, the second is an override, and
+its absence is ordinary. Then, reading the result: "I should be allowed to do two addresses in one
+field. There's nothing stopping me from invoicing 2 emails at the same company at the same time
+for the same event."
+
+Re-measured against the real export under those corrections, counts only:
+
+| | |
+| --- | --- |
+| Clients | 31 |
+| With no address at all | 0 |
+| With one address | 29 |
+| With two addresses on purpose | 1 |
+| Genuinely broken, being text rather than an address | **1** |
+| Overrides that are an exact copy of the main address | 30 |
+| Genuine overrides | 1 (invented for this fixture; the real count is 0) |
+| Sharing one address | 2 |
+| With no tax status | 25 |
+
+So the pass is **one address and 25 tax statuses**, not the mixed pile of four or five problems
+the issue described. Three of the four problem kinds turned out not to be problems.
+
+**Ordered by cost, not by count.** One broken address sits above 25 missing statuses. Frequency
+earns real estate on a list read daily; consequence earns it on a list cleared once.
+
+**The zero rule now reaches a whole place in the app.** Once the roster is clear, `Settle the
+roster` is gone from the sidebar rather than sitting there saying zero. Use the day switch to see
+it. That is the same rule as every count in the card and as money held, stated for the fourth
+time and now applying to navigation.
+
+**The committed file is the design, not the chooser.** What is left is behaviour: the sidebar
+navigates between the two screens and clicking a name changes the client, both of which the real
+window does.
+
 ### What the screen still is not
 
 Referral credit sits beside held money as an equal box and nothing yet keeps them from reading

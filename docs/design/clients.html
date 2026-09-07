@@ -345,197 +345,338 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
    31 and not the other 24, which is the row changing shape with its contents. */
 .money.single { grid-template-columns: 1fr 1fr; }
 .money.single .mbox { grid-column: 1; }
+
+/* ============================================================
+   ROUND 5 only: the roster clean up. ovation#40.
+   Controls drawn as the design system's, not the browser's: a
+   native select and a native input are what SHIP when nothing
+   replaces them, and to the person they read as a piece of the
+   operating system pasted into the product.
+   ============================================================ */
+.pass { padding: 0; }
+.passhead { display: flex; align-items: baseline; gap: 12px; padding: 14px 24px 10px; border-bottom: 1px solid var(--rule); }
+.passhead h6 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
+.passhead .n { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--soft); }
+.passhead .said { margin-left: auto; font-size: 12.5px; color: var(--faint); }
+
+.prow { display: grid; grid-template-columns: minmax(0,1fr) 216px; gap: 16px; align-items: center; padding: 7px 24px; border-bottom: 1px solid var(--rule-soft); }
+.prow .pname { font-size: 14px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.choice { display: flex; gap: 6px; justify-content: flex-end; }
+.chip { font-size: 12px; padding: 3px 11px; border: 1px solid var(--rule); border-radius: 4px; background: var(--bg); color: var(--soft); white-space: nowrap; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-ink); font-weight: 600; }
+
+/* An email problem is a DIFFERENT problem per client, so its row says which
+   rather than carrying a shared needs attention flag. */
+.erow { display: grid; grid-template-columns: minmax(0,1fr) 150px 260px; gap: 16px; align-items: center; padding: 9px 24px; border-bottom: 1px solid var(--rule-soft); }
+.erow .pname { font-size: 14px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.erow .kind { font-size: 12px; color: var(--soft); white-space: nowrap; }
+.field { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; padding: 5px 9px; border: 1px solid var(--rule); background: var(--page-panel, #fff); color: var(--ink); border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.field.bad { border-color: var(--quiet); color: var(--quiet); }
+
+.passfoot { padding: 12px 24px; border-top: 1px solid var(--rule); display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; color: var(--faint); }
+.passfoot b { color: var(--ink); font-weight: 600; }
+
+/* C. A banner over a filtered list. */
+.filterbar { display: flex; align-items: baseline; gap: 10px; padding: 10px 24px; border-bottom: 1px solid var(--rule); background: var(--sunk); font-size: 13px; color: var(--soft); }
+.filterbar b { color: var(--ink); font-weight: 600; }
+.filterbar .act { margin-left: auto; }
+
+/* D. A value edited where it already sits. */
+.fval.editable { border-bottom: 1px dashed var(--rule); }
+.inlinechoice { display: inline-flex; gap: 6px; }
+
+/* Round 5, rebuilt. The queue, and the shared address warning. */
+.queue { padding: 40px 24px 32px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; max-width: 520px; }
+.qcount { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--faint); }
+.queue h5 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 30px; font-weight: 400; color: var(--ink); line-height: 1.1; }
+.qask { font-size: 15px; color: var(--soft); }
+.choice.big { justify-content: flex-start; gap: 8px; }
+.choice.big .chip { font-size: 14px; padding: 7px 18px; }
+.qnote { font-size: 12.5px; color: var(--faint); line-height: 1.5; }
+.qstrip { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.qdot { width: 7px; height: 7px; border-radius: 50%; background: var(--rule); }
+.qdot.on { background: var(--accent); }
+.qrest { font-size: 11.5px; color: var(--faint); margin-left: 4px; }
+
+/* A shared address is a question, not a fault, so it is a quiet line with a way
+   to answer it rather than anything alarming. No red: nothing is wrong. */
+.warn { display: flex; align-items: baseline; gap: 12px; padding: 9px 12px; border: 1px solid var(--rule); background: var(--sunk); font-size: 13px; color: var(--soft); }
+.warn .wtext { min-width: 0; }
+.warn .act { margin-left: auto; white-space: nowrap; }
+
 </style>
 <div class="wrap">
 
   <header class="masthead">
-    <div class="eyebrow">Ovation, the Clients screen</div>
-    <h1>Settled over four rounds on 7 September.</h1>
+    <div class="eyebrow">Ovation, Clients and the roster</div>
+    <h1>Settled over five rounds on 7 September.</h1>
     <p class="lede">
       Names on the left, one client on the right. The amount rides beside any client whose money
-      Ovation is holding, so the screen says WHICH without a click, and a line in the sidebar card
-      carries it to every screen including Invoices.
+      Ovation is holding. A count in the sidebar carries it to every screen. And the roster is
+      settled on <strong>its own screen, all at once</strong>, rather than one invoice at a time.
     </p>
     <p class="lede">
-      <strong>Click a name.</strong> Harborlight Ballet holds money and carries referral credit,
-      which is the only client of the thirty one who has both. Zephyr Hall holds money and has no
-      credit. Most have neither, and on those the money row is not there at all.
+      <strong>Click the sidebar to move between the two, and click a name to change the client.</strong>
+      That is navigation rather than a chooser: it is what the real window does.
     </p>
   </header>
 
   <div class="notice">
-    <p><b>The rule this screen ended up stating three times: a quantity of nothing is not drawn.</b>
-    Not in the sidebar card, not for money held, not for referral credit. It is worth writing down
-    once rather than three times, because it is not a Clients decision, it governs every count in
-    the product.</p>
-    <p><b>It is a rule about ABSENCE, not about zero</b>, and the difference is load bearing. A
-    comped shoot invoiced at nothing has a total of $0.00 and that total must always be drawn, since
-    PRD 5.1b makes it legitimate and says no guard may refuse it. And an absence that means
-    something is MISSING is still drawn: a client with no tax status recorded reads Not recorded,
-    out loud, because that is work waiting rather than nothing to do.</p>
-    <p><b>Measured at the real count:</b> 3 of the 31 hold money, 5 carry credit, 1 has both, and
-    <b>24 of 31 show no money row at all</b>.</p>
+    <p><b>Use the day switch.</b> On a settled day there is no roster screen at all, because
+    the rule this design keeps arriving at is that a quantity of nothing is not drawn. That now
+    reaches a whole place in the app, not just a line in a card: once the roster is clear,
+    Settle the roster is gone from the sidebar rather than sitting there saying zero.</p>
+    <p><b>Broken addresses come before tax statuses, even though there is one of them and 25 of
+    the other.</b> An address that cannot be sent to is worse than a status that has not been
+    asked for, so it is ordered by what it costs rather than by how many there are.</p>
+    <p><b>Measured on the real export, counts only:</b> 31 clients, all with an address, 29 with
+    one address, 1 with two on purpose, 1 that is not an address at all, 2 sharing an address,
+    and 25 with no tax status recorded.</p>
   </div>
 
   <div class="tabs" id="tabs"></div>
   <div class="stage" id="stage"></div>
 
   <div class="record">
-    <div><h3>The shape</h3>
-      <p>Names left, one client right. It buys room to LABEL money held and referral credit rather
-      than leaving them as columns whose units you have to know, and the client's invoices sit on
-      the same screen. It spends the list: 15 of 31 are visible at once, measured.</p>
+    <div><h3>The roster screen</h3>
+      <p>Its own place, reached from the sidebar, holding everything that stops an invoice going
+      out. <b>It reports the number it started with</b>, so it reads as a one time pass rather
+      than a standing nag, and it is not there at all once it is empty.</p>
     </div>
-    <div><h3>Where held money appears</h3>
-      <p>Beside the client in the list, so the screen says which, and as a count in the sidebar
-      card, so it reaches you on Invoices. <b>It counts DOWN as you apply it</b>, exactly like the
-      four counts beside it. The control that applies it does not exist yet: ovation#109.</p>
+    <div><h3>Ordered by cost, not by count</h3>
+      <p>One broken address above 25 missing tax statuses. The address cannot be sent to at all;
+      a missing status is a question nobody has asked yet. <b>Frequency earns real estate on a
+      list you read daily; consequence earns it on a list you clear once.</b></p>
     </div>
-    <div><h3>Money and credit kept apart</h3>
-      <p>They are never both drawn unless the client really has both, which is one client in
-      thirty one. PRD 5.14c is the reason: money held arrived and is owed back if unused, credit
-      was earned and is spent as a line inside an invoice, and drawn alike, credit nobody paid
-      could settle an invoice.</p>
+    <div><h3>Two addresses in one field is a VALUE</h3>
+      <p>Dan invoices two people at one company for one event, so that is a recipient list and
+      not a fault. What is still refused is a value that is not an address, and a list where any
+      part is not one, because sending to the parts that parse delivers an invoice to a subset
+      nobody chose.</p>
     </div>
-    <div><h3>Espresso, unchanged</h3>
-      <p>Colour is settled and was never a variable here. Light mode only. No red anywhere: money
-      you are holding is not a fault.</p>
+    <div><h3>A shared address asks rather than blocks</h3>
+      <p>Two clients on one address gets a quiet line where the client is, with a way to say it
+      is correct. The answer is recorded <b>against that address</b>, so changing it asks again.</p>
     </div>
   </div>
 
   <section class="closing">
-    <h2>What this screen still is not</h2>
+    <h2>What this still is not</h2>
     <ol>
-      <li><b>Nothing on it is an action.</b> Applying held money to an invoice is what makes it
-      useful and there is no control for it. That is ovation#109, and until it exists the sidebar
-      count cannot actually count down.</li>
-      <li><b>The roster clean up has no surface.</b> 25 of these 31 have no tax status and the
-      screen says so quietly; two share a contract email and it says nothing at all. That is
-      ovation#40, and the next round.</li>
-      <li><b>The decisions are not in the PRD yet.</b> The zero rule in particular governs every
-      count in the product and PRD 46a, which describes that sidebar card, says nothing about it.</li>
+      <li><b>Nothing here applies held money to an invoice</b>, which is what would make the
+      sidebar count actually count down. That is ovation#109.</li>
+      <li><b>The detail pane scrolls sideways once the window is narrowed</b>, from 874px.
+      ovation#110, and it needs a decision from Dan about a minimum window width.</li>
+      <li><b>None of these decisions is in the PRD as numbered requirements yet</b>, other than
+      the ones about addresses, which were corrected as they were made.</li>
     </ol>
   </section>
 </div>
 <script>
-/* THE CLIENTS SCREEN, settled over four rounds on 2026-09-07. ovation#98.
+/* OVATION: THE CLIENTS SCREEN AND THE ROSTER PASS. Settled over five rounds on
+   2026-09-07. ovation#98, ovation#40.
 
-   THIS IS THE DESIGN, NOT THE CHOOSER IT CAME FROM. The position switcher each
-   round used is stripped: a file offering options is a picker, and committing
-   one as though it were the agreed design is a mistake this estate has already
-   made once.
+   THIS IS THE DESIGN, NOT THE CHOOSER IT CAME FROM. The position switchers the
+   rounds used are stripped. What is left is BEHAVIOUR: the sidebar navigates
+   between the two screens and clicking a name changes the client, both of which
+   are what the real window does. The day switch shows the settled state, which is
+   the only place the zero rule is visible.
 
-   WHAT IS LEFT IS NOT A CHOOSER. Clicking a name changes the client, which is
-   what the real screen does. The day switch shows the quiet state, which is the
-   only place the zero rule is visible and is the state the product is in every
-   day the work is done.
+   THE RULE THIS DESIGN KEPT ARRIVING AT, now reaching a whole place in the app:
+   A QUANTITY OF NOTHING IS NOT DRAWN. Not a count in the card, not money held,
+   not referral credit, and not the roster screen itself. It is a rule about
+   ABSENCE and not about zero: a comped invoice totals $0.00 and that is always
+   drawn, and an absence meaning something is MISSING is drawn out loud, which is
+   why a client with no tax status reads Not recorded.
 
-   THE ONE RULE THIS SCREEN ENDED UP STATING THREE TIMES: a quantity of nothing
-   is not drawn. Not in the sidebar card, not for money held, not for referral
-   credit. It is a rule about ABSENCE and not about zero. A comped invoice totals
-   $0.00 and that is a measured value which must always be drawn (PRD 5.1b). An
-   absence meaning something is MISSING is drawn too: a client with no tax status
-   reads Not recorded, because that is work waiting rather than nothing to do. */
+   ORDERED BY COST, NOT BY COUNT. One broken address sits above 25 missing tax
+   statuses, because the address cannot be sent to at all while a missing status
+   is a question nobody has asked yet (Dan, 2026-09-07). */
 
 var CLIENTS = [
-  { c: "Ashgrove Chamber Players",     e: "office@ashgrovechamber.example",   t: null,         h: "$500.00",   r: null },
-  { c: "Bellweather Dance Collective", e: "hello@bellweatherdance.example",   t: null,         h: null,        r: null },
-  { c: "Brackenridge Youth Orchestra", e: "admin@brackenridgeyo.example",     t: null,         h: null,        r: null },
-  { c: "Calder Street Theatre",        e: "boxoffice@calderstreet.example",   t: "Not exempt", h: null,        r: null },
-  { c: "Cormorant Bay Singers",        e: "sing@cormorantbay.example",        t: null,         h: null,        r: null },
-  { c: "Drayton Wind Ensemble",        e: "office@draytonarts.example",       t: null,         h: null,        r: null },
-  { c: "Eastvale Opera Workshop",      e: "office@draytonarts.example",       t: null,         h: null,        r: null },
-  { c: "Fenwick Early Music Society",  e: "consort@fenwickearly.example",     t: null,         h: null,        r: "2.5 hrs" },
-  { c: "Gallowmere Brass Band",        e: "band@gallowmerebrass.example",     t: null,         h: null,        r: null },
-  { c: "Harborlight Ballet",           e: "studio@harborlightballet.example", t: "Not exempt", h: "$1,250.00", r: "3.0 hrs" },
-  { c: "Inglenook Jazz Collective",    e: "gigs@inglenookjazz.example",       t: null,         h: null,        r: null },
-  { c: "Juniper Row Playhouse",        e: "stage@juniperrow.example",         t: null,         h: null,        r: null },
-  { c: "Kestrel Lane Quartet",         e: null,                               t: null,         h: null,        r: null },
-  { c: "Larkspur Community Chorus",    e: "chorus@larkspurcommunity.example", t: "Exempt",     h: null,        r: null },
-  { c: "Marisol Okonkwo-Reyes",        e: "marisol@okonkworeyes.example",     t: null,         h: null,        r: "4.0 hrs" },
-  { c: "Marrowbone Percussion Group",  e: "kit@marrowbonepercussion.example", t: null,         h: null,        r: null },
-  { c: "Nettlefield Baroque Consort",  e: "info@nettlefieldbaroque.example",  t: null,         h: null,        r: null },
-  { c: "Orchard Hill Symphonia",       e: "office@orchardhillsym.example",    t: null,         h: null,        r: "1.0 hrs" },
-  { c: "Pennywhistle Folk Circle",     e: "circle@pennywhistlefolk.example",  t: null,         h: null,        r: null },
-  { c: "Priya Raghunathan",            e: "priya@raghunathanviolin.example",  t: null,         h: null,        r: null },
-  { c: "Quillon Contemporary Dance",   e: "co@quillondance.example",          t: null,         h: null,        r: null },
-  { c: "Redbourne Light Opera",        e: "tickets@redbournelight.example",   t: null,         h: null,        r: null },
-  { c: "Saltmarsh String Orchestra",   e: "strings@saltmarshorch.example",    t: null,         h: null,        r: null },
-  { c: "Thistledown Puppet Theatre",   e: "puppets@thistledownpt.example",    t: null,         h: null,        r: null },
-  { c: "Tobias Fenn",                  e: "tobias@fennpiano.example",         t: null,         h: null,        r: null },
-  { c: "Underhill Gospel Choir",       e: "choir@underhillgospel.example",    t: "Exempt",     h: null,        r: null },
-  { c: "Vesper Lane Chamber Society",  e: "society@vesperlane.example",       t: null,         h: null,        r: null },
-  { c: "Westfield Choral Society",     e: "music@westfieldchoral.example",    t: "Not exempt", h: null,        r: "3.0 hrs" },
-  { c: "Wrenfield Academy of Dance",   e: "school@wrenfieldacademy.example",  t: null,         h: null,        r: null },
-  { c: "Yarrow Street Collective",     e: "make@yarrowstreet.example",        t: null,         h: null,        r: null },
-  { c: "Zephyr Hall Concerts",         e: "hall@zephyrhall.example",          t: "Not exempt", h: "$87.50",    r: null }
+  { c: "Ashgrove Chamber Players",     m: "office@ashgrovechamber.example",   o: null, t: null,         h: "$500.00",   r: null },
+  { c: "Bellweather Dance Collective", m: "hello@bellweatherdance.example",   o: null, t: null,         h: null,        r: null },
+  { c: "Brackenridge Youth Orchestra", m: "admin@brackenridgeyo.example",     o: null, t: null,         h: null,        r: null },
+  { c: "Calder Street Theatre",        m: "boxoffice@calderstreet.example",   o: null, t: "Not exempt", h: null,        r: null },
+  { c: "Cormorant Bay Singers",        m: "sing@cormorantbay.example",        o: null, t: null,         h: null,        r: null },
+  { c: "Drayton Wind Ensemble",        m: "office@draytonarts.example",       o: null, t: null,         h: null,        r: null, shared: true },
+  { c: "Eastvale Opera Workshop",      m: "office@draytonarts.example",       o: null, t: null,         h: null,        r: null, shared: true },
+  { c: "Fenwick Early Music Society",  m: "consort@fenwickearly.example",     o: null, t: null,         h: null,        r: "2.5 hrs" },
+  { c: "Gallowmere Brass Band",        m: "band@gallowmerebrass.example",     o: null, t: null,         h: null,        r: null },
+  { c: "Harborlight Ballet",           m: "studio@harborlightballet.example", o: "treasurer@harborlightballet.example", t: "Not exempt", h: "$1,250.00", r: "3.0 hrs" },
+  { c: "Inglenook Jazz Collective",    m: "gigs@inglenookjazz.example",       o: null, t: null,         h: null,        r: null },
+  { c: "Juniper Row Playhouse",        m: "stage@juniperrow.example",         o: null, t: null,         h: null,        r: null },
+  { c: "Kestrel Lane Quartet",         m: "quartet@kestrellane.example",      o: null, t: null,         h: null,        r: null },
+  { c: "Larkspur Community Chorus",    m: "chorus@larkspurcommunity.example", o: null, t: "Exempt",     h: null,        r: null },
+  { c: "Marisol Okonkwo-Reyes",        m: "marisol@okonkworeyes.example",     o: null, t: null,         h: null,        r: "4.0 hrs" },
+  { c: "Marrowbone Percussion Group",  m: "kit@marrowbonepercussion.example", o: null, t: null,         h: null,        r: null },
+  { c: "Nettlefield Baroque Consort",  m: "info@nettlefieldbaroque.example",  o: null, t: null,         h: null,        r: null },
+  { c: "Orchard Hill Symphonia",       m: "office@orchardhillsym.example",    o: null, t: null,         h: null,        r: "1.0 hrs" },
+  { c: "Pennywhistle Folk Circle",     m: "ask at the box office",            o: null, t: null,         h: null,        r: null, bad: "notaddress" },
+  { c: "Priya Raghunathan",            m: "priya@raghunathanviolin.example",  o: null, t: null,         h: null,        r: null },
+  { c: "Quillon Contemporary Dance",   m: "co@quillondance.example",          o: null, t: null,         h: null,        r: null },
+  { c: "Redbourne Light Opera",        m: "tickets@redbournelight.example",   o: null, t: null,         h: null,        r: null },
+  { c: "Saltmarsh String Orchestra",   m: "strings@saltmarshorch.example",    o: null, t: null,         h: null,        r: null },
+  { c: "Thistledown Puppet Theatre",   m: "puppets@thistledownpt.example, admin@thistledownpt.example", o: null, t: null, h: null, r: null, several: true },
+  { c: "Tobias Fenn",                  m: "tobias@fennpiano.example",         o: null, t: null,         h: null,        r: null },
+  { c: "Underhill Gospel Choir",       m: "choir@underhillgospel.example",    o: null, t: "Exempt",     h: null,        r: null },
+  { c: "Vesper Lane Chamber Society",  m: "society@vesperlane.example",       o: null, t: null,         h: null,        r: null },
+  { c: "Westfield Choral Society",     m: "music@westfieldchoral.example",    o: null, t: "Not exempt", h: null,        r: "3.0 hrs" },
+  { c: "Wrenfield Academy of Dance",   m: "school@wrenfieldacademy.example",  o: null, t: null,         h: null,        r: null },
+  { c: "Yarrow Street Collective",     m: "make@yarrowstreet.example",        o: null, t: null,         h: null,        r: null },
+  { c: "Zephyr Hall Concerts",         m: "hall@zephyrhall.example",          o: null, t: "Not exempt", h: "$87.50",    r: null }
 ];
 
-var SELECTED = "Harborlight Ballet";
+var SELECTED = "Drayton Wind Ensemble";
 var HELD = CLIENTS.filter(function (k) { return k.h; });
+var NO_TAX = CLIENTS.filter(function (k) { return !k.t; });
+var BAD_ADDRESS = CLIENTS.filter(function (k) { return k.bad; });
+var TO_SETTLE = CLIENTS.filter(function (k) { return !k.t || k.bad; });
 
 var INVOICES = [
-  { n: "1131", s: "Autumn gala",     d: "14 Nov 2026", a: "1,088.75", w: "Sent, unpaid" },
-  { n: "1126", s: "Studio portraits", d: "2 Oct 2026", a: "816.56",   w: "Paid" },
-  { n: "1119", s: "Spring showcase", d: "18 May 2026", a: "1,360.94", w: "Paid" },
-  { n: "1112", s: "Winter matinee",  d: "9 Feb 2026",  a: "680.47",   w: "Paid" }
+  { n: "1131", s: "Autumn gala",      d: "14 Nov 2026", a: "1,088.75", w: "Sent, unpaid" },
+  { n: "1126", s: "Studio portraits", d: "2 Oct 2026",  a: "816.56",   w: "Paid" },
+  { n: "1119", s: "Spring showcase",  d: "18 May 2026", a: "1,360.94", w: "Paid" },
+  { n: "1112", s: "Winter matinee",   d: "9 Feb 2026",  a: "680.47",   w: "Paid" }
 ];
 
-
 var QUIET = false;
+var PLACE = "clients";
 
 function el(t, c, x) { var n = document.createElement(t); if (c) n.className = c; if (x !== undefined) n.textContent = x; return n; }
 
-function counts() {
-  if (QUIET) return [];
-  var lines = [["To send", 4], ["To chase", 2], ["To confirm", 2], ["Receipts to file", 7]];
-  if (HELD.length) lines.push(["Money held", HELD.length]);
-  return lines;
+var HELD = CLIENTS.filter(function (k) { return k.h; });
+var NO_TAX = CLIENTS.filter(function (k) { return !k.t; });
+var BAD_ADDRESS = CLIENTS.filter(function (k) { return k.bad; });
+var TO_SETTLE = CLIENTS.filter(function (k) { return !k.t || k.bad; });
+
+var INVOICES = [
+  { n: "1131", s: "Autumn gala",      d: "14 Nov 2026", a: "1,088.75", w: "Sent, unpaid" },
+  { n: "1126", s: "Studio portraits", d: "2 Oct 2026",  a: "816.56",   w: "Paid" },
+  { n: "1119", s: "Spring showcase",  d: "18 May 2026", a: "1,360.94", w: "Paid" },
+  { n: "1112", s: "Winter matinee",   d: "9 Feb 2026",  a: "680.47",   w: "Paid" }
+];
+
+/* On a settled day the roster is clear, so the whole screen is gone. */
+function rosterCount() { return QUIET ? 0 : TO_SETTLE.length; }
+function goesTo(k) { return k.o || k.m; }
+
+function taxChoice(k) {
+  var w = el("div", "choice");
+  ["Exempt", "Not exempt"].forEach(function (label) {
+    w.append(el("div", "chip" + (k.t === label ? " on" : ""), label));
+  });
+  return w;
 }
 
-/* The money row. Each box is drawn only where there is something in it, and
-   where neither has anything the row is not there at all, which is 24 of the 31.
-   Dan, 2026-09-07: "I basically don't need to ever see a $0 there." */
-function moneyFor(k) {
-  if (QUIET || (!k.h && !k.r)) return null;
-  var wrap = el("div", "money");
-  if (k.h) {
-    var held = el("div", "mbox");
-    held.append(el("div", "mlabel", "Money held"), el("div", "mval", k.h),
-                el("div", "mnote", "Received, not yet applied to an invoice"));
-    wrap.append(held);
-  }
-  if (k.r) {
-    var cred = el("div", "mbox");
-    cred.append(el("div", "mlabel", "Referral credit"), el("div", "mval", k.r),
-                el("div", "mnote", "Earned by referring. Comes off an invoice as a line"));
-    wrap.append(cred);
-  }
-  if (wrap.children.length === 1) wrap.classList.add("single");
-  return wrap;
+// ---------------------------------------------------------------- the roster
+function rosterScreen() {
+  var main = el("div", "main");
+  var tbar = el("div", "toolbar");
+  tbar.append(el("h4", null, "Settle the roster"),
+              el("div", "meta", TO_SETTLE.length + " of " + CLIENTS.length + " clients"));
+  main.append(tbar);
+  var scroll = el("div", "scroll pass");
+
+  /* ADDRESSES FIRST. One of them against 25 of the other, and it still goes on
+     top, because it is the one that cannot be sent to at all. */
+  var h1 = el("div", "passhead");
+  h1.append(el("h6", null, "Addresses that cannot be sent to"),
+            el("div", "n", String(BAD_ADDRESS.length)),
+            el("div", "said", "Worse than a missing status, so it is first"));
+  scroll.append(h1);
+  BAD_ADDRESS.forEach(function (k) {
+    var er = el("div", "erow");
+    er.append(el("div", "pname", k.c), el("div", "kind", "Not an address"),
+              el("div", "field bad", k.m));
+    scroll.append(er);
+  });
+
+  var h2 = el("div", "passhead");
+  h2.append(el("h6", null, "Sales tax status"), el("div", "n", String(NO_TAX.length)),
+            el("div", "said", "None of these can be invoiced until it is set"));
+  scroll.append(h2);
+  NO_TAX.forEach(function (k) {
+    var pr = el("div", "prow");
+    pr.append(el("div", "pname", k.c), taxChoice(k));
+    scroll.append(pr);
+  });
+
+  var foot = el("div", "passfoot");
+  foot.append(el("b", null, "Started with " + TO_SETTLE.length + " of " + CLIENTS.length),
+              el("span", null, "Ovation says the number it began with, so this reads as a one "
+                + "time pass rather than a standing nag. Once it is empty this screen is gone."));
+  scroll.append(foot);
+  main.append(scroll);
+  return main;
 }
 
+// --------------------------------------------------------------- the clients
 function detailFor(k) {
   var detail = el("div", "detail");
   detail.append(el("h5", null, k.c));
 
-  /* These three are ALWAYS drawn, absent or not, and that is the other half of
-     the rule: an absence that means something is missing is work waiting. */
   var facts = el("div", "facts");
-  [["Contract email", k.e || "No contract email", !k.e],
-   ["Sales tax", k.t || "Not recorded", !k.t],
-   ["Payment terms", "14 days", false]].forEach(function (f) {
-    var ln = el("div", "fact");
-    ln.append(el("span", "flabel", f[0]));
-    var v = el("span", "fval", f[1]);
-    if (f[2]) v.classList.add("absent");
-    ln.append(v);
-    facts.append(ln);
-  });
+
+  var to = el("div", "fact");
+  to.append(el("span", "flabel", "Invoices go to"));
+  if (k.bad) { to.append(el("span", "field bad", k.m)); }
+  else { to.append(el("span", "fval", goesTo(k))); }
+  facts.append(to);
+  if (k.bad) {
+    var why = el("div", "fact");
+    why.append(el("span", "flabel", ""), el("span", "fval absent", "Not an address"));
+    facts.append(why);
+  }
+  /* Several addresses is a VALUE, so it is said plainly rather than flagged. */
+  if (k.several) {
+    var many = el("div", "fact");
+    many.append(el("span", "flabel", ""), el("span", "fval absent", "Two recipients"));
+    facts.append(many);
+  }
+  /* An override is named ONLY where it genuinely differs, which is 1 of 31. */
+  if (k.o) {
+    var ov = el("div", "fact");
+    ov.append(el("span", "flabel", "Booked by"), el("span", "fval", k.m));
+    facts.append(ov);
+  }
+
+  var tax = el("div", "fact");
+  tax.append(el("span", "flabel", "Sales tax"));
+  var tv = el("span", "fval", k.t || "Not recorded");
+  if (!k.t) tv.classList.add("absent");
+  tax.append(tv);
+  facts.append(tax);
+
+  var terms = el("div", "fact");
+  terms.append(el("span", "flabel", "Payment terms"), el("span", "fval", "14 days"));
+  facts.append(terms);
   detail.append(facts);
 
-  var money = moneyFor(k);
-  if (money) detail.append(money);
+  if (k.shared) {
+    var warn = el("div", "warn");
+    warn.append(el("div", "wtext", "Another client uses this address too."),
+                el("span", "act", "That is correct"));
+    detail.append(warn);
+  }
+
+  if (!QUIET && (k.h || k.r)) {
+    var wrap = el("div", "money");
+    if (k.h) {
+      var held = el("div", "mbox");
+      held.append(el("div", "mlabel", "Money held"), el("div", "mval", k.h),
+                  el("div", "mnote", "Received, not yet applied to an invoice"));
+      wrap.append(held);
+    }
+    if (k.r) {
+      var cred = el("div", "mbox");
+      cred.append(el("div", "mlabel", "Referral credit"), el("div", "mval", k.r),
+                  el("div", "mnote", "Earned by referring. Comes off an invoice as a line"));
+      wrap.append(cred);
+    }
+    if (wrap.children.length === 1) wrap.classList.add("single");
+    detail.append(wrap);
+  }
 
   detail.append(el("div", "dhead", "Invoices"));
   INVOICES.forEach(function (iv) {
@@ -547,53 +688,12 @@ function detailFor(k) {
   return detail;
 }
 
-var chosen = SELECTED;
+var chosen = "Drayton Wind Ensemble";
 
-function buildScreen() {
-  var screen = el("div", "screen");
-
-  var bar = el("div", "menubar");
-  bar.append(el("span", "apple"), el("span", "app-name", "Ovation"));
-  ["File", "Edit", "View", "Window", "Help"].forEach(function (x) { bar.append(el("span", null, x)); });
-  bar.append(el("span", "clock", "Mon 7 Sep  2:40 PM"));
-
-  var win = el("div", "win"), app = el("div", "app");
-  var tb = el("div", "titlebar");
-  tb.append(el("div", "name", "Clients"));
-
-  var side = el("nav", "side");
-  var top = el("div", "railtop");
-  ["r", "y", "g"].forEach(function (c) { top.append(el("div", "dot " + c)); });
-  side.append(top);
-
-  var card = el("div", "card");
-  card.append(el("div", "hd", "Needs you"));
-  var lines = counts();
-  if (lines.length === 0) {
-    card.append(el("div", "quiet", "Nothing waiting"));
-  } else {
-    lines.forEach(function (pr) {
-      var ln = el("div", "ln");
-      ln.append(el("span", null, pr[0]), el("b", null, String(pr[1])));
-      card.append(ln);
-    });
-  }
-  side.append(card);
-
-  ["Invoices", "Expenses", "Clients"].forEach(function (x, i) {
-    side.append(el("div", "item" + (i === 2 ? " on" : ""), x));
-  });
-  side.append(el("div", "spacer"));
-  var st = el("div", "status");
-  var f = el("div", "fault");
-  f.append(el("b", null, "Backup failed 3 days ago"), el("span", "read", "Read"));
-  st.append(f, el("div", "also", "1 other problem"),
-    el("div", "looked", "Last looked for bookings and receipts 2 minutes ago. Ovation only looks while it is open."));
-  side.append(st);
-
+function clientsScreen() {
   var main = el("div", "main");
   var tbar = el("div", "toolbar");
-  tbar.append(el("h4", null, "Clients"), el("div", "meta", "31 clients"));
+  tbar.append(el("h4", null, "Clients"), el("div", "meta", CLIENTS.length + " clients"));
   main.append(tbar);
 
   var scroll = el("div", "scroll");
@@ -625,8 +725,69 @@ function buildScreen() {
   split.append(names, detailFor(CLIENTS.filter(function (x) { return x.c === chosen; })[0]));
   scroll.append(split);
   main.append(scroll);
+  return main;
+}
 
-  app.append(side, tb, main);
+// ----------------------------------------------------------------- the window
+function buildScreen() {
+  var screen = el("div", "screen");
+
+  var bar = el("div", "menubar");
+  bar.append(el("span", "apple"), el("span", "app-name", "Ovation"));
+  ["File", "Edit", "View", "Window", "Help"].forEach(function (x) { bar.append(el("span", null, x)); });
+  bar.append(el("span", "clock", "Mon 7 Sep  2:40 PM"));
+
+  var onRoster = PLACE === "roster" && rosterCount() > 0;
+  var win = el("div", "win"), app = el("div", "app");
+  var tb = el("div", "titlebar");
+  tb.append(el("div", "name", onRoster ? "Settle the roster" : "Clients"));
+
+  var side = el("nav", "side");
+  var top = el("div", "railtop");
+  ["r", "y", "g"].forEach(function (c) { top.append(el("div", "dot " + c)); });
+  side.append(top);
+
+  var card = el("div", "card");
+  card.append(el("div", "hd", "Needs you"));
+  var lines = QUIET ? [] : [["To send", 4], ["To chase", 2], ["To confirm", 2],
+                            ["Receipts to file", 7], ["Money held", HELD.length]];
+  if (lines.length === 0) {
+    card.append(el("div", "quiet", "Nothing waiting"));
+  } else {
+    lines.forEach(function (pr) {
+      var ln = el("div", "ln");
+      ln.append(el("span", null, pr[0]), el("b", null, String(pr[1])));
+      card.append(ln);
+    });
+  }
+  side.append(card);
+
+  /* THE ROSTER IS A PLACE, AND IT IS ONLY THERE WHEN IT HAS SOMETHING IN IT.
+     Dan, 2026-09-07: only show that page if there are clients that need fixing.
+     Same rule as every count in the card, applied to a whole screen. */
+  var items = ["Invoices", "Expenses", "Clients"];
+  if (rosterCount() > 0) items.push("Settle the roster");
+  items.forEach(function (label) {
+    var on = onRoster ? (label === "Settle the roster") : (label === "Clients");
+    var item = el("div", "item" + (on ? " on" : ""), label);
+    if (label === "Settle the roster" || label === "Clients") {
+      item.addEventListener("click", function () {
+        PLACE = (label === "Settle the roster") ? "roster" : "clients";
+        draw();
+      });
+    }
+    side.append(item);
+  });
+
+  side.append(el("div", "spacer"));
+  var st = el("div", "status");
+  var f = el("div", "fault");
+  f.append(el("b", null, "Backup failed 3 days ago"), el("span", "read", "Read"));
+  st.append(f, el("div", "also", "1 other problem"),
+    el("div", "looked", "Last looked for bookings and receipts 2 minutes ago. Ovation only looks while it is open."));
+  side.append(st);
+
+  app.append(side, tb, onRoster ? rosterScreen() : clientsScreen());
   win.append(app);
   screen.append(bar, win);
   return screen;
@@ -634,16 +795,20 @@ function buildScreen() {
 
 var stage = document.getElementById("stage");
 var tabs = document.getElementById("tabs");
-
 function draw() { stage.replaceChildren(buildScreen()); }
 
 var dayBtn = el("button", "tab");
 dayBtn.type = "button";
 function dayLabel() {
   dayBtn.replaceChildren(el("span", "k", "DAY"),
-                         el("span", null, QUIET ? "A quiet day" : "A busy day"));
+    el("span", null, QUIET ? "A settled day" : "A day with work waiting"));
 }
-dayBtn.addEventListener("click", function () { QUIET = !QUIET; dayLabel(); draw(); });
+dayBtn.addEventListener("click", function () {
+  QUIET = !QUIET;
+  if (QUIET) PLACE = "clients";
+  dayLabel();
+  draw();
+});
 dayLabel();
 tabs.append(dayBtn);
 draw();
