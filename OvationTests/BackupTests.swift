@@ -358,6 +358,84 @@ struct BackupTests {
             atPath: snapshot.appendingPathComponent("gmail-tokens.json").path))
     }
 
+    // MARK: what the STORE references, not what the backup copied (ovation#104)
+
+    @Test("a receipt the store REFERENCES and the archive lacks REFUSES the backup")
+    func aReferencedDocumentMissingFromTheArchiveRefuses() throws {
+        // The gap PRD 5.29 and plan 1.8 both describe and nothing implemented.
+        // The old verification walked what it had STAGED and hashed those files,
+        // so every file it recorded was present and matched, which says nothing
+        // about whether a document the store points at is in there at all. It
+        // was vacuously complete only while nothing referenced a document, and
+        // Expense.receipt now does (L98, L63).
+        //
+        // It REFUSES rather than reports, because takeBackup verifies before it
+        // rotates: an archive missing a receipt must never evict the one that
+        // still has it (L5).
+        let world = try World()
+        let ghost = DocumentReference(relativePath: "de/adbeef.pdf",
+                                      sha256: String(repeating: "d", count: 64),
+                                      byteCount: 9)
+        let service = world.service(referencing: [world.receiptReference, ghost])
+
+        #expect(throws: BackupError.verificationFailed(
+            [.init(path: ghost.relativePath, verdict: .referencedDocumentAbsent)])) {
+            try service.takeBackup(now: world.instant)
+        }
+    }
+
+    @Test("a referenced receipt whose bytes changed is its OWN verdict, not merely absent")
+    func aReferencedDocumentWithWrongBytesFails() throws {
+        // Distinct causes, distinct verdicts, because the remedies differ: one
+        // is a receipt that never reached the archive, the other is one that
+        // reached it damaged (L11).
+        let world = try World()
+        let service = world.service(referencing: [world.receiptReference])
+        let archive = try service.takeBackup(now: world.instant)
+        let copied = archive.appendingPathComponent("documents/\(world.receiptPath)")
+        try Data(String(repeating: "x", count: 9).utf8).write(to: copied)
+
+        let report = try service.verify(archive: archive)
+
+        #expect(report.failures.contains {
+            $0.path == world.receiptPath && $0.verdict == .referencedDocumentMismatch
+        })
+    }
+
+    @Test("a document NOTHING references is reported without refusing the backup")
+    func anOrphanIsANoticeNotAFailure() throws {
+        // The archive holds everything the store points at, so the backup did
+        // its job. Refusing over a spare file would leave Dan with yesterday's
+        // backup because of something harmless, and an orphan and a lost receipt
+        // need opposite remedies (L11, L5).
+        //
+        // Putting orphans in `failures` was tried and did exactly that: the
+        // backup threw and no archive was written at all.
+        let world = try World()
+        let service = world.service(referencing: [])
+
+        let archive = try service.takeBackup(now: world.instant)
+        let report = try service.verify(archive: archive)
+
+        #expect(report.isVerified)
+        #expect(report.failures.isEmpty)
+        #expect(report.orphans.contains(world.receiptPath))
+    }
+
+    @Test("with every referenced receipt present and intact, it verifies")
+    func theHappyPathStillVerifies() throws {
+        // The positive control. Without it the three above could all pass while
+        // the check refused every archive ever taken (L159).
+        let world = try World()
+        let service = world.service(referencing: [world.receiptReference])
+        let archive = try service.takeBackup(now: world.instant)
+
+        let report = try service.verify(archive: archive)
+
+        #expect(report.isVerified)
+        #expect(report.failures.isEmpty)
+    }
+
     // MARK: fixtures
 
     /// A data directory with one of everything, and a backup folder beside it.
@@ -367,6 +445,8 @@ struct BackupTests {
         let backupsDirectory: URL
         let service: BackupService
         let receiptPath: String
+        let receiptReference: DocumentReference
+        let keep: Int
         let instant = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
         init(keep: Int = 3) throws {
@@ -397,9 +477,33 @@ struct BackupTests {
             receiptPath = try documents.store(Data("a receipt".utf8), extension: "pdf")
                 .relativePath
 
+            let receiptBytes = Data("a receipt".utf8)
+            receiptReference = DocumentReference(relativePath: receiptPath,
+                                                 sha256: DocumentStore.hash(of: receiptBytes),
+                                                 byteCount: receiptBytes.count)
+            self.keep = keep
+            // The default service references exactly what the fixture filed, so
+            // the existing tests stay about what they were about.
+            // Bound to a local rather than to self: the closure is @Sendable and
+            // World is still being initialised, so capturing self here is both
+            // rejected and wrong.
+            let reference = receiptReference
             service = BackupService(dataDirectory: dataDirectory,
                                     backupsDirectory: backupsDirectory,
-                                    keep: keep)
+                                    keep: keep,
+                                    referencedDocuments: { [reference] })
+        }
+
+        /// A service whose STORE points at the given documents. The closure is
+        /// how the store reaches the backup: walking the documents directory
+        /// instead would answer a different question, namely whether the files
+        /// that are there are intact, and say nothing about the ones that are
+        /// not (ovation#104).
+        func service(referencing documents: [DocumentReference]) -> BackupService {
+            BackupService(dataDirectory: dataDirectory,
+                          backupsDirectory: backupsDirectory,
+                          keep: keep,
+                          referencedDocuments: { documents })
         }
 
         func manifest(of archive: URL) throws -> BackupManifest {

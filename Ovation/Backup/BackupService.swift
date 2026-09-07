@@ -12,6 +12,14 @@
 // unverifiable archive deletes nothing at all.
 //
 // WHAT IS IN AN ARCHIVE IS DECLARED IN BackupPlan, not decided here.
+//
+// AND WHAT THE STORE REFERENCES COMES FROM THE STORE (ovation#104). Verification
+// used to walk what it had STAGED and hash those files, so every file it
+// recorded was present and matched, which says nothing about whether a document
+// the store points at is in the archive at all. That was vacuously complete only
+// while nothing referenced a document, and `Expense.receipt` now does. Walking
+// the documents directory instead would answer a different question: whether the
+// files that ARE there are intact, and nothing about the ones that are not.
 import Foundation
 
 struct BackupManifest: Codable, Equatable, Sendable {
@@ -57,6 +65,18 @@ enum BackupFileVerdict: String, Equatable, Sendable {
     case secretPresent
     /// A member the plan requires was never recorded as copied.
     case memberMissing
+    /// The STORE points at a document and the archive has not got it. This is
+    /// the one the whole enumeration exists for: every file the archive recorded
+    /// can be present and correct while a receipt the store references was never
+    /// in there at all (ovation#104).
+    case referencedDocumentAbsent
+    /// The store points at it, the archive has it, and the bytes are not the
+    /// ones recorded.
+    case referencedDocumentMismatch
+    /// The archive holds a document NOTHING references. Not a lost receipt and
+    /// must not be reported as one: the remedies are opposite, since this is
+    /// something spare and that is something gone (L11).
+    case orphanedDocument
 }
 
 struct BackupReport: Equatable, Sendable {
@@ -67,6 +87,13 @@ struct BackupReport: Equatable, Sendable {
 
     let filesChecked: Int
     let failures: [Failure]
+    /// Documents in the archive that the store points at NOTHING for.
+    ///
+    /// DELIBERATELY NOT A FAILURE. The archive holds everything the store
+    /// references, so the backup did its job; a spare file is something to tidy,
+    /// not a reason to refuse a backup and leave Dan with yesterday's. Putting
+    /// these in `failures` was tried and it did exactly that (L11, L5).
+    let orphans: [String]
     /// How many secrets the archive was compared against.
     let secretsChecked: Int
     /// Whether the secret comparison could happen at all. Zero secrets is NOT a
@@ -95,13 +122,24 @@ final class BackupService {
     /// so the failure path can be reached without corrupting a disk.
     var willVerify: ((URL) throws -> Void)?
 
+    /// What the STORE points at, read from the store rather than by walking the
+    /// documents folder (ovation#104).
+    ///
+    /// REQUIRED, with no default. A default of "no documents" would be
+    /// indistinguishable from a store that references none, so a caller who
+    /// forgot it would get a verification that silently checks nothing and
+    /// reports clean, which is this check's own failure mode (L168, L98).
+    private let referencedDocuments: @Sendable () throws -> [DocumentReference]
+
     private let fileManager: FileManager
 
     init(dataDirectory: URL, backupsDirectory: URL, keep: Int,
+         referencedDocuments: @escaping @Sendable () throws -> [DocumentReference],
          fileManager: FileManager = .default) {
         self.dataDirectory = dataDirectory
         self.backupsDirectory = backupsDirectory
         self.keep = keep
+        self.referencedDocuments = referencedDocuments
         self.fileManager = fileManager
     }
 
@@ -226,6 +264,39 @@ final class BackupService {
             }
         }
 
+        // WHAT THE STORE POINTS AT, read from the store (ovation#104). Every
+        // check below this line asks a question the loop that follows cannot:
+        // that loop walks what the archive RECORDED, so it is complete about
+        // the files that are there and silent about the ones that are not.
+        let references = try referencedDocuments()
+        var referencedPaths: Set<String> = []
+        for reference in references {
+            let inArchive = "documents/" + reference.relativePath
+            referencedPaths.insert(reference.relativePath)
+            let url = archive.appendingPathComponent(inArchive)
+            guard let data = try? Data(contentsOf: url) else {
+                failures.append(.init(path: reference.relativePath,
+                                      verdict: .referencedDocumentAbsent))
+                continue
+            }
+            if DocumentStore.hash(of: data) != reference.sha256 {
+                failures.append(.init(path: reference.relativePath,
+                                      verdict: .referencedDocumentMismatch))
+            }
+        }
+
+        // A document in the archive that nothing points at. Reported, and
+        // reported SEPARATELY: it is something spare, where the case above is
+        // something gone, and one sentence for both would send Dan looking for a
+        // lost receipt that is not lost (L11).
+        var orphans: [String] = []
+        for record in manifest.files where record.path.hasPrefix("documents/") {
+            let relative = String(record.path.dropFirst("documents/".count))
+            if !referencedPaths.contains(relative) {
+                orphans.append(relative)
+            }
+        }
+
         // Every file it recorded, checked for presence and for content.
         for record in manifest.files {
             let url = archive.appendingPathComponent(record.path)
@@ -258,6 +329,7 @@ final class BackupService {
 
         return BackupReport(filesChecked: manifest.files.count,
                             failures: failures,
+                            orphans: orphans,
                             secretsChecked: secretsChecked,
                             secretCheckWasPossible: !secrets.isEmpty)
     }
