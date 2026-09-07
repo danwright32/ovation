@@ -1,4 +1,4 @@
-<title>Ovation Rail</title>
+<title>Ovation Invoice List</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -96,8 +96,8 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
    invoices ends and the next begins.
    ============================================================ */
 
-/* Espresso: the warm one you settled on */
-.R-espresso {
+
+.win {
   --bg: #FBF4EF; --chrome: #EFE8E3; --sunk: #F1EAE5;
   --rule: #E0D0C4; --rule-soft: #EEE2D8;
   --ink: #1F1812; --soft: #5F4D41; --quiet: #766254; --faint: #6E5F50;
@@ -106,64 +106,6 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
   --rail-card-bg: #4D3E35; --rail-card-bd: #62554D; --rail-card-hd: #D4D0CE;
   --rail-card-ln: #DCD9D7; --rail-card-b: #F7F7F6;
   --rail-st-bd: #5A4D45; --rail-fault: #F3F2F2; --rail-read: #E2BC82; --rail-dim: #C4BFBC;
-}
-/* Bark: espresso with most of the colour taken out */
-.R-bark {
-  --bg: #FAF4EF; --chrome: #EEE8E3; --sunk: #F0EAE5;
-  --rule: #DED1C4; --rule-soft: #ECE1D8;
-  --ink: #1E1813; --soft: #5D4E41; --quiet: #736254; --faint: #6D5F51;
-  --accent: #33291F; --on-ink: #F8F7F5; --selbg: #E2DCD6;
-  --rail: #33291F; --rail-bd: #251E16; --rail-item: #BAB6B3; --rail-on-bg: #544B43; --rail-on-tx: #F3F2F2;
-  --rail-card-bg: #453C33; --rail-card-bd: #5C544C; --rail-card-hd: #D2D0CE;
-  --rail-card-ln: #DAD8D7; --rail-card-b: #F7F6F6;
-  --rail-st-bd: #544B43; --rail-fault: #F3F2F2; --rail-read: #E1BC81; --rail-dim: #C2BFBC;
-}
-/* Ink: near black, no hue at all */
-.R-ink {
-  --bg: #F8F5F1; --chrome: #EBE8E4; --sunk: #EDEAE6;
-  --rule: #DBD1C8; --rule-soft: #EAE2DA;
-  --ink: #1D1815; --soft: #5B4E45; --quiet: #716458; --faint: #6A6054;
-  --accent: #1F1D1B; --on-ink: #F8F7F5; --selbg: #DEDBD7;
-  --rail: #1F1D1B; --rail-bd: #161513; --rail-item: #B3B2B1; --rail-on-bg: #43413F; --rail-on-tx: #F2F1F1;
-  --rail-card-bg: #333130; --rail-card-bd: #4C4A49; --rail-card-hd: #CECDCD;
-  --rail-card-ln: #D7D6D6; --rail-card-b: #F6F6F6;
-  --rail-st-bd: #43413F; --rail-fault: #F2F1F1; --rail-read: #DFBB81; --rail-dim: #BCBBBB;
-}
-/* Slate: cool grey blue, your other pick */
-.R-slate {
-  --bg: #F6F6F4; --chrome: #EAEAE9; --sunk: #ECECEB;
-  --rule: #D7D1CE; --rule-soft: #E7E3E0;
-  --ink: #19191B; --soft: #55504D; --quiet: #6C6460; --faint: #65615C;
-  --accent: #2A3440; --on-ink: #F8F7F5; --selbg: #DEDFDE;
-  --rail: #2A3440; --rail-bd: #1E252E; --rail-item: #B7BABE; --rail-on-bg: #4C545F; --rail-on-tx: #F2F3F4;
-  --rail-card-bg: #3D4651; --rail-card-bd: #555D66; --rail-card-hd: #D0D2D5;
-  --rail-card-ln: #D9DADD; --rail-card-b: #F6F7F7;
-  --rail-st-bd: #4C545F; --rail-fault: #F2F3F4; --rail-read: #E0BD84; --rail-dim: #BFC2C6;
-}
-/* Petrol: deep blue green, you did not hate it */
-.R-petrol {
-  --bg: #EEF8F6; --chrome: #E1EEED; --sunk: #E3F0EE;
-  --rule: #C8D6D2; --rule-soft: #DCE5E3;
-  --ink: #0F1B1D; --soft: #435352; --quiet: #5C6864; --faint: #556560;
-  --accent: #14505C; --on-ink: #F8F7F5; --selbg: #D4E4E4;
-  --rail: #14505C; --rail-bd: #0E3A42; --rail-item: #AFC4C8; --rail-on-bg: #3A6C76; --rail-on-tx: #F1F4F5;
-  --rail-card-bg: #29606B; --rail-card-bd: #43737D; --rail-card-hd: #CBD8DB;
-  --rail-card-ln: #D5E0E2; --rail-card-b: #F6F8F8;
-  --rail-st-bd: #3A6C76; --rail-fault: #F1F4F5; --rail-read: #DEBF86; --rail-dim: #B8CACE;
-}
-/* Prussian: a serious navy */
-.R-prussian {
-  --bg: #F1F6FA; --chrome: #E4EBF1; --sunk: #E6EDF2;
-  --rule: #CED3DA; --rule-soft: #E0E3E8;
-  --ink: #121A23; --soft: #4B515B; --quiet: #63666C; --faint: #5C6268;
-  --accent: #163A5F; --on-ink: #F8F7F5; --selbg: #D7DFE7;
-  --rail: #163A5F; --rail-bd: #102A44; --rail-item: #B0BCC9; --rail-on-bg: #3B5A79; --rail-on-tx: #F1F3F5;
-  --rail-card-bg: #2B4C6D; --rail-card-bd: #45617F; --rail-card-hd: #CCD4DC;
-  --rail-card-ln: #D5DCE2; --rail-card-b: #F6F7F9;
-  --rail-st-bd: #3B5A79; --rail-fault: #F1F3F5; --rail-read: #DFBE87; --rail-dim: #B9C4CF;
-}
-
-.win {
   --cols: minmax(0,1fr) 104px 58px 104px 132px;
   width: 1064px; margin: 22px auto 0; border-radius: 10px; overflow: hidden;
   box-shadow: 0 1px 1px rgba(0,0,0,.18), 0 20px 44px rgba(0,0,0,.28);
@@ -265,23 +207,19 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 <div class="wrap">
 
   <header class="masthead">
-    <div class="eyebrow">Ovation, the rail</div>
-    <h1>C1 and C2 together</h1>
+    <div class="eyebrow">Ovation, the invoice list</div>
+    <h1>Invoices</h1>
     <p class="lede">
-      The colour lives permanently in the sidebar, and the row you are on picks it up from there.
-      <strong>The list itself stays bare until you touch it</strong>, so nothing competes with a record
-      and the colour is still present the moment you open the app.
+      The agreed design for Ovation's main screen, settled with Dan on 2026-09-06 over eleven rounds,
+      one variable at a time. <strong>Every decision below is his, with the reason it was made.</strong>
     </p>
     <p class="lede">
-      A rail is roughly twenty times the area of the five thin bands, so the colour is worth reopening
-      rather than assuming espresso survives the change of dose. Six rails, generated with every
-      interior token computed from the rail colour. <strong>72 contrast checks, all clearing the
-      floor, worst 4.83.</strong>
+      This is a rendering, not the app. <strong>Read the README beside it</strong> before building from
+      it: three things here are web idioms that must be translated rather than copied, the loudest
+      being that the action words should not be underlined.
     </p>
   </header>
 
-  <div class="tabs" id="tabs"></div>
-  <div class="readout" id="readout"></div>
   <div class="stage" id="stage"></div>
 
   <div class="record">
@@ -449,36 +387,5 @@ function windowFor(layout) {
 
 
 
-var OPTIONS = [
-  ["R-espresso", "Espresso", "Espresso", "The warm one you settled on, now carrying a whole rail rather than five thin bands. This is the same hex you chose, at roughly twenty times the area."],
-  ["R-bark", "Bark", "Bark", "Espresso with most of the colour taken out. Almost the same rail, and the test of whether you wanted the warmth or the brown."],
-  ["R-ink", "Ink", "Ink", "Near black, no hue at all. The rail is still a strong device even with no colour in it, so this asks whether the dark panel was doing the work rather than the colour."],
-  ["R-slate", "Slate", "Slate", "Your cool pick. At band size it was one of two you liked; a full rail is where a cool grey blue usually reads best."],
-  ["R-petrol", "Petrol", "Petrol", "Deep blue green, which you did not hate. It is much more of a colour at this size than it was as a band."],
-  ["R-prussian", "Prussian", "Prussian", "A serious navy. The most conventional of the six, and the closest to what finance software normally looks like."]
-];
-var tabs = document.getElementById("tabs");
-var stage = document.getElementById("stage");
-var readout = document.getElementById("readout");
-var current = 0;
-function show(i) {
-  current = (i + OPTIONS.length) % OPTIONS.length;
-  var o = OPTIONS[current];
-  Array.prototype.forEach.call(tabs.children, function (b, bi) { b.setAttribute("aria-pressed", String(bi === current)); });
-  readout.replaceChildren(el("h2", null, o[2]), el("p", null, o[3]));
-  stage.replaceChildren(windowFor(o[0]));
-}
-OPTIONS.forEach(function (o, i) {
-  var b = el("button", "tab"); b.type = "button"; b.setAttribute("aria-pressed", "false");
-  var sw = el("span", "chipdot"); sw.style.background = getComputedStyle(document.documentElement).getPropertyValue("--x") || ""; b.append(el("span", null, o[1]));
-  b.addEventListener("click", function () { show(i); });
-  tabs.append(b);
-});
-document.addEventListener("keydown", function (e) {
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.key === "ArrowRight") { show(current + 1); e.preventDefault(); }
-  else if (e.key === "ArrowLeft") { show(current - 1); e.preventDefault(); }
-  else if (e.key >= "1" && e.key <= "6") { show(Number(e.key) - 1); e.preventDefault(); }
-});
-show(0);
+document.getElementById("stage").replaceChildren(windowFor(""));
 </script>
