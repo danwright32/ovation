@@ -77,10 +77,12 @@ rather than unblocking it.
    WRAPPED to two lines and broke the one line rule, and sizing that column to its content
    instead broke the alignment of every column after it, because each row is its own grid.
    See PRD 47a and 47b.
-2. **Dismissing a draft is a new action with no word yet.** A booking now has three endings,
-   not one, and the third is Dan deciding not to bill it (PRD 5.1b). Every other action on
-   the list is a word on the right of the row, and this one has to sit beside them without
-   reading as destructive, since it is a decision and not a delete.
+2. ~~Dismissing a draft needs a word on the row~~ **Settled 2026-09-07: it is not on this
+   screen at all.** Four placements were rendered, from both actions at equal weight down to
+   a right click menu on the row, and Dan rejected all four on one principle: space on the
+   main list is earned by frequency, and deciding not to bill is rare. It lives inside the
+   invoice instead, so this list is unchanged. See PRD 5.1c, which also records what that
+   costs.
 3. **Money held against a client has no surface at all.** A payment is now its own record
    and what is not yet allocated sits on the client (PRD 5.14a), which is also where a
    deposit lands. The list is invoices, so there is currently nowhere for it to appear.
