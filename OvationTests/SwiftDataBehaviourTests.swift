@@ -182,6 +182,150 @@ struct SwiftDataBehaviourTests {
                 "and the row that was there first is still there")
     }
 
+
+    // MARK: Q5, what a query can actually see
+
+    /// THE QUESTION THAT DECIDES THE SHAPE OF EVERY ENTITY. `BusinessDate` holds
+    /// an instant and its stamped day key as ONE value, deliberately, so that no
+    /// code path can write one without the other (L544, L384). `Money` and
+    /// `Discount` are composite values for the same reason.
+    ///
+    /// But the export selects rows by day key, the list sorts by date, and the
+    /// reconciliation counts rows in a range. If SwiftData stores a composite
+    /// value as an opaque blob, none of that can happen in a fetch, and the
+    /// alternative is loading the whole store into memory to filter it, which
+    /// stops being tolerable at exactly the size the tax record reaches.
+    ///
+    /// MEASURED 2026-09-07, and the answer decided two things. A predicate CAN
+    /// reach inside a composite value, so `BusinessDate` stays one field and the
+    /// day key is not duplicated into a column beside it. A predicate CANNOT
+    /// compare a stored property against a captured ENUM value: it throws
+    /// `unsupportedPredicate` naming the type. So a vocabulary is filtered in
+    /// memory over rows a date range has already narrowed, never in the fetch,
+    /// and anything that must be filtered in the fetch is a String, a Date, a
+    /// number or a Bool.
+    @Model
+    final class ProbeQueryable {
+        var label: String
+        var stampedDate: BusinessDate
+        var amount: Money
+        var kind: InvoiceKind
+        /// The same day key as a plain column, so the two can be compared as
+        /// query targets rather than argued about.
+        var flatDayKey: String
+        init(label: String, stampedDate: BusinessDate, amount: Money, kind: InvoiceKind) {
+            self.label = label
+            self.stampedDate = stampedDate
+            self.amount = amount
+            self.kind = kind
+            self.flatDayKey = stampedDate.dayKey
+        }
+    }
+
+    private static func queryableRows(in context: ModelContext) throws {
+        // 2026-12-31 23:30 America/New_York, the boundary instant the whole
+        // export rests on, and one a day either side of it.
+        let boundary = Date(timeIntervalSince1970: 1_798_774_200)
+        context.insert(ProbeQueryable(
+            label: "before", stampedDate: .stamping(boundary.addingTimeInterval(-86_400)),
+            amount: Money(dollars: 100), kind: .photography))
+        context.insert(ProbeQueryable(
+            label: "boundary", stampedDate: .stamping(boundary),
+            amount: Money(dollars: 250), kind: .printSale))
+        context.insert(ProbeQueryable(
+            label: "after", stampedDate: .stamping(boundary.addingTimeInterval(86_400)),
+            amount: Money(dollars: 400), kind: .photography))
+        try context.save()
+    }
+
+    @Test("a composite value round trips whole, both halves intact",
+          arguments: [StoreKind.inMemory, StoreKind.onDisk])
+    func compositeValuesRoundTrip(kind: StoreKind) throws {
+        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
+        defer { cleanUp() }
+        try Self.queryableRows(in: ModelContext(container))
+
+        let read = try ModelContext(container).fetch(
+            FetchDescriptor<ProbeQueryable>(sortBy: [SortDescriptor(\.label)]))
+        let boundary = try #require(read.first { $0.label == "boundary" })
+        #expect(boundary.stampedDate.dayKey == boundary.flatDayKey,
+                "the stamped key survives inside the composite value")
+        #expect(boundary.stampedDate.agreesWithItsInstant,
+                "and so does the instant it was stamped from")
+        #expect(boundary.amount == Money(dollars: 250))
+        #expect(boundary.kind == .printSale)
+    }
+
+    @Test("a plain string column can be filtered in the fetch itself",
+          arguments: [StoreKind.inMemory, StoreKind.onDisk])
+    func aFlatColumnIsFilterable(kind: StoreKind) throws {
+        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
+        defer { cleanUp() }
+        try Self.queryableRows(in: ModelContext(container))
+
+        let lowerBound = "2026-01-01"
+        let upperBound = "2026-12-31"
+        var descriptor = FetchDescriptor<ProbeQueryable>(
+            predicate: #Predicate { $0.flatDayKey >= lowerBound && $0.flatDayKey <= upperBound }
+        )
+        descriptor.sortBy = [SortDescriptor(\.flatDayKey)]
+        let inRange = try ModelContext(container).fetch(descriptor)
+        #expect(inRange.map(\.label) == ["before", "boundary"],
+                "the range takes the boundary row and leaves the next day out")
+    }
+
+    @Test("a predicate CAN reach inside a composite value, so a date and its key stay one field",
+          arguments: [StoreKind.inMemory, StoreKind.onDisk])
+    func aCompositeValueIsReachableFromAPredicate(kind: StoreKind) throws {
+        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
+        defer { cleanUp() }
+        try Self.queryableRows(in: ModelContext(container))
+
+        let lowerBound = "2026-12-31"
+        var reachingIn = FetchDescriptor<ProbeQueryable>(
+            predicate: #Predicate { $0.stampedDate.dayKey >= lowerBound }
+        )
+        reachingIn.sortBy = [SortDescriptor(\.flatDayKey)]
+        var flat = FetchDescriptor<ProbeQueryable>(
+            predicate: #Predicate { $0.flatDayKey >= lowerBound }
+        )
+        flat.sortBy = [SortDescriptor(\.flatDayKey)]
+
+        let context = ModelContext(container)
+        let throughTheComposite = try context.fetch(reachingIn).map(\.label)
+        let throughTheColumn = try context.fetch(flat).map(\.label)
+        #expect(throughTheColumn == ["boundary", "after"], "the plain column filters correctly")
+        #expect(throughTheComposite == throughTheColumn,
+                "and reaching into the composite value gives the same answer")
+    }
+
+    @Test("a predicate CANNOT compare against a captured enum value either",
+          arguments: [StoreKind.inMemory, StoreKind.onDisk])
+    func anEnumConstantIsNotUsableInAPredicate(kind: StoreKind) throws {
+        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
+        defer { cleanUp() }
+        try Self.queryableRows(in: ModelContext(container))
+
+        let wanted = InvoiceKind.photography
+        let descriptor = FetchDescriptor<ProbeQueryable>(predicate: #Predicate { $0.kind == wanted })
+        #expect(throws: SwiftDataError.self) {
+            _ = try ModelContext(container).fetch(descriptor)
+        }
+    }
+
+    @Test("what a stored enum CAN still do is sort, round trip, and be filtered in memory",
+          arguments: [StoreKind.inMemory, StoreKind.onDisk])
+    func aStoredEnumIsStillUsableWithoutAPredicate(kind: StoreKind) throws {
+        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
+        defer { cleanUp() }
+        try Self.queryableRows(in: ModelContext(container))
+
+        let all = try ModelContext(container).fetch(
+            FetchDescriptor<ProbeQueryable>(sortBy: [SortDescriptor(\.flatDayKey)]))
+        #expect(all.filter { $0.kind == .photography }.map(\.label) == ["before", "after"],
+                "which is why a kind is filtered over a range the query already narrowed")
+    }
+
     // MARK: Q3, the two delete rules the model needs to be different
 
     /// An invoice OWNS its shoots and its line items: deleting it takes them.
