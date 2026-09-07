@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "preconditions tests" 17
+harness_begin "preconditions tests" 18
 
 TARGET="scripts/check-preconditions.sh"
 require_target "$TARGET"
@@ -108,12 +108,25 @@ check "and the missing one is named" \
 # ---------------------------------------------------------------------------
 gate_runs() { grep -oE 'check-[a-z-]+\.sh' scripts/git-hooks/pre-push | sort -u; }
 pre_runs() { grep -oE 'check-[a-z-]+\.sh' "$TARGET" | grep -v 'check-preconditions' | sort -u; }
-on_disk() { (cd scripts && ls -1 check-*.sh | grep -v 'check-preconditions' | sort); }
+# One check is a BRACKET rather than a question: check-live-data-untouched.sh
+# snapshots before a test run and compares after, so scripts/run-tests.sh holds
+# both ends and neither entry point above can run it alone. Named here rather
+# than left out of the partition silently, because an exemption nobody wrote down
+# is indistinguishable from an oversight (L129, L233).
+bracketed() { printf 'check-live-data-untouched.sh\n'; }
+on_disk() { (cd scripts && ls -1 check-*.sh | grep -v 'check-preconditions' | sort) \
+    | grep -vxF -f <(bracketed); }
 
 check "no check script is run by nothing" \
     "$(comm -13 <(cat <(gate_runs) <(pre_runs) | sort -u) <(on_disk) | tr '\n' ' ' | sed 's/ $//')" ""
 check "and none is run by both, which would make its outcome ambiguous" \
     "$(comm -12 <(gate_runs) <(pre_runs) | tr '\n' ' ' | sed 's/ $//')" ""
+# The exemption above is a hand written list, and a guard driven by one checks
+# only what the list names (L96). So the exempted check is asserted to actually
+# BE bracketed by the runner, rather than merely being excused here.
+check "the bracketed check is really run by the test runner" \
+    "$(grep -c 'check-live-data-untouched.sh' scripts/run-tests.sh)" "1"
+
 check "and neither entry point names a check that does not exist" \
     "$(comm -23 <(cat <(gate_runs) <(pre_runs) | sort -u) <(on_disk) | tr '\n' ' ' | sed 's/ $//')" ""
 

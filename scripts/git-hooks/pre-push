@@ -79,6 +79,24 @@ if [ -x "${REPO_ROOT}/scripts/check-forbidden-constructs.sh" ]; then
     fi
 fi
 
+# Every resolver that can reach live data is registered in LiveDataFloor, and
+# this is what makes the register true (ovation#58, plan 1.9). A guard driven by
+# a hand written list checks only what the list names, so a resolver missing from
+# it is exempt from the very check meant to catch it.
+if [ -x "${REPO_ROOT}/scripts/check-isolation-floor.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-isolation-floor.sh"; then
+        echo "pre-push: a live data resolver is not in the isolation floor. Push refused." >&2
+        exit 1
+    fi
+fi
+
+# THE LIVE DATA BRACKET IS NOT RUN HERE. It is a bracket around the test run
+# rather than a check that can be answered on its own: it snapshots before and
+# compares after, and scripts/run-tests.sh holds both ends. Running it here would
+# measure a moment rather than a run. (Its filename is deliberately not written
+# out in this comment: scripts/test-preconditions.sh reads this file to find
+# which checks the gate runs, and a mention would read as one.)
+#
 # Injectable so scripts/test-git-hooks.sh can measure the GATE without paying for
 # a real suite run (L2, L291). The default is the real thing.
 TEST_COMMAND="${OVATION_HOOK_TEST_COMMAND:-}"

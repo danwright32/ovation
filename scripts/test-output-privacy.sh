@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 19
+harness_begin "output privacy tests" 22
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -222,12 +222,52 @@ check "and none when the sources are clean" \
     "clean"
 
 # ---------------------------------------------------------------------------
+# The isolation floor check. It walks Swift sources and prints paths, line
+# numbers and resolver names. A comment on a resolver line is exactly where a
+# client name would sit, so it must never print the line itself.
+# ---------------------------------------------------------------------------
+FLOOR_ROOT="$WORK/floor-sources"
+mkdir -p "$FLOOR_ROOT/App"
+cat > "$FLOOR_ROOT/Store.swift" <<SWIFT
+enum Store {
+    // Where the $CLIENT booking for the $SHOOT at $VENUE is kept.
+    static func liveStoreURL() -> URL? { nil }
+}
+SWIFT
+printf 'enum LiveDataFloor { static let entries: [Entry] = [] }\n' \
+    > "$FLOOR_ROOT/App/LiveDataFloor.swift"
+check "the isolation floor check prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_FLOOR_SCAN_ROOT="$FLOOR_ROOT" \
+        OVATION_FLOOR_REGISTER="$FLOOR_ROOT/App/LiveDataFloor.swift" \
+        ./scripts/check-isolation-floor.sh 2>&1)")" "clean"
+printf 'enum LiveDataFloor { static let entries = [Entry(name: "liveStoreURL")] }\n' \
+    > "$FLOOR_ROOT/App/LiveDataFloor.swift"
+check "and none when every resolver is registered" \
+    "$(leaks_in "$(OVATION_FLOOR_SCAN_ROOT="$FLOOR_ROOT" \
+        OVATION_FLOOR_REGISTER="$FLOOR_ROOT/App/LiveDataFloor.swift" \
+        ./scripts/check-isolation-floor.sh 2>&1)")" "clean"
+
+# ---------------------------------------------------------------------------
+# The live data bracket. It prints watched PATHS relative to Application
+# Support, which are Ovation's own filenames, never a client's.
+# ---------------------------------------------------------------------------
+LIVE_ROOT="$WORK/live-support"
+mkdir -p "$LIVE_ROOT/Ovation"
+printf 'a receipt for %s\n' "$CLIENT" > "$LIVE_ROOT/Ovation/problems.jsonl"
+OVATION_LIVE_DATA_ROOT="$LIVE_ROOT" ./scripts/check-live-data-untouched.sh \
+    snapshot "$WORK/live.json" >/dev/null 2>&1
+printf 'and another for %s at %s\n' "$CLIENT" "$VENUE" >> "$LIVE_ROOT/Ovation/problems.jsonl"
+check "the live data bracket prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_LIVE_DATA_ROOT="$LIVE_ROOT" \
+        ./scripts/check-live-data-untouched.sh compare "$WORK/live.json" 2>&1)")" "clean"
+
+# ---------------------------------------------------------------------------
 # COMPLETENESS. A hand written list of covered scripts silently exempts whatever
 # nobody remembered to add, and the exempted one is the one this suite exists
 # for (L96, L247). So the list is asserted against what is actually on disk, and
 # a new check script fails HERE until somebody points it at the fixture.
 # ---------------------------------------------------------------------------
-COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-forbidden-constructs.sh check-identity-leaks.sh check-ported-artifacts.sh check-preconditions.sh check-sibling-installs.sh"
+COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-forbidden-constructs.sh check-identity-leaks.sh check-isolation-floor.sh check-live-data-untouched.sh check-ported-artifacts.sh check-preconditions.sh check-sibling-installs.sh"
 ON_DISK="$(cd scripts && ls -1 check-*.sh | sort | tr '\n' ' ')"
 check "every check script on disk is covered by this suite" \
     "$(printf '%s' "$ON_DISK" | tr -s ' ' | sed 's/ $//')" \

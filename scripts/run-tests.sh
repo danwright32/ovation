@@ -149,6 +149,22 @@ done
 
 echo "==> Holding both locks. Running Ovation's tests."
 
+# ---------------------------------------------------------------------------
+# BRACKET THE RUN AGAINST LIVE DATA (ovation#58, plan 1.9).
+#
+# The resolvers refuse, and scripts/check-isolation-floor.sh refuses one that is
+# not registered. Both of those read the CODE. This measures the DISK, because
+# the thing being protected is that nothing lands in Dan's real store, not that a
+# particular function returns nil (L63). A test that builds its own path reaches
+# the folder without going through any resolver at all.
+# ---------------------------------------------------------------------------
+LIVE_DATA_GUARD="${REPO_ROOT}/scripts/check-live-data-untouched.sh"
+LIVE_DATA_FINGERPRINT=""
+if [ -x "${LIVE_DATA_GUARD}" ]; then
+  LIVE_DATA_FINGERPRINT="$(mktemp)"
+  "${LIVE_DATA_GUARD}" snapshot "${LIVE_DATA_FINGERPRINT}" >/dev/null || LIVE_DATA_FINGERPRINT=""
+fi
+
 # The command is injectable so the suite can measure the LOCKING without paying
 # for a three minute xcodebuild (L2, L291). The default is the real thing.
 if [ -z "${TEST_COMMAND}" ]; then
@@ -198,6 +214,16 @@ if [ "${STATUS}" -eq 0 ]; then
       STATUS=6
     fi
   fi
+fi
+
+# The other end of the bracket. A run that wrote to live data FAILS, whatever
+# the tests said, because a green suite that reached Dan's store is the worst of
+# both.
+if [ -n "${LIVE_DATA_FINGERPRINT}" ]; then
+  if ! "${LIVE_DATA_GUARD}" compare "${LIVE_DATA_FINGERPRINT}"; then
+    [ "${STATUS}" -eq 0 ] && STATUS=7
+  fi
+  rm -f "${LIVE_DATA_FINGERPRINT}"
 fi
 
 # Judge by the EXIT CODE, never by a line of output: a tool's final line is

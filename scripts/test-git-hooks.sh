@@ -101,8 +101,13 @@ check "and it says the suite was green" \
 OUT7="$(hook "exit 1")"; ST7=$?
 check "a red suite refuses the push" \
     "$([ "$ST7" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+# WHOLE WORDS. This was `refus\|blocked\|red`, and "red" is a substring of
+# "registered": the moment another check in the gate printed the word, this
+# counted two matching lines and failed on a hook that was working perfectly
+# (ovation#58). A pattern that matches a fragment of an unrelated word is
+# measuring the wrong thing in both directions (L156).
 check "and it says why, rather than failing silently" \
-    "$(printf '%s' "$OUT7" | grep -ci "refus\|blocked\|red")" "1"
+    "$(printf '%s' "$OUT7" | grep -ciE 'refused|blocked|\bred\b')" "1"
 
 # 8. The documented escape hatch works, and SAYS it was used. An override that
 #    can happen quietly is one that happens by accident.
