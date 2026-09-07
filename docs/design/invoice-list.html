@@ -64,7 +64,13 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .readout p { margin: 0; color: var(--page-ink-soft); font-size: 14.5px; }
 .readout .ratio { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--page-ink-faint); }
 
-.stage { overflow-x: auto; padding-bottom: 4px; }
+/* NO overflow declared here. It used to say overflow-x: auto, and setting
+   overflow on one axis makes the other compute to auto too, so this element
+   was a scroll container on BOTH axes waiting to happen. The window is wide,
+   so on a narrow screen it would have started clipping its own bottom while
+   the page looked as though it had reached its end. If the window is wider
+   than the screen the PAGE scrolls sideways, which is ordinary and visible. */
+.stage { padding-bottom: 4px; }
 .record { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px,1fr)); border: 1px solid var(--page-rule); background: var(--page-panel); }
 .record > div { padding: 15px 17px; border-right: 1px solid var(--page-rule-soft); border-bottom: 1px solid var(--page-rule-soft); }
 .record h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--page-ink-faint); }
