@@ -133,6 +133,43 @@ reading was right (L52).
 or mismatched is its own named outcome. Unlike them, nothing depends on it at runtime; losing it
 costs a throwaway booking, not a record of work that happened.
 
+## Freshbooks Photography Invoices 2015-2024.csv
+
+Dan's own invoicing history from before QuickBooks, and the only record on this machine of how
+long his shoots actually run. Confirmed by Dan on 2026-09-07 as his file and usable.
+
+| Field | Value |
+| --- | --- |
+| Path | `~/Non-icloudDocuments/Photography Assets/Documents/Freshbooks Photography Invoices 2015-2024.csv` |
+| SHA-256 | `c39dd5d1fc96b48344219b88affe64b51f34da58ce3956e3dab548c0b7e88e65` |
+| Exported | 2025-01-18 |
+| Contents | 203 line items, 171 invoices, 41 clients, all USD |
+| Issued range | 2019-01-06 to 2024-12-20 |
+
+**Its filename says 2015 and its earliest issued date is 2019-01-06.** Recorded here because the
+name is the first thing anybody will trust and it is wrong by four years.
+
+**Why it is custody rather than a convenience.** PRD 5.3a and 5.3c both cite numbers derived from
+it, and those numbers decided that a drafted invoice carries no duration at all. A requirement
+resting on a measurement whose source nobody can find again is a requirement resting on somebody's
+memory (L316). Recording it here also brings it under `check-custody-files.sh`, so the file moving
+or changing is reported rather than discovered by a later reader getting different figures.
+
+**How it must be read.** Verify the SHA-256 at read time, not only when it was written. **Exclude
+draft invoices**: 41 of the 203 lines sit on invoices that were never issued, and a duration
+nobody finalised is not evidence of what a shoot ran to. The figures in the PRD are for the 133
+photography lines on ISSUED invoices priced at one of Dan's hourly rates.
+
+**It carries real client names in its `Client Name` column and real event names in
+`Item Name`, so it must never be committed**, and anything derived from it reports counts and
+distributions rather than rows. **It is NOT yet a needle source for the identity
+guard, and that is stated rather than implied**: `check-identity-leaks.sh` reads only `.json`
+files under `~/Library/Application Support/Ovation/custody`, and this is a `.csv` somewhere else,
+so its 41 clients are invisible to the guard while the live export's 31 are not. Making it one is
+ovation#23, which exists for exactly this, and it is not free: the guard's own note warns that
+needles derived from real business names WILL over match, and this file's `Item Name` column holds
+event titles that are ordinary English words.
+
 ## What this folder is to Ovation
 
 Decided 2026-08-28, recorded here so the app and its guards agree:
