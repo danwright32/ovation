@@ -390,4 +390,76 @@ struct SwiftDataBehaviourTests {
         #expect(survivingReleased.first?.owner == nil,
                 "and it no longer points at the row that was deleted")
     }
+
+    // MARK: does the store file alone carry a saved row (ovation#88)
+
+    /// The fact the launch checkpoint is built on, measured rather than assumed.
+    ///
+    /// A backup copies the store file, and copies the write ahead log beside it
+    /// only when one is there. If SwiftData leaves committed pages in that log,
+    /// then a store file copied WITHOUT it reconstructs to an older state, and
+    /// an archive holding both copies them at two different instants and can be
+    /// internally inconsistent. Checkpointing before the backup reads the store
+    /// is what removes both hazards, and it is only worth its cost if the log
+    /// really does hold pages here (L82: measure the guarantee on the real
+    /// target, since SwiftData ships with the OS and changes under it).
+    ///
+    /// This test asserts nothing about WHICH answer is right. It records what
+    /// this OS does, and names what changes if that flips.
+    @Test("a saved row, and whether the store file alone carries it")
+    func theStoreFileAloneAfterASave() throws {
+        let directory = URL.temporaryDirectory
+            .appending(path: "ovation-wal-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let storeURL = directory.appending(path: "Ovation.store")
+        let schema = Schema([Client.self])
+        let container = try ModelContainer(
+            for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
+        let context = ModelContext(container)
+        context.insert(Client(name: "Ashgrove Chamber Players", taxStatus: .neverRecorded))
+        try context.save()
+
+        // Copy the store file ALONE, exactly as a backup would if the log were
+        // absent, and read it with a container that has never seen the original.
+        let alone = directory.appending(path: "alone.store")
+        try FileManager.default.copyItem(at: storeURL, to: alone)
+
+        let log = directory.appending(path: "Ovation.store-wal")
+        let logExists = FileManager.default.fileExists(atPath: log.path)
+        let logBytes = (try? Data(contentsOf: log).count) ?? 0
+
+        let copiedSchema = Schema([Client.self])
+        let copied = try ModelContainer(
+            for: copiedSchema,
+            configurations: ModelConfiguration(schema: copiedSchema, url: alone))
+        let rows = try ModelContext(copied).fetch(FetchDescriptor<Client>())
+
+        // The row is in the original either way. That is the control: without it
+        // a fetch of zero from the copy could mean the save never happened.
+        #expect(try ModelContext(container).fetch(FetchDescriptor<Client>()).count == 1)
+
+        // What this OS actually does, recorded rather than asserted one way.
+        // A log holding the pages is what makes the checkpoint load bearing; a
+        // store file that already carries them means the checkpoint protects
+        // only against a crash, and ovation#88's reasoning must say so.
+        // MEASURED 2026-09-07, macOS 15.5 (Darwin 25.5.0). The log is 57,712
+        // bytes and the store file alone holds NOTHING. So on this OS a saved
+        // row lives entirely in the write ahead log until something checkpoints.
+        //
+        // What this decides, which is the reason the test exists: the launch
+        // checkpoint in ovation#88 is LOAD BEARING, not an optimisation. A
+        // backup that copied Ovation.store without its log would restore an
+        // empty database, and BackupPlan cannot require the log, because a
+        // checkpointed store legitimately has none. Checkpointing first is what
+        // makes the store file self sufficient before it is read.
+        //
+        // If this ever flips, so that the store file alone carries the row, the
+        // checkpoint stops protecting against a missing log and protects only
+        // against a crash. Say so in ovation#88 rather than deleting it.
+        #expect(logExists, "no write ahead log beside the store at all")
+        #expect(logBytes > 0, "the log exists but is empty, which is a different world")
+        #expect(rows.isEmpty, "the store file alone now carries the row, which reverses the reasoning above")
+    }
 }
