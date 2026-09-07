@@ -154,7 +154,7 @@ itself rather than left for the implementer to find: putting the amount on the n
 "Ashgrove Chamber Players" short in a 240px column, and the strip above the list costs 43px,
 which in a real window comes out of the list and drops it from 15 visible clients to 14.
 
-### Round 3, open: what a count does when it is nothing
+### Round 3, settled 2026-09-07: a count of nothing is not drawn, and one line says so
 
 Nothing in the PRD or in this record has ever decided what a sidebar count does at zero, so
 Dan's rule lands on a card that already holds four other lines. Three positions: only the
@@ -166,10 +166,24 @@ Expenses and Clients shift: **26px, 180px and 106px**. None of the three holds p
 because the money line comes and goes in all of them, and a first draft of the page claimed Z1
 did hold still until it was measured.
 
-The card line carries the AMOUNT rather than a count of clients, which is a judgement and not
-yet settled: three clients holding $87.50 between them and one holding $5,000.00 are the same
-count, and the reason the line exists is so the second one is not forgotten. It costs
-consistency, since the four lines beside it are counts.
+**Settled on Z3:** one rule for every line in the card, and when it takes all five the card says
+`Nothing waiting` rather than disappearing, because a card that draws nothing on the healthy day
+is indistinguishable from one that failed to draw.
+
+**The card line is a COUNT of clients, not the total held** (Dan, 2026-09-07, overruling the
+amount it first carried). The argument put for the amount was that three clients holding $87.50
+between them and one holding $5,000.00 are the same count. The argument that won is the card's
+own rule: its four neighbours are counts of things needing you, and a sum among them is a second
+kind of number in one small object. The amounts are not lost, they are beside the clients in the
+list, which is where the count sends you.
+
+### What the screen still is not
+
+Referral credit sits beside held money as an equal box and nothing yet keeps them from reading
+as one balance. The roster clean up has no surface: 25 of the 31 have no tax status and the
+screen says it quietly, and two share a contract email and it says nothing at all. And nothing
+on the screen is an ACTION: applying held money to an invoice is what makes it useful and there
+is no control for it.
 
 ### What is deliberately still open
 

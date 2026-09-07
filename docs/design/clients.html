@@ -1,4 +1,4 @@
-<title>Ovation Clients, round 3</title>
+<title>Ovation Clients</title>
 <style>
 /* Fonts embedded so this file needs NOTHING external: it renders identically
    with no network at all. Latin subset only, because the page is pure ASCII.
@@ -344,32 +344,29 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 <div class="wrap">
 
   <header class="masthead">
-    <div class="eyebrow">Ovation, round 3: what a count does when it is nothing</div>
-    <h1>Both, and the sidebar line only when it has something to say.</h1>
+    <div class="eyebrow">Ovation, the Clients screen</div>
+    <h1>Settled over three rounds on 7 September.</h1>
     <p class="lede">
-      Round 2 settled on <strong>R2 and R3 together</strong>: the amount rides beside the client in
-      the list, so you can see which clients without clicking any of them, and a line in the sidebar
-      card carries it to every screen. Both are now in every rendering below and neither is a
-      variable any more.
+      Names on the left, one client on the right. The amount rides beside any client whose money
+      Ovation is holding, so the screen can say WHICH without a click. A line in the sidebar card
+      carries it to every screen, including Invoices, where you actually are.
     </p>
     <p class="lede">
-      Dan added a rule with it: <strong>it should not say Money held 0</strong>. That is a rule
-      rather than a case, and nothing in the PRD or the design record has ever decided what a count
-      does when it is nothing, so it lands on a card that already has four other lines. This round
-      moves <strong>one variable: which lines that rule applies to, and what is left when it takes
-      them all</strong>.
+      <strong>Use the day switch.</strong> A count of nothing is not drawn, and when that takes
+      every line the card says Nothing waiting rather than disappearing. The quiet day is the whole
+      of that rule and the only place it shows.
     </p>
   </header>
 
   <div class="notice">
-    <p><b>Use the day switch.</b> The three positions are identical on a busy day and differ only on
-    a quiet one, which is the day the rule is about. A quiet day is not rare: it is every day the
-    work is done, which is the state the product should be nicest in.</p>
-    <p><b>The card line carries the AMOUNT, not a count of clients</b>, and that is a judgement
-    rather than a settled decision. Three clients holding $87.50 between them is not worth a line;
-    one client holding $5,000.00 is, and a count of 3 cannot tell those apart. It costs consistency:
-    the four lines beside it are counts of things, and this one is money. Say if you want the count
-    instead.</p>
+    <p><b>The card line is a COUNT of clients, not a total.</b> Its four neighbours are counts of
+    things needing you and this is the fifth, so the card keeps one rule rather than four counts and
+    a sum. The amounts are not lost: they are beside the clients in the list, which is where you go
+    when the count is not zero.</p>
+    <p><b>Three of the thirty one clients here are holding money, and that number is invented.</b>
+    Deposits do not exist in the product yet, so nothing has measured how often one is taken. If it
+    turns out to be routine rather than rare, three marks in a list becomes a column and the case
+    for putting the amount beside the name has to be looked at again.</p>
   </div>
 
   <div class="tabs" id="tabs"></div>
@@ -377,36 +374,41 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
   <div class="stage" id="stage"></div>
 
   <div class="record">
-    <div><h3>Settled and no longer moving</h3>
-      <p>The two pane shape. The amount beside the client in the list. A money held line in the
-      sidebar card. All three are in every rendering here.</p>
+    <div><h3>The shape</h3>
+      <p>Names left, one client right. It buys room to LABEL money held and referral credit rather
+      than leaving them as columns whose units you have to know, and the client's invoices sit on
+      the same screen. It spends the list: 15 of 31 clients are visible at once, measured.</p>
     </div>
-    <div><h3>What an empty card would mean</h3>
-      <p>A screen that draws nothing on the healthy day is <b>indistinguishable from one that
-      failed to draw</b>, and that is the whole argument against Z2. It is also the argument for
-      it: nothing on the screen is the truest possible statement that there is nothing to do.</p>
+    <div><h3>Where held money appears</h3>
+      <p>Two places. Beside the client in the list, so the screen says which. And as a count in the
+      sidebar card, so it reaches you on Invoices. <b>It counts DOWN as you apply it</b>, exactly
+      like the four counts beside it, and reaches zero when there is nothing left to do.</p>
     </div>
-    <div><h3>The cost nobody mentions</h3>
-      <p>Lines that come and go make the sidebar <b>change height as you work</b>, so Invoices,
-      Expenses and Clients sit somewhere different depending on how much is waiting. Measured
-      between a busy day and a quiet one: <b>26px, 180px and 106px</b>. None of the three holds
-      perfectly still, because the money line comes and goes in all of them.</p>
+    <div><h3>A count of nothing is not drawn</h3>
+      <p>One rule for every line in the card. When it takes all five the card says <b>Nothing
+      waiting</b> rather than vanishing, because a card that draws nothing on the healthy day is
+      indistinguishable from one that failed to draw. The cost, measured: the navigation moves 106px
+      between a busy day and a quiet one.</p>
     </div>
-    <div><h3>Not in this round</h3>
-      <p>Whether a deposit is distinguishable from an overpayment (ovation#96), and how held money
-      is kept from reading as one balance with referral credit (PRD 5.14c). Both are next.</p>
+    <div><h3>Still open</h3>
+      <p>Whether a deposit is distinguishable from an overpayment (ovation#96), how held money is
+      kept from reading as one balance with referral credit (PRD 5.14c), and where the roster clean
+      up lives (ovation#40), since a shared contract email is drawn no differently from any other
+      today.</p>
     </div>
   </div>
 
   <section class="closing">
-    <h2>What to look for</h2>
+    <h2>What this is not yet</h2>
     <ol>
-      <li><b>Switch to a quiet day and look at the sidebar.</b> That is the only place these three
-      differ.</li>
-      <li><b>Does an empty card read as calm, or as broken?</b> That is the question.</li>
-      <li><b>How much movement is acceptable?</b> None of the three holds perfectly still: the
-      navigation shifts 26px, 180px and 106px respectively between a busy day and a quiet one.</li>
-      <li><b>Is Money held $1,837.50 right in a column of counts</b>, or should it be 3?</li>
+      <li><b>Referral credit sits beside held money as an equal box.</b> They are different things
+      and PRD 5.14c says they must not read as one balance, because credit nobody paid could then
+      settle an invoice. Nothing here has been designed to keep them apart yet.</li>
+      <li><b>The roster clean up has no surface.</b> 25 of these 31 clients have no tax status and
+      two share a contract email, and this screen currently says the first quietly and the second
+      not at all.</li>
+      <li><b>Nothing here is an action.</b> Applying held money to an invoice is what makes this
+      screen useful and there is no control for it on the page.</li>
     </ol>
   </section>
 </div>
@@ -576,11 +578,13 @@ function contentFor() {
 /* The card, which is the whole of this round. */
 function cardFor(rule) {
   var lines = counts();
-  /* R3, settled: money held is a line in the card. It carries the AMOUNT rather
-     than a count of clients, because the reason this line exists is so a large
-     deposit is not forgotten, and three clients holding $87.50 between them and
-     one holding $5,000.00 are the same count. */
-  if (!QUIET) lines.push(["Money held", HELD_TOTAL]);
+  /* R3, settled. Money held is a line in the card, and it is a COUNT OF CLIENTS
+     (Dan, 2026-09-07, overruling the amount this first carried). The card's four
+     neighbours are counts of things needing you and this is now the fifth, which
+     keeps one rule in the card rather than four counts and one sum. The AMOUNTS
+     are not lost: they are beside the clients in the list, which is where you go
+     when the count is not zero. */
+  if (!QUIET) lines.push(["Money held", HELD.length]);
 
   /* Z1: only the money line obeys the rule. The four counts always show, zero
      included, so the card is a fixed object.
@@ -643,18 +647,10 @@ function windowFor(rule) {
 }
 
 var SHAPES = [
-  { k: "Z1", t: "Only the money line comes and goes",
-    h: "The four counts always show, zero included.",
-    p: "The card is a fixed object of four lines you learn the shape of, and a fifth appears when there is money to apply. Measured, because the first draft of this sentence claimed nothing below it ever moves and that is not true: Invoices, Expenses and Clients shift by 26px between a busy day and a quiet one, which is the one line coming and going. The other cost is that the card holds two rules, four lines that sit at zero and one that vanishes, and a reader has to learn which is which. On a quiet day it reads: To send 0, To chase 0, To confirm 0, Receipts to file 0.",
-    m: "quiet day: 4 lines, all zero. sidebar moves 26px" },
-  { k: "Z2", t: "Every line goes, and so does the card",
-    h: "Nothing waiting means nothing drawn.",
-    p: "One rule, applied everywhere, and the truest possible statement that there is nothing to do. Two costs, and the second is the serious one. Invoices, Expenses and Clients move 180px between a busy day and a quiet one, measured, which is the navigation landing somewhere different depending on how much work is waiting. And a card that draws nothing on the healthy day is indistinguishable from one that failed to draw at all, which is the state you would least want to misread.",
-    m: "quiet day: no card at all. sidebar moves 180px" },
-  { k: "Z3", t: "Every line goes, and one line says so",
-    h: "The same rule, with something left standing.",
-    p: "One rule, and the healthy day still says something out loud, so an empty card can never be confused with a broken one. The navigation still moves, 106px measured, about half of what Z2 costs. It also spends a line saying nothing is waiting, which is a sentence you would read several thousand times, and the invoice list already rejected a Nothing to do label once on exactly that ground.",
-    m: "quiet day: 1 line, Nothing waiting. sidebar moves 106px" }
+  { k: "Z3", t: "Settled: a line goes when it is nothing, and one line says so",
+    h: "One rule for every count in the card, including money held.",
+    p: "Settled 2026-09-07. A count of nothing is not drawn, and when that takes every line the card says Nothing waiting rather than disappearing, so a healthy day can never be mistaken for a card that failed to draw. Use the day switch: that quiet state is the whole of the rule and the only place it shows.",
+    m: "quiet day: 1 line, Nothing waiting. navigation moves 106px" }
 ];
 
 var tabs = document.getElementById("tabs");
