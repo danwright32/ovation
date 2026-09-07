@@ -62,8 +62,9 @@ is pure ASCII**, so no pipe between here and a browser can mangle it.
 
 ## What is still open
 
-`ovation#95` where the venue and shoot times live. The receipts queue and the review and
-send screen are not designed yet.
+`ovation#95` where the venue and shoot times live. The receipts queue (`ovation#100`), the
+review and send screen (`ovation#101`) and the invoice screen inside the app (`ovation#111`)
+are not designed yet.
 
 **`ovation#18`, the app icon, is settled and shipped (2026-09-07).** It was listed here as
 waiting on the palette, and the palette is what it waited for: the artwork is a cream paper
@@ -102,6 +103,73 @@ rather than unblocking it.
    any invoice. How it appears is deliberately left until the Clients screen is designed as
    a whole, rather than deciding one element of a screen that does not exist and settling
    the screen by accident. Tracked as ovation#98. See PRD 5.14a.
+
+## The invoice PDF
+
+`invoice-pdf.html` is the agreed design for the document a client receives, settled with Dan
+on 2026-09-07 over five rounds, tracked as `ovation#93`. **Open it in a browser.** The buttons
+above the page switch which invoice is shown, which is behaviour rather than a chooser: the
+rules only become visible under the six inputs that exercise them.
+
+**It answers to the LETTERHEAD, not to the app.** This is the only Ovation surface a client
+ever sees, so it obeys Dan Wright Photography's stationery rather than the espresso interface
+language the other two files share. It also has to survive being printed in black and white,
+opened in a mail preview pane, and read by an accounts department.
+
+**The brand kit and the letterhead disagree, and the letterhead won.** The kit (v1.0, 2025)
+specifies Deep Teal Blue `#2E5866` and Warm Cream `#F5E6D3`. Measured from a render of
+`Letterhead.psd`, the actual stationery uses neither: header band `#9FD4C6`, footer bar
+`#7FA99E`, banner `#221F20`, ground `#F7F5F2`. Dan chose the letterhead, so the kit is the
+thing that is out of date; correcting that document is outside this repository. The kit's
+typography stands, because the letterhead does not contradict it.
+
+| | |
+| --- | --- |
+| Shape | Statement. What is owed and by when, answered at the top right at 25px before anything else. |
+| The total | Said twice on purpose, once at 25px at the top and once at 10.5px closing the arithmetic. |
+| A line | Description, Hours, Rate, Amount. The client sees the rate and can reconstruct every figure. |
+| Identity | The real mark alone, 218px wide. No contact details beside it and no signature. |
+| Contact | At the foot, beside the payment terms. |
+| Tax | Drawn on every invoice. Reads `$0.00` and names the reason where the client is exempt. |
+| Colour | One bar at the foot in `#7FA99E`. Nothing else on the document carries colour. |
+| Type | Merriweather for the title and the amount, Lato for everything else, both embedded. |
+
+**The decisions with code consequences are in the PRD as requirements 50 to 50f**, so the PRD
+stays the single alignment document.
+
+### Three things worth knowing before changing it
+
+**The ordinary invoice is ONE line.** 16 of 19 real bookings are a single one hour shoot, so
+its content stops around 550px down a 1056px page. Every shape was judged on that rather than
+on a full one. A change judged on the busy fixture is judged on a case that does not occur.
+
+**Two repetitions are deliberate and are not to be tidied away.** The total appears at both
+ends, and on an ordinary invoice `$250.00` appears three times, as the rate, the amount and
+the subtotal. Both were measured and put in front of Dan in those words before he chose them.
+An invoice is not a screen: restating a figure across a calculation is how a reader checks it.
+
+**A measured zero is drawn; an absence is not.** The exempt client's tax line reads `$0.00`
+rather than disappearing, because an accounts department has to be able to tell a deliberate
+exemption from an oversight. This is the second recorded exception to the zero rule the
+Clients screen settled, after the comped invoice totalling `$0.00`. A first draft removed the
+line by analogy with the sidebar counts, which was that rule applied outside the domain it was
+written for.
+
+### Two faults the measuring caught that looking would not have
+
+A colour option built its class as `c-barRules` while the stylesheet asked for `c-barrules`,
+and CSS class matching is case sensitive, so that option rendered identically to its neighbour
+and would have read as a design finding rather than as a bug. And on the full stationery
+option the small label on the mint band measured 3.40 to 1, under the 4.5 to 1 body text
+needs. Neither was the option chosen, but both were live when Dan looked.
+
+### What it does not yet answer
+
+The wording `Sales tax (exempt)` is Claude's rather than Dan's, and along with the note to
+customer and the payment line it still owes the cold read PRD 41a requires of every outbound
+sentence. Nothing has been checked on a real printer. And `ovation#112` bears on the line
+directly: Downbeat derives a booking's end time from its start, so on 16 of 19 real bookings
+the duration that prices the invoice is a default rather than a measurement.
 
 ## The Clients screen
 
