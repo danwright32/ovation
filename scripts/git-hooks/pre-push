@@ -102,6 +102,18 @@ if [ -x "${REPO_ROOT}/scripts/check-schema-registered.sh" ]; then
     fi
 fi
 
+# The launch sequence must be WIRED into the entry point. ovation#88: the store
+# schema guard was written and fully tested and then called by nothing, because
+# the file carrying @main is the one file the pure test target cannot compile, so
+# no test in the suite can reach the wiring. This is the only instrument there is
+# for it, which is exactly why its absence let the first omission stand.
+if [ -x "${REPO_ROOT}/scripts/check-launch-sequence-wired.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-launch-sequence-wired.sh"; then
+        echo "pre-push: the entry point does not run the store launch sequence. Push refused." >&2
+        exit 1
+    fi
+fi
+
 # THE LIVE DATA BRACKET IS NOT RUN HERE. It is a bracket around the test run
 # rather than a check that can be answered on its own: it snapshots before and
 # compares after, and scripts/run-tests.sh holds both ends. Running it here would

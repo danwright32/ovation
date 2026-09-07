@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 // The entry point, and the ONE file the pure test target cannot compile in,
@@ -24,6 +25,37 @@ struct OvationApp: App {
 
         let store = ProblemsStore(journal: journal)
         store.load()
+
+        // THE LAUNCH SEQUENCE RUNS HERE, BEFORE THE PRESENTER REFRESHES, so a
+        // refusal it raises is in the store by the time the first screen asks
+        // what is wrong. Identify, checkpoint, back up, then open (plan 1.2).
+        //
+        // A disposable launch does none of it. `StoreLocation.liveStoreURL`
+        // refuses under one, so there is nothing to identify and nothing to back
+        // up, and running the sequence against a fabricated path would raise
+        // problems about a store nobody has (plan 1.9, the isolation floor).
+        if let storeURL = StoreLocation.liveStoreURL() {
+            StoreLaunchSequence(
+                storeURL: storeURL,
+                problems: store,
+                checkpoint: { StoreCheckpoint.run(storeURL: $0) },
+                takeBackup: { _ in
+                    // ovation#87 chooses the folder and schedules this. Until it
+                    // does there is nowhere to write, and saying so through the
+                    // Problems store is honest, where a silent no-op would leave
+                    // the sequence reporting a backup it never took (L98).
+                    throw BackupError.couldNotWrite("no backup folder has been chosen yet")
+                },
+                openContainer: { try OvationSchema.container(at: $0) },
+                identify: {
+                    StoreSchemaGuard.inspect(
+                        storeURL: $0,
+                        ownEntityTables: StoreSchemaGuard.entityTableNames(
+                            for: OvationSchema.schema))
+                }
+            ).run(now: Date())
+        }
+
         let presenter = LaunchPresenter(store: store)
         presenter.refresh()
 
