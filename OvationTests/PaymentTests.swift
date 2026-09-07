@@ -154,24 +154,33 @@ struct PaymentTests {
         let secondID = second.persistentModelID
 
         let day = BusinessDate.stamping(Self.day)
-        let refusals = await withTaskGroup(of: Bool.self) { group in
+        // The outcome is the REFUSAL itself, not merely that something threw. A
+        // test satisfied by any error is satisfied by its own fixture failing
+        // (L140), and here that would read as the invariant holding.
+        let refusals = await withTaskGroup(of: AllocationRefusal?.self) { group in
             for invoiceID in [firstID, secondID] {
                 group.addTask {
                     do {
                         try await allocator.allocate(Money(dollars: 60), from: paymentID,
                                                      to: invoiceID, on: day)
-                        return false
+                        return nil
+                    } catch let refusal as AllocationRefusal {
+                        return refusal
                     } catch {
-                        return true
+                        Issue.record("an allocation failed for a reason that is not a refusal")
+                        return nil
                     }
                 }
             }
-            var refused = 0
-            for await wasRefused in group where wasRefused { refused += 1 }
-            return refused
+            var found: [AllocationRefusal] = []
+            for await outcome in group { if let outcome { found.append(outcome) } }
+            return found
         }
 
-        #expect(refusals == 1, "one of them was told there was not enough left")
+        #expect(refusals.count == 1, "one of them was told there was not enough left")
+        #expect(refusals.first == .wouldTakeMoreThanArrived(unallocated: Money(dollars: 40),
+                                                            asked: Money(dollars: 60)),
+                "and it was told how much was actually left, so it can offer that instead")
         let reader = ModelContext(container)
         let read = try #require(try reader.fetch(FetchDescriptor<Payment>()).first)
         #expect(read.allocated == Money(dollars: 60))
