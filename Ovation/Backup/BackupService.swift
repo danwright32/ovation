@@ -20,6 +20,11 @@ struct BackupManifest: Codable, Equatable, Sendable {
     enum MemberStatus: String, Codable, Sendable {
         case copied
         case notYetBuilt
+        /// It is absent, and absent is one of its correct states. A checkpointed
+        /// store has no write ahead log beside it. Distinct from `notYetBuilt`
+        /// because the two need opposite responses: this one is normal, and that
+        /// one is a standing reminder that the archive is short (L11).
+        case legitimatelyAbsent
     }
 
     struct MemberRecord: Codable, Equatable, Sendable {
@@ -120,6 +125,10 @@ final class BackupService {
                     // Silently skipping it would give an archive that reads as
                     // complete (L98).
                     throw BackupError.requiredMemberMissing(member.path)
+                case .presentSometimes:
+                    members.append(.init(path: member.path,
+                                         status: .legitimatelyAbsent, issue: nil))
+                    continue
                 case .notYetBuilt(let issue):
                     members.append(.init(path: member.path, status: .notYetBuilt, issue: issue))
                     continue
@@ -193,12 +202,27 @@ final class BackupService {
 
         var failures: [BackupReport.Failure] = []
 
-        // Every member the plan REQUIRES must have been copied.
+        // Every member the plan names must be ACCOUNTED FOR, in a way its own
+        // expectation allows. Checking only the required ones left every other
+        // member unverified, which is how the database went unchecked for as
+        // long as it was mislabelled as not yet built.
         for member in BackupPlan.members {
-            guard case .required = member.expectation else { continue }
             let recorded = manifest.members.first { $0.path == member.path }
-            if recorded?.status != .copied {
+            let allowed: Set<BackupManifest.MemberStatus>
+            switch member.expectation {
+            case .required:
+                allowed = [.copied]
+            case .presentSometimes:
+                // Either is correct, but it must say WHICH. A member missing
+                // from the manifest altogether is not the same as one recorded
+                // as absent, and only the second is evidence anybody looked.
+                allowed = [.copied, .legitimatelyAbsent]
+            case .notYetBuilt:
+                allowed = [.copied, .notYetBuilt]
+            }
+            guard let status = recorded?.status, allowed.contains(status) else {
                 failures.append(.init(path: member.path, verdict: .memberMissing))
+                continue
             }
         }
 

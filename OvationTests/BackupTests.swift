@@ -17,14 +17,75 @@ struct BackupTests {
         #expect(manifest.dayKey == BusinessCalendar.dayKey(for: world.instant))
 
         let copied = manifest.members.filter { $0.status == .copied }.map(\.path).sorted()
-        #expect(copied == ["custody", "documents", "problems.jsonl"])
+        #expect(copied == ["Ovation.store", "custody", "documents", "problems.jsonl"])
 
         // An archive is HONEST about what it could not contain. A member nothing
         // has built yet is recorded with the issue that will build it, rather
         // than being silently absent (L98).
         let pending = manifest.members.filter { $0.status == .notYetBuilt }
-        #expect(pending.count == 7)
+        #expect(pending.count == 4)
         #expect(pending.allSatisfy { $0.issue?.hasPrefix("ovation#") == true })
+
+        // And a member that is legitimately absent says SO, in its own word,
+        // rather than borrowing the one that means nobody has built it (L11).
+        // The two need opposite responses: one is normal, the other is a
+        // reminder that the archive is short.
+        let absent = manifest.members.filter { $0.status == .legitimatelyAbsent }
+        #expect(absent.map(\.path).sorted() == ["Ovation.store-shm", "Ovation.store-wal"])
+        #expect(absent.allSatisfy { $0.issue == nil })
+    }
+
+    @Test("an archive with no database is REFUSED, not verified clean")
+    func aMissingStoreRefuses() throws {
+        // ovation#88. The store holds the only copy of every invoice, and
+        // BackupPlan went on listing it as not yet built long after ovation#60
+        // shipped it. The consequence was not that archives lacked it: the
+        // staging step copies whatever exists. It was that the VERIFICATION
+        // only checks members marked required, so a failed copy, or a backup
+        // taken before the store existed, recorded it as not yet built and
+        // verified clean. That is the exact shape BackupPlan's own header warns
+        // about, in the file written to prevent it (L98, L63).
+        let world = try World()
+        try FileManager.default.removeItem(
+            at: world.dataDirectory.appendingPathComponent("Ovation.store"))
+
+        #expect(throws: BackupError.requiredMemberMissing("Ovation.store")) {
+            try world.service.takeBackup(now: world.instant)
+        }
+    }
+
+    @Test("a write ahead log that is absent because the store was checkpointed is not a failure")
+    func anAbsentLogVerifiesClean() throws {
+        // The other half of the same change, and the reason the log cannot
+        // simply be required alongside the database. A checkpointed SQLite
+        // store legitimately has no log beside it, so requiring one would
+        // refuse every healthy backup, which is a guard failing in the
+        // direction nobody expects.
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant)
+
+        let report = try world.service.verify(archive: archive)
+        #expect(report.failures.isEmpty)
+    }
+
+    @Test("a write ahead log that IS there is carried, since it holds committed pages")
+    func aPresentLogIsCarried() throws {
+        // The pair only reconstructs the database if both halves travel. This
+        // is what makes ovation#88's checkpoint the safe path rather than an
+        // optimisation: without it, an archive can hold a store whose newest
+        // pages are in a log that was never copied.
+        let world = try World()
+        try Data("fabricated log".utf8).write(
+            to: world.dataDirectory.appendingPathComponent("Ovation.store-wal"))
+
+        let archive = try world.service.takeBackup(now: world.instant)
+
+        let manifest = try world.manifest(of: archive)
+        let log = try #require(manifest.members.first { $0.path == "Ovation.store-wal" })
+        #expect(log.status == .copied)
+        #expect(FileManager.default.fileExists(
+            atPath: archive.appendingPathComponent("Ovation.store-wal").path))
+        #expect(try world.service.verify(archive: archive).failures.isEmpty)
     }
 
     @Test("the files land on disk, not only in the manifest")
@@ -324,6 +385,12 @@ struct BackupTests {
                 to: dataDirectory.appendingPathComponent("custody/note.txt"))
             try Data("{\"action\":\"raised\"}\n".utf8).write(
                 to: dataDirectory.appendingPathComponent("problems.jsonl"))
+            // The database. ovation#60 shipped it, so a data directory without
+            // one is not a real one. No write ahead log beside it, which is the
+            // ordinary state of a checkpointed store and is why the log cannot
+            // be required (ovation#88).
+            try Data("a fabricated store".utf8).write(
+                to: dataDirectory.appendingPathComponent("Ovation.store"))
 
             let documents = DocumentStore(
                 root: dataDirectory.appendingPathComponent("documents", isDirectory: true))
