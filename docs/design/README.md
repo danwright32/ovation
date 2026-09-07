@@ -203,6 +203,15 @@ checked before the rule was written:
 So the rule is: an absence meaning *nothing is waiting here* is not drawn. An absence meaning
 *something should be here and is not* is drawn.
 
+**The second half was Claude's inference and Dan confirmed it on 2026-09-07**, which is recorded
+because it decides what 25 of the 31 clients look like. He said only that a quantity of nothing
+is not drawn; the exception for a missing value was read out of PRD 5 and 5a and put to him
+separately. Without it the roster gaps go invisible until ovation#40 gives them a surface.
+
+**The screen was judged at ONE window width and that was not enough.** Narrowing it shows the
+shoot names truncating at 1004px and the detail pane scrolling sideways at 874px, which is the
+fault the invoice list record celebrates having removed. Filed as ovation#110.
+
 Measured at the real count: 3 of the 31 hold money, 5 carry credit, 1 has both, and **24 of 31
 show no money row at all**.
 
