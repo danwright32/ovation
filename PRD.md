@@ -166,6 +166,14 @@ Not for: anyone else. There are no other users, no roles and no sharing. Ovation
 
 45. **No red anywhere in the invoice or expense surfaces, on principle** (Dan, 2026-09-06: red "feels like something is wrong"). An overdue invoice is not an error. Nothing failed, the money has not arrived, and lateness is shown as an age in tabular figures, a duration rather than an alarm. **Red belongs to the Problems store alone**, whose kinds are all genuine faults in the app itself (a foreign database, a failed backup, a stale export, an unwritable journal). If the invoice list borrows that vocabulary then the one surface that should alarm Dan has nothing left to say with. A guard asserts that no colour in the warning family reaches the list surfaces.
 
+46. **The invoice list carries no group headings and no per row labels** (Dan, 2026-09-06). The eight groups of section 6 still decide the ORDER, and the property test on ovation#49 still applies unchanged, but they are not DRAWN. The reason is redundancy: a heading reading "Send it today" sat above a chip reading SEND which sat on a row whose action word read Send, so one fact was labelled three times, and with only one to three invoices per group nearly every other line on screen was a heading. What the row already carries covers every case the headings spelled out: draft or invoice number, the shoot date, the days late, and the exact action. **Anyone implementing ovation#49 should build the grouping and not the headings.**
+
+47. **A row is one line.** Client and shoot name together, then shoot date, invoice number or the word draft, amount, and the action. Money is always in tabular figures with aligned decimals, because an amount that can be misread is the one thing this app cannot afford. A selected row is marked by a tint alone and never a left bar, which is both the macOS convention and a practical necessity once the sidebar is dark.
+
+48. **A control says what it does.** "Mark cleared" and "Mark sent", never "Cleared" or "It was sent", which read as statements rather than commands. Actions are drawn as a word rather than a filled button: Downbeat's `DBPlainButtonStyle` is the existing control for this and is already used in 18 places, so nothing new is invented.
+
+49. **The agreed rendering is committed at `docs/design/invoice-list.html`.** One self contained file, no build step, opens in any browser. It is a rendering rather than the app and its README names the three web idioms in it that must be translated rather than copied. It is committed rather than linked so it outlives whatever hosted it.
+
 ---
 
 ## 6. How it works

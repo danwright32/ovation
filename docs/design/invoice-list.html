@@ -1,0 +1,484 @@
+<title>Ovation Rail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root {
+  --page-bg: #F4F4F3; --page-panel: #FFFFFF; --page-ink: #1A1B1C;
+  --page-ink-soft: #55585B; --page-ink-faint: #71767A;
+  --page-rule: #DEDEDC; --page-rule-soft: #EAEAE8;
+  --page-tag: #2C2E30; --page-tag-ink: #F6F6F5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page-bg: #131415; --page-panel: #1C1D1F; --page-ink: #ECEDEE;
+    --page-ink-soft: #A8ADB1; --page-ink-faint: #8B9094; --page-rule: #303234;
+    --page-rule-soft: #262829; --page-tag: #ECEDEE; --page-tag-ink: #131415;
+  }
+}
+:root[data-theme="dark"] {
+  --page-bg: #131415; --page-panel: #1C1D1F; --page-ink: #ECEDEE;
+  --page-ink-soft: #A8ADB1; --page-ink-faint: #8B9094; --page-rule: #303234;
+  --page-rule-soft: #262829; --page-tag: #ECEDEE; --page-tag-ink: #131415;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--page-bg); color: var(--page-ink);
+  font-family: "Archivo", ui-sans-serif, -apple-system, sans-serif;
+  font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 48px 24px 88px; display: flex; flex-direction: column; gap: 26px; }
+.masthead { display: flex; flex-direction: column; gap: 13px; max-width: 72ch; }
+.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--page-ink-faint); }
+h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clamp(34px,4.8vw,46px); line-height: 1.05; font-weight: 400; letter-spacing: -.01em; text-wrap: balance; }
+.lede { margin: 0; color: var(--page-ink-soft); font-size: 16.5px; }
+.lede strong { color: var(--page-ink); font-weight: 600; }
+.notice { padding: 14px 16px; border: 1px solid var(--page-rule); border-left: 3px solid var(--page-tag); background: var(--page-panel); color: var(--page-ink-soft); font-size: 13.5px; line-height: 1.55; max-width: 86ch; }
+.notice b { color: var(--page-ink); font-weight: 700; }
+.notice p { margin: 0; }
+.notice p + p { margin-top: 8px; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab {
+  appearance: none; cursor: pointer; font-family: inherit;
+  padding: 9px 15px; border-radius: 7px; border: 1px solid var(--page-rule);
+  background: var(--page-panel); font-size: 13.5px; font-weight: 600; color: var(--page-ink-soft);
+  display: flex; align-items: baseline; gap: 8px;
+}
+.tab .k { font-size: 11px; font-weight: 700; letter-spacing: .1em; color: var(--page-ink-faint); }
+.tab[aria-pressed="true"] { background: var(--page-tag); color: var(--page-tag-ink); border-color: var(--page-tag); }
+.tab[aria-pressed="true"] .k { color: var(--page-tag-ink); opacity: .7; }
+.tab:focus-visible { outline: 2px solid var(--page-ink); outline-offset: 2px; }
+
+.readout { display: flex; flex-direction: column; gap: 5px; max-width: 82ch; min-height: 96px; }
+.readout h2 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.015em; }
+.readout p { margin: 0; color: var(--page-ink-soft); font-size: 14.5px; }
+.readout .ratio { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--page-ink-faint); }
+
+.stage { overflow-x: auto; padding-bottom: 4px; }
+.record { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px,1fr)); border: 1px solid var(--page-rule); background: var(--page-panel); }
+.record > div { padding: 15px 17px; border-right: 1px solid var(--page-rule-soft); border-bottom: 1px solid var(--page-rule-soft); }
+.record h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--page-ink-faint); }
+.record p { margin: 0; font-size: 13.5px; color: var(--page-ink-soft); line-height: 1.5; }
+.record p + p { margin-top: 7px; }
+.record b { color: var(--page-ink); font-weight: 600; }
+.closing { border-top: 1px solid var(--page-rule); padding-top: 26px; display: flex; flex-direction: column; gap: 13px; max-width: 84ch; }
+.closing h2 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 26px; font-weight: 400; }
+.closing ol { margin: 0; padding-left: 20px; color: var(--page-ink-soft); font-size: 15px; }
+.closing li { margin-bottom: 7px; }
+.closing b { color: var(--page-ink); font-weight: 600; }
+.verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px,1fr)); border: 1px solid var(--page-rule); background: var(--page-panel); }
+.verdict > div { padding: 13px 16px; border-right: 1px solid var(--page-rule-soft); }
+.verdict > div:last-child { border-right: 0; }
+.verdict h3 { margin: 0 0 7px; font-size: 10.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--page-ink-faint); }
+.verdict p { margin: 0; font-size: 13.5px; color: var(--page-ink-soft); line-height: 1.5; }
+
+/* ============================================================
+   THE MENU BAR BELONGS TO THE SCREEN. Full width, square, hard
+   against the top. The WINDOW FLOATS on the desktop below it,
+   all four corners rounded, with a real shadow. The earlier
+   draft welded them into one object, which is the same mistake
+   as putting the menus inside the title bar.
+   ============================================================ */
+.screen { width: 1120px; background: #CFC9C1; border-radius: 8px; overflow: hidden; padding-bottom: 26px; }
+.menubar { display: flex; align-items: center; gap: 22px; height: 25px; padding: 0 14px 0 12px; background: #EEECE8; border-bottom: 1px solid #C4BEB6; font-size: 12.5px; color: #2A2724; }
+.menubar .apple svg { display: block; fill: #2A2724; }
+.menubar .app-name { font-weight: 700; }
+.menubar .clock { margin-left: auto; font-size: 12px; color: #4A4640; font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   ESPRESSO, settled. NO CHIPS: the chip said SEND on the left
+   while the action said Send on the right, which is one fact
+   labelled twice on every row, and the heading above it was a
+   third. So the chips are gone from all three, and the only
+   variable left is what, if anything, marks where one run of
+   invoices ends and the next begins.
+   ============================================================ */
+
+/* Espresso: the warm one you settled on */
+.R-espresso {
+  --bg: #FBF4EF; --chrome: #EFE8E3; --sunk: #F1EAE5;
+  --rule: #E0D0C4; --rule-soft: #EEE2D8;
+  --ink: #1F1812; --soft: #5F4D41; --quiet: #766254; --faint: #6E5F50;
+  --accent: #3B2B21; --on-ink: #F8F7F5; --selbg: #E4DCD6;
+  --rail: #3B2B21; --rail-bd: #2A1F18; --rail-item: #BCB7B4; --rail-on-bg: #5A4D45; --rail-on-tx: #F3F2F2;
+  --rail-card-bg: #4D3E35; --rail-card-bd: #62554D; --rail-card-hd: #D4D0CE;
+  --rail-card-ln: #DCD9D7; --rail-card-b: #F7F7F6;
+  --rail-st-bd: #5A4D45; --rail-fault: #F3F2F2; --rail-read: #E2BC82; --rail-dim: #C4BFBC;
+}
+/* Bark: espresso with most of the colour taken out */
+.R-bark {
+  --bg: #FAF4EF; --chrome: #EEE8E3; --sunk: #F0EAE5;
+  --rule: #DED1C4; --rule-soft: #ECE1D8;
+  --ink: #1E1813; --soft: #5D4E41; --quiet: #736254; --faint: #6D5F51;
+  --accent: #33291F; --on-ink: #F8F7F5; --selbg: #E2DCD6;
+  --rail: #33291F; --rail-bd: #251E16; --rail-item: #BAB6B3; --rail-on-bg: #544B43; --rail-on-tx: #F3F2F2;
+  --rail-card-bg: #453C33; --rail-card-bd: #5C544C; --rail-card-hd: #D2D0CE;
+  --rail-card-ln: #DAD8D7; --rail-card-b: #F7F6F6;
+  --rail-st-bd: #544B43; --rail-fault: #F3F2F2; --rail-read: #E1BC81; --rail-dim: #C2BFBC;
+}
+/* Ink: near black, no hue at all */
+.R-ink {
+  --bg: #F8F5F1; --chrome: #EBE8E4; --sunk: #EDEAE6;
+  --rule: #DBD1C8; --rule-soft: #EAE2DA;
+  --ink: #1D1815; --soft: #5B4E45; --quiet: #716458; --faint: #6A6054;
+  --accent: #1F1D1B; --on-ink: #F8F7F5; --selbg: #DEDBD7;
+  --rail: #1F1D1B; --rail-bd: #161513; --rail-item: #B3B2B1; --rail-on-bg: #43413F; --rail-on-tx: #F2F1F1;
+  --rail-card-bg: #333130; --rail-card-bd: #4C4A49; --rail-card-hd: #CECDCD;
+  --rail-card-ln: #D7D6D6; --rail-card-b: #F6F6F6;
+  --rail-st-bd: #43413F; --rail-fault: #F2F1F1; --rail-read: #DFBB81; --rail-dim: #BCBBBB;
+}
+/* Slate: cool grey blue, your other pick */
+.R-slate {
+  --bg: #F6F6F4; --chrome: #EAEAE9; --sunk: #ECECEB;
+  --rule: #D7D1CE; --rule-soft: #E7E3E0;
+  --ink: #19191B; --soft: #55504D; --quiet: #6C6460; --faint: #65615C;
+  --accent: #2A3440; --on-ink: #F8F7F5; --selbg: #DEDFDE;
+  --rail: #2A3440; --rail-bd: #1E252E; --rail-item: #B7BABE; --rail-on-bg: #4C545F; --rail-on-tx: #F2F3F4;
+  --rail-card-bg: #3D4651; --rail-card-bd: #555D66; --rail-card-hd: #D0D2D5;
+  --rail-card-ln: #D9DADD; --rail-card-b: #F6F7F7;
+  --rail-st-bd: #4C545F; --rail-fault: #F2F3F4; --rail-read: #E0BD84; --rail-dim: #BFC2C6;
+}
+/* Petrol: deep blue green, you did not hate it */
+.R-petrol {
+  --bg: #EEF8F6; --chrome: #E1EEED; --sunk: #E3F0EE;
+  --rule: #C8D6D2; --rule-soft: #DCE5E3;
+  --ink: #0F1B1D; --soft: #435352; --quiet: #5C6864; --faint: #556560;
+  --accent: #14505C; --on-ink: #F8F7F5; --selbg: #D4E4E4;
+  --rail: #14505C; --rail-bd: #0E3A42; --rail-item: #AFC4C8; --rail-on-bg: #3A6C76; --rail-on-tx: #F1F4F5;
+  --rail-card-bg: #29606B; --rail-card-bd: #43737D; --rail-card-hd: #CBD8DB;
+  --rail-card-ln: #D5E0E2; --rail-card-b: #F6F8F8;
+  --rail-st-bd: #3A6C76; --rail-fault: #F1F4F5; --rail-read: #DEBF86; --rail-dim: #B8CACE;
+}
+/* Prussian: a serious navy */
+.R-prussian {
+  --bg: #F1F6FA; --chrome: #E4EBF1; --sunk: #E6EDF2;
+  --rule: #CED3DA; --rule-soft: #E0E3E8;
+  --ink: #121A23; --soft: #4B515B; --quiet: #63666C; --faint: #5C6268;
+  --accent: #163A5F; --on-ink: #F8F7F5; --selbg: #D7DFE7;
+  --rail: #163A5F; --rail-bd: #102A44; --rail-item: #B0BCC9; --rail-on-bg: #3B5A79; --rail-on-tx: #F1F3F5;
+  --rail-card-bg: #2B4C6D; --rail-card-bd: #45617F; --rail-card-hd: #CCD4DC;
+  --rail-card-ln: #D5DCE2; --rail-card-b: #F6F7F9;
+  --rail-st-bd: #3B5A79; --rail-fault: #F1F3F5; --rail-read: #DFBE87; --rail-dim: #B9C4CF;
+}
+
+.win {
+  --cols: minmax(0,1fr) 104px 58px 104px 132px;
+  width: 1064px; margin: 22px auto 0; border-radius: 10px; overflow: hidden;
+  box-shadow: 0 1px 1px rgba(0,0,0,.18), 0 20px 44px rgba(0,0,0,.28);
+}
+/* FULL HEIGHT SIDEBAR. The rail runs to the top of the window and the traffic
+   lights sit on it; the title bar exists only over the content. That is what
+   macOS does whenever the sidebar carries a colour, and it removes the awkward
+   light corner above a dark rail. */
+.app { display: grid; grid-template-columns: 208px minmax(0,1fr); grid-template-rows: 38px minmax(0,1fr); height: 620px; }
+.side { grid-column: 1; grid-row: 1 / 3; }
+.titlebar { grid-column: 2; grid-row: 1; }
+.main { grid-column: 2; grid-row: 2; }
+.railtop { display: flex; align-items: center; gap: 9px; height: 26px; padding: 0 5px 12px; }
+.titlebar { display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 14px; background: var(--chrome); border-bottom: 1px solid var(--rule); }
+.dot { width: 11px; height: 11px; border-radius: 50%; }
+.dot.r { background: #ED6A5E; } .dot.y { background: #F4BF50; } .dot.g { background: #61C454; }
+.titlebar .name { margin-left: 2px; font-size: 12px; color: var(--faint); font-weight: 500; }
+
+.side { border-right: 1px solid var(--rule); padding: 8px 9px 12px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 4px; color: var(--soft); font-size: 14px; font-weight: 500; }
+.item.on { background: #E5DCD2; color: var(--ink); font-weight: 600; }
+.side .spacer { flex: 1; min-height: 14px; }
+.card { margin: 2px 3px 10px; padding: 10px 11px; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); display: flex; flex-direction: column; gap: 5px; }
+.card .hd { font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
+.card .ln { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--soft); }
+.card .ln b { color: var(--ink); font-weight: 600; font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.status { margin: 0 3px; padding: 10px 9px 4px; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 5px; }
+.status .fault { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--ink); }
+.status .fault b { font-weight: 700; }
+.status .fault .read { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.status .also, .status .looked { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
+
+.main { background: var(--bg); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px 12px; border-bottom: 1px solid var(--rule); flex: none; }
+.toolbar h4 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 29px; font-weight: 400; color: var(--ink); line-height: 1; }
+.toolbar .meta { font-size: 12px; color: var(--faint); font-weight: 500; }
+.scroll { overflow-y: auto; flex: 1; min-height: 0; }
+
+.row { display: grid; grid-template-columns: var(--cols); gap: 14px; align-items: baseline; padding: 8px 24px; border-bottom: 1px solid var(--rule-soft); font-size: 15px; color: var(--ink); }
+.row .who { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.row .client { font-weight: 600; letter-spacing: -.005em; white-space: nowrap; }
+.row .sub { font-size: 12.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row .when, .row .num, .row .amt { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--soft); }
+.row .amt { text-align: right; color: var(--ink); font-weight: 500; font-size: 13.5px; }
+.row .end { display: flex; justify-content: flex-end; align-items: baseline; gap: 11px; }
+.age { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; font-weight: 500; color: var(--soft); font-variant-numeric: tabular-nums; }
+.act { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; white-space: nowrap; }
+.said { font-size: 12.5px; color: var(--faint); white-space: nowrap; }
+.row.idle { color: var(--quiet); }
+.row.idle .client { font-weight: 500; color: var(--quiet); }
+.row.idle .amt { color: var(--quiet); font-weight: 400; }
+
+/* N2. A hairline where the run changes. Rhythm, no words. */
+.N2 .row.runstart { border-top: 1px solid var(--rule); }
+.N2 .row.runstart:first-child { border-top: 0; }
+
+/* N3. The run's total and nothing else: keeps the money, drops the words. */
+.N3 .brk { display: grid; grid-template-columns: var(--cols); gap: 14px; padding: 14px 24px 5px; border-top: 1px solid var(--rule); }
+.N3 .brk:first-child { border-top: 0; padding-top: 6px; }
+.N3 .brk .sum { grid-column: 4; text-align: right; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+/* the idle groups get air rather than a label: "Paid or cleared" and
+   "Cancelled" already say they need nothing. */
+.disc.firstidle { margin-top: 16px; border-top: 1px solid var(--rule); }
+.disc { display: grid; grid-template-columns: var(--cols); gap: 14px; align-items: center; padding: 9px 24px; font-size: 13.5px; color: var(--quiet); background: var(--sunk); border-bottom: 1px solid var(--rule-soft); }
+.disc .lead { grid-column: 1 / 4; display: flex; align-items: center; gap: 10px; }
+.disc b { font-weight: 600; }
+.disc .n { font-size: 12px; color: var(--faint); font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.disc .sum { grid-column: 4; text-align: right; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.disc .tri { flex: none; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid var(--faint); }
+.disc.open .tri { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid var(--faint); border-bottom: 0; }
+/* ============================================================
+   C1 AND C2 TOGETHER. The colour lives permanently in the rail,
+   and the row you are on picks it up from there, so the list
+   itself stays bare until you touch it.
+
+   A dark rail has a dozen interior colours a light one does not,
+   so all six below are generated and every one of them audited:
+   72 contrast checks, all clearing 4.5 to 1, worst 4.83.
+   ============================================================ */
+.side { background: var(--rail); border-right-color: var(--rail-bd); }
+.side .item { color: var(--rail-item); }
+.side .item.on { background: var(--rail-on-bg); color: var(--rail-on-tx); }
+.card { background: var(--rail-card-bg); border-color: var(--rail-card-bd); }
+.card .hd { color: var(--rail-card-hd); }
+.card .ln { color: var(--rail-card-ln); }
+.card .ln b { color: var(--rail-card-b); }
+.status { border-top-color: var(--rail-st-bd); }
+.status .fault { color: var(--rail-fault); }
+.status .fault .read { color: var(--rail-read); }
+.status .also, .status .looked { color: var(--rail-dim); }
+/* C2: the row you are on takes the rail's colour */
+/* tint only: a left bar flush against a dark rail is invisible, and a tint
+   is what macOS uses for selection regardless */
+.row.sel { background: var(--selbg); }
+
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">Ovation, the rail</div>
+    <h1>C1 and C2 together</h1>
+    <p class="lede">
+      The colour lives permanently in the sidebar, and the row you are on picks it up from there.
+      <strong>The list itself stays bare until you touch it</strong>, so nothing competes with a record
+      and the colour is still present the moment you open the app.
+    </p>
+    <p class="lede">
+      A rail is roughly twenty times the area of the five thin bands, so the colour is worth reopening
+      rather than assuming espresso survives the change of dose. Six rails, generated with every
+      interior token computed from the rail colour. <strong>72 contrast checks, all clearing the
+      floor, worst 4.83.</strong>
+    </p>
+  </header>
+
+  <div class="tabs" id="tabs"></div>
+  <div class="readout" id="readout"></div>
+  <div class="stage" id="stage"></div>
+
+  <div class="record">
+    <div><h3>The shell</h3>
+      <p><b>One window, three places:</b> Invoices, Expenses, Clients. Export and Import are File menu
+      commands because they are actions rather than rooms, and Settings is in the app menu where macOS
+      puts it. Requirement 41b makes single window a hard rule, asserted by a test.</p></div>
+    <div><h3>No instruction headings</h3>
+      <p><b>Your call, and the strongest cut in the whole session.</b> The chip said SEND on the left
+      while the action said Send on the right, and the heading above said it a third time. The row
+      already carries draft or number, the shoot date, the days late and the exact action, which covers
+      every case the headings were spelling out.</p></div>
+    <div><h3>The row</h3>
+      <p><b>One line, client and shoot name together</b>, then date, invoice number, amount, action.
+      About a third shorter than the two line version. Venue and shoot times are deliberately absent
+      and need a home elsewhere, filed as ovation#95.</p></div>
+    <div><h3>The actions</h3>
+      <p><b>Words, not buttons.</b> Eight filled buttons beside five filled bands made structure and
+      action look identical. A button also says what it does: Mark cleared, Mark sent.</p>
+      <p>Downbeat already ships a three tier button system whose plain tier is a word with padding and
+      no border, so this builds natively with nothing invented.</p></div>
+    <div><h3>The counts</h3>
+      <p><b>Four, in the sidebar card, each shown once.</b> Down from six with one appearing twice.
+      Inventory counts are gone: a number in the chrome only ever means this many things need you.</p>
+      <p>The card and any group total must be computed once and read twice, never derived separately.
+      Recorded on ovation#49.</p></div>
+    <div><h3>The idle half</h3>
+      <p><b>Disclosures, with Sent awaiting payment open.</b> The group you have money riding on stays
+      visible. No "Nothing to do" label above them, because the group names already say it.</p>
+      <p>Every state stays on this one screen and reachable, which requirement 22b insists on: a state
+      matching no view is invisible rather than merely awkward.</p></div>
+    <div><h3>Espresso, and no red</h3>
+      <p><b>An overdue invoice is not an error.</b> Nothing has failed, the money has not arrived.
+      Lateness is an age in mono, a duration rather than an alarm. Red belongs to the Problems store
+      alone, whose kinds are all faults in the app itself.</p>
+      <p>Espresso #3B2B21 on the group bands, chosen against ten alternatives and then against a
+      warm to cool ramp.</p></div>
+    <div><h3>The foot strip</h3>
+      <p><b>Names the fault rather than counting it.</b> "Backup failed 3 days ago" tells you what to
+      do; "2 problems" does not.</p>
+      <p>It also says what looking means: Ovation checks the booking folder and the Gmail label only
+      while it is open, so everything time based is as old as the last launch.</p></div>
+  </div>
+
+  <section class="closing">
+    <h2>What is left</h2>
+    <ol>
+      <li><b>Where the venue and the times live</b>, ovation#95. The row has no room and the handoff
+      sends both on every booking.</li>
+      <li><b>One invoice per shoot or one per run</b>, ovation#97, and blocking. Downbeat sends three
+      bookings for a three night run and nothing says whether that is three invoices.</li>
+      <li><b>Two screens.</b> The receipts queue, and review and send, which is the one where a mistake
+      reaches a client.</li>
+      <li><b>The icon</b>, ovation#18, which was waiting on exactly this: the palette is now settled,
+      so it can be drawn to sit inside espresso.</li>
+    </ol>
+  </section>
+
+</div>
+
+<script>
+var GROUPS = [
+  { sum: "1,850.00", rows: [
+    { c: "Harbor Light Opera", s: "Tosca, dress rehearsal", d: "6 Sep 2026", n: "draft", a: "1,850.00", act: "Send" }]},
+  { sum: "2,200.00", rows: [
+    { c: "Westfield Choral Society", s: "Autumn Evensong", d: "18 Jul 2026", n: "1021", a: "1,240.00", age: "34d", act: "Remind" },
+    { c: "Ninth Street Players", s: "The Winter Guest", d: "2 Aug 2026", n: "1029", a: "960.00", age: "12d", act: "Remind" }]},
+  { sum: "2,180.00", rows: [
+    { c: "Cedar Hill Youth Orchestra", s: "Side by Side concert", d: "29 Aug 2026", n: "draft", a: "1,400.00", act: "Send" },
+    { c: "Riverside Wind Ensemble", s: "Autumn Winds", d: "5 Sep 2026", n: "draft", a: "780.00", act: "Send" },
+    { c: "Kestrel Quartet", s: "Quartet in E minor", d: "no date", n: "draft", a: "0.00", act: "Add date" }]},
+  { sum: "1,100.00", rows: [
+    { c: "Saint Anne's Chamber Series", s: "Advent Vespers", d: "11 Aug 2026", n: "1033", a: "1,100.00", act: "Mark cleared" }]},
+  { sum: "1,320.00", rows: [
+    { c: "Alder Street Opera", s: "La Boheme, act three", d: "24 Aug 2026", n: "1037", a: "1,320.00", act: "Mark sent" }]}
+];
+var SENT = [
+  { c: "Marlowe Dance Collective", s: "Spring Program B", d: "22 Aug 2026", n: "1038", a: "2,150.00", said: "sent 15d ago" },
+  { c: "Blackwater Theatre Company", s: "Uncle Vanya, opening", d: "30 Aug 2026", n: "1039", a: "1,675.00", said: "sent 7d ago" },
+  { c: "Fairmont Chorale", s: "Messiah, part one", d: "14 Aug 2026", n: "1040", a: "1,480.00", said: "sent 21d ago" }
+];
+var IDLE = [
+  ["Sent, awaiting payment", "9", "14,320.00", true],
+  ["Draft, shoot still ahead", "6", "9,900.00", false],
+  ["Paid or cleared", "15", "23,080.00", false],
+  ["Cancelled", "2", "", false]
+];
+
+function el(t, c, x) { var n = document.createElement(t); if (c) n.className = c; if (x !== undefined) n.textContent = x; return n; }
+
+function rowEl(r, first) {
+  var n = el("div", "row" + (first ? " runstart" : ""));
+  var who = el("div", "who");
+  who.append(el("div", "client", r.c), el("div", "sub", r.s));
+  var end = el("div", "end");
+  if (r.age) end.append(el("span", "age", r.age));
+  if (r.act) end.append(el("span", "act", r.act));
+  if (r.said) end.append(el("span", "said", r.said));
+  n.append(who, el("div", "when", r.d), el("div", "num", r.n), el("div", "amt", r.a), end);
+  return n;
+}
+
+function windowFor(layout) {
+  var screen = el("div", "screen");
+
+  var bar = el("div", "menubar");
+  var apple = el("span", "apple");
+  apple.innerHTML = '<svg width="12" height="14" viewBox="0 0 12 14" aria-hidden="true"><path d="M8.2 0c.1.9-.25 1.75-.8 2.35-.55.6-1.35 1.05-2.15.99-.11-.86.3-1.76.82-2.32C6.62.4 7.5.05 8.2 0zm2.6 4.9c-.9.55-1.45 1.5-1.45 2.6 0 1.24.72 2.35 1.8 2.85-.3.86-.7 1.7-1.3 2.45-.55.7-1.15 1.2-1.9 1.2-.7 0-1-.42-1.85-.42-.85 0-1.2.4-1.9.42-.72.03-1.35-.55-1.9-1.25C.9 11.2.05 8.9.7 7.05c.5-1.45 1.7-2.35 2.9-2.35.7 0 1.35.45 1.85.45.5 0 1.3-.5 2.15-.45.4.02 1.5.16 2.2 1.2z"/></svg>';
+  bar.append(apple, el("span", "app-name", "Ovation"));
+  ["File", "Edit", "View", "Window", "Help"].forEach(function (x) { bar.append(el("span", null, x)); });
+  bar.append(el("span", "clock", "Sun 6 Sep  11:15 PM"));
+
+  var win = el("div", "win " + layout), app = el("div", "app");
+  var tb = el("div", "titlebar");
+  tb.append(el("div", "name", "Invoices"));
+
+  var side = el("nav", "side");
+  var top = el("div", "railtop");
+  ["r", "y", "g"].forEach(function (c) { top.append(el("div", "dot " + c)); });
+  side.append(top);
+  var card = el("div", "card");
+  card.append(el("div", "hd", "Needs you"));
+  [["To send", "4"], ["To chase", "2"], ["To confirm", "2"], ["Receipts to file", "7"]].forEach(function (pr) {
+    var ln = el("div", "ln"); ln.append(el("span", null, pr[0]), el("b", null, pr[1])); card.append(ln);
+  });
+  side.append(card);
+  ["Invoices", "Expenses", "Clients"].forEach(function (x, i) { side.append(el("div", "item" + (i === 0 ? " on" : ""), x)); });
+  side.append(el("div", "spacer"));
+  var st = el("div", "status");
+  var f = el("div", "fault");
+  f.append(el("b", null, "Backup failed 3 days ago"), el("span", "read", "Read"));
+  st.append(f, el("div", "also", "1 other problem"),
+    el("div", "looked", "Last looked for bookings and receipts 2 minutes ago. Ovation only looks while it is open."));
+  side.append(st);
+
+  var main = el("div", "main");
+  var tbar = el("div", "toolbar");
+  tbar.append(el("h4", null, "Invoices"), el("div", "meta", "Last looked 2 minutes ago"));
+  main.append(tbar);
+
+  var scroll = el("div", "scroll");
+  GROUPS.forEach(function (g) {
+    if (layout === "N3") {
+      var b = el("div", "brk");
+      b.append(el("div", "sum", g.sum));
+      scroll.append(b);
+    }
+    g.rows.forEach(function (r, i) { var n = rowEl(r, i === 0); if (r.c === "Westfield Choral Society") n.classList.add("sel"); scroll.append(n); });
+  });
+  IDLE.forEach(function (g, gi) {
+    var d = el("div", "disc" + (g[3] ? " open" : "") + (gi === 0 ? " firstidle" : ""));
+    var lead = el("div", "lead");
+    lead.append(el("span", "tri"), el("b", null, g[0]), el("span", "n", g[1]));
+    d.append(lead, el("div", "sum", g[2]));
+    scroll.append(d);
+    if (g[3]) SENT.forEach(function (r) { var n = rowEl(r, false); n.classList.add("idle"); scroll.append(n); });
+  });
+  main.append(scroll);
+
+  app.append(tb, side, main);
+  win.append(app);
+  screen.append(bar, win);
+  return screen;
+}
+
+
+
+var OPTIONS = [
+  ["R-espresso", "Espresso", "Espresso", "The warm one you settled on, now carrying a whole rail rather than five thin bands. This is the same hex you chose, at roughly twenty times the area."],
+  ["R-bark", "Bark", "Bark", "Espresso with most of the colour taken out. Almost the same rail, and the test of whether you wanted the warmth or the brown."],
+  ["R-ink", "Ink", "Ink", "Near black, no hue at all. The rail is still a strong device even with no colour in it, so this asks whether the dark panel was doing the work rather than the colour."],
+  ["R-slate", "Slate", "Slate", "Your cool pick. At band size it was one of two you liked; a full rail is where a cool grey blue usually reads best."],
+  ["R-petrol", "Petrol", "Petrol", "Deep blue green, which you did not hate. It is much more of a colour at this size than it was as a band."],
+  ["R-prussian", "Prussian", "Prussian", "A serious navy. The most conventional of the six, and the closest to what finance software normally looks like."]
+];
+var tabs = document.getElementById("tabs");
+var stage = document.getElementById("stage");
+var readout = document.getElementById("readout");
+var current = 0;
+function show(i) {
+  current = (i + OPTIONS.length) % OPTIONS.length;
+  var o = OPTIONS[current];
+  Array.prototype.forEach.call(tabs.children, function (b, bi) { b.setAttribute("aria-pressed", String(bi === current)); });
+  readout.replaceChildren(el("h2", null, o[2]), el("p", null, o[3]));
+  stage.replaceChildren(windowFor(o[0]));
+}
+OPTIONS.forEach(function (o, i) {
+  var b = el("button", "tab"); b.type = "button"; b.setAttribute("aria-pressed", "false");
+  var sw = el("span", "chipdot"); sw.style.background = getComputedStyle(document.documentElement).getPropertyValue("--x") || ""; b.append(el("span", null, o[1]));
+  b.addEventListener("click", function () { show(i); });
+  tabs.append(b);
+});
+document.addEventListener("keydown", function (e) {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "ArrowRight") { show(current + 1); e.preventDefault(); }
+  else if (e.key === "ArrowLeft") { show(current - 1); e.preventDefault(); }
+  else if (e.key >= "1" && e.key <= "6") { show(Number(e.key) - 1); e.preventDefault(); }
+});
+show(0);
+</script>

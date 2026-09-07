@@ -1,0 +1,55 @@
+# The invoice list design
+
+`invoice-list.html` is the agreed design for Ovation's main screen, settled with Dan
+on 2026-09-06 over eleven rounds. **Open it in any browser.** It is one self contained
+file with no build step, committed here rather than left at a hosted URL so it outlives
+whatever service rendered it.
+
+**It is a RENDERING, not the app.** It is HTML standing in for a SwiftUI window, so
+three things in it are web idioms that must be translated rather than copied:
+
+1. The action words are underlined. **They should not be.** Downbeat already ships the
+   right control: `DBPlainButtonStyle` in `Downbeat/UI/Components/DownbeatButtonStyles.swift`,
+   a word with padding, no border and no underline, used in 18 places. Ovation's quiet
+   tier is that, not a link.
+2. The window chrome, the traffic lights and the menu bar are drawn by hand here and are
+   drawn by the system in the real app.
+3. Type is fetched from Google Fonts, so **this file needs the network to look right**.
+   Without it the faces fall back and the design reads differently. The intended faces are
+   named below so the record survives the fetch failing.
+
+## What the design settles
+
+| | |
+| --- | --- |
+| Shell | One window. Invoices, Expenses, Clients. Export and Import are File menu commands, Settings is in the app menu. Single window is a hard rule (PRD 41b), asserted by a test. |
+| Sidebar | A full height panel in espresso running to the top of the window with the traffic lights on it, which is the macOS pattern when a sidebar carries colour. The title bar exists only over the content. |
+| The list | No group headings and no per row chips. Both said what the action word on the right already says. The groups still decide ORDER, they are simply not drawn (see ovation#49). |
+| A row | One line at 29px: client and shoot name, shoot date, invoice number or draft, amount, action. Venue and shoot times are deliberately absent and need a home (ovation#95). |
+| Actions | A word, not a button. "Mark cleared" and "Mark sent", never "Cleared" or "It was sent": a control says what it does. |
+| Selection | A tint only, no left bar. A bar flush against the espresso sidebar is invisible, and a tint is what macOS uses anyway. |
+| Counts | Four, in the sidebar card, each appearing exactly once. No inventory counts: a number in the chrome only ever means this many things need you. |
+| Idle invoices | Disclosures at the foot, with Sent awaiting payment open by default. No "Nothing to do" label above them: the group names already say it. |
+| Colour | Espresso `#3B2B21`. Light mode only, deliberately (PRD 43). No red anywhere (PRD 45). |
+
+## Type
+
+Instrument Serif for the window title. Archivo for everything else. IBM Plex Mono for
+every figure, date and invoice number, always with tabular figures so money aligns.
+
+## Every measurement in it was checked, not eyeballed
+
+Contrast was audited across all candidate palettes and then re-measured in a live browser,
+not just computed on paper. The rail palettes cleared 4.5 to 1 on 72 pairs, worst 4.83.
+Two faults were caught that way and would not have been caught by looking: a sidebar that
+rendered fully transparent because a stale rule pointed at a variable the new palettes did
+not define, and a disclosure triangle that arrived as broken characters because it was a
+typed glyph rather than a drawn one. **The triangle is now drawn in CSS and the whole file
+is pure ASCII**, so no pipe between here and a browser can mangle it.
+
+## What is still open
+
+`ovation#95` where the venue and shoot times live. `ovation#97` whether a three night run
+is one invoice or three, which is blocking. `ovation#18` the app icon, which was waiting on
+the palette and is now unblocked. The receipts queue and the review and send screen are not
+designed yet.
