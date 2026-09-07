@@ -1,4 +1,6 @@
-# The invoice list design
+# The design record
+
+## The invoice list
 
 `invoice-list.html` is the agreed design for Ovation's main screen, settled with Dan
 on 2026-09-06 over eleven rounds. **Open it in any browser.** It is one self contained
@@ -100,3 +102,52 @@ rather than unblocking it.
    any invoice. How it appears is deliberately left until the Clients screen is designed as
    a whole, rather than deciding one element of a screen that does not exist and settling
    the screen by accident. Tracked as ovation#98. See PRD 5.14a.
+
+## The Clients screen
+
+`clients.html` is the Clients screen in progress, ovation#98. It reuses the invoice list's
+shell, type and palette byte for byte, so a round moves one variable and nothing else.
+**Open it in a browser.** `#R1` to `#R4` in the address bar select a position directly.
+
+### Round 1, settled 2026-09-07: names on the left, one client on the right
+
+Three shapes were built at the real count of 31 clients, carrying the distribution measured
+against the live export on 2026-08-28: six with a tax status, one with no contract email, two
+sharing one address.
+
+**Dan chose the two pane shape from the descriptions before the renderings were put in front
+of him**, which is recorded because it is the opposite of how every other round here was
+decided, and because it means the shape has been chosen rather than seen. It was opened for
+him immediately afterwards and stands unless looking at it changes it.
+
+What the shape buys: money held and referral credit get room to be LABELLED, rather than
+being two columns whose units the reader has to know, and the client's invoices are on the
+same screen. What it spends, stated plainly rather than discovered later: **the left column
+carries names and nothing else, so the screen cannot answer who owes what without clicking
+each client**, and at 31 clients **15 are visible at once**, measured, so half the roster is
+below the fold at any moment.
+
+The other two shapes and what killed them: a flat A to Z list of all 31 put money held in a
+column that is empty on 28 rows. A "what needs you first" list, which is the invoice list's
+own idea, collapses at these numbers: 27 of 31 rise to the top, because a missing tax status
+is the norm rather than the exception until the roster clean up in ovation#40 has been run.
+That is the shape working exactly as designed and still being wrong for the data.
+
+### Round 2, open: how far held money reaches out of the detail pane
+
+Four positions on one axis, from the pane alone up to a line in the sidebar card that reaches
+every screen. Three of the 31 clients hold money, $1,837.50 between them.
+
+Two costs were measured in the browser rather than guessed, and both are named on the page
+itself rather than left for the implementer to find: putting the amount on the name cuts
+"Ashgrove Chamber Players" short in a 240px column, and the strip above the list costs 43px,
+which in a real window comes out of the list and drops it from 15 visible clients to 14.
+
+### What is deliberately still open
+
+Round 3, how held money and referral credit are kept from reading as one balance, which is
+the one with a real consequence: PRD 5.14c, drawing them alike would let credit nobody paid
+settle an invoice. Round 4, where the ovation#40 roster clean up lives, since a shared
+contract email is currently drawn no differently from any other. A first attempt marked it one
+shade quieter, which measured as no difference at all on screen and was removed rather than
+left as a distinction the page claims and does not draw.
