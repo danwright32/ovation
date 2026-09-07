@@ -71,3 +71,8 @@ Package.pins
 # the fix: an ignored artifact is still an artifact somebody's guard has to walk.
 __pycache__/
 *.pyc
+
+# Playwright MCP writes snapshots and screenshots here. Anchored with a
+# leading slash so it matches only the repo root, never a same named
+# directory anywhere else in the tree.
+/.playwright-mcp/

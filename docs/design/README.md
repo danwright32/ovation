@@ -24,7 +24,7 @@ three things in it are web idioms that must be translated rather than copied:
 | Shell | One window. Invoices, Expenses, Clients. Export and Import are File menu commands, Settings is in the app menu. Single window is a hard rule (PRD 41b), asserted by a test. |
 | Sidebar | A full height panel in espresso running to the top of the window with the traffic lights on it, which is the macOS pattern when a sidebar carries colour. The title bar exists only over the content. |
 | The list | No group headings and no per row chips. Both said what the action word on the right already says. The groups still decide ORDER, they are simply not drawn (see ovation#49). |
-| A row | One line at 29px: client and shoot name, shoot date, invoice number or draft, amount, action. Venue and shoot times are deliberately absent and need a home (ovation#95). |
+| A row | One line at 29px: client and shoot name, shoot date, invoice number or draft, amount, action. Venue and shoot times are deliberately absent and need a home (ovation#95). Where one invoice covers several shoots it names the LAST one, counts the rest, and shows a date span. |
 | Actions | A word, not a button. "Mark cleared" and "Mark sent", never "Cleared" or "It was sent": a control says what it does. |
 | Selection | A tint only, no left bar. A bar flush against the espresso sidebar is invisible, and a tint is what macOS uses anyway. |
 | Counts | Four, in the sidebar card, each appearing exactly once. No inventory counts: a number in the chrome only ever means this many things need you. |
@@ -64,16 +64,19 @@ is pure ASCII**, so no pipe between here and a browser can mangle it.
 waiting on the palette and is now unblocked. The receipts queue and the review and send
 screen are not designed yet.
 
-**ovation#97 is answered, and its answers opened three things this design does not cover.**
+**ovation#97 is answered. Its answers opened three things, one of which is now settled.**
 It was listed here as blocking on whether a three night run is one invoice or three. It was
 not blocking: the PRD had answered it, in three places. What the interview of 2026-09-06
 found instead is that the recorded answer was WRONG, and correcting it changes this design
 rather than unblocking it.
 
-1. **A row assumes one shoot, and an invoice no longer does.** Dan bills the engagement, so
-   a Wednesday rehearsal and a Saturday concert go on one invoice (PRD 5.1a). The row draws
-   a single shoot name and a single shoot date, and there is no decided answer for what it
-   shows when the invoice covers two.
+1. ~~A row assumes one shoot~~ **Settled 2026-09-07 and built into the file.** The row names
+   the LAST shoot, counts the others ("+1 shoot"), and shows a span where the days differ.
+   Fixing it exposed two faults nothing else would have caught, both found by measuring in a
+   browser rather than by looking: the span did not fit the date column, so the row silently
+   WRAPPED to two lines and broke the one line rule, and sizing that column to its content
+   instead broke the alignment of every column after it, because each row is its own grid.
+   See PRD 47a and 47b.
 2. **Dismissing a draft is a new action with no word yet.** A booking now has three endings,
    not one, and the third is Dan deciding not to bill it (PRD 5.1b). Every other action on
    the list is a word on the right of the row, and this one has to sit beside them without

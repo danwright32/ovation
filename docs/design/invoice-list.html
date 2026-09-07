@@ -114,7 +114,22 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
   --rail-card-bg: #4D3E35; --rail-card-bd: #62554D; --rail-card-hd: #D4D0CE;
   --rail-card-ln: #DCD9D7; --rail-card-b: #F7F7F6;
   --rail-st-bd: #5A4D45; --rail-fault: #F3F2F2; --rail-read: #E2BC82; --rail-dim: #C4BFBC;
-  --cols: minmax(0,1fr) 104px 58px 104px 132px;
+  /* The date column is 152px, up from 104px, because a combined invoice shows
+     a SPAN and a span does not fit in 104. Measured in the browser, not
+     guessed: "2 to 6 Sep 2026" needs 113px and "28 Sep to 3 Oct 2026" needs
+     150px, against 75px for a single date. It must be a FIXED width: each row
+     is its own grid, so an auto column is sized per row and the dates and
+     amounts stop lining up down the list, which was tried and measured at four
+     different left edges. The year is printed once, at the end, which is what
+     keeps the worst case at 150 rather than the 188 a range carrying both
+     years would need. */
+  --cols: minmax(0,1fr) 152px 44px 88px 132px;
+  /* The 48px the date column gained is taken back from the two columns that
+     were over reserving, not from the names. Measured: the invoice number
+     column held 58px for content needing 38px, and still needs only 38 at five
+     digits; the amount column held 104px where "123,456.00" needs 76. An over
+     reservation fails no test and breaks nothing, it simply stops the neighbour
+     growing, which is why it survives unnoticed. */
   width: 1064px; margin: 22px auto 0; border-radius: 10px; overflow: hidden;
   box-shadow: 0 1px 1px rgba(0,0,0,.18), 0 20px 44px rgba(0,0,0,.28);
 }
@@ -122,7 +137,14 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
    lights sit on it; the title bar exists only over the content. That is what
    macOS does whenever the sidebar carries a colour, and it removes the awkward
    light corner above a dark rail. */
-.app { display: grid; grid-template-columns: 208px minmax(0,1fr); grid-template-rows: 38px minmax(0,1fr); height: 620px; }
+/* THE WINDOW GROWS TO FIT ITS LIST. It used to be a fixed 620px with the list
+   scrolling inside it, which put a second scroll region under almost the whole
+   page: the wheel scrolled the list rather than the page, and three of the four
+   idle disclosures sat below the fold where nobody saw them. A real window does
+   scroll; this rendering exists to be READ, so it shows everything and leaves
+   the page with exactly one scroll region. Sized by content rather than by a
+   number, so no future fixture can hide rows again. */
+.app { display: grid; grid-template-columns: 208px minmax(0,1fr); grid-template-rows: 38px minmax(0,1fr); height: auto; min-height: 620px; }
 .side { grid-column: 1; grid-row: 1 / 3; }
 .titlebar { grid-column: 2; grid-row: 1; }
 .main { grid-column: 2; grid-row: 2; }
@@ -146,22 +168,26 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .status .fault .read { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .status .also, .status .looked { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
 
-.main { background: var(--bg); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.main { background: var(--bg); display: flex; flex-direction: column; min-width: 0; overflow: visible; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px 12px; border-bottom: 1px solid var(--rule); flex: none; }
 .toolbar h4 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 29px; font-weight: 400; color: var(--ink); line-height: 1; }
 .toolbar .meta { font-size: 12px; color: var(--faint); font-weight: 500; }
-.scroll { overflow-y: auto; flex: 1; min-height: 0; }
+.scroll { flex: 1; min-height: 0; }
 
 .row { display: grid; grid-template-columns: var(--cols); gap: 14px; align-items: baseline; padding: 8px 24px; border-bottom: 1px solid var(--rule-soft); font-size: 15px; color: var(--ink); }
 .row .who { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
 .row .client { font-weight: 600; letter-spacing: -.005em; white-space: nowrap; }
 .row .sub { font-size: 12.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.row .when, .row .num, .row .amt { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--soft); }
+.row .when, .row .num, .row .amt { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--soft); white-space: nowrap; }
 .row .amt { text-align: right; color: var(--ink); font-weight: 500; font-size: 13.5px; }
 .row .end { display: flex; justify-content: flex-end; align-items: baseline; gap: 11px; }
 .age { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; font-weight: 500; color: var(--soft); font-variant-numeric: tabular-nums; }
 .act { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; white-space: nowrap; }
 .said { font-size: 12.5px; color: var(--faint); white-space: nowrap; }
+/* A combined invoice names its LAST shoot, because that is the shoot the
+   invoice is dated by, and says how many others it covers. Same mono face as
+   the figures, because it IS a figure. */
+.row .plus { font-size: 11.5px; color: var(--faint); white-space: nowrap; font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 .row.idle { color: var(--quiet); }
 .row.idle .client { font-weight: 500; color: var(--quiet); }
 .row.idle .amt { color: var(--quiet); font-weight: 400; }
@@ -243,7 +269,11 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
     <div><h3>The row</h3>
       <p><b>One line, client and shoot name together</b>, then date, invoice number, amount, action.
       About a third shorter than the two line version. Venue and shoot times are deliberately absent
-      and need a home elsewhere, filed as ovation#95.</p></div>
+      and need a home elsewhere, filed as ovation#95.</p>
+      <p><b>Where one invoice covers several shoots</b> (PRD 5.1a) the row names the LAST of them and
+      counts the rest, and the date becomes a span. The last, because that is the shoot the invoice is
+      dated by, so the name and the date agree. The span appears only where the days really differ: a
+      matinee and an evening on one date show that one date.</p></div>
     <div><h3>The actions</h3>
       <p><b>Words, not buttons.</b> Eight filled buttons beside five filled bands made structure and
       action look identical. A button also says what it does: Mark cleared, Mark sent.</p>
@@ -277,8 +307,12 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
     <ol>
       <li><b>Where the venue and the times live</b>, ovation#95. The row has no room and the handoff
       sends both on every booking.</li>
-      <li><b>One invoice per shoot or one per run</b>, ovation#97, and blocking. Downbeat sends three
-      bookings for a three night run and nothing says whether that is three invoices.</li>
+      <li><b>An action word for dismissing a draft.</b> A booking now has three endings, not one, and
+      the third is Dan deciding not to bill it (PRD 5.1b). It has to sit beside Send and Mark cleared
+      without reading as a delete, because it is a decision and the row is kept.</li>
+      <li><b>Money held against a client has no surface.</b> A payment is its own record now and what
+      is not yet allocated sits on the client (PRD 5.14a), which is where a deposit lands too. This
+      screen is a list of invoices, so there is nowhere for it to appear.</li>
       <li><b>Two screens.</b> The receipts queue, and review and send, which is the one where a mistake
       reaches a client.</li>
       <li><b>The icon</b>, ovation#18, which was waiting on exactly this: the palette is now settled,
@@ -290,8 +324,10 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 
 <script>
 var GROUPS = [
-  { sum: "1,850.00", rows: [
-    { c: "Harbor Light Opera", s: "Tosca, dress rehearsal", d: "6 Sep 2026", n: "draft", a: "1,850.00", act: "Send" }]},
+  { sum: "3,700.00", rows: [
+    { c: "Harbor Light Opera", n: "draft", a: "3,700.00", act: "Send",
+      shoots: [{ s: "Tosca, dress rehearsal", d: "2 Sep 2026" },
+               { s: "Tosca, opening night",   d: "6 Sep 2026" }] }]},
   { sum: "2,200.00", rows: [
     { c: "Westfield Choral Society", s: "Autumn Evensong", d: "18 Jul 2026", n: "1021", a: "1,240.00", age: "34d", act: "Remind" },
     { c: "Ninth Street Players", s: "The Winter Guest", d: "2 Aug 2026", n: "1029", a: "960.00", age: "12d", act: "Remind" }]},
@@ -318,15 +354,34 @@ var IDLE = [
 
 function el(t, c, x) { var n = document.createElement(t); if (c) n.className = c; if (x !== undefined) n.textContent = x; return n; }
 
+/* One invoice can cover several shoots (PRD 5.1a), so the row names the LAST
+   of them, which is the shoot the invoice is dated by, and counts the rest.
+   The date becomes a span only where the shoots really are on different days:
+   a matinee and an evening on one date stay a single date. */
+function shootSpan(shoots) {
+  var a = shoots[0].d.split(" "), b = shoots[shoots.length - 1].d.split(" ");
+  if (a.join(" ") === b.join(" ")) return b.join(" ");
+  if (a[1] === b[1] && a[2] === b[2]) return a[0] + " to " + b[0] + " " + b[1] + " " + b[2];
+  return a[0] + " " + a[1] + " to " + b[0] + " " + b[1] + " " + b[2];
+}
+
 function rowEl(r, first) {
   var n = el("div", "row" + (first ? " runstart" : ""));
   var who = el("div", "who");
-  who.append(el("div", "client", r.c), el("div", "sub", r.s));
+  var when = r.d;
+  if (r.shoots) {
+    var last = r.shoots[r.shoots.length - 1], others = r.shoots.length - 1;
+    who.append(el("div", "client", r.c), el("div", "sub", last.s),
+               el("div", "plus", "+" + others + (others === 1 ? " shoot" : " shoots")));
+    when = shootSpan(r.shoots);
+  } else {
+    who.append(el("div", "client", r.c), el("div", "sub", r.s));
+  }
   var end = el("div", "end");
   if (r.age) end.append(el("span", "age", r.age));
   if (r.act) end.append(el("span", "act", r.act));
   if (r.said) end.append(el("span", "said", r.said));
-  n.append(who, el("div", "when", r.d), el("div", "num", r.n), el("div", "amt", r.a), end);
+  n.append(who, el("div", "when", when), el("div", "num", r.n), el("div", "amt", r.a), end);
   return n;
 }
 
