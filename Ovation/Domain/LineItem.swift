@@ -92,16 +92,11 @@ final class ServiceType {
         self.defaultUnitAmount = defaultUnitAmount
     }
 
-    /// PRD 5.4's proposed starting list. It is a STARTING list rather than the
-    /// vocabulary: Dan adds to it from inside an invoice, so this seeds an empty
-    /// store and is never consulted again.
-    static func startingList() -> [ServiceType] {
-        [
-            ServiceType(name: "Photography", role: .hourlyPhotography,
-                        defaultUnitAmount: Money(dollars: 250)),
-            ServiceType(name: "Rush turnaround", role: .ordinary, defaultUnitAmount: nil),
-            ServiceType(name: "Preview images", role: .ordinary, defaultUnitAmount: nil),
-            ServiceType(name: "Referral credit", role: .referralCredit, defaultUnitAmount: nil),
-        ]
-    }
+// PRD 5.4's PROPOSED STARTING LIST IS DELIBERATELY NOT HERE, and this says so
+// rather than leaving the absence to be read as an oversight. A `startingList()`
+// was written and removed in the same change: nothing seeds a store yet, so it
+// would have been called by nobody, and a seeder nothing calls is dead code that
+// a docstring turns into a decision nobody revisits (L29, L346). Seeding belongs
+// with whatever first opens a real store, which is the launch sequence in
+// ovation#88, and the list itself is in PRD 5.4 where Dan can correct it.
 }
