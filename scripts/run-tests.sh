@@ -167,13 +167,60 @@ fi
 
 # The command is injectable so the suite can measure the LOCKING without paying
 # for a three minute xcodebuild (L2, L291). The default is the real thing.
+#
+# THE OUTPUT IS TEED, NOT CAPTURED. The count has to be read back (below), and a
+# plain $(...) would hold three minutes of a real xcodebuild in a variable with
+# the terminal silent, so a person watching could not tell a slow run from a hung
+# one. PIPESTATUS[0] is the run's own status: the pipe's is tee's (L183, L184).
+PURE_OUTPUT="$(mktemp)"
 if [ -z "${TEST_COMMAND}" ]; then
   xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme OvationCore \
-    -destination 'platform=macOS' test
+    -destination 'platform=macOS' test 2>&1 | tee "${PURE_OUTPUT}"
 else
-  bash -c "${TEST_COMMAND}"
+  bash -c "${TEST_COMMAND}" 2>&1 | tee "${PURE_OUTPUT}"
 fi
-STATUS=$?
+STATUS="${PIPESTATUS[0]}"
+
+# ---------------------------------------------------------------------------
+# THE PURE SUITE IS JUDGED BY WHAT IT EXECUTED, NOT ONLY BY ITS EXIT CODE.
+#
+# ovation#106. The hosted run's count has been read back since ovation#59; the
+# pure suite, which is the overwhelming majority of the tests, was judged by exit
+# code alone. A run is judged first by the count it EXECUTED against the count
+# expected, and only then by its failures (L288). A renamed target, a changed
+# scheme, a filter, or a move to parallel workers or sharding can lose most of
+# the suite and still print a verdict, and the push gate stands on this suite
+# being green, so a half run is a gate that passed without judging the change.
+#
+# THE FLOOR IS A COMMITTED NUMBER, not zero. Refusing only an empty run would
+# catch the total loss and miss every partial one, which is the likelier and
+# quieter failure. A change that adds tests bumps the file, which is what makes
+# a DROP visible rather than a matter of somebody noticing.
+if [ "${STATUS}" -eq 0 ] && [ -n "${TEST_COMMAND}" ] && [ -z "${OVATION_TEST_FLOOR:-}" ]; then
+  # Said out loud rather than skipped silently, the same way the hosted skip is:
+  # the runner is being measured with an injected command, which prints no count,
+  # so a floor would refuse every test of the locking. A skip nobody is told
+  # about is indistinguishable from a check that passed (L98, L320).
+  echo "==> Pure count check skipped: the command was injected and no floor was given."
+elif [ "${STATUS}" -eq 0 ]; then
+  FLOOR_FILE="${REPO_ROOT}/scripts/pure-test-floor.txt"
+  PURE_FLOOR="${OVATION_TEST_FLOOR:-$(cat "${FLOOR_FILE}" 2>/dev/null || echo 0)}"
+  PURE_COUNT="$(grep -oE 'Test run with [0-9]+ test' "${PURE_OUTPUT}" \
+    | grep -oE '[0-9]+' | sort -rn | head -1)"
+  PURE_COUNT="${PURE_COUNT:-0}"
+  if [ "${PURE_FLOOR}" -eq 0 ]; then
+    echo "Error: no test floor to judge the run against (${FLOOR_FILE})." >&2
+    echo "       A run nothing can be compared to is not a green run." >&2
+    STATUS=7
+  elif [ "${PURE_COUNT}" -lt "${PURE_FLOOR}" ]; then
+    echo "Error: the suite executed ${PURE_COUNT} tests against a floor of ${PURE_FLOOR}." >&2
+    echo "       It exited 0, so this is a run that lost most of itself and" >&2
+    echo "       still reported success. Nothing about the missing tests was judged." >&2
+    echo "       If tests were deliberately removed, lower ${FLOOR_FILE}." >&2
+    STATUS=7
+  fi
+fi
+rm -f "${PURE_OUTPUT}"
 
 # ---------------------------------------------------------------------------
 # THE HOSTED SUITE, still under both locks.

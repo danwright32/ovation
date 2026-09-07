@@ -18,7 +18,14 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "test runner lock tests" 29
+# THE FLOOR SEAM IS CLEARED FIRST. It is an environment variable, so a value set
+# in the shell that launched this suite is inherited by every runner spawned
+# below and silently answers for them (L169). Measured: exporting
+# OVATION_TEST_FLOOR=9999 to prove the guard fires on the real suite made six of
+# these cases fail instead, because their child runners inherited it too.
+unset OVATION_TEST_FLOOR
+
+harness_begin "test runner lock tests" 38
 
 TARGET="scripts/run-tests.sh"
 REPO_ROOT_SCRIPTS="$PWD/scripts"
@@ -283,6 +290,52 @@ hosted_run() {
     "$TARGET" 2>&1
 }
 hosted_status() { hosted_run "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+
+# THE PURE SUITE IS JUDGED BY ITS COUNT, NOT ONLY ITS EXIT CODE (ovation#106).
+# It is 289 of the 294 tests, and until now it was judged by exit code alone
+# while the hosted five had their count read back. A run is judged first by what
+# it EXECUTED against what was expected, and only then by its failures (L288): a
+# renamed target, a changed scheme, a filter or a future move to parallel workers
+# can lose most of the suite and still print a verdict.
+pure_run() {
+    OVATION_UNLOCKED_COMMAND=true \
+    OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
+    OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+    OVATION_TEST_FLOOR="${2:-100}" \
+    OVATION_TEST_COMMAND="${1}" OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+    "$TARGET" 2>&1
+}
+pure_status() { pure_run "$1" "${2:-100}" >/dev/null 2>&1; printf '%s' "$?"; }
+
+check "a pure run at the floor passes" \
+    "$(pure_status 'echo "Test run with 100 tests in 9 suites passed"' 100)" "0"
+check "a pure run above the floor passes" \
+    "$(pure_status 'echo "Test run with 294 tests in 29 suites passed"' 100)" "0"
+check "a pure run BELOW the floor is refused even though it exited 0" \
+    "$(pure_status 'echo "Test run with 40 tests in 3 suites passed"' 100)" "7"
+check "and it names both numbers, so the drop is readable" \
+    "$(pure_run 'echo "Test run with 40 tests in 3 suites passed"' 100 | grep -c '40 .*100')" "1"
+check "a pure run that reported success and executed NOTHING is refused" \
+    "$(pure_status 'echo "** TEST SUCCEEDED **"' 100)" "7"
+check "a pure run that FAILED keeps its own status rather than the floor's" \
+    "$(pure_status 'echo "Test run with 294 tests in 29 suites failed"; exit 65' 100)" "65"
+check "the streamed output still reaches the terminal" \
+    "$(pure_run 'echo "Test run with 294 tests in 29 suites passed"; echo A-LINE-FROM-THE-RUN' 100 | grep -c 'A-LINE-FROM-THE-RUN')" "1"
+
+check "an injected command with no floor announces the skip rather than passing quietly" \
+    "$(OVATION_UNLOCKED_COMMAND=true \
+       OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
+       OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+       OVATION_TEST_COMMAND="true" "$TARGET" 2>&1 | grep -c 'Pure count check skipped')" "1"
+
+# THE FLOOR IS A REAL NUMBER ON DISK, not only a seam. A committed floor that
+# nothing reads is the same as no floor (L96).
+check "the committed floor is a positive integer" \
+    "$(grep -cE '^[1-9][0-9]*$' "$PWD/scripts/pure-test-floor.txt")" "1"
+# Deliberately NOT asserted here: that the floor is at or below the real count.
+# The runner itself checks exactly that on every run, against the count it just
+# executed, and a second copy of the number in this file would be a place for
+# the two to disagree (L41). A floor set too high fails the very next run.
 
 check "a hosted run that executed tests passes" \
     "$(hosted_status 'echo "Test run with 5 tests in 1 suite passed"')" "0"
