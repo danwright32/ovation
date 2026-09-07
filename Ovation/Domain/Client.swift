@@ -133,27 +133,55 @@ final class Client {
         return over != Client.normalised(mainAddress)
     }
 
-    /// The address an invoice is sent to, or nil where there is none at all.
-    /// Never an empty string: an empty address is an absence and must not reach a
-    /// send path as a value (L67).
+    /// The value an invoice is sent to, as written, or nil where there is none at
+    /// all. Never an empty string: an empty address is an absence and must not
+    /// reach a send path as a value (L67).
     var emailForInvoices: String? { hasInvoiceOverride ? overrideAddress : mainAddress }
+
+    /// EVERY recipient an invoice goes to, which is usually one and is sometimes
+    /// several. Empty where the value cannot be sent to at all, so a caller
+    /// cannot send to a subset of a broken value by accident.
+    ///
+    /// This is what the review screen renders, because what a person approves
+    /// must include who it goes to (L64).
+    var recipientsForInvoices: [String] {
+        guard let value = emailForInvoices, Client.problem(with: value) == nil else { return [] }
+        return Client.addresses(in: value)
+    }
 
     // MARK: what is genuinely wrong with the contact details
 
-    /// Whether a value is one address the send path can consume. PRD 38: exactly
-    /// one `@`, no whitespace, no separators. Validated against what the sender
-    /// can take, never against a list of things it must not be (L150, L257).
+    /// One address the send path can consume: exactly one `@` and no whitespace.
+    /// Validated against what the sender can take, never against a list of things
+    /// it must not be (L150, L257).
     private static func isOneAddress(_ value: String) -> Bool {
-        value.filter { $0 == "@" }.count == 1
-            && !value.contains(where: { $0.isWhitespace })
-            && !value.contains(",")
-            && !value.contains(";")
+        value.filter { $0 == "@" }.count == 1 && !value.contains(where: { $0.isWhitespace })
     }
 
+    /// SEVERAL ADDRESSES IN ONE FIELD IS A VALUE, NOT A FAULT (Dan, 2026-09-07,
+    /// overruling PRD 38 as first written): "there's nothing stopping me from
+    /// invoicing 2 emails at the same company at the same time for the same
+    /// event." Measured: 1 of the 31 real clients has one.
+    ///
+    /// What 38a was actually protecting, that a recipient nobody chose must not
+    /// reach an invoice already approved, is the review screen's job: it shows
+    /// every recipient (PRD 5.10, L64). It is not this function's job, and doing
+    /// it here refused a value Dan writes on purpose.
+    private static func addresses(in value: String) -> [String] {
+        value.split(whereSeparator: { $0 == "," || $0 == ";" })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Nil where the value is fine, otherwise what is wrong with it.
+    ///
+    /// ONE BAD PART SPOILS THE WHOLE VALUE. Sending to the parts that happen to
+    /// parse would deliver an invoice to a subset nobody chose, which is worse
+    /// than refusing, and it is the failure 38a named.
     private static func problem(with value: String) -> ClientContactProblem? {
-        guard !isOneAddress(value) else { return nil }
-        return (value.contains(",") || value.contains(";"))
-            ? .addressCarriesMoreThanOne : .addressIsNotAnAddress
+        let parts = addresses(in: value)
+        guard !parts.isEmpty else { return .addressIsNotAnAddress }
+        return parts.allSatisfy(isOneAddress) ? nil : .addressIsNotAnAddress
     }
 
     /// The distinct things wrong here, each named for WHAT it is rather than for

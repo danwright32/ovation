@@ -73,27 +73,63 @@ struct ClientContactTests {
     func nothingAnywhereIsNil() {
         let c = Self.client(email: "", contract: "")
         #expect(c.emailForInvoices == nil)
+        #expect(c.recipientsForInvoices.isEmpty)
         #expect(c.contactProblems.contains(.noAddressAtAll))
     }
 
-    // MARK: what is actually wrong (PRD 38, 38a)
+    // MARK: several recipients, which is a VALUE and not a fault
 
-    @Test("a value that is not one address is refused by which KIND of wrong it is")
-    func theTwoBadShapesAreNamedApart() {
-        #expect(Self.client(email: "ask at the box office").contactProblems
-                .contains(.addressIsNotAnAddress))
-        #expect(Self.client(email: "one@example.example, two@example.example").contactProblems
-                .contains(.addressCarriesMoreThanOne))
-        // Different kinds, because they need different work: one is a person to
-        // chase, the other is a choice between two addresses (L11).
-        #expect(Self.client(email: "ask at the box office").contactProblems
-                != Self.client(email: "one@example.example, two@example.example").contactProblems)
+    /// Dan, 2026-09-07, overruling PRD 38 as originally written: "I should be
+    /// allowed to do two addresses in one field. there's nothing stopping me from
+    /// invoicing 2 emails at the same company at the same time for the same
+    /// event."
+    ///
+    /// 38a had refused this on the grounds that it "puts a recipient Dan never
+    /// chose onto an invoice he reviewed and approved". He did choose them. The
+    /// protection that rule was reaching for is the review screen showing every
+    /// recipient (PRD 5.10, L64), which is where it belongs.
+    @Test("two addresses in one field is a value meaning both, not a fault")
+    func severalAddressesAreLegitimate() {
+        let c = Self.client(email: "treasurer@example.example, director@example.example")
+        #expect(c.contactProblems.isEmpty)
+        #expect(c.recipientsForInvoices == ["treasurer@example.example", "director@example.example"])
+    }
+
+    @Test("a semicolon separates them too, and spacing around them does not matter")
+    func separatorsAndSpacingAreTolerated() {
+        let c = Self.client(email: " one@a.example ;two@b.example,  three@c.example ")
+        #expect(c.recipientsForInvoices == ["one@a.example", "two@b.example", "three@c.example"])
+        #expect(c.contactProblems.isEmpty)
+    }
+
+    @Test("one address is one recipient, which is 29 of the 31 real clients")
+    func oneAddressIsOneRecipient() {
+        #expect(Self.client(email: "hello@example.example").recipientsForInvoices
+                == ["hello@example.example"])
+    }
+
+    // MARK: what is genuinely wrong (PRD 38, corrected)
+
+    @Test("human text in an address field is the one thing that is actually broken")
+    func textInAnAddressFieldIsBroken() {
+        let c = Self.client(email: "ask at the box office")
+        #expect(c.contactProblems.contains(.addressIsNotAnAddress))
+        #expect(c.recipientsForInvoices.isEmpty, "nothing here can be sent to")
+    }
+
+    @Test("ONE bad part spoils the whole value, rather than the good parts being sent to")
+    func amixedValueIsBroken() {
+        // Sending to the parts that happen to parse would send an invoice to a
+        // subset nobody chose, which is the thing PRD 38a was actually protecting.
+        let c = Self.client(email: "good@example.example, ask at the box office")
+        #expect(c.contactProblems.contains(.addressIsNotAnAddress))
+        #expect(c.recipientsForInvoices.isEmpty)
     }
 
     @Test("a bad OVERRIDE is a problem even where the main address is fine")
     func abadOverrideIsStillAProblem() {
-        let c = Self.client(email: "fine@example.example", contract: "two@a.example, three@b.example")
-        #expect(c.contactProblems.contains(.addressCarriesMoreThanOne))
+        let c = Self.client(email: "fine@example.example", contract: "ask at the box office")
+        #expect(c.contactProblems.contains(.addressIsNotAnAddress))
     }
 
     @Test("an ordinary client has nothing wrong with it at all")
