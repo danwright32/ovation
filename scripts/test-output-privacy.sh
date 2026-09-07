@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 22
+harness_begin "output privacy tests" 24
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -248,6 +248,33 @@ check "and none when every resolver is registered" \
         ./scripts/check-isolation-floor.sh 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------
+# The schema registration check. It prints TYPE NAMES and paths relative to the
+# scan root, so a client name sitting in a model's source, which is exactly where
+# one would sit, must not travel out with the refusal.
+# ---------------------------------------------------------------------------
+SCHEMA_ROOT="$WORK/schema-sources"
+mkdir -p "$SCHEMA_ROOT/Persistence"
+cat > "$SCHEMA_ROOT/Invoice.swift" <<SWIFT
+@Model
+final class Invoice {
+    var client: String = "$CLIENT"
+    var venue: String = "$VENUE"
+}
+SWIFT
+printf 'enum OvationSchema { static let models: [any PersistentModel.Type] = [] }\n' \
+    > "$SCHEMA_ROOT/Persistence/OvationSchema.swift"
+check "the schema check prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_SCHEMA_SCAN_ROOT="$SCHEMA_ROOT" \
+        OVATION_SCHEMA_FILE="$SCHEMA_ROOT/Persistence/OvationSchema.swift" \
+        ./scripts/check-schema-registered.sh 2>&1)")" "clean"
+printf 'enum OvationSchema { static let models = [Invoice.self] }\n' \
+    > "$SCHEMA_ROOT/Persistence/OvationSchema.swift"
+check "and none when every model is registered" \
+    "$(leaks_in "$(OVATION_SCHEMA_SCAN_ROOT="$SCHEMA_ROOT" \
+        OVATION_SCHEMA_FILE="$SCHEMA_ROOT/Persistence/OvationSchema.swift" \
+        ./scripts/check-schema-registered.sh 2>&1)")" "clean"
+
+# ---------------------------------------------------------------------------
 # The live data bracket. It prints watched PATHS relative to Application
 # Support, which are Ovation's own filenames, never a client's.
 # ---------------------------------------------------------------------------
@@ -267,7 +294,7 @@ check "the live data bracket prints no identity when it refuses" \
 # for (L96, L247). So the list is asserted against what is actually on disk, and
 # a new check script fails HERE until somebody points it at the fixture.
 # ---------------------------------------------------------------------------
-COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-forbidden-constructs.sh check-identity-leaks.sh check-isolation-floor.sh check-live-data-untouched.sh check-ported-artifacts.sh check-preconditions.sh check-sibling-installs.sh"
+COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-forbidden-constructs.sh check-identity-leaks.sh check-isolation-floor.sh check-live-data-untouched.sh check-ported-artifacts.sh check-preconditions.sh check-schema-registered.sh check-sibling-installs.sh"
 ON_DISK="$(cd scripts && ls -1 check-*.sh | sort | tr '\n' ' ')"
 check "every check script on disk is covered by this suite" \
     "$(printf '%s' "$ON_DISK" | tr -s ' ' | sed 's/ $//')" \

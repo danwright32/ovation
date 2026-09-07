@@ -90,6 +90,18 @@ if [ -x "${REPO_ROOT}/scripts/check-isolation-floor.sh" ]; then
     fi
 fi
 
+# ovation#60. A model type missing from the store's schema simply has no table,
+# and SwiftData says nothing about it: the first symptom is a fetch that returns
+# nothing, at whatever distance from the omission. Same shape as the floor above,
+# and the subjects are derived from the sources rather than from a list somebody
+# maintains.
+if [ -x "${REPO_ROOT}/scripts/check-schema-registered.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-schema-registered.sh"; then
+        echo "pre-push: a model type is not in the store's schema. Push refused." >&2
+        exit 1
+    fi
+fi
+
 # THE LIVE DATA BRACKET IS NOT RUN HERE. It is a bracket around the test run
 # rather than a check that can be answered on its own: it snapshots before and
 # compares after, and scripts/run-tests.sh holds both ends. Running it here would

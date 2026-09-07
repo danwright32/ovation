@@ -28,6 +28,8 @@ enum OvationSchema {
         Payment.self,
         PaymentAllocation.self,
         Refund.self,
+        Expense.self,
+        ReferralLedgerEntry.self,
     ]
 
     static var schema: Schema { Schema(models) }

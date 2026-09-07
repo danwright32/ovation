@@ -35,6 +35,9 @@ final class Client {
     @Relationship(deleteRule: .nullify, inverse: \Payment.client)
     var payments: [Payment] = []
 
+    @Relationship(deleteRule: .nullify, inverse: \ReferralLedgerEntry.client)
+    var referralEntries: [ReferralLedgerEntry] = []
+
     init(name: String, taxStatus: TaxStatus) {
         self.name = name
         self.taxStatus = taxStatus
@@ -49,4 +52,18 @@ final class Client {
     ///
     /// IT IS NOT REFERRAL CREDIT. See the header on `Payment`.
     var moneyHeld: Money { Money.sum(of: payments.map(\.unallocated)) }
+
+    /// Referral credit standing to this client, in hours. PRD 5.8.
+    ///
+    /// A SUM OVER THE LEDGER, never a stored field, so nothing has to remember to
+    /// keep a total in step and no edit can leave the two disagreeing.
+    ///
+    /// IT IS NOT MONEY HELD, and the two never add up (PRD 5.14c). Credit was
+    /// earned against a ledger and is spent as a negative line inside an invoice;
+    /// held money actually arrived and is owed back if it is never used. They
+    /// will look alike on the Clients screen, which is why they are two accessors
+    /// of two different types rather than one number.
+    var referralBalance: Hours {
+        referralEntries.reduce(Hours.zero) { $0 + $1.hours }
+    }
 }
