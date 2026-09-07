@@ -60,9 +60,21 @@ is pure ASCII**, so no pipe between here and a browser can mangle it.
 
 ## What is still open
 
-`ovation#95` where the venue and shoot times live. `ovation#18` the app icon, which was
-waiting on the palette and is now unblocked. The receipts queue and the review and send
-screen are not designed yet.
+`ovation#95` where the venue and shoot times live. The receipts queue and the review and
+send screen are not designed yet.
+
+**`ovation#18`, the app icon, is settled and shipped (2026-09-07).** It was listed here as
+waiting on the palette, and the palette is what it waited for: the artwork is a cream paper
+`O` with a receipt curling out of it, on espresso, over a faint bar chart, drawn to sit
+inside the colour this file settled rather than the other way round. That inversion was the
+point. Downbeat and Overture each derived their palette FROM their icon; Ovation chose the
+design language first.
+
+The source artwork is `icon/ovation-app-icon.png` and the shipped catalog is derived from it
+by `scripts/build-app-icon.sh`, never by hand. **No drop shadow is composited into the
+artwork**, deliberately: macOS draws its own, and a fabricated one inside a build script is
+a design decision nobody would ever find to argue with. If the icon should carry one of its
+own, that decision belongs here.
 
 **ovation#97 is answered. Its answers opened three things, one of which is now settled.**
 It was listed here as blocking on whether a three night run is one invoice or three. It was
