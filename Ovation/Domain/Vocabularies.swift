@@ -177,3 +177,33 @@ enum InvoicePaymentState: String, CaseIterable, Codable, Hashable, Sendable {
         }
     }
 }
+
+/// What is wrong with a client's contact details. ovation#40, PRD 38 and 38a.
+///
+/// FOUR KINDS WERE PROPOSED AND TWO SURVIVED THE MEASUREMENT. "Nothing recorded"
+/// turned out not to exist: every one of the 31 real clients has a main address,
+/// and the empty value the roster pass was built around is an empty OVERRIDE,
+/// which is the ordinary case. "Shared with another client" is not in here at
+/// all: Dan settled on 2026-09-07 that it warns and can be dismissed as correct,
+/// so it is a question rather than a fault.
+///
+/// The two that remain are kept apart because they need different work: one is a
+/// person to go and ask, the other is a choice between two addresses somebody
+/// already wrote down (L11).
+enum ClientContactProblem: String, CaseIterable, Codable, Hashable, Sendable {
+    /// Nothing anywhere. Measured as zero of 31 today, and kept because a client
+    /// created by hand in Ovation can reach it.
+    case noAddressAtAll = "no-address-at-all"
+    /// Human text sitting in an address field. Measured: 2 of 31.
+    case addressIsNotAnAddress = "address-is-not-an-address"
+    /// Two addresses in one field. Measured: part of the same 2.
+    case addressCarriesMoreThanOne = "address-carries-more-than-one"
+
+    var sentence: String {
+        switch self {
+        case .noAddressAtAll: return "No address at all"
+        case .addressIsNotAnAddress: return "Not an address"
+        case .addressCarriesMoreThanOne: return "Two addresses in one field"
+        }
+    }
+}
