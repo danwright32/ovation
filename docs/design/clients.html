@@ -339,182 +339,188 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .damt { text-align: right; color: var(--ink); font-weight: 500; font-size: 13px; }
 .dsub { font-size: 13.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .dsaid { font-size: 12.5px; color: var(--faint); text-align: right; white-space: nowrap; }
-</style>
 
+/* A money row that holds one box keeps the two box geometry. A lone box that
+   stretched to the pane would be a different design appearing on 6 clients of
+   31 and not the other 24, which is the row changing shape with its contents. */
+.money.single { grid-template-columns: 1fr 1fr; }
+.money.single .mbox { grid-column: 1; }
+</style>
 <div class="wrap">
 
   <header class="masthead">
     <div class="eyebrow">Ovation, the Clients screen</div>
-    <h1>Settled over three rounds on 7 September.</h1>
+    <h1>Settled over four rounds on 7 September.</h1>
     <p class="lede">
       Names on the left, one client on the right. The amount rides beside any client whose money
-      Ovation is holding, so the screen can say WHICH without a click. A line in the sidebar card
-      carries it to every screen, including Invoices, where you actually are.
+      Ovation is holding, so the screen says WHICH without a click, and a line in the sidebar card
+      carries it to every screen including Invoices.
     </p>
     <p class="lede">
-      <strong>Use the day switch.</strong> A count of nothing is not drawn, and when that takes
-      every line the card says Nothing waiting rather than disappearing. The quiet day is the whole
-      of that rule and the only place it shows.
+      <strong>Click a name.</strong> Harborlight Ballet holds money and carries referral credit,
+      which is the only client of the thirty one who has both. Zephyr Hall holds money and has no
+      credit. Most have neither, and on those the money row is not there at all.
     </p>
   </header>
 
   <div class="notice">
-    <p><b>The card line is a COUNT of clients, not a total.</b> Its four neighbours are counts of
-    things needing you and this is the fifth, so the card keeps one rule rather than four counts and
-    a sum. The amounts are not lost: they are beside the clients in the list, which is where you go
-    when the count is not zero.</p>
-    <p><b>Three of the thirty one clients here are holding money, and that number is invented.</b>
-    Deposits do not exist in the product yet, so nothing has measured how often one is taken. If it
-    turns out to be routine rather than rare, three marks in a list becomes a column and the case
-    for putting the amount beside the name has to be looked at again.</p>
+    <p><b>The rule this screen ended up stating three times: a quantity of nothing is not drawn.</b>
+    Not in the sidebar card, not for money held, not for referral credit. It is worth writing down
+    once rather than three times, because it is not a Clients decision, it governs every count in
+    the product.</p>
+    <p><b>It is a rule about ABSENCE, not about zero</b>, and the difference is load bearing. A
+    comped shoot invoiced at nothing has a total of $0.00 and that total must always be drawn, since
+    PRD 5.1b makes it legitimate and says no guard may refuse it. And an absence that means
+    something is MISSING is still drawn: a client with no tax status recorded reads Not recorded,
+    out loud, because that is work waiting rather than nothing to do.</p>
+    <p><b>Measured at the real count:</b> 3 of the 31 hold money, 5 carry credit, 1 has both, and
+    <b>24 of 31 show no money row at all</b>.</p>
   </div>
 
   <div class="tabs" id="tabs"></div>
-  <div class="readout" id="readout"></div>
   <div class="stage" id="stage"></div>
 
   <div class="record">
     <div><h3>The shape</h3>
       <p>Names left, one client right. It buys room to LABEL money held and referral credit rather
       than leaving them as columns whose units you have to know, and the client's invoices sit on
-      the same screen. It spends the list: 15 of 31 clients are visible at once, measured.</p>
+      the same screen. It spends the list: 15 of 31 are visible at once, measured.</p>
     </div>
     <div><h3>Where held money appears</h3>
-      <p>Two places. Beside the client in the list, so the screen says which. And as a count in the
-      sidebar card, so it reaches you on Invoices. <b>It counts DOWN as you apply it</b>, exactly
-      like the four counts beside it, and reaches zero when there is nothing left to do.</p>
+      <p>Beside the client in the list, so the screen says which, and as a count in the sidebar
+      card, so it reaches you on Invoices. <b>It counts DOWN as you apply it</b>, exactly like the
+      four counts beside it. The control that applies it does not exist yet: ovation#109.</p>
     </div>
-    <div><h3>A count of nothing is not drawn</h3>
-      <p>One rule for every line in the card. When it takes all five the card says <b>Nothing
-      waiting</b> rather than vanishing, because a card that draws nothing on the healthy day is
-      indistinguishable from one that failed to draw. The cost, measured: the navigation moves 106px
-      between a busy day and a quiet one.</p>
+    <div><h3>Money and credit kept apart</h3>
+      <p>They are never both drawn unless the client really has both, which is one client in
+      thirty one. PRD 5.14c is the reason: money held arrived and is owed back if unused, credit
+      was earned and is spent as a line inside an invoice, and drawn alike, credit nobody paid
+      could settle an invoice.</p>
     </div>
-    <div><h3>Still open</h3>
-      <p>Whether a deposit is distinguishable from an overpayment (ovation#96), how held money is
-      kept from reading as one balance with referral credit (PRD 5.14c), and where the roster clean
-      up lives (ovation#40), since a shared contract email is drawn no differently from any other
-      today.</p>
+    <div><h3>Espresso, unchanged</h3>
+      <p>Colour is settled and was never a variable here. Light mode only. No red anywhere: money
+      you are holding is not a fault.</p>
     </div>
   </div>
 
   <section class="closing">
-    <h2>What this is not yet</h2>
+    <h2>What this screen still is not</h2>
     <ol>
-      <li><b>Referral credit sits beside held money as an equal box.</b> They are different things
-      and PRD 5.14c says they must not read as one balance, because credit nobody paid could then
-      settle an invoice. Nothing here has been designed to keep them apart yet.</li>
-      <li><b>The roster clean up has no surface.</b> 25 of these 31 clients have no tax status and
-      two share a contract email, and this screen currently says the first quietly and the second
-      not at all.</li>
-      <li><b>Nothing here is an action.</b> Applying held money to an invoice is what makes this
-      screen useful and there is no control for it on the page.</li>
+      <li><b>Nothing on it is an action.</b> Applying held money to an invoice is what makes it
+      useful and there is no control for it. That is ovation#109, and until it exists the sidebar
+      count cannot actually count down.</li>
+      <li><b>The roster clean up has no surface.</b> 25 of these 31 have no tax status and the
+      screen says so quietly; two share a contract email and it says nothing at all. That is
+      ovation#40, and the next round.</li>
+      <li><b>The decisions are not in the PRD yet.</b> The zero rule in particular governs every
+      count in the product and PRD 46a, which describes that sidebar card, says nothing about it.</li>
     </ol>
   </section>
 </div>
-
 <script>
-/* ============================================================
-   ROUND 1. One variable: the SHAPE of the Clients screen.
-   Everything else is byte identical between the three, because a
-   round that moves several things at once produces no usable
-   signal.
-   ============================================================ */
+/* THE CLIENTS SCREEN, settled over four rounds on 2026-09-07. ovation#98.
 
-/* 31 clients, which is the real count, carrying the distribution measured
-   against the live export on 2026-08-28: 6 with a tax status, 1 with no
-   contract email, 2 sharing one address. Names invented. A screen judged at
-   five rows is a screen nobody has seen. */
+   THIS IS THE DESIGN, NOT THE CHOOSER IT CAME FROM. The position switcher each
+   round used is stripped: a file offering options is a picker, and committing
+   one as though it were the agreed design is a mistake this estate has already
+   made once.
+
+   WHAT IS LEFT IS NOT A CHOOSER. Clicking a name changes the client, which is
+   what the real screen does. The day switch shows the quiet state, which is the
+   only place the zero rule is visible and is the state the product is in every
+   day the work is done.
+
+   THE ONE RULE THIS SCREEN ENDED UP STATING THREE TIMES: a quantity of nothing
+   is not drawn. Not in the sidebar card, not for money held, not for referral
+   credit. It is a rule about ABSENCE and not about zero. A comped invoice totals
+   $0.00 and that is a measured value which must always be drawn (PRD 5.1b). An
+   absence meaning something is MISSING is drawn too: a client with no tax status
+   reads Not recorded, because that is work waiting rather than nothing to do. */
+
 var CLIENTS = [
-  { c: "Ashgrove Chamber Players",     e: "office@ashgrovechamber.example",  t: null,        h: "$500.00",   r: null },
-  { c: "Bellweather Dance Collective", e: "hello@bellweatherdance.example",  t: null,        h: null,        r: null },
-  { c: "Brackenridge Youth Orchestra", e: "admin@brackenridgeyo.example",    t: null,        h: null,        r: null },
-  { c: "Calder Street Theatre",        e: "boxoffice@calderstreet.example",  t: "Not exempt",h: null,        r: null },
-  { c: "Cormorant Bay Singers",        e: "sing@cormorantbay.example",       t: null,        h: null,        r: null },
-  { c: "Drayton Wind Ensemble",        e: "office@draytonarts.example",      t: null,        h: null,        r: null, share: true },
-  { c: "Eastvale Opera Workshop",      e: "office@draytonarts.example",      t: null,        h: null,        r: null, share: true },
-  { c: "Fenwick Early Music Society",  e: "consort@fenwickearly.example",    t: null,        h: null,        r: "2.5 hrs" },
-  { c: "Gallowmere Brass Band",        e: "band@gallowmerebrass.example",    t: null,        h: null,        r: null },
-  { c: "Harborlight Ballet",           e: "studio@harborlightballet.example",t: "Not exempt",h: "$1,250.00", r: null },
-  { c: "Inglenook Jazz Collective",    e: "gigs@inglenookjazz.example",      t: null,        h: null,        r: null },
-  { c: "Juniper Row Playhouse",        e: "stage@juniperrow.example",        t: null,        h: null,        r: null },
-  { c: "Kestrel Lane Quartet",         e: null,                              t: null,        h: null,        r: null },
-  { c: "Larkspur Community Chorus",    e: "chorus@larkspurcommunity.example",t: "Exempt",    h: null,        r: null },
-  { c: "Marisol Okonkwo-Reyes",        e: "marisol@okonkworeyes.example",    t: null,        h: null,        r: "4.0 hrs" },
-  { c: "Marrowbone Percussion Group",  e: "kit@marrowbonepercussion.example",t: null,        h: null,        r: null },
-  { c: "Nettlefield Baroque Consort",  e: "info@nettlefieldbaroque.example", t: null,        h: null,        r: null },
-  { c: "Orchard Hill Symphonia",       e: "office@orchardhillsym.example",   t: null,        h: null,        r: "1.0 hrs" },
-  { c: "Pennywhistle Folk Circle",     e: "circle@pennywhistlefolk.example", t: null,        h: null,        r: null },
-  { c: "Priya Raghunathan",            e: "priya@raghunathanviolin.example", t: null,        h: null,        r: null },
-  { c: "Quillon Contemporary Dance",   e: "co@quillondance.example",         t: null,        h: null,        r: null },
-  { c: "Redbourne Light Opera",        e: "tickets@redbournelight.example",  t: null,        h: null,        r: null },
-  { c: "Saltmarsh String Orchestra",   e: "strings@saltmarshorch.example",   t: null,        h: null,        r: null },
-  { c: "Thistledown Puppet Theatre",   e: "puppets@thistledownpt.example",   t: null,        h: null,        r: null },
-  { c: "Tobias Fenn",                  e: "tobias@fennpiano.example",        t: null,        h: null,        r: null },
-  { c: "Underhill Gospel Choir",       e: "choir@underhillgospel.example",   t: "Exempt",    h: null,        r: null },
-  { c: "Vesper Lane Chamber Society",  e: "society@vesperlane.example",      t: null,        h: null,        r: null },
-  { c: "Westfield Choral Society",     e: "music@westfieldchoral.example",   t: "Not exempt",h: null,        r: "3.0 hrs" },
-  { c: "Wrenfield Academy of Dance",   e: "school@wrenfieldacademy.example", t: null,        h: null,        r: null },
-  { c: "Yarrow Street Collective",     e: "make@yarrowstreet.example",       t: null,        h: null,        r: null },
-  { c: "Zephyr Hall Concerts",         e: "hall@zephyrhall.example",         t: "Not exempt",h: "$87.50",    r: null }
+  { c: "Ashgrove Chamber Players",     e: "office@ashgrovechamber.example",   t: null,         h: "$500.00",   r: null },
+  { c: "Bellweather Dance Collective", e: "hello@bellweatherdance.example",   t: null,         h: null,        r: null },
+  { c: "Brackenridge Youth Orchestra", e: "admin@brackenridgeyo.example",     t: null,         h: null,        r: null },
+  { c: "Calder Street Theatre",        e: "boxoffice@calderstreet.example",   t: "Not exempt", h: null,        r: null },
+  { c: "Cormorant Bay Singers",        e: "sing@cormorantbay.example",        t: null,         h: null,        r: null },
+  { c: "Drayton Wind Ensemble",        e: "office@draytonarts.example",       t: null,         h: null,        r: null },
+  { c: "Eastvale Opera Workshop",      e: "office@draytonarts.example",       t: null,         h: null,        r: null },
+  { c: "Fenwick Early Music Society",  e: "consort@fenwickearly.example",     t: null,         h: null,        r: "2.5 hrs" },
+  { c: "Gallowmere Brass Band",        e: "band@gallowmerebrass.example",     t: null,         h: null,        r: null },
+  { c: "Harborlight Ballet",           e: "studio@harborlightballet.example", t: "Not exempt", h: "$1,250.00", r: "3.0 hrs" },
+  { c: "Inglenook Jazz Collective",    e: "gigs@inglenookjazz.example",       t: null,         h: null,        r: null },
+  { c: "Juniper Row Playhouse",        e: "stage@juniperrow.example",         t: null,         h: null,        r: null },
+  { c: "Kestrel Lane Quartet",         e: null,                               t: null,         h: null,        r: null },
+  { c: "Larkspur Community Chorus",    e: "chorus@larkspurcommunity.example", t: "Exempt",     h: null,        r: null },
+  { c: "Marisol Okonkwo-Reyes",        e: "marisol@okonkworeyes.example",     t: null,         h: null,        r: "4.0 hrs" },
+  { c: "Marrowbone Percussion Group",  e: "kit@marrowbonepercussion.example", t: null,         h: null,        r: null },
+  { c: "Nettlefield Baroque Consort",  e: "info@nettlefieldbaroque.example",  t: null,         h: null,        r: null },
+  { c: "Orchard Hill Symphonia",       e: "office@orchardhillsym.example",    t: null,         h: null,        r: "1.0 hrs" },
+  { c: "Pennywhistle Folk Circle",     e: "circle@pennywhistlefolk.example",  t: null,         h: null,        r: null },
+  { c: "Priya Raghunathan",            e: "priya@raghunathanviolin.example",  t: null,         h: null,        r: null },
+  { c: "Quillon Contemporary Dance",   e: "co@quillondance.example",          t: null,         h: null,        r: null },
+  { c: "Redbourne Light Opera",        e: "tickets@redbournelight.example",   t: null,         h: null,        r: null },
+  { c: "Saltmarsh String Orchestra",   e: "strings@saltmarshorch.example",    t: null,         h: null,        r: null },
+  { c: "Thistledown Puppet Theatre",   e: "puppets@thistledownpt.example",    t: null,         h: null,        r: null },
+  { c: "Tobias Fenn",                  e: "tobias@fennpiano.example",         t: null,         h: null,        r: null },
+  { c: "Underhill Gospel Choir",       e: "choir@underhillgospel.example",    t: "Exempt",     h: null,        r: null },
+  { c: "Vesper Lane Chamber Society",  e: "society@vesperlane.example",       t: null,         h: null,        r: null },
+  { c: "Westfield Choral Society",     e: "music@westfieldchoral.example",    t: "Not exempt", h: null,        r: "3.0 hrs" },
+  { c: "Wrenfield Academy of Dance",   e: "school@wrenfieldacademy.example",  t: null,         h: null,        r: null },
+  { c: "Yarrow Street Collective",     e: "make@yarrowstreet.example",        t: null,         h: null,        r: null },
+  { c: "Zephyr Hall Concerts",         e: "hall@zephyrhall.example",          t: "Not exempt", h: "$87.50",    r: null }
 ];
 
 var SELECTED = "Harborlight Ballet";
+var HELD = CLIENTS.filter(function (k) { return k.h; });
 
-/* The detail pane in shape C. One client's invoices, so the pane has real
-   content rather than a placeholder that flatters it. */
-var DETAIL_INVOICES = [
-  { n: "1131", s: "Autumn gala", d: "14 Nov 2026", a: "1,088.75", w: "Sent, unpaid" },
-  { n: "1126", s: "Studio portraits", d: "2 Oct 2026", a: "816.56", w: "Paid" },
+var INVOICES = [
+  { n: "1131", s: "Autumn gala",     d: "14 Nov 2026", a: "1,088.75", w: "Sent, unpaid" },
+  { n: "1126", s: "Studio portraits", d: "2 Oct 2026", a: "816.56",   w: "Paid" },
   { n: "1119", s: "Spring showcase", d: "18 May 2026", a: "1,360.94", w: "Paid" },
-  { n: "1112", s: "Winter matinee", d: "9 Feb 2026", a: "680.47", w: "Paid" }
+  { n: "1112", s: "Winter matinee",  d: "9 Feb 2026",  a: "680.47",   w: "Paid" }
 ];
+
+
+var QUIET = false;
 
 function el(t, c, x) { var n = document.createElement(t); if (c) n.className = c; if (x !== undefined) n.textContent = x; return n; }
 
-/* One client row. Identical in shapes A and B, so the only thing that differs
-   between them is the ORDER and the grouping. */
-function clientRow(k) {
-  var n = el("div", "crow");
-  n.append(el("div", "cname", k.c));
-  var mail = el("div", "cmail");
-  if (k.e) {
-    mail.textContent = k.e;
-  } else {
-    mail.textContent = "No contract email";
-    mail.classList.add("absent");
-  }
-  n.append(mail);
-  var tax = el("div", "ctax");
-  if (k.t) { tax.textContent = k.t; } else { tax.textContent = "Not recorded"; tax.classList.add("absent"); }
-  n.append(tax);
-  n.append(el("div", "cheld", k.h || ""));
-  n.append(el("div", "ccred", k.r || ""));
-  if (k.c === SELECTED) n.classList.add("sel");
-  return n;
+function counts() {
+  if (QUIET) return [];
+  var lines = [["To send", 4], ["To chase", 2], ["To confirm", 2], ["Receipts to file", 7]];
+  if (HELD.length) lines.push(["Money held", HELD.length]);
+  return lines;
 }
 
-/* ROUND 2. One variable: how far out of the detail pane held money reaches.
-   The detail pane, the names list and the client's invoices are identical in all
-   four; only the REACH changes. */
-
-var HELD = CLIENTS.filter(function (k) { return k.h; });
-var HELD_TOTAL = "$1,837.50";
-
-/* THE DAY IS A STATE, NOT A DESIGN VARIABLE. The three positions are identical
-   on a busy day and differ only on a quiet one, so the quiet day is the whole
-   measurement and it needs its own control rather than a fourth position. */
-var QUIET = false;
-
-function counts() {
-  if (QUIET) return [["To send", 0], ["To chase", 0], ["To confirm", 0], ["Receipts to file", 0]];
-  return [["To send", 4], ["To chase", 2], ["To confirm", 2], ["Receipts to file", 7]];
+/* The money row. Each box is drawn only where there is something in it, and
+   where neither has anything the row is not there at all, which is 24 of the 31.
+   Dan, 2026-09-07: "I basically don't need to ever see a $0 there." */
+function moneyFor(k) {
+  if (QUIET || (!k.h && !k.r)) return null;
+  var wrap = el("div", "money");
+  if (k.h) {
+    var held = el("div", "mbox");
+    held.append(el("div", "mlabel", "Money held"), el("div", "mval", k.h),
+                el("div", "mnote", "Received, not yet applied to an invoice"));
+    wrap.append(held);
+  }
+  if (k.r) {
+    var cred = el("div", "mbox");
+    cred.append(el("div", "mlabel", "Referral credit"), el("div", "mval", k.r),
+                el("div", "mnote", "Earned by referring. Comes off an invoice as a line"));
+    wrap.append(cred);
+  }
+  if (wrap.children.length === 1) wrap.classList.add("single");
+  return wrap;
 }
 
 function detailFor(k) {
   var detail = el("div", "detail");
   detail.append(el("h5", null, k.c));
 
+  /* These three are ALWAYS drawn, absent or not, and that is the other half of
+     the rule: an absence that means something is missing is work waiting. */
   var facts = el("div", "facts");
   [["Contract email", k.e || "No contract email", !k.e],
    ["Sales tax", k.t || "Not recorded", !k.t],
@@ -528,17 +534,11 @@ function detailFor(k) {
   });
   detail.append(facts);
 
-  var money = el("div", "money");
-  [["Money held", (QUIET ? "None" : (k.h || "None")), "You are holding this for them"],
-   ["Referral credit", k.r || "None", "Earned, spent on an invoice"]].forEach(function (m) {
-    var bx = el("div", "mbox");
-    bx.append(el("div", "mlabel", m[0]), el("div", "mval", m[1]), el("div", "mnote", m[2]));
-    money.append(bx);
-  });
-  detail.append(money);
+  var money = moneyFor(k);
+  if (money) detail.append(money);
 
   detail.append(el("div", "dhead", "Invoices"));
-  DETAIL_INVOICES.forEach(function (iv) {
+  INVOICES.forEach(function (iv) {
     var r = el("div", "drow");
     r.append(el("div", "dnum", iv.n), el("div", "dsub", iv.s), el("div", "dwhen", iv.d),
              el("div", "damt", iv.a), el("div", "dsaid", iv.w));
@@ -547,71 +547,9 @@ function detailFor(k) {
   return detail;
 }
 
-function contentFor() {
-  var main = el("div", "main");
-  var tbar = el("div", "toolbar");
-  tbar.append(el("h4", null, "Clients"), el("div", "meta", "31 clients"));
-  main.append(tbar);
+var chosen = SELECTED;
 
-  var scroll = el("div", "scroll");
-  var split = el("div", "split");
-  var names = el("div", "names");
-  CLIENTS.forEach(function (k) {
-    var n = el("div", "nrow");
-    /* R2, settled. The amount rides on the name. On a quiet day nothing is
-       held, so no name carries one, which is the same rule as the card. */
-    if (k.h && !QUIET) {
-      n.append(el("span", "nname", k.c), el("span", "nheld", k.h));
-      n.classList.add("hasheld");
-    } else {
-      n.textContent = k.c;
-    }
-    if (k.c === SELECTED) n.classList.add("sel");
-    names.append(n);
-  });
-  split.append(names, detailFor(CLIENTS.filter(function (x) { return x.c === SELECTED; })[0]));
-  scroll.append(split);
-  main.append(scroll);
-  return main;
-}
-
-/* The card, which is the whole of this round. */
-function cardFor(rule) {
-  var lines = counts();
-  /* R3, settled. Money held is a line in the card, and it is a COUNT OF CLIENTS
-     (Dan, 2026-09-07, overruling the amount this first carried). The card's four
-     neighbours are counts of things needing you and this is now the fifth, which
-     keeps one rule in the card rather than four counts and one sum. The AMOUNTS
-     are not lost: they are beside the clients in the list, which is where you go
-     when the count is not zero. */
-  if (!QUIET) lines.push(["Money held", HELD.length]);
-
-  /* Z1: only the money line obeys the rule. The four counts always show, zero
-     included, so the card is a fixed object.
-     Z2 and Z3: every line obeys it. They differ only in what is left. */
-  var shown = lines.filter(function (ln) {
-    if (rule === "Z1") return ln[0] === "Money held" ? ln[1] !== 0 : true;
-    return ln[1] !== 0;
-  });
-
-  if (shown.length === 0) {
-    if (rule === "Z2") return null;
-    var quietCard = el("div", "card");
-    quietCard.append(el("div", "hd", "Needs you"), el("div", "quiet", "Nothing waiting"));
-    return quietCard;
-  }
-
-  var card = el("div", "card");
-  card.append(el("div", "hd", "Needs you"));
-  shown.forEach(function (pr) {
-    var ln = el("div", "ln");
-    ln.append(el("span", null, pr[0]), el("b", null, String(pr[1])));
-    card.append(ln);
-  });
-  return card;
-}
-
-function windowFor(rule) {
+function buildScreen() {
   var screen = el("div", "screen");
 
   var bar = el("div", "menubar");
@@ -619,7 +557,7 @@ function windowFor(rule) {
   ["File", "Edit", "View", "Window", "Help"].forEach(function (x) { bar.append(el("span", null, x)); });
   bar.append(el("span", "clock", "Mon 7 Sep  2:40 PM"));
 
-  var win = el("div", "win " + rule), app = el("div", "app");
+  var win = el("div", "win"), app = el("div", "app");
   var tb = el("div", "titlebar");
   tb.append(el("div", "name", "Clients"));
 
@@ -627,8 +565,21 @@ function windowFor(rule) {
   var top = el("div", "railtop");
   ["r", "y", "g"].forEach(function (c) { top.append(el("div", "dot " + c)); });
   side.append(top);
-  var card = cardFor(rule);
-  if (card) side.append(card);
+
+  var card = el("div", "card");
+  card.append(el("div", "hd", "Needs you"));
+  var lines = counts();
+  if (lines.length === 0) {
+    card.append(el("div", "quiet", "Nothing waiting"));
+  } else {
+    lines.forEach(function (pr) {
+      var ln = el("div", "ln");
+      ln.append(el("span", null, pr[0]), el("b", null, String(pr[1])));
+      card.append(ln);
+    });
+  }
+  side.append(card);
+
   ["Invoices", "Expenses", "Clients"].forEach(function (x, i) {
     side.append(el("div", "item" + (i === 2 ? " on" : ""), x));
   });
@@ -640,58 +591,60 @@ function windowFor(rule) {
     el("div", "looked", "Last looked for bookings and receipts 2 minutes ago. Ovation only looks while it is open."));
   side.append(st);
 
-  app.append(side, tb, contentFor());
+  var main = el("div", "main");
+  var tbar = el("div", "toolbar");
+  tbar.append(el("h4", null, "Clients"), el("div", "meta", "31 clients"));
+  main.append(tbar);
+
+  var scroll = el("div", "scroll");
+  var split = el("div", "split");
+  var names = el("div", "names");
+
+  function paint() {
+    [].forEach.call(names.children, function (n) {
+      n.classList.toggle("sel", n.dataset.client === chosen);
+    });
+    split.replaceChild(detailFor(CLIENTS.filter(function (x) { return x.c === chosen; })[0]),
+                       split.lastChild);
+  }
+
+  CLIENTS.forEach(function (k) {
+    var n = el("div", "nrow");
+    n.dataset.client = k.c;
+    if (k.h && !QUIET) {
+      n.append(el("span", "nname", k.c), el("span", "nheld", k.h));
+      n.classList.add("hasheld");
+    } else {
+      n.textContent = k.c;
+    }
+    if (k.c === chosen) n.classList.add("sel");
+    n.addEventListener("click", function () { chosen = k.c; paint(); });
+    names.append(n);
+  });
+
+  split.append(names, detailFor(CLIENTS.filter(function (x) { return x.c === chosen; })[0]));
+  scroll.append(split);
+  main.append(scroll);
+
+  app.append(side, tb, main);
   win.append(app);
   screen.append(bar, win);
   return screen;
 }
 
-var SHAPES = [
-  { k: "Z3", t: "Settled: a line goes when it is nothing, and one line says so",
-    h: "One rule for every count in the card, including money held.",
-    p: "Settled 2026-09-07. A count of nothing is not drawn, and when that takes every line the card says Nothing waiting rather than disappearing, so a healthy day can never be mistaken for a card that failed to draw. Use the day switch: that quiet state is the whole of the rule and the only place it shows.",
-    m: "quiet day: 1 line, Nothing waiting. navigation moves 106px" }
-];
-
-var tabs = document.getElementById("tabs");
-var readout = document.getElementById("readout");
 var stage = document.getElementById("stage");
+var tabs = document.getElementById("tabs");
 
-var CURRENT = 0;
-function show(i) {
-  CURRENT = i;
-  var s = SHAPES[i];
-  Array.prototype.forEach.call(tabs.children, function (b, j) {
-    b.setAttribute("aria-pressed", j === i ? "true" : "false");
-  });
-  readout.replaceChildren();
-  readout.append(el("h2", null, s.t + ". " + s.h));
-  readout.append(el("p", null, s.p));
-  readout.append(el("p", "ratio", s.m));
-  stage.replaceChildren(windowFor(s.k));
-}
+function draw() { stage.replaceChildren(buildScreen()); }
 
-/* The day switch. A state control, kept visually apart from the position
-   buttons so it does not read as a fourth position. */
-var dayWrap = el("div", "tabs daywrap");
-var dayBtn = el("button", "tab day");
+var dayBtn = el("button", "tab");
 dayBtn.type = "button";
-function dayLabel() { dayBtn.replaceChildren(el("span", "k", "DAY"), el("span", null, QUIET ? "A quiet day" : "A busy day")); }
-dayBtn.addEventListener("click", function () { QUIET = !QUIET; dayLabel(); show(CURRENT); });
+function dayLabel() {
+  dayBtn.replaceChildren(el("span", "k", "DAY"),
+                         el("span", null, QUIET ? "A quiet day" : "A busy day"));
+}
+dayBtn.addEventListener("click", function () { QUIET = !QUIET; dayLabel(); draw(); });
 dayLabel();
-dayWrap.append(dayBtn);
-
-SHAPES.forEach(function (s, i) {
-  var b = el("button", "tab");
-  b.type = "button";
-  b.append(el("span", "k", s.k), el("span", null, s.t));
-  b.addEventListener("click", function () { show(i); });
-  tabs.append(b);
-});
-/* The position in the address bar wins, so a link can point at one. */
-var WANTED = SHAPES.map(function (s) { return s.k; }).indexOf(
-  (location.hash || "").replace("#", "").toUpperCase());
-tabs.parentNode.insertBefore(dayWrap, tabs.nextSibling);
-show(WANTED >= 0 ? WANTED : 0);
+tabs.append(dayBtn);
+draw();
 </script>
-

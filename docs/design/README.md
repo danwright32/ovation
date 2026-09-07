@@ -177,6 +177,40 @@ own rule: its four neighbours are counts of things needing you, and a sum among 
 kind of number in one small object. The amounts are not lost, they are beside the clients in the
 list, which is where the count sends you.
 
+### Round 4, settled 2026-09-07: a quantity of nothing is not drawn, anywhere
+
+Four treatments were rendered for keeping money held apart from referral credit, because PRD
+5.14c says they must never read as one balance: drawn alike, credit nobody paid could settle an
+invoice. Dan took the third, credit drawn only where there is any, **and extended it to money
+held in the same breath**: "I basically don't need to ever see a $0 there."
+
+**That is the same rule for the third time**, after the sidebar card in round 3 and credit in
+this one, so it is promoted out of the Clients screen and written down once:
+
+> **A quantity of nothing is not drawn.**
+
+**It is a rule about ABSENCE and not about zero**, and that distinction is load bearing rather
+than pedantic. Two places in the product would break under the blunt version, and both were
+checked before the rule was written:
+
+1. **A comped shoot invoiced at nothing totals $0.00 and that total is always drawn.** PRD 5.1b
+   makes a zero invoice legitimate and says no guard may refuse one. It is a measured value that
+   happens to be zero, not an absence.
+2. **An absence meaning something is MISSING is still drawn.** A client with no tax status reads
+   `Not recorded`, out loud, on 25 of the 31, because that is work waiting rather than nothing to
+   do (PRD 5, 5a).
+
+So the rule is: an absence meaning *nothing is waiting here* is not drawn. An absence meaning
+*something should be here and is not* is drawn.
+
+Measured at the real count: 3 of the 31 hold money, 5 carry credit, 1 has both, and **24 of 31
+show no money row at all**.
+
+**The switcher is stripped from the committed file**, which the earlier rounds' versions were
+not: what is left is the design, plus two things that are behaviour rather than choice. Clicking
+a name changes the client, which is what the real screen does and is the only way to see the
+rule at work. The day switch shows the quiet state, which is where the zero rule is visible.
+
 ### What the screen still is not
 
 Referral credit sits beside held money as an equal box and nothing yet keeps them from reading
