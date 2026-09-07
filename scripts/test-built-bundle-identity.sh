@@ -35,6 +35,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
+. "$(dirname "$0")/lib/built-product.sh"
 . "$(dirname "$0")/lib/bundle-identity-checks.sh"
 
 CONFIGURATIONS="Debug Release"
@@ -51,51 +52,18 @@ harness_begin "built bundle identity tests (${CONFIGURATIONS// /, })" \
 
 require_target "project.yml"
 
-app_path() {
-    # Ask with the SAME scheme the build used. Querying by target alone resolves
-    # a different build location than a scheme build writes to, so the path
-    # would be correct-looking and empty, and this suite would refuse on every
-    # run for a reason that has nothing to do with the bundle (L156).
-    xcodebuild -project Ovation.xcodeproj -scheme Ovation -configuration "$1" \
-        -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
-        | awk '$1 == "BUILT_PRODUCTS_DIR" && $2 == "=" { print $3; exit }'
-}
-
 # ---------------------------------------------------------------------------
 # EVERY configuration must be present BEFORE any assertion runs, so that a
 # missing Debug product cannot hide whatever Release would have said.
 #
-# THE DECISION, MADE BY DAN ON 2026-09-06 (ovation#25): a missing product
-# REFUSES, and the refusal blocks the push. It does not skip Release and it does
-# not build Release itself.
-#
-# Skipping was rejected because it leaves the shipping build's only security
-# assertion satisfiable by never building Release, which is the defect this
-# issue exists to remove (L98). Building was rejected because it would put an
-# xcodebuild run inside the UNLOCKED phase of scripts/run-tests.sh, where it
-# could corrupt a sibling app's build, and because a build can park for minutes
-# on the keychain dialog in ovation#24 with nothing saying so (L110).
-#
-# CANNOT MEASURE keeps its own exit code, so it cannot be mistaken for a pass
-# (L11, L260), and it names the exact command that fixes it, because a remedy
-# nobody can run leaves the reader facing the same refusal with no way out
-# (L148, L406).
+# Locating the product and refusing when it is absent both live in
+# scripts/lib/built-product.sh, where the reasoning behind the refusal is
+# recorded. They moved there for ovation#18, when a second suite began reading
+# the built product: copying the code that APPLIES a rule is how two suites end
+# up disagreeing about what "the product is missing" means (L370, L263).
 # ---------------------------------------------------------------------------
 for CONFIG in $CONFIGURATIONS; do
-    APP="$(app_path "$CONFIG")/Ovation.app"
-    # The remedy names the command that fixes BOTH configurations, not just this
-    # one. A refusal here almost always means neither has been built (a fresh
-    # clone, cleared DerivedData, or a runner), so a remedy naming one leaves the
-    # reader to hit the same wall again on the next configuration (L148, L406).
-    BUILD_IT="bash scripts/build-products.sh   (builds Debug and Release under the sibling locks)"
-
-    if [ ! -d "$APP" ]; then
-        harness_cannot_measure "there is no $CONFIG product at $APP" "build it first: $BUILD_IT"
-    fi
-    if [ ! -f "$APP/Contents/MacOS/Ovation" ]; then
-        harness_cannot_measure "the $CONFIG bundle has no executable inside it" \
-            "rebuild it: $BUILD_IT"
-    fi
+    built_product_require "$CONFIG" "$(built_product_path "$CONFIG")/Ovation.app"
 done
 
 # ---------------------------------------------------------------------------
@@ -128,7 +96,7 @@ done
 # Now judge them. Every configuration, through one implementation.
 # ---------------------------------------------------------------------------
 for CONFIG in $CONFIGURATIONS; do
-    APP="$(app_path "$CONFIG")/Ovation.app"
+    APP="$(built_product_path "$CONFIG")/Ovation.app"
     SIG="$(codesign -d --verbose=2 "$APP" 2>&1)"
     ENTS="$(codesign -d --entitlements - --xml "$APP" 2>/dev/null | plutil -p - 2>/dev/null)"
     bundle_identity_checks "$CONFIG" "$SIG" "$ENTS"
