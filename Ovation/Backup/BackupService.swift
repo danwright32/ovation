@@ -253,10 +253,20 @@ final class BackupService {
     /// it is needed (L362). The snapshot copies whatever is there, in whatever
     /// state, minus the credential store.
     ///
-    /// THE CREDENTIAL STORE IS NOT TOUCHED. It is never in an archive, so a
-    /// restore cannot bring one back; what it must also not do is delete the live
-    /// one as a side effect of being thorough, which would log Dan out of his
-    /// mailbox for a reason nothing told him about.
+    /// THE CREDENTIAL STORE IS NOT TOUCHED, and this is a decision Dan signed off
+    /// on 2026-09-06 rather than a side effect. Plan 1.8 requires it to be one:
+    /// "a restore that does not require re-authorising Gmail is its own decision
+    /// with its own sign off".
+    ///
+    /// The token file is never in an archive, so a restore cannot bring an old
+    /// one back. What it also does not do is DELETE the live one, which would log
+    /// Dan out of his mailbox for a reason nothing told him about, on an ordinary
+    /// restore such as moving to a new Mac.
+    ///
+    /// WHAT THAT ACCEPTS, stated rather than discovered later: if a restore is
+    /// ever a response to something having been tampered with, the credential is
+    /// the one thing NOT returned to a known state. The alternatives put to Dan
+    /// were forcing a re-login on every restore, and asking at the time.
     func restore(from archive: URL, now: Date, secrets: Set<String> = []) throws {
         let report = try verify(archive: archive, secrets: secrets)
         guard report.isVerified else {
