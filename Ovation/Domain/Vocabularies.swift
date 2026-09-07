@@ -124,3 +124,36 @@ enum ExpenseCategory: String, CaseIterable, Codable, Hashable, Sendable {
         }
     }
 }
+
+/// Whether a client pays sales tax. PRD 5.
+///
+/// THREE ANSWERS, AND THE THIRD IS THE POINT. A missing status is NOT the same as
+/// "not exempt", and the PRD says so: measured against the live export on
+/// 2026-08-28, only 6 of 31 clients carry a status at all. Modelling this as a
+/// boolean would silently assert that the other 25 are taxable, which is a fact
+/// nobody recorded, and it would do it in the direction that reads as complete
+/// (L163, L548). Ovation charges the tax and SAYS the status was never recorded,
+/// and ovation#40's one pass roster screen is what clears them before the warning
+/// starts meaning something.
+enum TaxStatus: String, CaseIterable, Codable, Hashable, Sendable {
+    case exempt = "exempt"
+    case notExempt = "not-exempt"
+    case neverRecorded = "never-recorded"
+
+    /// Whether tax is charged. Never recorded is charged, because not charging on
+    /// an unknown would under collect on a return.
+    var isTaxed: Bool {
+        switch self {
+        case .exempt: return false
+        case .notExempt, .neverRecorded: return true
+        }
+    }
+
+    var exportLabel: String {
+        switch self {
+        case .exempt: return "Exempt"
+        case .notExempt: return "Not exempt"
+        case .neverRecorded: return "Never recorded"
+        }
+    }
+}
