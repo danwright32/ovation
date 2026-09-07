@@ -260,6 +260,14 @@ roster` is gone from the sidebar rather than sitting there saying zero. Use the 
 it. That is the same rule as every count in the card and as money held, stated for the fourth
 time and now applying to navigation.
 
+**A place you are standing in does not vanish underneath you** (Dan, 2026-09-07). The roster
+screen leaves the sidebar once it is empty, but if you are ON it when you answer the last
+question it stays, says `Nothing left to settle`, and goes only when you do. Answering the last
+one is the moment you most deserve to be told you finished, and the worst possible moment for the
+screen to disappear. This is a general rule rather than a Clients one, and it is the second time
+the zero rule has needed an exception written beside it: the first was that an absence meaning
+something is MISSING is still drawn.
+
 **The committed file is the design, not the chooser.** What is left is behaviour: the sidebar
 navigates between the two screens and clicking a name changes the client, both of which the real
 window does.

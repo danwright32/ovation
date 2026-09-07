@@ -573,10 +573,29 @@ function taxChoice(k) {
 function rosterScreen() {
   var main = el("div", "main");
   var tbar = el("div", "toolbar");
+  var left = QUIET ? 0 : TO_SETTLE.length;
   tbar.append(el("h4", null, "Settle the roster"),
-              el("div", "meta", TO_SETTLE.length + " of " + CLIENTS.length + " clients"));
+              el("div", "meta", left === 0 ? "Settled"
+                 : left + " of " + CLIENTS.length + " clients"));
   main.append(tbar);
   var scroll = el("div", "scroll pass");
+
+  /* A PLACE YOU ARE STANDING IN DOES NOT VANISH UNDERNEATH YOU (Dan,
+     2026-09-07). The roster is gone from the sidebar once it is empty, but if you
+     are ON it when you answer the last question it stays, says so, and leaves
+     only when you do. Answering the last one is the moment you most deserve to be
+     told you finished, and it is the worst possible moment for the screen to
+     disappear. */
+  if (TO_SETTLE.length === 0 || QUIET) {
+    var doneWrap = el("div", "queue");
+    doneWrap.append(el("h5", null, "Nothing left to settle"));
+    doneWrap.append(el("div", "qask", "Every client can be invoiced."));
+    doneWrap.append(el("div", "qnote", "This screen is gone from the sidebar. It comes back "
+      + "if a new client arrives without a tax status, or an address stops working."));
+    scroll.append(doneWrap);
+    main.append(scroll);
+    return main;
+  }
 
   /* ADDRESSES FIRST. One of them against 25 of the other, and it still goes on
      top, because it is the one that cannot be sent to at all. */
@@ -737,7 +756,7 @@ function buildScreen() {
   ["File", "Edit", "View", "Window", "Help"].forEach(function (x) { bar.append(el("span", null, x)); });
   bar.append(el("span", "clock", "Mon 7 Sep  2:40 PM"));
 
-  var onRoster = PLACE === "roster" && rosterCount() > 0;
+  var onRoster = PLACE === "roster";
   var win = el("div", "win"), app = el("div", "app");
   var tb = el("div", "titlebar");
   tb.append(el("div", "name", onRoster ? "Settle the roster" : "Clients"));
@@ -766,7 +785,8 @@ function buildScreen() {
      Dan, 2026-09-07: only show that page if there are clients that need fixing.
      Same rule as every count in the card, applied to a whole screen. */
   var items = ["Invoices", "Expenses", "Clients"];
-  if (rosterCount() > 0) items.push("Settle the roster");
+  /* Present while there is something to do, AND while you are standing on it. */
+  if (rosterCount() > 0 || onRoster) items.push("Settle the roster");
   items.forEach(function (label) {
     var on = onRoster ? (label === "Settle the roster") : (label === "Clients");
     var item = el("div", "item" + (on ? " on" : ""), label);
@@ -805,7 +825,6 @@ function dayLabel() {
 }
 dayBtn.addEventListener("click", function () {
   QUIET = !QUIET;
-  if (QUIET) PLACE = "clients";
   dayLabel();
   draw();
 });
