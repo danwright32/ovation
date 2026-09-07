@@ -99,8 +99,12 @@ Not for: anyone else. There are no other users, no roles and no sharing. Ovation
 
 ### Payments
 
-14. An invoice holds any number of payments, each with a date, an amount and a method. Paid in full is calculated, never typed.
-15. Methods are Check, Zelle, Venmo and PayPal. A payment by check gains a Cleared step; other methods do not.
+14. **A payment is its own record, not a child of an invoice** (Dan, 2026-09-06, replacing the earlier shape in which an invoice held its payments). It carries a date, an amount and a method, and it is ALLOCATED across one or more invoices. One check settling two invoices is one record for the amount actually written, split between them. Paid in full is still calculated and never typed, but it is calculated from what is allocated to that invoice rather than from a list of payments hanging off it.
+14a. **Money received and not yet allocated sits visibly on the client, and that is a real state rather than an error.** It is where an overpayment goes, and it is where a deposit taken before the shoot goes, which is the shape ovation#96 was filed for. Ovation shows it as money it is holding on that client's behalf, and allocating it later is an ordinary action, not a correction.
+14b. **The allocations of one payment may never exceed its amount**, and that is enforced where it is stored rather than by whichever screen happens to be allocating. Two allocations made at once must not both fit against the same remaining balance, so it needs a constraint or a lock and not careful ordering in application code. A sum that quietly exceeds the money actually received produces invoices reading as paid out of money nobody sent.
+14c. **Unallocated money and referral credit are different things and stay apart**, for the same reason 4b keeps a discount and a referral credit apart. Referral credit is earned against a ledger and is spent as a negative line INSIDE an invoice. Unallocated money was actually received and is owed back if it is never used. They will look alike on a client screen, both being a balance, and merging them would let credit that was never paid settle an invoice.
+14d. **Cancelling an invoice that carries allocations releases them rather than deleting them** (13). The money still exists and it still arrived, so it returns to unallocated on the client, and Dan then decides between allocating it elsewhere and refunding it with its own date. The prior year refusal in 13 is unchanged.
+15. Methods are Check, Zelle, Venmo and PayPal. A payment by check gains a Cleared step; other methods do not. **Cleared belongs to the payment, never to an allocation**: one check clears once even where it settled two invoices, so an invoice can never be cleared on its own. The sidebar's To confirm count reads through to the payment (46a).
 
 ### Expenses
 
