@@ -133,21 +133,51 @@ own idea, collapses at these numbers: 27 of 31 rise to the top, because a missin
 is the norm rather than the exception until the roster clean up in ovation#40 has been run.
 That is the shape working exactly as designed and still being wrong for the data.
 
-### Round 2, open: how far held money reaches out of the detail pane
+### Round 2, settled 2026-09-07: BOTH, on the name and in the sidebar
 
 Four positions on one axis, from the pane alone up to a line in the sidebar card that reaches
 every screen. Three of the 31 clients hold money, $1,837.50 between them.
+
+Dan took two of the four together: the amount rides beside the client in the list, so the
+screen can say WHICH clients without a click, and a line in the sidebar card carries it to
+every screen including Invoices. He added a rule with it: **it must not say Money held 0.**
+
+**One argument put to him against the sidebar line was wrong and is recorded as wrong.** It
+was argued that held money is a fact about a client rather than a thing that needs you, and so
+did not belong in a card whose every number means this many things need you. Dan's question,
+whether applying a deposit to an invoice clears it from this screen, is what exposed it: it
+does, so held money counts DOWN as it is dealt with, exactly like the other four, and it fits
+the card's rule rather than breaking it.
 
 Two costs were measured in the browser rather than guessed, and both are named on the page
 itself rather than left for the implementer to find: putting the amount on the name cuts
 "Ashgrove Chamber Players" short in a 240px column, and the strip above the list costs 43px,
 which in a real window comes out of the list and drops it from 15 visible clients to 14.
 
+### Round 3, open: what a count does when it is nothing
+
+Nothing in the PRD or in this record has ever decided what a sidebar count does at zero, so
+Dan's rule lands on a card that already holds four other lines. Three positions: only the
+money line obeys it, every line obeys it and the card disappears, or every line obeys it and
+one line says nothing is waiting.
+
+The cost is movement, measured between a busy day and a quiet one as how far Invoices,
+Expenses and Clients shift: **26px, 180px and 106px**. None of the three holds perfectly still,
+because the money line comes and goes in all of them, and a first draft of the page claimed Z1
+did hold still until it was measured.
+
+The card line carries the AMOUNT rather than a count of clients, which is a judgement and not
+yet settled: three clients holding $87.50 between them and one holding $5,000.00 are the same
+count, and the reason the line exists is so the second one is not forgotten. It costs
+consistency, since the four lines beside it are counts.
+
 ### What is deliberately still open
 
-Round 3, how held money and referral credit are kept from reading as one balance, which is
-the one with a real consequence: PRD 5.14c, drawing them alike would let credit nobody paid
-settle an invoice. Round 4, where the ovation#40 roster clean up lives, since a shared
-contract email is currently drawn no differently from any other. A first attempt marked it one
+How held money and referral credit are kept from reading as one balance, which is the one with
+a real consequence: PRD 5.14c, drawing them alike would let credit nobody paid settle an
+invoice. Whether a deposit is distinguishable from an overpayment at all (ovation#96): both
+land in held money by design, and the money behaves identically either way. Where the
+ovation#40 roster clean up lives, since a shared contract email is currently drawn no
+differently from any other. A first attempt marked it one
 shade quieter, which measured as no difference at all on screen and was removed rather than
 left as a distinction the page claims and does not draw.

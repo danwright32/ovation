@@ -1,4 +1,4 @@
-<title>Ovation Clients, round 2</title>
+<title>Ovation Clients, round 3</title>
 <style>
 /* Fonts embedded so this file needs NOTHING external: it renders identically
    with no network at all. Latin subset only, because the page is pure ASCII.
@@ -310,6 +310,14 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .strip b { color: var(--ink); font-weight: 600; }
 .strip .act { margin-left: auto; }
 
+/* Z3's one remaining line. Same weight as a count's label, because it is the
+   card saying the same kind of thing. */
+.card .quiet { font-size: 12.5px; color: var(--rail-card-ln); }
+/* The day switch sits under the position buttons and is deliberately not one of
+   them: it changes the DATA, not the design. */
+.daywrap { margin-top: -14px; }
+.tab.day { border-style: dashed; }
+
 .detail { padding: 18px 24px 24px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .detail h5 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 25px; font-weight: 400; color: var(--ink); line-height: 1.1; }
 .facts { display: flex; flex-direction: column; gap: 6px; }
@@ -336,31 +344,32 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 <div class="wrap">
 
   <header class="masthead">
-    <div class="eyebrow">Ovation, round 2: how far money you are holding reaches</div>
-    <h1>The shape is settled. Now, where does held money appear?</h1>
+    <div class="eyebrow">Ovation, round 3: what a count does when it is nothing</div>
+    <h1>Both, and the sidebar line only when it has something to say.</h1>
     <p class="lede">
-      Round 1 settled the shape on 7 September: <strong>names on the left, one client on the
-      right</strong>. That shape gives money held and referral credit room to be labelled rather
-      than being two columns whose units you have to know, and it puts the client's invoices on
-      the same screen. What it spends is the list: the left column carries names and nothing else.
+      Round 2 settled on <strong>R2 and R3 together</strong>: the amount rides beside the client in
+      the list, so you can see which clients without clicking any of them, and a line in the sidebar
+      card carries it to every screen. Both are now in every rendering below and neither is a
+      variable any more.
     </p>
     <p class="lede">
-      This round moves <strong>one variable: how far out of the detail pane held money reaches</strong>.
-      The detail pane is identical in all four. The question is what you see when you are NOT
-      looking at that client, because money sitting unallocated for months is otherwise invisible
-      on the screen you actually use every day.
+      Dan added a rule with it: <strong>it should not say Money held 0</strong>. That is a rule
+      rather than a case, and nothing in the PRD or the design record has ever decided what a count
+      does when it is nothing, so it lands on a card that already has four other lines. This round
+      moves <strong>one variable: which lines that rule applies to, and what is left when it takes
+      them all</strong>.
     </p>
   </header>
 
   <div class="notice">
-    <p><b>Three of your thirty one clients are holding money</b>, which is $1,837.50 between them:
-    a $1,250.00 deposit for a shoot that has not happened, a $500.00 deposit, and $87.50 that
-    somebody overpaid. That is the real shape of it. It is a small number of clients and it is
-    not a small amount of money.</p>
-    <p><b>Each step out costs something.</b> The sidebar card is four counts and each one means
-    this many things need you; held money is not a thing that needs you, it is a fact about a
-    client. A strip across the top is a number you read once and then stop seeing. A mark in the
-    list gives the left column a second job. Nothing is free here.</p>
+    <p><b>Use the day switch.</b> The three positions are identical on a busy day and differ only on
+    a quiet one, which is the day the rule is about. A quiet day is not rare: it is every day the
+    work is done, which is the state the product should be nicest in.</p>
+    <p><b>The card line carries the AMOUNT, not a count of clients</b>, and that is a judgement
+    rather than a settled decision. Three clients holding $87.50 between them is not worth a line;
+    one client holding $5,000.00 is, and a count of 3 cannot tell those apart. It costs consistency:
+    the four lines beside it are counts of things, and this one is money. Say if you want the count
+    instead.</p>
   </div>
 
   <div class="tabs" id="tabs"></div>
@@ -368,36 +377,36 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
   <div class="stage" id="stage"></div>
 
   <div class="record">
-    <div><h3>Held identical</h3>
-      <p>The shape, the names list, the detail pane, the client's invoices, the window chrome and
-      the type. <b>Only the reach changes.</b></p>
+    <div><h3>Settled and no longer moving</h3>
+      <p>The two pane shape. The amount beside the client in the list. A money held line in the
+      sidebar card. All three are in every rendering here.</p>
     </div>
-    <div><h3>Referral credit is NOT in this round</h3>
-      <p>Four clients carry credit and it is drawn in the detail pane in all four, unchanged.
-      Whether credit reaches out of the pane too, and how it is kept from reading as one balance
-      with held money, is round 3. Moving both at once would produce no usable signal.</p>
+    <div><h3>What an empty card would mean</h3>
+      <p>A screen that draws nothing on the healthy day is <b>indistinguishable from one that
+      failed to draw</b>, and that is the whole argument against Z2. It is also the argument for
+      it: nothing on the screen is the truest possible statement that there is nothing to do.</p>
     </div>
-    <div><h3>The sidebar card's rule</h3>
-      <p>It holds four counts and each one means <b>this many things need you</b>. Position 3
-      tests whether held money belongs in that vocabulary at all, or whether putting it there
-      quietly changes what a number in the chrome means.</p>
+    <div><h3>The cost nobody mentions</h3>
+      <p>Lines that come and go make the sidebar <b>change height as you work</b>, so Invoices,
+      Expenses and Clients sit somewhere different depending on how much is waiting. Measured
+      between a busy day and a quiet one: <b>26px, 180px and 106px</b>. None of the three holds
+      perfectly still, because the money line comes and goes in all of them.</p>
     </div>
-    <div><h3>Espresso, unchanged</h3>
-      <p>Colour is settled and is not a variable. No red anywhere: money you are holding is not a
-      fault.</p>
+    <div><h3>Not in this round</h3>
+      <p>Whether a deposit is distinguishable from an overpayment (ovation#96), and how held money
+      is kept from reading as one balance with referral credit (PRD 5.14c). Both are next.</p>
     </div>
   </div>
 
   <section class="closing">
     <h2>What to look for</h2>
     <ol>
-      <li><b>Would you notice $1,250.00 sitting there for four months?</b> That is the failure
-      this round exists to prevent.</li>
-      <li><b>Does it read as money you owe, or money owed to you?</b> It is the first, and the
-      screen must not be ambiguous.</li>
-      <li><b>Does the sidebar count still mean one thing</b> once held money is in it?</li>
-      <li><b>Is the least of these enough?</b> Rejecting all four and keeping it in the pane is a
-      real answer.</li>
+      <li><b>Switch to a quiet day and look at the sidebar.</b> That is the only place these three
+      differ.</li>
+      <li><b>Does an empty card read as calm, or as broken?</b> That is the question.</li>
+      <li><b>How much movement is acceptable?</b> None of the three holds perfectly still: the
+      navigation shifts 26px, 180px and 106px respectively between a busy day and a quiet one.</li>
+      <li><b>Is Money held $1,837.50 right in a column of counts</b>, or should it be 3?</li>
     </ol>
   </section>
 </div>
@@ -490,6 +499,16 @@ function clientRow(k) {
 var HELD = CLIENTS.filter(function (k) { return k.h; });
 var HELD_TOTAL = "$1,837.50";
 
+/* THE DAY IS A STATE, NOT A DESIGN VARIABLE. The three positions are identical
+   on a busy day and differ only on a quiet one, so the quiet day is the whole
+   measurement and it needs its own control rather than a fourth position. */
+var QUIET = false;
+
+function counts() {
+  if (QUIET) return [["To send", 0], ["To chase", 0], ["To confirm", 0], ["Receipts to file", 0]];
+  return [["To send", 4], ["To chase", 2], ["To confirm", 2], ["Receipts to file", 7]];
+}
+
 function detailFor(k) {
   var detail = el("div", "detail");
   detail.append(el("h5", null, k.c));
@@ -508,11 +527,11 @@ function detailFor(k) {
   detail.append(facts);
 
   var money = el("div", "money");
-  [["Money held", k.h || "None", "You are holding this for them"],
+  [["Money held", (QUIET ? "None" : (k.h || "None")), "You are holding this for them"],
    ["Referral credit", k.r || "None", "Earned, spent on an invoice"]].forEach(function (m) {
-    var b = el("div", "mbox");
-    b.append(el("div", "mlabel", m[0]), el("div", "mval", m[1]), el("div", "mnote", m[2]));
-    money.append(b);
+    var bx = el("div", "mbox");
+    bx.append(el("div", "mlabel", m[0]), el("div", "mval", m[1]), el("div", "mnote", m[2]));
+    money.append(bx);
   });
   detail.append(money);
 
@@ -526,46 +545,69 @@ function detailFor(k) {
   return detail;
 }
 
-function contentFor(reach) {
+function contentFor() {
   var main = el("div", "main");
   var tbar = el("div", "toolbar");
   tbar.append(el("h4", null, "Clients"), el("div", "meta", "31 clients"));
   main.append(tbar);
 
   var scroll = el("div", "scroll");
-
-  /* R4. A strip above the list. One sentence, the money and the count. */
-  if (reach === "R4") {
-    var strip = el("div", "strip");
-    strip.append(el("b", null, "You are holding " + HELD_TOTAL),
-                 el("span", null, "for " + HELD.length + " clients"),
-                 el("span", "act", "Show them"));
-    scroll.append(strip);
-  }
-
   var split = el("div", "split");
   var names = el("div", "names");
   CLIENTS.forEach(function (k) {
-    var n = el("div", "nrow", k.c);
-    /* R2. The amount rides on the name, so the left column stops being names
-       only. It is the only position where you can SEE which clients without
-       clicking one. */
-    if (reach === "R2" && k.h) {
-      n.textContent = "";
+    var n = el("div", "nrow");
+    /* R2, settled. The amount rides on the name. On a quiet day nothing is
+       held, so no name carries one, which is the same rule as the card. */
+    if (k.h && !QUIET) {
       n.append(el("span", "nname", k.c), el("span", "nheld", k.h));
       n.classList.add("hasheld");
+    } else {
+      n.textContent = k.c;
     }
     if (k.c === SELECTED) n.classList.add("sel");
     names.append(n);
   });
-
   split.append(names, detailFor(CLIENTS.filter(function (x) { return x.c === SELECTED; })[0]));
   scroll.append(split);
   main.append(scroll);
   return main;
 }
 
-function windowFor(reach) {
+/* The card, which is the whole of this round. */
+function cardFor(rule) {
+  var lines = counts();
+  /* R3, settled: money held is a line in the card. It carries the AMOUNT rather
+     than a count of clients, because the reason this line exists is so a large
+     deposit is not forgotten, and three clients holding $87.50 between them and
+     one holding $5,000.00 are the same count. */
+  if (!QUIET) lines.push(["Money held", HELD_TOTAL]);
+
+  /* Z1: only the money line obeys the rule. The four counts always show, zero
+     included, so the card is a fixed object.
+     Z2 and Z3: every line obeys it. They differ only in what is left. */
+  var shown = lines.filter(function (ln) {
+    if (rule === "Z1") return ln[0] === "Money held" ? ln[1] !== 0 : true;
+    return ln[1] !== 0;
+  });
+
+  if (shown.length === 0) {
+    if (rule === "Z2") return null;
+    var quietCard = el("div", "card");
+    quietCard.append(el("div", "hd", "Needs you"), el("div", "quiet", "Nothing waiting"));
+    return quietCard;
+  }
+
+  var card = el("div", "card");
+  card.append(el("div", "hd", "Needs you"));
+  shown.forEach(function (pr) {
+    var ln = el("div", "ln");
+    ln.append(el("span", null, pr[0]), el("b", null, String(pr[1])));
+    card.append(ln);
+  });
+  return card;
+}
+
+function windowFor(rule) {
   var screen = el("div", "screen");
 
   var bar = el("div", "menubar");
@@ -573,7 +615,7 @@ function windowFor(reach) {
   ["File", "Edit", "View", "Window", "Help"].forEach(function (x) { bar.append(el("span", null, x)); });
   bar.append(el("span", "clock", "Mon 7 Sep  2:40 PM"));
 
-  var win = el("div", "win " + reach), app = el("div", "app");
+  var win = el("div", "win " + rule), app = el("div", "app");
   var tb = el("div", "titlebar");
   tb.append(el("div", "name", "Clients"));
 
@@ -581,16 +623,8 @@ function windowFor(reach) {
   var top = el("div", "railtop");
   ["r", "y", "g"].forEach(function (c) { top.append(el("div", "dot " + c)); });
   side.append(top);
-  var card = el("div", "card");
-  card.append(el("div", "hd", "Needs you"));
-  var lines = [["To send", "4"], ["To chase", "2"], ["To confirm", "2"], ["Receipts to file", "7"]];
-  /* R3. A fifth line in the card. Note what it does to the card's own rule,
-     which is that every number in it means this many things need you. */
-  if (reach === "R3") lines.push(["Money held", String(HELD.length)]);
-  lines.forEach(function (pr) {
-    var ln = el("div", "ln"); ln.append(el("span", null, pr[0]), el("b", null, pr[1])); card.append(ln);
-  });
-  side.append(card);
+  var card = cardFor(rule);
+  if (card) side.append(card);
   ["Invoices", "Expenses", "Clients"].forEach(function (x, i) {
     side.append(el("div", "item" + (i === 2 ? " on" : ""), x));
   });
@@ -602,36 +636,34 @@ function windowFor(reach) {
     el("div", "looked", "Last looked for bookings and receipts 2 minutes ago. Ovation only looks while it is open."));
   side.append(st);
 
-  app.append(side, tb, contentFor(reach));
+  app.append(side, tb, contentFor());
   win.append(app);
   screen.append(bar, win);
   return screen;
 }
 
 var SHAPES = [
-  { k: "R1", t: "Only where the client is",
-    h: "The detail pane, and nowhere else.",
-    p: "What you saw in round 1. The money is labelled properly and read in full when you open that client, and it is invisible every other minute of the year. Harborlight's $1,250.00 could sit there from June to October and nothing anywhere would mention it. This is the position the other three are paying to improve on, and it is a real answer if you would go looking anyway.",
-    m: "0 mentions outside the pane" },
-  { k: "R2", t: "On the name in the list",
-    h: "The amount rides beside the client, in the left column.",
-    p: "The only position where you can see WHICH clients without clicking any of them, and it costs the left column its single job. Three of thirty one carry a figure, so it reads as an exception rather than a column, which is the argument for it: the eye finds three marks in a list of names faster than a value in a column of values. Measured cost, not guessed: the column is 240px and the figure takes what the name needed, so Ashgrove Chamber Players is cut short here and reads as Ashgrove Chamber Play. Every name long enough to matter loses its end on the rows that carry money.",
-    m: "3 of 31 names carry a figure, 1 of the 3 is cut short" },
-  { k: "R3", t: "A line in the sidebar",
-    h: "A fifth count in the card, on every screen.",
-    p: "This is the only position that reaches you while you are on Invoices, which is where you actually are. It is also the one with a rule to break: the card holds four counts and each means this many things need you. Money held is not something that needs you, it is a fact about a client, and a count that means something different from its four neighbours is how a card stops being read at all.",
-    m: "5 counts, one meaning something else" },
-  { k: "R4", t: "A strip on the Clients screen",
-    h: "One sentence above the list, with the total and a way in.",
-    p: "It says the whole thing in one line, in words, with the money in it, and it cannot be misread as owed to you. It reaches you only once you are already on Clients, which is the screen you go to rather than the one you are on, and a fixed banner saying the same thing every day is a thing you stop seeing by about the third week. It costs 43px, measured: here the window grows by that, and in a real window of fixed height it comes out of the list instead, so you would see 14 clients at once rather than 15.",
-    m: "1 line, 1 total, on this screen only" }
+  { k: "Z1", t: "Only the money line comes and goes",
+    h: "The four counts always show, zero included.",
+    p: "The card is a fixed object of four lines you learn the shape of, and a fifth appears when there is money to apply. Measured, because the first draft of this sentence claimed nothing below it ever moves and that is not true: Invoices, Expenses and Clients shift by 26px between a busy day and a quiet one, which is the one line coming and going. The other cost is that the card holds two rules, four lines that sit at zero and one that vanishes, and a reader has to learn which is which. On a quiet day it reads: To send 0, To chase 0, To confirm 0, Receipts to file 0.",
+    m: "quiet day: 4 lines, all zero. sidebar moves 26px" },
+  { k: "Z2", t: "Every line goes, and so does the card",
+    h: "Nothing waiting means nothing drawn.",
+    p: "One rule, applied everywhere, and the truest possible statement that there is nothing to do. Two costs, and the second is the serious one. Invoices, Expenses and Clients move 180px between a busy day and a quiet one, measured, which is the navigation landing somewhere different depending on how much work is waiting. And a card that draws nothing on the healthy day is indistinguishable from one that failed to draw at all, which is the state you would least want to misread.",
+    m: "quiet day: no card at all. sidebar moves 180px" },
+  { k: "Z3", t: "Every line goes, and one line says so",
+    h: "The same rule, with something left standing.",
+    p: "One rule, and the healthy day still says something out loud, so an empty card can never be confused with a broken one. The navigation still moves, 106px measured, about half of what Z2 costs. It also spends a line saying nothing is waiting, which is a sentence you would read several thousand times, and the invoice list already rejected a Nothing to do label once on exactly that ground.",
+    m: "quiet day: 1 line, Nothing waiting. sidebar moves 106px" }
 ];
 
 var tabs = document.getElementById("tabs");
 var readout = document.getElementById("readout");
 var stage = document.getElementById("stage");
 
+var CURRENT = 0;
 function show(i) {
+  CURRENT = i;
   var s = SHAPES[i];
   Array.prototype.forEach.call(tabs.children, function (b, j) {
     b.setAttribute("aria-pressed", j === i ? "true" : "false");
@@ -643,6 +675,16 @@ function show(i) {
   stage.replaceChildren(windowFor(s.k));
 }
 
+/* The day switch. A state control, kept visually apart from the position
+   buttons so it does not read as a fourth position. */
+var dayWrap = el("div", "tabs daywrap");
+var dayBtn = el("button", "tab day");
+dayBtn.type = "button";
+function dayLabel() { dayBtn.replaceChildren(el("span", "k", "DAY"), el("span", null, QUIET ? "A quiet day" : "A busy day")); }
+dayBtn.addEventListener("click", function () { QUIET = !QUIET; dayLabel(); show(CURRENT); });
+dayLabel();
+dayWrap.append(dayBtn);
+
 SHAPES.forEach(function (s, i) {
   var b = el("button", "tab");
   b.type = "button";
@@ -653,6 +695,7 @@ SHAPES.forEach(function (s, i) {
 /* The position in the address bar wins, so a link can point at one. */
 var WANTED = SHAPES.map(function (s) { return s.k; }).indexOf(
   (location.hash || "").replace("#", "").toUpperCase());
+tabs.parentNode.insertBefore(dayWrap, tabs.nextSibling);
 show(WANTED >= 0 ? WANTED : 0);
 </script>
 
