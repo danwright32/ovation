@@ -177,6 +177,15 @@ Not for: anyone else. There are no other users, no roles and no sharing. Ovation
 
 Oldest first within each group. Today's shoots outrank overdue invoices because sending today's invoice is a thing done once and now, while chasing can happen any time this week. This ordering replaces the estimate trick Dan used in QuickBooks to keep far off work out of his view.
 
+**CORRECTED 2026-09-06 (ovation#49): those eight groups are NOT the whole state space, and reading them as though they were is how a record becomes unreachable.** The list is the only way to reach an invoice, so a state matching no group is not merely awkward, it is invisible, and an invisible unbilled shoot stays unbilled. Four states have no group above:
+
+- **A draft with no shoot date.** Groups 1, 3 and 6 are all keyed on the shoot date, and an invoice can be created from scratch with no booking behind it, so a dateless draft matches none of them. ovation#49 settles where it goes: **with group 3**, because "should have been sent" is what needs Dan about it. It is not a ninth group.
+- **Could not determine whether it was sent.** ovation#45 treats sent as something only ever observed, never asserted, which makes the sent state a triple rather than a pair. The third member is the one that needs a person, and it must not be collapsed into either of the other two.
+- **Part paid.** ovation#48 records payments against an invoice, so an invoice can hold some of its money and not the rest. Neither group 5 nor group 7 describes that.
+- **Refunded.** Named in ovation#49's enumeration and in 5.47's cancellation question, and no group above holds it.
+
+The placement of the last three is **open** and is decided on ovation#49, which also carries the property test that is the real enforcement: every combination of state lands in exactly one group, asserted in both directions, so no state appears in two and none appears in none. **A future revision of this list is answerable to that test rather than to this paragraph**, because a list maintained by hand beside a test is the drift the test exists to catch (L41).
+
 **What one booking is.** Downbeat's booking flow books a whole run in one pass, but it saves one `Booking` row per show, each holding a single date, a single time range and a single venue (`ShowCommitPlan` in `BookingDraftBatch.swift`, committed one plan at a time by `BatchCommitOrchestrator`). So "a booking" throughout this document means one performance, and a three night run reaches Ovation as three of them.
 
 **The booking handoff.** Downbeat writes one small file per committed booking into a queue. Ovation reads it, creates the invoice, saves it, and only then removes the queue file. The order matters: saving first means a crash loses nothing, while acknowledging first would lose the invoice. Downbeat's seven day sweep is untouched, so timing stops mattering entirely. A re run is marked as such and creates nothing new, only a note on the invoice that already exists.
