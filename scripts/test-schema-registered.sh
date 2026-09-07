@@ -7,7 +7,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "schema registration tests" 13
+harness_begin "schema registration tests" 15
 
 TARGET="scripts/check-schema-registered.sh"
 require_target "$TARGET"
@@ -96,6 +96,45 @@ check "a missing scan root cannot measure" \
     "$(status_on "$WORK/nowhere" "$GOOD/Persistence/OvationSchema.swift")" "2"
 check "a missing schema file cannot measure" \
     "$(status_on "$GOOD" "$WORK/nowhere.swift")" "2"
+
+# A NON MODEL `.self` IN THE SCHEMA FILE IS NOT A REGISTRATION. ovation#105 put
+# OvationSchemaV1.self and OvationMigrationPlan.self in this file, and reading
+# every `X.self` in it treated both as registered model types with no @Model
+# declaration anywhere, so the guard reported the schema as stale. The subject is
+# the models ARRAY, not the file (L100: a match found by loose spelling picks up
+# what was never a subject).
+VERSIONED="$WORK/versioned"
+mkdir -p "$VERSIONED/Persistence" "$VERSIONED/Domain"
+cat > "$VERSIONED/Domain/Invoice.swift" <<'SWIFT'
+@Model
+final class Invoice { var id: Int = 0 }
+SWIFT
+cat > "$VERSIONED/Persistence/OvationSchema.swift" <<'SWIFT'
+enum OvationSchema {
+    static let models: [any PersistentModel.Type] = [
+        Invoice.self,
+    ]
+    static var schema: Schema { Schema(models, version: OvationSchemaV1.versionIdentifier) }
+    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV1.self }
+    static func container(at url: URL) throws -> ModelContainer {
+        try ModelContainer(for: schema, migrationPlan: OvationMigrationPlan.self,
+                           configurations: ModelConfiguration(schema: schema, url: url))
+    }
+}
+
+enum OvationSchemaV1: VersionedSchema {
+    static var models: [any PersistentModel.Type] { OvationSchema.models }
+}
+
+enum OvationMigrationPlan: SchemaMigrationPlan {
+    static var schemas: [any VersionedSchema.Type] { [OvationSchemaV1.self] }
+}
+SWIFT
+check "a versioned schema beside the models is not read as a stale registration" \
+    "$(status_on "$VERSIONED" "$VERSIONED/Persistence/OvationSchema.swift")" "0"
+check "and an actually unregistered model is still caught in the same file" \
+    "$(printf '@Model\nfinal class Payment { var id: Int = 0 }\n' > "$VERSIONED/Domain/Payment.swift"; \
+       status_on "$VERSIONED" "$VERSIONED/Persistence/OvationSchema.swift")" "1"
 
 # The real sources, once, so the seams are not the only thing ever exercised.
 check "the real tree passes" "$(OVATION_SCHEMA_SCAN_ROOT= OVATION_SCHEMA_FILE= "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"

@@ -34,6 +34,14 @@ import sys
 # comments, blank lines) in between.
 DECLARATION = re.compile(r"@Model\b[\s\S]{0,400}?\bclass\s+([A-Za-z_][A-Za-z0-9_]*)")
 REGISTRATION = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\.self\b")
+# The SUBJECT is the models array, not the file. ovation#105 added
+# OvationSchemaV1.self and OvationMigrationPlan.self to the schema file, and
+# reading every `X.self` in it treated both as registered model types with no
+# @Model declaration anywhere, so the guard called a correct schema stale. A
+# match found by loose spelling picks up what was never a subject (L100).
+MODELS_ARRAY = re.compile(
+    r"\bmodels\s*:\s*\[\s*any\s+PersistentModel\.Type\s*\]\s*=\s*\[(.*?)\]",
+    re.DOTALL)
 
 
 def swift_files(root):
@@ -61,7 +69,16 @@ def main():
 
     with open(schema_file, "r", encoding="utf-8", errors="replace") as handle:
         schema_text = handle.read()
-    registered = set(REGISTRATION.findall(schema_text))
+
+    arrays = MODELS_ARRAY.findall(schema_text)
+    if not arrays:
+        print(f"CANNOT SCAN: no models array found in {schema_file}.")
+        print("             That is not a pass: the guard has lost the one list")
+        print("             it holds the sources to, so it can no longer measure.")
+        return 2
+    registered = set()
+    for body in arrays:
+        registered.update(REGISTRATION.findall(body))
 
     declared = {}
     for path in swift_files(root):
