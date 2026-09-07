@@ -128,10 +128,16 @@ struct TaxRate: Equatable, Hashable, Codable, Sendable, CustomStringConvertible 
         self.thousandthsOfAPercent = thousandthsOfAPercent
     }
 
-    /// 8.875%. PRD 5: it applies to the WHOLE subtotal, matching real invoice
-    /// 1057, and that base is pinned by an invoice rather than by argument
-    /// because tax rounded per line and tax rounded on the total are different
-    /// numbers and both look right.
+    /// 8.875%. PRD 5: it applies to the subtotal AFTER any discount, matching
+    /// real invoice 1057, and that base is pinned by an invoice rather than by
+    /// argument because tax rounded per line and tax rounded on the total are
+    /// different numbers and both look right.
+    ///
+    /// CORRECTED 2026-09-07 (ovation#60): this said the WHOLE subtotal, which was
+    /// true until Dan settled the discount on 2026-09-06. A discount sits below
+    /// the subtotal and the tax is charged on what is left (PRD 5.4a), so a
+    /// caller passing the undiscounted subtotal now overcharges by the tax on the
+    /// discount. `Discount` is the other half of this.
     static let newYorkCity = TaxRate(thousandthsOfAPercent: 8_875)
 
     var description: String {
