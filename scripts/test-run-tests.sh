@@ -412,6 +412,8 @@ check "no suite in this repository takes a suite level argument" \
 # The suite directory is a seam so these cases drive the loop with throwaway
 # suites rather than the thirty three real ones, which would recurse through this
 # very file (L245) and take minutes (L291).
+# Guarded before any rm, as above (L5).
+[ -n "$WORK" ] || exit 1
 SUITES="$WORK/suites"
 mkdir -p "$SUITES"
 

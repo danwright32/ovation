@@ -43,7 +43,7 @@ make_export() {
  "bookings":[{"id":"b1","clientId":"c1","clientDisplayName":"Zzfixture Chorale","venueName":"Zzfixture Hall","shootName":"Zzfixture Concert"}]}
 JSON
 }
-tree() { local d="$WORK/$1"; rm -rf "$d"; mkdir -p "$d"; printf '%s\n' "$d"; }
+tree() { [ -n "$WORK" ] || exit 1; local d="$WORK/$1"; rm -rf "$d"; mkdir -p "$d"; printf '%s\n' "$d"; }
 
 EXPORT="$WORK/export.json"; make_export "$EXPORT"
 run_guard() {

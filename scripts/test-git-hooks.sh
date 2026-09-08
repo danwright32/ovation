@@ -150,6 +150,11 @@ check "the escape hatch is stripped before the hook is measured" \
 gate_check_names() { grep -oE '^gate_check +check-[a-z-]+\.(sh|py)' "$REPO_ROOT/$HOOK" | awk '{print $2}'; }
 
 stage_tree() {
+    # Guarded against an empty WORK before any rm, the way new_tree in
+    # scripts/test-check-ported-artifacts.sh is: the harness makes WORK and exits
+    # if mktemp failed, and a recursive delete built from a variable is not the
+    # place to rely on that holding somewhere else (L5).
+    [ -n "$WORK" ] || exit 1
     local r="$WORK/$1"; rm -rf "$r"; mkdir -p "$r/scripts/git-hooks"
     ( cd "$r" && git init -q -b main && git config user.email t@t && git config user.name t ) >/dev/null 2>&1
     printf '#!/bin/bash\necho "SUITE-FROM-%s"\necho "SKIP=${OVATION_SKIP_XCODE_PHASE:-}"\nexit %s\n' "$1" "$2" > "$r/scripts/run-tests.sh"
