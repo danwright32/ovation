@@ -335,11 +335,25 @@ STATUS=$?
 # would mean no push at all, not even a docs change, until both configurations
 # are built under the sibling locks, which is the cost ovation#139 was filed
 # about. It is allowed and NAMED, never called green.
-if [ "${STATUS}" -eq 2 ]; then
+if [ "${STATUS}" -eq 2 ] && [ -n "${SKIP_XCODE}" ]; then
+    # This machine COULD have measured those suites, it simply has not built
+    # anything yet, so Dan's rule turns on whether the push contains anything
+    # they judge. It does not: the same answer the Xcode phase decision was made
+    # from is read again here rather than a second rule that can disagree with
+    # the first (L70).
     echo "pre-push: the suite could not be measured in full (see above)." >&2
-    echo "pre-push: everything that could run passed. The push is not refused for" >&2
-    echo "pre-push: it, and what those suites cover went unmeasured here." >&2
+    echo "pre-push: everything that could run passed, and nothing in this push is" >&2
+    echo "pre-push: something those suites judge, so it is not refused for them." >&2
     UNMEASURED="${UNMEASURED}the test suite "
+elif [ "${STATUS}" -eq 2 ]; then
+    # The other half, and the one the rule is actually about. A range this could
+    # not place lands here too, because not knowing what is in a push is not the
+    # same as knowing there is nothing in it (L98).
+    echo "pre-push: the suite could not be measured in full (see above), and this" >&2
+    echo "pre-push: push contains something those suites judge. Push refused." >&2
+    echo "pre-push: build both configurations first, which is what makes them" >&2
+    echo "pre-push: measurable: bash scripts/build-products.sh" >&2
+    exit 1
 elif [ "${STATUS}" -ne 0 ]; then
     echo "pre-push: the suite is RED. Push refused." >&2
     echo "pre-push: fix it, or push this one time with SKIP_TEST_RUN=1, which says so." >&2

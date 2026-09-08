@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 50
+harness_begin "git hooks tests" 53
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -283,6 +283,18 @@ check "an absolute path to somebody else's hooks is still refused" \
 #   2  could not measure, and nothing here ever could have: allowed, and said
 #   4  could not measure, and this machine had what it needed: refused
 #   anything else: refused, with that check's own sentence
+commit_file() {
+    ( cd "$1" && mkdir -p "$(dirname "$2")" && printf 'x\n' > "$2" \
+      && git add "$2" && git commit -qm "c" ) >/dev/null 2>&1
+    ( cd "$1" && git rev-parse HEAD )
+}
+hook_with_range() {
+    ( cd "$1" && printf '%s\n' "$2" | env -u SKIP_TEST_RUN -u FORCE_TEST_RUN \
+        -u SKIP_STYLE_CHECK -u SKIP_TEST_CHECK \
+        bash "$1/scripts/git-hooks/pre-push" origin "$1" 2>&1 )
+}
+ZEROS="0000000000000000000000000000000000000000"
+
 add_check() {
     printf '#!/bin/bash\necho "CHECK-%s-RAN"\nexit %s\n' "$2" "$3" > "$1/scripts/$2"
     chmod +x "$1/scripts/$2"
@@ -313,19 +325,48 @@ check "a check that should have been able to measure and could not refuses" \
 check "and it says the fault is on this machine, not in the tree" \
     "$(printf '%s' "$OUT135C" | grep -ci 'machine')" "1"
 
-# THE SUITE ITSELF ANSWERS THE SAME WAY NOW (ovation#139). run-tests.sh returns 2
-# when every suite that could run passed and at least one could not, which on a
-# tree with no built product is the two bundle suites. Refusing there would mean
-# no push at all until both configurations are built, which is the cost that
-# issue was filed about.
+# THE SUITE ITSELF ANSWERS THE SAME WAY, BUT ONLY WHERE THE PUSH CANNOT REACH IT.
+#
+# run-tests.sh returns 2 when every suite that could run passed and at least one
+# could not, which on a tree with no built product is the two bundle suites
+# (ovation#139). Whether that refuses is DAN'S RULE applied honestly: refuse only
+# when the machine should have been able to measure. This machine could have, it
+# simply has not built anything yet, so the question is whether the push contains
+# anything those suites judge.
+#
+# The gate already worked that out for the Xcode phase (ovation#22), so it is the
+# same answer read twice rather than a second rule that can disagree with the
+# first (L70). Dan chose this on 2026-09-08 over always allowing and over always
+# refusing, the first of which leaves app changes unjudged and the second of which
+# makes a documentation push wait for two builds.
+#
+# The unmeasured suites are checked here, not the CANNOT MEASURE of an individual
+# guard: those keep the gate_check behaviour above, since a machine with no live
+# export cannot get one by building.
 G4="$(stage_tree gate4 2)"
-OUT135D="$(hook_from_tree_in "$G4" "$G4")"; ST135D=$?
-check "a suite that could not measure does not refuse the push" \
+B4="$(commit_file "$G4" "docs/one.md")"
+D4="$(commit_file "$G4" "docs/two.md")"
+OUT135D="$(hook_with_range "$G4" "refs/heads/main $D4 refs/heads/main $B4")"; ST135D=$?
+check "an unmeasured suite does not refuse a push it cannot judge" \
     "$([ "$ST135D" -ne 0 ] && echo refused || echo allowed)" "allowed"
 check "and the gate does not call that run green" \
     "$(printf '%s' "$OUT135D" | grep -ci 'suite is green')" "0"
 check "and it says the suite itself is what went unmeasured" \
     "$(printf '%s' "$OUT135D" | grep -c 'unmeasured on this machine: the test suite')" "1"
+
+# THE OTHER HALF, which is the one Dan's rule is actually about.
+S4="$(commit_file "$G4" "Ovation/Domain/Thing.swift")"
+OUT135E="$(hook_with_range "$G4" "refs/heads/main $S4 refs/heads/main $D4")"; ST135E=$?
+check "an unmeasured suite DOES refuse a push that changes what it judges" \
+    "$([ "$ST135E" -ne 0 ] && echo refused || echo allowed)" "refused"
+check "and it names the remedy, which is a thing this machine can actually do" \
+    "$(printf '%s' "$OUT135E" | grep -c 'build-products.sh')" "1"
+
+# AND A RANGE IT CANNOT PLACE REFUSES, because not knowing what is in a push is
+# not the same as knowing there is nothing in it (L98).
+OUT135F="$( cd "$G4" && env -u SKIP_TEST_RUN bash "$G4/scripts/git-hooks/pre-push" < /dev/null 2>&1 )"; ST135F=$?
+check "and a push it cannot read refuses rather than being waved through" \
+    "$([ "$ST135F" -ne 0 ] && echo refused || echo allowed)" "refused"
 
 # SEEN TO FAIL (L1). The refusal above is the whole reason the stub staging is
 # derived from the hook, so it has to be shown firing rather than assumed.
@@ -349,18 +390,6 @@ check "and it names the check it could not find" \
 # anything outside a short list of paths no xcodebuild run can read, means the
 # full thing runs. And it SAYS which of the two it decided, because a push that
 # skipped the Swift suites must never read like one that passed them (L98).
-commit_file() {
-    ( cd "$1" && mkdir -p "$(dirname "$2")" && printf 'x\n' > "$2" \
-      && git add "$2" && git commit -qm "c" ) >/dev/null 2>&1
-    ( cd "$1" && git rev-parse HEAD )
-}
-hook_with_range() {
-    ( cd "$1" && printf '%s\n' "$2" | env -u SKIP_TEST_RUN -u FORCE_TEST_RUN \
-        -u SKIP_STYLE_CHECK -u SKIP_TEST_CHECK \
-        bash "$1/scripts/git-hooks/pre-push" origin "$1" 2>&1 )
-}
-ZEROS="0000000000000000000000000000000000000000"
-
 R22="$(stage_tree range 0)"
 BASE22="$(commit_file "$R22" "docs/one.md")"
 DOCS22="$(commit_file "$R22" "docs/two.md")"
