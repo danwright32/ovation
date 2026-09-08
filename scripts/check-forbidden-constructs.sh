@@ -83,7 +83,8 @@ RULES = (
         "name": "floating point money",
         "tokens": ("Double", "Float", "Float32", "Float64", "Decimal", "NSDecimalNumber"),
         "because": (
-            "Money is Int64 minor units and hours are tenths (plan 1.4). A single "
+            "Money is Int64 minor units and hours are HUNDREDTHS of an hour (plan 1.4, "
+            "corrected by ovation#127). A single "
             "conversion through a floating point type is a rounding error small "
             "enough to survive review and large enough to matter across a tax year."
         ),
