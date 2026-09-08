@@ -86,9 +86,23 @@ struct DocumentStore {
     /// Write these bytes and hand back what identifies them.
     ///
     /// Idempotent by construction: the path is derived from the content, so
-    /// storing the same bytes again finds them already there. It does NOT
-    /// overwrite in that case, because the bytes are by definition identical and
-    /// rewriting a file somebody may be reading buys nothing (L5).
+    /// storing the same bytes again finds them already there.
+    ///
+    /// A FILE ALREADY AT THE PATH IS VERIFIED, NOT ASSUMED (ovation#90). It was
+    /// written by an earlier store and may have been damaged or replaced since,
+    /// and `fileExists` cannot tell those apart from a sound one. Adopting a
+    /// damaged file writes a record carrying a hash the file does not match, and
+    /// the only thing that would ever notice is a later verification or a backup,
+    /// by which time the original bytes are gone. Storing is the ONE moment when
+    /// the correct bytes are in hand, so it is the moment to spend a read.
+    ///
+    /// A `.verified` file is reused untouched, because the bytes are by
+    /// definition identical and rewriting a file somebody may be reading buys
+    /// nothing (L5). Anything else is rewritten from the bytes being stored,
+    /// which are known good. What this does NOT do is delete whatever is in the
+    /// way first: a directory standing there holds something unknown, and nothing
+    /// good is destroyed before its replacement exists (L5). The write fails and
+    /// is reported by name instead.
     func store(_ data: Data, extension fileExtension: String) throws -> DocumentReference {
         let digest = Self.hash(of: data)
         let reference = DocumentReference(relativePath: Self.path(for: digest,
@@ -100,7 +114,17 @@ struct DocumentStore {
             throw DocumentStoreError.pathRefused(reference.relativePath)
         }
 
-        if fileManager.fileExists(atPath: url.path) { return reference }
+        if fileManager.fileExists(atPath: url.path) {
+            // Every verdict listed, with no default branch, so a sixth outcome
+            // added to `DocumentVerdict` fails the build here rather than landing
+            // on whichever branch happens to be the default (L113).
+            switch verify(reference) {
+            case .verified:
+                return reference
+            case .absent, .unreadable, .mismatch, .noHashRecorded, .pathRefused:
+                break
+            }
+        }
 
         let directory = url.deletingLastPathComponent()
         do {

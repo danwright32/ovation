@@ -42,6 +42,80 @@ struct DocumentStoreTests {
         #expect(try store.allFiles().count == 1)
     }
 
+    @Test("storing over a DAMAGED file rewrites it, rather than adopting the damage")
+    func storingRepairsADamagedFile() throws {
+        // ovation#90. The path is the hash, so a second store of the same bytes
+        // finds the file already there. Returning on `fileExists` without reading
+        // it means a file damaged or replaced since it was written is silently
+        // adopted, and the new record then carries a hash the file does not
+        // match. Storing is the one moment when the correct bytes are in hand.
+        //
+        // THE TAMPERED COPY IS THE SAME LENGTH ON PURPOSE, for the reason
+        // `changedBytesAreAMismatch` records: a length check would pass it, and
+        // the test could not then tell the hash from a check that reads nothing.
+        let original = Data("a receipt".utf8)
+        let tampered = Data("b receipt".utf8)
+        #expect(original.count == tampered.count)
+
+        let scratch = try Scratch()
+        let store = DocumentStore(root: scratch.root)
+        let reference = try store.store(original, extension: "pdf")
+        let url = try #require(store.url(for: reference))
+        try tampered.write(to: url)
+
+        let again = try store.store(original, extension: "pdf")
+
+        #expect(again == reference)
+        #expect(try Data(contentsOf: url) == original)
+        #expect(store.verify(reference) == .verified)
+    }
+
+    @Test("a sound file is reused untouched, not rewritten on every store")
+    func storingDoesNotRewriteASoundFile() throws {
+        // The other half, and the reason the repair above is a verify rather than
+        // an unconditional overwrite: identical bytes are by definition already
+        // correct, and rewriting a file somebody may be reading buys nothing (L5).
+        //
+        // The stamp is SET to a fixed date rather than compared against elapsed
+        // time, so this asserts what happened rather than how fast the machine is
+        // (L224, L290).
+        let scratch = try Scratch()
+        let store = DocumentStore(root: scratch.root)
+        let bytes = Data("a receipt".utf8)
+        let reference = try store.store(bytes, extension: "pdf")
+        let url = try #require(store.url(for: reference))
+        let stamp = Date(timeIntervalSinceReferenceDate: 1_000)
+        try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: url.path)
+
+        _ = try store.store(bytes, extension: "pdf")
+
+        let after = try FileManager.default
+            .attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+        #expect(after == stamp)
+    }
+
+    @Test("storing where the bytes CANNOT be rewritten refuses, rather than returning a reference that lies")
+    func storingOverSomethingUnwritableRefuses() throws {
+        // The failure path of the repair above. A directory standing where the
+        // document belongs cannot be verified and must not be adopted, and it is
+        // also not this code's to delete: what is in it is unknown, and L5 says
+        // nothing good is destroyed before its replacement exists. So the write
+        // is attempted and its failure is reported by name, where before this the
+        // call returned a reference naming a directory as though it were a
+        // receipt.
+        let scratch = try Scratch()
+        let store = DocumentStore(root: scratch.root)
+        let bytes = Data("a receipt".utf8)
+        let reference = try store.store(bytes, extension: "pdf")
+        let url = try #require(store.url(for: reference))
+        try FileManager.default.removeItem(at: url)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+
+        #expect(throws: DocumentStoreError.self) {
+            _ = try store.store(bytes, extension: "pdf")
+        }
+    }
+
     @Test("different bytes land somewhere different, even under the same extension")
     func differentContentIsADifferentDocument() throws {
         let scratch = try Scratch()
