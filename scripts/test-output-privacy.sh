@@ -324,17 +324,23 @@ check "and none when the record is self contained" \
     "$(leaks_in "$(OVATION_DESIGN_ROOT="$DESIGN_ROOT" \
         ./scripts/check-design-self-contained.sh 2>&1)")" "clean"
 
-# The rule inlining guard reads the same record, and its refusal QUOTES A LINE OF
-# THE RULE back to say where the copy stopped matching. That is the one thing
-# here that prints file CONTENT rather than a filename, so the fixture puts a
-# client and a venue inside the rule as well as inside the design file.
-mkdir -p "$DESIGN_ROOT/rules"
-cat > "$DESIGN_ROOT/rules/duration.js" <<JS
+# The rule inlining guard reads a record of the same shape, and an earlier
+# version of it QUOTED A LINE OF THE RULE back to say where the copy stopped
+# matching, which is the one thing here that would print file CONTENT rather than
+# a filename. So the fixture puts a client and a venue INSIDE the rule as well as
+# inside the design file, and the guard now names the line number instead.
+#
+# ITS OWN ROOT, rather than the one above with a rules/ folder added and taken
+# away again. The harness owns every removal in this suite (ovation#19), so a
+# fixture that needs a different shape gets a different directory.
+RULES_ROOT="$WORK/design-with-rules"
+mkdir -p "$RULES_ROOT/rules"
+cat > "$RULES_ROOT/rules/duration.js" <<JS
 function who() {
   return "$CLIENT at $VENUE";
 }
 JS
-cat > "$DESIGN_ROOT/invoice-list.html" <<HTML
+cat > "$RULES_ROOT/invoice-list.html" <<HTML
 <h1>$CLIENT at $VENUE</h1>
 <script>
 function who() {
@@ -343,12 +349,11 @@ function who() {
 </script>
 HTML
 check "the rule inlining guard prints no identity when a copy has drifted" \
-    "$(leaks_in "$(OVATION_DESIGN_ROOT="$DESIGN_ROOT" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$RULES_ROOT" \
         ./scripts/check-design-rules-inline.sh 2>&1)")" "clean"
 check "and none when it cannot compare anything at all" \
-    "$(leaks_in "$(OVATION_DESIGN_ROOT="$DESIGN_ROOT/nowhere" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$RULES_ROOT/nowhere" \
         ./scripts/check-design-rules-inline.sh 2>&1)")" "clean"
-rm -rf "$DESIGN_ROOT/rules"
 
 # ---------------------------------------------------------------------------
 # The live data bracket. It prints watched PATHS relative to Application

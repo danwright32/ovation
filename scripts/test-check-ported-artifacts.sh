@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ported artifact check tests" 27
+harness_begin "ported artifact check tests" 30
 
 TARGET="scripts/check-ported-artifacts.sh"
 require_target "$TARGET"
@@ -206,5 +206,30 @@ check "and it still does not match its own marker" \
     "$(printf '%s' "$OUT10" | grep -c "UNREADABLE HEADER")" "0"
 check "and it does not report the repository as empty now that a port exists" \
     "$(printf '%s' "$OUT10" | grep -c "NO PORTED ARTIFACTS")" "0"
+
+# ---------------------------------------------------------------------------
+# 11. THE ENVIRONMENT A GIT HOOK RUNS IN. This check's whole job is to ask other
+# repositories about themselves, and `git -C <other repo>` is NOT enough to do
+# that: an inherited GIT_DIR beats the -C, so every sibling answers with THIS
+# repository's origin, matches no slug, and is reported as not being on the
+# machine while sitting right there.
+#
+# git EXPORTS GIT_DIR to its hooks, which is exactly where this check runs. From
+# the primary checkout it survives by luck, because that GIT_DIR is the relative
+# `.git`, and a relative GIT_DIR beside `-C /path/to/sibling` resolves to the
+# sibling's own .git. From a WORKTREE it is absolute, and every artifact reports
+# CANNOT MEASURE. Found on 2026-09-08 by a push refused for nine unmeasurable
+# ports, with all nine siblings present and the same command passing by hand.
+#
+# The fixture sets the absolute form, because that is the one that breaks, and
+# asserts the check reaches the same verdict it reaches with a clean
+# environment: not merely that it passes, but that it says the same thing.
+OUT11="$(GIT_DIR="$PWD/.git" GIT_WORK_TREE="$PWD" \
+    OVATION_PORT_SCAN_ROOT="$PWD" "./$TARGET" 2>&1)"; ST11=$?
+check "an inherited GIT_DIR does not stop the siblings being resolved" "$ST11" "0"
+check "and the verdict is the same one a clean environment reaches" \
+    "$(printf '%s' "$OUT11" | tail -1)" "$(printf '%s' "$OUT10" | tail -1)"
+check "and nothing is reported as missing from a machine it is on" \
+    "$(printf '%s' "$OUT11" | grep -c "is not on this machine")" "0"
 
 harness_end

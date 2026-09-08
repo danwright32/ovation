@@ -70,6 +70,26 @@ if [ ! -d "$SCAN_ROOT" ]; then
     exit 2
 fi
 
+# ASKING ANOTHER REPOSITORY ABOUT ITSELF NEEDS MORE THAN `git -C`. An inherited
+# GIT_DIR BEATS the -C, so every question below would be answered by whatever
+# GIT_DIR names, which is this repository. That is not a hypothetical: git
+# EXPORTS GIT_DIR to its hooks, and this check runs in the pre-push hook.
+#
+# From the primary checkout it survived by luck, because git sets the relative
+# `.git` there and a relative GIT_DIR beside `-C /path/to/sibling` resolves to
+# the sibling's own .git. From a WORKTREE it is an absolute path, every sibling
+# answers with Ovation's own origin, matches no slug, and is reported as not
+# being on this machine while sitting right there. A push was refused for nine
+# unmeasurable ports on 2026-09-08 with all nine siblings present, and the same
+# command passed by hand, which is what pointed at the environment.
+#
+# So every call goes through here. One definition, so a call site added later
+# cannot quietly be the one that reads the wrong repository (L70, L621).
+sibling_git() {
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY \
+        -u GIT_COMMON_DIR -u GIT_NAMESPACE git "$@"
+}
+
 # Resolve <owner>/<repo> to a local checkout by asking each candidate what its
 # origin actually is, rather than matching on directory name. Overture's checkout
 # is not called "overture", so a name match would miss it, and a directory that
@@ -80,7 +100,7 @@ resolve_sibling() {
     for root in $SEARCH_ROOTS; do
         [ -d "$root" ] || continue
         while IFS= read -r candidate; do
-            url="$(git -C "$candidate" remote get-url origin 2>/dev/null)" || continue
+            url="$(sibling_git -C "$candidate" remote get-url origin 2>/dev/null)" || continue
             case "$url" in
                 *"$slug".git|*"$slug"|*"$slug"/) printf '%s\n' "$candidate"; return 0 ;;
             esac
@@ -94,7 +114,7 @@ resolve_sibling() {
 main_ref() {
     local repo="$1"
     for ref in main origin/main; do
-        if git -C "$repo" rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
+        if sibling_git -C "$repo" rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
             printf '%s\n' "$ref"; return 0
         fi
     done
@@ -138,13 +158,13 @@ while IFS= read -r file; do
             cannot_measure=$((cannot_measure+1))
             continue
         fi
-        if ! git -C "$sibling" cat-file -e "${commit}^{commit}" 2>/dev/null; then
+        if ! sibling_git -C "$sibling" cat-file -e "${commit}^{commit}" 2>/dev/null; then
             echo "COMMIT NOT FOUND: $rel"
             echo "    $slug does not contain $commit, so the port cannot be placed"
             cannot_measure=$((cannot_measure+1))
             continue
         fi
-        if git -C "$sibling" merge-base --is-ancestor "$commit" "$ref" 2>/dev/null; then
+        if sibling_git -C "$sibling" merge-base --is-ancestor "$commit" "$ref" 2>/dev/null; then
             echo "OK: $rel  ($slug $path @ ${commit:0:8})"
         else
             echo "NOT ON MAIN: $rel"
