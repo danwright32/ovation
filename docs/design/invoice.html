@@ -421,7 +421,64 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 .lhd .fig { text-align: right; }
 .lrow .fig { text-align: right; font-family: "IBM Plex Mono", ui-monospace, monospace;
              font-variant-numeric: tabular-nums; font-size: 13.5px; }
-.ladd { padding: 10px 0 2px; font-size: 13.5px; color: var(--quiet); }
+/* ============================================================
+   ADDING A LINE, settled 2026-09-08.
+
+   THE WORD APPENDS A ROW AND THE TYPE IS CHOSEN INSIDE IT, so
+   the line is built where it is going to live. Kept against
+   three: choosing the type from a list at the word before any
+   row exists, an empty row sitting permanently at the end of
+   the table, and nothing on the lines at all with the action in
+   the Edit menu.
+
+   THE MENU WAS A REAL CANDIDATE rather than a formality, since
+   round 5 settled that the rare things live there. It is not
+   rare enough: 26 of 130 issued invoices carry more than one
+   line, 20%, against 5 of 130 carrying a discount. Half of those
+   extra lines are a second event on one invoice and half are a
+   second service on one event
+   (scripts/measure-invoice-history.py).
+   ============================================================ */
+
+/* THE WORD IS A BUTTON, not the div it was while it did nothing. In the real
+   app it is DBPlainButtonStyle, which is this file's first named web idiom: a
+   word with padding, no border and no underline. */
+.laddbtn { font: inherit; font-size: 13.5px; color: var(--quiet);
+           background: none; border: 0; padding: 10px 0 2px; text-align: left; }
+.laddbtn:hover { color: var(--ink); }
+.laddbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The row being filled in, sunk, which is what this screen already uses for a
+   surface you are working on. */
+.lrow.newrow { background: var(--sunk); }
+
+/* The type, chosen in the row's own description cell. It reads as a control at
+   rest rather than on hover only (L49), and its triangle is drawn in CSS rather
+   than typed, so no pipe between here and a browser can mangle it. */
+.typewrap { position: relative; display: inline-block; }
+.typebtn { font: inherit; font-size: 13.5px; color: var(--soft);
+           display: inline-flex; align-items: center; gap: 6px;
+           background: var(--chrome); border: 1px solid var(--rule);
+           border-radius: 5px; padding: 1px 8px; }
+.typebtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.typebtn .tri { flex: none; width: 0; height: 0;
+                border-left: 4px solid transparent; border-right: 4px solid transparent;
+                border-top: 5px solid var(--faint); }
+.typelist { position: absolute; z-index: 6; background: #F7F4F1;
+            border: 1px solid #CFC7BF; border-radius: 6px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 5px 0; min-width: 186px; }
+.typelist button { display: block; width: 100%; text-align: left; font: inherit;
+                   font-size: 13px; color: #1F1812; background: none; border: 0;
+                   padding: 4px 16px; }
+.typelist button:hover { background: var(--accent); color: var(--on-ink); }
+
+/* The amount, typed, and sized to the amount column so the figures keep the one
+   right edge round 5 measured twice to protect. */
+.lamt { font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-variant-numeric: tabular-nums; font-size: 13.5px; color: var(--ink);
+        width: 96px; text-align: right; padding: 0 4px;
+        background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; }
+.lamt:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* The totals, right aligned against the same edge as the amount column so the
    arithmetic reads down one line rather than across. */
@@ -733,8 +790,18 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 .discedit .lab { font-size: 12px; color: var(--quiet); }
 
 /* A menu, drawn as the menu bar would draw it, because round 5 settled that the
-   rare things live there and never on the screen. */
-.menu { position: absolute; top: 25px; left: 96px; z-index: 5;
+   rare things live there and never on the screen.
+
+   IT HANGS OFF THE ITEM IT BELONGS TO, never off a measured constant. It used
+   to be `left: 96px` against the screen, which drew it 46px to the LEFT of Edit
+   and under File. The constant was right when it was written and the menu bar's
+   words have changed since, and nothing could ever report it, because a menu
+   drawn in the wrong place still draws (measured 2026-09-08 while building round
+   A of the line item control: Edit at 166, the menu at 120). Its wrapper
+   stretches the full height of the bar, so `top: 100%` is the bar's own bottom
+   edge rather than a second copy of the bar's height. */
+.mwrap { position: relative; display: inline-flex; align-items: center; align-self: stretch; }
+.menu { position: absolute; top: 100%; left: -7px; z-index: 5;
         background: #F7F4F1; border: 1px solid #CFC7BF; border-radius: 6px;
         box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 5px 0; min-width: 210px; }
 .menu div { padding: 4px 16px; font-size: 13px; color: #1F1812; }
@@ -1765,6 +1832,90 @@ function historyFor(state, total) {
   return events;
 }
 
+/* ---- adding a line item (PRD 4, PRD 51f), settled 2026-09-08 ---- */
+
+/* PRD 5.4's list, and the three ServiceTypeSeed puts into a new store. Rush
+   turnaround and Preview images carry no default amount anywhere, which is why
+   every added line has an amount to type. A NEW type cannot be created from
+   here yet, and that is the next round rather than an omission (ovation#111). */
+var TYPES = ["Photography", "Rush turnaround", "Preview images"];
+
+var EXTRA = [];        /* lines added and priced */
+var ADDING = null;     /* { name } while a line is being filled in */
+var TYPEOPEN = false;  /* the list of service types is showing */
+
+function extrasTotal() {
+  return EXTRA.reduce(function (a, x) { return a + x.amount; }, 0);
+}
+
+function typeList(choose) {
+  var list = el("div", "typelist");
+  TYPES.forEach(function (name) {
+    var b = el("button", null, name);
+    b.type = "button";
+    b.addEventListener("click", function () { choose(name); });
+    list.append(b);
+  });
+  return list;
+}
+
+/* THE ROW BEING FILLED IN. The type first, then the amount, in the row itself. */
+function addingRow() {
+  var row = el("div", "lrow newrow");
+  var desc = el("div", "ldesc");
+  if (ADDING.name) {
+    desc.textContent = ADDING.name;
+  } else {
+    var wrap = el("span", "typewrap");
+    var btn = el("button", "typebtn");
+    btn.type = "button";
+    btn.append(el("span", null, "Choose a type"), el("span", "tri"));
+    btn.setAttribute("aria-expanded", String(TYPEOPEN));
+    btn.addEventListener("click", function () { TYPEOPEN = !TYPEOPEN; redraw(); });
+    wrap.append(btn);
+    if (TYPEOPEN) {
+      wrap.append(typeList(function (name) {
+        ADDING = { name: name };
+        TYPEOPEN = false;
+        redraw();
+      }));
+    }
+    desc.append(wrap);
+  }
+
+  var cell = el("div", "fig");
+  var field = el("input", "lamt");
+  field.type = "text";
+  field.setAttribute("aria-label", "Amount");
+  /* NO PLACEHOLDER READING 0.00. A zero total is a legitimate comped invoice
+     (PRD 5.1b), so a figure the screen has not been given is never drawn as one,
+     which is the rule the hours column already keeps. */
+  function commit() {
+    var n = parseFloat(field.value.replace(/[$,]/g, ""));
+    /* An amount it cannot read leaves the row where it is, rather than adding a
+       line worth nothing that would be indistinguishable from a comped one. */
+    if (!isFinite(n)) return;
+    EXTRA.push({ name: ADDING.name, amount: n });
+    ADDING = null;
+    redraw();
+  }
+  field.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+  });
+  field.addEventListener("blur", commit);
+  cell.append(field);
+
+  row.append(desc, el("div", "fig", ""), el("div", "fig", ""), cell);
+  return row;
+}
+
+function extraRow(item) {
+  var row = el("div", "lrow");
+  row.append(el("div", "ldesc", item.name), el("div", "fig", ""),
+             el("div", "fig", ""), el("div", "fig", money(item.amount)));
+  return row;
+}
+
 /* ---- the invoice ---- */
 function buildInvoice() {
   var inv = el("div", "inv");
@@ -1781,7 +1932,7 @@ function buildInvoice() {
   /* An exempt client is charged at zero, which is a MEASURED rate rather than an
      absent one, so it goes through the same arithmetic as any other. */
   var rate = STATE.status === "exempt" ? 0 : TAX_RATE;
-  var t = invoiceTotals(hours === null ? 0 : hours * RATE, CREDIT, CREDIT_BALANCE,
+  var t = invoiceTotals((hours === null ? 0 : hours * RATE) + extrasTotal(), CREDIT, CREDIT_BALANCE,
                         DISCOUNT ? DISCOUNT.kind : null,
                         DISCOUNT ? DISCOUNT.value : null, rate);
 
@@ -1845,12 +1996,24 @@ function buildInvoice() {
   /* Never $0.00 where the hours are unknown: a zero total is a legitimate comped
      invoice (PRD 5.1b) and the two must never look alike. */
   if (hours === null) amt.append(el("span", "needs", "Needs hours"));
-  else amt.textContent = money(t.lines);
+  /* ITS OWN AMOUNT, never the lines total. The two were the same number
+     while an invoice could only ever have one line, and the moment round A
+     added a second this row started reporting the sum: a 375.00 line read as
+     450.00 with a 75.00 line beneath it, and the invoice contradicted its own
+     arithmetic. Caught by reading the rendered rows back, not by looking. */
+  else amt.textContent = money(hours * RATE);
   row.append(el("div", "ldesc", "Concert photography"),
              el("div", "fig" + (hours === null ? " pending" : ""), hours === null ? "" : hours.toFixed(2)),
              el("div", "fig", "250.00"), amt);
   lines.append(lhd, row);
-  if (isDraft) lines.append(el("div", "ladd", "Add a line"));
+  EXTRA.forEach(function (x) { lines.append(extraRow(x)); });
+  if (ADDING) lines.append(addingRow());
+  if (isDraft) {
+    var addWord = el("button", "laddbtn", "Add a line");
+    addWord.type = "button";
+    addWord.addEventListener("click", function () { ADDING = { name: null }; redraw(); });
+    lines.append(addWord);
+  }
 
   var sumBox = el("div", "invsum");
   function line(label, fig, cls) {
@@ -2038,7 +2201,15 @@ function buildMenu() {
   items.forEach(function (item, i) {
     var row = el("div", i === 0 ? "on" : null, item[0]);
     if (item[1]) {
-      row.addEventListener("click", function () { item[1](); redraw(); });
+      /* CHOOSING CLOSES IT. Until 2026-09-08 the menu stayed standing after a
+         choice, so adding a discount left the menu covering the invoice it had
+         just changed, and the one thing you would look at to see whether it had
+         worked was underneath it. */
+      row.addEventListener("click", function () {
+        item[1]();
+        MENU_OPEN = false;
+        redraw();
+      });
     }
     menu.append(row);
   });
@@ -2051,13 +2222,15 @@ function buildScreen() {
   bar.append(el("span", "apple"), el("span", "app-name", "Ovation"));
   ["File", "Edit", "View", "Window", "Help"].forEach(function (x) {
     var item = el("span", (x === "Edit" && MENU_OPEN) ? "openmenu" : null, x);
-    if (x === "Edit") {
-      item.tabIndex = 0;
-      item.setAttribute("role", "button");
-      item.setAttribute("aria-expanded", String(MENU_OPEN));
-      item.addEventListener("click", function () { MENU_OPEN = !MENU_OPEN; redraw(); });
-    }
-    bar.append(item);
+    if (x !== "Edit") { bar.append(item); return; }
+    item.tabIndex = 0;
+    item.setAttribute("role", "button");
+    item.setAttribute("aria-expanded", String(MENU_OPEN));
+    item.addEventListener("click", function () { MENU_OPEN = !MENU_OPEN; redraw(); });
+    var wrap = el("span", "mwrap");
+    wrap.append(item);
+    if (MENU_OPEN) wrap.append(buildMenu());
+    bar.append(wrap);
   });
   bar.append(el("span", "clock", "Mon 7 Sep  2:40 PM"));
 
@@ -2096,7 +2269,6 @@ function buildScreen() {
   app.append(side, tb, main);
   win.append(app);
   screen.append(bar, win);
-  if (MENU_OPEN) screen.append(buildMenu());
   return screen;
 }
 

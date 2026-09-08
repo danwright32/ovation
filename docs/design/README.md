@@ -518,20 +518,56 @@ belongs to is worse than one that says less.
 
 What the sidebar counts do about an invoice that cannot be sent (ovation#129).
 
-**And two controls this screen is supposed to carry are not drawn at all**, both quoted from
+**Two controls this screen is supposed to carry were not drawn at all**, both quoted from
 ovation#111's own list of what the PRD had already decided must live here. This section claimed for
 a few hours that the sidebar counts were the whole remaining list, which was wrong, and it was wrong
 because the claim was written from the rounds that had just been run rather than checked against
-that list.
+that list. **One of the two is settled** (see below); what is left is:
 
-1. **Line items come from the fixed service type list, and a new type can be added from inside the
-   invoice** without going to settings first (PRD 4). The screen draws `Add a line` as a word with
-   nothing behind it. The types exist in code, `Ovation/Domain/ServiceType.swift`, seeded into a new
-   store by ovation#107, and no surface reaches them.
-2. **The due date can be overridden per invoice as well as per client** (PRD 7). The foot draws
+1. **The due date can be overridden per invoice as well as per client** (PRD 7). The foot draws
    `Dated 29 Aug 2026, due 12 Sep 2026` as static text with no way to change it.
 
-Neither is a question about how something looks, so neither is a round. Both are a missing control.
+**And creating a NEW service type from inside the invoice** (PRD 4) is still not drawn. Round A
+settled how a line is added and deliberately left this out of all four of its options, because a
+second variable in one round is what makes a round unreadable. The three seeded types are reachable
+now; a fourth cannot be made without going to settings, which is the thing PRD 4 says must not be
+necessary.
+
+### Adding a line item, settled 2026-09-08
+
+**The word appends a row and the type is chosen inside it**, so the line is built where it is going
+to live. Dan kept it against three whole alternatives, each of them drawn and clickable rather than
+described: choosing the type from a list at the word before any row exists, an empty row sitting
+permanently at the end of the table on every invoice, and nothing on the lines at all with the
+action in the Edit menu.
+
+**The Edit menu was a real candidate rather than a formality**, because round 5 settled that the
+rare things live there and this screen already sends the discount and the referral credit to it. It
+is not rare enough. **26 of 130 issued invoices carry more than one line, 20%**, against 5 of 130
+carrying a discount, and half of those extra lines are a second event on one invoice while half are
+a second service on one event. That is `scripts/measure-invoice-history.py` against the FreshBooks
+history in `docs/CUSTODY.md`, run rather than remembered.
+
+**The types are `Ovation/Domain/LineItem.swift`'s `ServiceType`**, the three that `ServiceTypeSeed`
+puts into a new store (ovation#107). Neither Rush turnaround nor Preview images carries a default
+amount anywhere, so every added line has an amount to type whichever way it was added, and the field
+draws no placeholder reading `0.00`: a zero total is a legitimate comped invoice (PRD 5.1b), so a
+figure the screen has not been given is never drawn as one. An amount it cannot read leaves the row
+where it is rather than committing a line worth nothing.
+
+### Three things round A found in the settled screen, none of them a design question
+
+1. **The photography row was showing the LINES TOTAL rather than its own amount.** The two are the
+   same number while an invoice can only have one line, so the defect could not exist until this
+   round added a second: a 375.00 line read as 450.00 with a 75.00 line beneath it, and the invoice
+   contradicted its own arithmetic. Found by reading the rendered rows back, not by looking (L101).
+2. **The Edit menu opened 46px to the left of Edit, under File.** It was positioned by `left: 96px`
+   against the screen, a constant that was right when it was written and that the menu bar's wording
+   moved out from under. Nothing could ever have reported it, because a menu drawn in the wrong
+   place still draws. It now hangs off the Edit item itself, so there is no constant to keep in step.
+3. **Choosing anything in that menu left it standing**, so adding a discount left the menu covering
+   the invoice it had just changed, which is the one thing you would look at to see whether it had
+   worked. It closes on a choice now.
 
 **The discount's edit line is Dan's, settled 2026-09-08.** It had been chosen to solve a layout
 problem rather than designed, and he kept it against three alternatives: the percentage edited where

@@ -43,6 +43,7 @@ check-design-collisions.py	tool-untested	Takes a settled stylesheet and one desi
 check-design-rules-inline.sh	gated	A repo wide guard.
 check-design-self-contained.sh	gated	A repo wide guard.
 check-forbidden-constructs.sh	gated	A repo wide guard.
+check-invoice-screen-draws.sh	tool	Renders docs/design/invoice.html in a headless browser and reads back what it DREW, which is the gap ovation#141 names: every other check on these files reads their source, and all three faults it was written for were invisible there. It is a TOOL rather than a gate because it needs a browser, and a push gate that refuses on every machine without one is a gate people learn to skip (L376). Its sibling test-invoice-screen-draws.sh runs it against the committed file on every test run, and answers CANNOT MEASURE rather than passing when there is no browser.
 check-identity-leaks.sh	gated	A repo wide guard.
 check-isolation-floor.sh	gated	A repo wide guard.
 check-launch-sequence-wired.sh	gated	A repo wide guard.
@@ -84,6 +85,7 @@ test-embed-web-fonts.sh	suite
 test-forbidden-constructs.sh	suite	
 test-git-hooks.sh	suite	
 test-identity-guard.sh	suite	
+test-invoice-screen-draws.sh	suite	
 test-isolation-floor.sh	suite	
 test-launch-sequence-wired.sh	suite	
 test-live-data-untouched.sh	suite	
