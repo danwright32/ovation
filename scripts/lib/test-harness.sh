@@ -80,6 +80,31 @@ harness_begin() {
     _HARNESS_ENDED=0
     PASS=0
     FAIL=0
+
+    # NO SUITE MAY INHERIT A GIT ENVIRONMENT, and this is part of the isolation
+    # floor rather than a tidiness measure (L2).
+    #
+    # Six suites build a throwaway git repository, and git's own variables
+    # OVERRIDE the directory a command is run in. With GIT_DIR set, a fixture's
+    # `git init` re-initialises whatever GIT_DIR names and its `git commit`
+    # commits into it, however carefully the fixture cd'd somewhere else first.
+    #
+    # Git EXPORTS those variables to its hooks, and the whole suite runs from the
+    # pre-push hook. Measured on 2026-09-08, against the real repository: a
+    # fixture's `git init -q -b main` set `core.bare = true` on Ovation's SHARED
+    # config and wrote `user.email = t@t` into it, so every later commit in any
+    # checkout or worktree would have been authored by `t`, and its
+    # `git commit -qm one` landed a commit adding `f.txt` on the branch being
+    # pushed. Both were found by hand afterwards, because nothing reported them.
+    #
+    # It is cleared HERE, once, rather than in each suite, because the variables
+    # arrive from OUTSIDE every suite and a rule each fixture has to remember is
+    # a rule that reaches nothing in exactly the run where it matters (L621). A
+    # suite that deliberately tests behaviour under one of these sets it on the
+    # single command it is testing, which still works.
+    unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+          GIT_COMMON_DIR GIT_NAMESPACE
+
     trap _harness_exit_guard EXIT
 }
 
