@@ -29,10 +29,11 @@ cd "$(dirname "$0")/.." || exit 1
 # seam added to the runner tomorrow cannot be left out of it (L284, L30).
 unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_UNLOCKED_COMMAND OVATION_SHELL_SUITE_DIR OVATION_SHELL_SUITE_FLOOR \
+      OVATION_SKIP_XCODE_PHASE \
       OVATION_DIR_LOCK OVATION_FILE_LOCK OVATION_FLOCK_BIN \
       OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL
 
-harness_begin "test runner lock tests" 55
+harness_begin "test runner lock tests" 65
 
 TARGET="scripts/run-tests.sh"
 REPO_ROOT_SCRIPTS="$PWD/scripts"
@@ -553,5 +554,90 @@ seams_not_cleared() {
 }
 check "every seam the runner honours is cleared by this suite" \
     "$(seams_not_cleared)" ""
+
+# ---------------------------------------------------------------------------
+# THE XCODE PHASE CAN BE SKIPPED WHEN THE PUSH CANNOT HAVE CHANGED IT
+# (ovation#22).
+#
+# Measured twice on 2026-09-05, four minutes each time: a push ran the hook, ran
+# this runner, and waited on Overture's lock while a real Overture suite ran.
+# Overture runs its suite constantly, so that is the normal case rather than bad
+# luck, and most pushes in this phase change only documentation or shell scripts,
+# which no xcodebuild run can be affected by.
+#
+# The DECISION is the hook's, because only the hook knows the pushed range. This
+# is the seam it acts through, and the run says which of the two it did, because
+# a run that skipped the Xcode suite must never look like one that passed it
+# (L98, L11).
+skip_run() {
+    OVATION_SHELL_SUITE_DIR="$SUITES" \
+    OVATION_SKIP_XCODE_PHASE="${1}" \
+    OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+    OVATION_TEST_COMMAND="echo THE-XCODE-PHASE-RAN" \
+    OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+        "$TARGET" 2>&1
+}
+clear_suites
+stage_suite "a-pass" 0
+OUT22A="$(skip_run 1)"; ST22A=$?
+check "with the skip set the xcode phase does not run" \
+    "$(printf '%s' "$OUT22A" | grep -c 'THE-XCODE-PHASE-RAN')" "0"
+check "and the sibling locks are never taken for it" \
+    "$(printf '%s' "$OUT22A" | grep -c 'Holding both locks')" "0"
+check "and the shell suites still ran" \
+    "$(printf '%s' "$OUT22A" | grep -c 'RAN-a-pass')" "1"
+check "and the run says it skipped rather than reporting a full pass" \
+    "$(printf '%s' "$OUT22A" | grep -c 'Xcode phase SKIPPED')" "1"
+check "and it still passes" "$ST22A" "0"
+
+# A FAILING SHELL SUITE STILL FAILS. The skip is about the locked phase only, and
+# a skip that also swallowed the cheap checks would be the gate switching itself
+# off on the pushes it is cheapest to check.
+clear_suites
+stage_suite "a-fail" 5
+check "a failing shell suite still fails a skipped run" \
+    "$(skip_run 1 >/dev/null 2>&1; printf '%s' "$?")" "5"
+
+clear_suites
+stage_suite "a-pass" 0
+check "without the skip the xcode phase runs as before" \
+    "$(skip_run "" | grep -c 'THE-XCODE-PHASE-RAN')" "1"
+
+# ---------------------------------------------------------------------------
+# THE WAIT SAYS WHO IS HOLDING THE LOCK AND HOW LONG IT WILL WAIT (ovation#22).
+#
+# It printed the two lock paths and nothing else, so a person watching a push sit
+# there had no way to tell a busy sibling from a stuck lock, and a wait that
+# cannot be told apart from a hang is the worse of the two (L110). The holder is
+# knowable: Downbeat's lock directory carries an owner file, which Ovation writes
+# itself, and Overture's file lock can be attributed by asking which process
+# holds it.
+clear_suites
+stage_suite "a-pass" 0
+mkdir -p "$DIR_LOCK"
+printf 'downbeat:12345\n' > "$DIR_LOCK/owner"
+OUT22W="$(TIMEOUT_OVERRIDE=1 run_runner)"
+check "the wait names who holds the directory lock" \
+    "$(printf '%s' "$OUT22W" | grep -c 'downbeat:12345')" "1"
+check "and it says how long it will wait before giving up" \
+    "$(printf '%s' "$OUT22W" | grep -cE 'up to [0-9]+ ?s')" "1"
+rm -rf "$DIR_LOCK"
+
+# THE DEADLINE IS REAL TIME, NOT A COUNT OF POLLS. It was `elapsed=elapsed+1`
+# against a timeout in seconds, so the two were the same number only while the
+# poll interval happened to be one second: at the interval these cases use, the
+# runner gave up twenty times sooner than it said it would (L226).
+#
+# A LOWER BOUND ONLY. Asserting how long it took would be a measurement of what
+# else this machine is running; asserting it waited at least as long as it said
+# it would is a claim about the code (L224).
+mkdir -p "$DIR_LOCK"
+WAIT_FROM="$(date +%s)"
+TIMEOUT_OVERRIDE=2 POLL_OVERRIDE=0.05 run_runner >/dev/null 2>&1
+WAITED=$(( $(date +%s) - WAIT_FROM ))
+check "it waits for the time it announced, not for a number of polls" \
+    "$([ "$WAITED" -ge 2 ] && echo waited || echo "gave-up-after-${WAITED}s")" "waited"
+rm -rf "$DIR_LOCK"
 
 harness_end

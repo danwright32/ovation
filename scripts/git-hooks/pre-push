@@ -215,11 +215,111 @@ gate_check check-launch-sequence-wired.sh "the entry point does not run the stor
 #
 # Injectable so scripts/test-git-hooks.sh can measure the GATE without paying for
 # a real suite run (L2, L291). The default is the real thing.
+# ---------------------------------------------------------------------------
+# WHETHER THE XCODE PHASE CAN BE SKIPPED FOR THIS PUSH (ovation#22).
+#
+# Measured twice on 2026-09-05, four minutes each time: this hook ran the runner,
+# which waited on Overture's lock while a real Overture suite ran. Overture runs
+# its suite constantly, so that is the normal case rather than bad luck, and most
+# pushes in this phase change only documentation or shell scripts, which no
+# xcodebuild run can read.
+#
+# ONLY THIS HOOK KNOWS WHAT IS BEING PUSHED. git hands it one line per ref on
+# stdin, so the decision is made here and the runner only carries it out.
+#
+# IT FAILS CLOSED, and that is the whole design. The skippable set is a short
+# list of paths nothing in an Xcode build or test can read; everything else, and
+# every range this cannot place, runs the full thing. The list is written as what
+# may be SKIPPED rather than what must be RUN, because a run set is a list of
+# everything somebody thought of and its omissions are silent (L96).
+ZERO_SHA="0000000000000000000000000000000000000000"
+EMPTY_TREE="$(git hash-object -t tree /dev/null 2>/dev/null)"
+PUSHED_PATHS=""
+RANGE_UNKNOWN=""
+SAW_A_REF=""
+
+# STDIN IS ONLY READ WHEN SOMETHING IS FEEDING IT. git always does; a person
+# running this by hand does not, and an unguarded `read` there waits for ever.
+# A hang is worse than a failure because it cannot be told from slowness, and
+# this one was staged the moment the loop was written: the suite went from
+# seconds to a timeout (L110).
+if [ -t 0 ]; then
+    RANGE_UNKNOWN=1
+fi
+
+while [ -z "${RANGE_UNKNOWN}" ] && read -r _local_ref local_sha _remote_ref remote_sha; do
+    SAW_A_REF=1
+    if [ -z "${local_sha:-}" ] || [ -z "${remote_sha:-}" ] || [ "${local_sha}" = "${ZERO_SHA}" ]; then
+        # A deletion, or a line this cannot read. Neither is a claim about content.
+        RANGE_UNKNOWN=1
+        break
+    fi
+    base=""
+    if [ "${remote_sha}" != "${ZERO_SHA}" ] && git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+        base="${remote_sha}"
+    else
+        # A branch the remote does not have yet. What is actually being added is
+        # what is not on any remote, and in a repository with no remote at all
+        # that is every commit, which lands on the empty tree and therefore on
+        # every file: the full run, which is the right answer there.
+        oldest="$(git rev-list "${local_sha}" --not --remotes 2>/dev/null | tail -1)"
+        if [ -n "${oldest}" ]; then
+            base="$(git rev-parse -q --verify "${oldest}^" 2>/dev/null)"
+            base="${base:-${EMPTY_TREE}}"
+        fi
+    fi
+    if [ -z "${base}" ]; then
+        RANGE_UNKNOWN=1
+        break
+    fi
+    if ! paths="$(git diff --name-only "${base}" "${local_sha}" 2>/dev/null)"; then
+        RANGE_UNKNOWN=1
+        break
+    fi
+    PUSHED_PATHS="${PUSHED_PATHS}${paths}
+"
+done
+
+[ -n "${SAW_A_REF}" ] || RANGE_UNKNOWN=1
+
+
+# The one list of what an Xcode build and test cannot read. Everything else is
+# relevant by default.
+skippable_path() {
+    case "$1" in
+        docs/*|scripts/*|*.md|.gitignore|.gitattributes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+FIRST_RELEVANT=""
+PATH_COUNT=0
+while IFS= read -r one; do
+    [ -n "${one}" ] || continue
+    PATH_COUNT=$((PATH_COUNT+1))
+    if [ -z "${FIRST_RELEVANT}" ] && ! skippable_path "${one}"; then
+        FIRST_RELEVANT="${one}"
+    fi
+done <<< "${PUSHED_PATHS}"
+
+SKIP_XCODE=""
+if [ -n "${RANGE_UNKNOWN}" ]; then
+    echo "pre-push: could not work out what this push contains, so the full suite" >&2
+    echo "pre-push: runs. That is the safe direction, not a fault." >&2
+elif [ -n "${FIRST_RELEVANT}" ]; then
+    echo "pre-push: ${FIRST_RELEVANT} is in this push, so the full suite runs." >&2
+else
+    SKIP_XCODE=1
+    echo "pre-push: ${PATH_COUNT} path(s) in this push, none of them readable by an" >&2
+    echo "pre-push: Xcode build or test, so skipping the Xcode phase and the wait" >&2
+    echo "pre-push: for the sibling locks. The shell suites still run." >&2
+fi
+
 TEST_COMMAND="${OVATION_HOOK_TEST_COMMAND:-}"
 if [ -n "${TEST_COMMAND}" ]; then
     bash -c "${TEST_COMMAND}"
 else
-    "${REPO_ROOT}/scripts/run-tests.sh"
+    OVATION_SKIP_XCODE_PHASE="${SKIP_XCODE}" "${REPO_ROOT}/scripts/run-tests.sh"
 fi
 STATUS=$?
 

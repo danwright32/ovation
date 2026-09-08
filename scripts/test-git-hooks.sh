@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 39
+harness_begin "git hooks tests" 49
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -35,7 +35,7 @@ REPO_ROOT="$PWD"
 # from a shell that has one set cannot silently switch off what it is measuring.
 hook() {
     env -u SKIP_TEST_RUN -u FORCE_TEST_RUN -u SKIP_STYLE_CHECK -u SKIP_TEST_CHECK \
-        OVATION_HOOK_TEST_COMMAND="$1" "$REPO_ROOT/$HOOK" 2>&1
+        OVATION_HOOK_TEST_COMMAND="$1" "$REPO_ROOT/$HOOK" < /dev/null 2>&1
 }
 
 fresh_repo() {
@@ -111,7 +111,7 @@ check "and it says why, rather than failing silently" \
 
 # 8. The documented escape hatch works, and SAYS it was used. An override that
 #    can happen quietly is one that happens by accident.
-OUT8="$(SKIP_TEST_RUN=1 env OVATION_HOOK_TEST_COMMAND="exit 1" "$REPO_ROOT/$HOOK" 2>&1)"; ST8=$?
+OUT8="$(SKIP_TEST_RUN=1 env OVATION_HOOK_TEST_COMMAND="exit 1" "$REPO_ROOT/$HOOK" < /dev/null 2>&1)"; ST8=$?
 check "the documented override lets a red suite through" "$ST8" "0"
 check "and it announces itself rather than being silent" \
     "$(printf '%s' "$OUT8" | grep -c "SKIP_TEST_RUN")" "1"
@@ -121,7 +121,7 @@ check "and it announces itself rather than being silent" \
 #    dropped, this assertion goes red rather than the suite quietly measuring a
 #    hook with its checks switched off (downbeat#433, L259).
 SELF="$(SKIP_TEST_RUN=1 env OVATION_HOOK_TEST_COMMAND="exit 1" bash -c '
-    env -u SKIP_TEST_RUN "'"$REPO_ROOT/$HOOK"'" >/dev/null 2>&1; echo $?')"
+    env -u SKIP_TEST_RUN "'"$REPO_ROOT/$HOOK"'" < /dev/null >/dev/null 2>&1; echo $?')"
 check "the escape hatch is stripped before the hook is measured" \
     "$([ "$SELF" -ne 0 ] && echo refused || echo allowed)" "refused"
 
@@ -152,7 +152,7 @@ gate_check_names() { grep -oE '^gate_check +check-[a-z-]+\.(sh|py)' "$REPO_ROOT/
 stage_tree() {
     local r="$WORK/$1"; rm -rf "$r"; mkdir -p "$r/scripts/git-hooks"
     ( cd "$r" && git init -q -b main && git config user.email t@t && git config user.name t ) >/dev/null 2>&1
-    printf '#!/bin/bash\necho "SUITE-FROM-%s"\nexit %s\n' "$1" "$2" > "$r/scripts/run-tests.sh"
+    printf '#!/bin/bash\necho "SUITE-FROM-%s"\necho "SKIP=${OVATION_SKIP_XCODE_PHASE:-}"\nexit %s\n' "$1" "$2" > "$r/scripts/run-tests.sh"
     chmod +x "$r/scripts/run-tests.sh"
     local c
     for c in $(gate_check_names); do
@@ -168,7 +168,7 @@ stage_tree() {
 # WHICH scripts/run-tests.sh gets run.
 hook_from_tree_in() {
     ( cd "$2" && env -u SKIP_TEST_RUN -u FORCE_TEST_RUN -u SKIP_STYLE_CHECK -u SKIP_TEST_CHECK \
-        bash "$1/scripts/git-hooks/pre-push" 2>&1 )
+        bash "$1/scripts/git-hooks/pre-push" < /dev/null 2>&1 )
 }
 
 HOOKTREE="$(stage_tree hooktree 0)"   # the checkout the hook file lives in: green
@@ -323,5 +323,77 @@ check "a check the gate names and the tree does not hold refuses the push" \
     "$([ "$ST135E" -ne 0 ] && echo refused || echo allowed)" "refused"
 check "and it names the check it could not find" \
     "$(printf '%s' "$OUT135E" | grep -c 'check-identity-leaks.sh is named by this gate')" "1"
+
+# ---------------------------------------------------------------------------
+# A PUSH THAT CANNOT HAVE CHANGED THE XCODE RUN DOES NOT WAIT FOR IT (ovation#22).
+#
+# Measured twice on 2026-09-05, four minutes each time: the hook ran the runner,
+# which waited on Overture's lock while a real Overture suite ran. Overture runs
+# its suite constantly, so that is the normal case, and most pushes in this phase
+# change only documentation or shell scripts.
+#
+# ONLY THE HOOK KNOWS WHAT IS BEING PUSHED, which is why the decision is here and
+# the runner only carries it out. It FAILS CLOSED: anything it cannot place, and
+# anything outside a short list of paths no xcodebuild run can read, means the
+# full thing runs. And it SAYS which of the two it decided, because a push that
+# skipped the Swift suites must never read like one that passed them (L98).
+commit_file() {
+    ( cd "$1" && mkdir -p "$(dirname "$2")" && printf 'x\n' > "$2" \
+      && git add "$2" && git commit -qm "c" ) >/dev/null 2>&1
+    ( cd "$1" && git rev-parse HEAD )
+}
+hook_with_range() {
+    ( cd "$1" && printf '%s\n' "$2" | env -u SKIP_TEST_RUN -u FORCE_TEST_RUN \
+        -u SKIP_STYLE_CHECK -u SKIP_TEST_CHECK \
+        bash "$1/scripts/git-hooks/pre-push" origin "$1" 2>&1 )
+}
+ZEROS="0000000000000000000000000000000000000000"
+
+R22="$(stage_tree range 0)"
+BASE22="$(commit_file "$R22" "docs/one.md")"
+DOCS22="$(commit_file "$R22" "docs/two.md")"
+OUT22A="$(hook_with_range "$R22" "refs/heads/main $DOCS22 refs/heads/main $BASE22")"; ST22A=$?
+check "a push touching only docs skips the xcode phase" \
+    "$(printf '%s' "$OUT22A" | grep -c 'SKIP=1')" "1"
+check "and it says so rather than skipping quietly" \
+    "$(printf '%s' "$OUT22A" | grep -ci 'skipping the xcode')" "1"
+check "and the push is still allowed" "$ST22A" "0"
+
+SWIFT22="$(commit_file "$R22" "Ovation/Domain/Thing.swift")"
+OUT22B="$(hook_with_range "$R22" "refs/heads/main $SWIFT22 refs/heads/main $DOCS22")"
+check "a push touching a Swift file runs the xcode phase" \
+    "$(printf '%s' "$OUT22B" | grep -c 'SKIP=$')" "1"
+check "and it names the kind of change that made it run the full thing" \
+    "$(printf '%s' "$OUT22B" | grep -c 'Thing.swift')" "1"
+
+# A RANGE IT CANNOT PLACE RUNS EVERYTHING. The remote sha of a branch that does
+# not exist yet is all zeros, and a stub repository has no remote to work back
+# from, so this is the case that must not be guessed at.
+OUT22C="$(hook_with_range "$R22" "refs/heads/side $SWIFT22 refs/heads/side $ZEROS")"
+check "a range that cannot be placed runs the xcode phase" \
+    "$(printf '%s' "$OUT22C" | grep -c 'SKIP=$')" "1"
+
+# NO RANGE AT ALL, which is what happens when the hook is run by hand.
+OUT22D="$( cd "$R22" && env -u SKIP_TEST_RUN bash "$R22/scripts/git-hooks/pre-push" < /dev/null 2>&1 )"
+check "no range at all runs the xcode phase" \
+    "$(printf '%s' "$OUT22D" | grep -c 'SKIP=$')" "1"
+check "and it says it could not tell what was being pushed" \
+    "$(printf '%s' "$OUT22D" | grep -ci 'could not')" "1"
+
+# ONE RELEVANT PATH AMONG MANY IRRELEVANT ONES IS STILL RELEVANT. A rule applied
+# to the first path, or to most of them, is not a rule about the push.
+MIXED22="$( cd "$R22" && mkdir -p docs && printf 'y\n' > docs/three.md \
+    && printf 'y\n' > Ovation/Domain/Other.swift && git add docs/three.md Ovation/Domain/Other.swift \
+    && git commit -qm mixed >/dev/null 2>&1 && git rev-parse HEAD )"
+OUT22E="$(hook_with_range "$R22" "refs/heads/main $MIXED22 refs/heads/main $SWIFT22")"
+check "one relevant path among irrelevant ones still runs the xcode phase" \
+    "$(printf '%s' "$OUT22E" | grep -c 'SKIP=$')" "1"
+
+# THE READ IS GUARDED, asserted on the source because a blocking read cannot be
+# staged as a test without a timeout, and a test that waits for a fixed period to
+# decide something did NOT happen is a test about this machine's load (L290).
+# Every case above supplies its own stdin, so none of them can reach it.
+check "the ref loop does not read a terminal it was never given" \
+    "$(grep -c 'if \[ -t 0 \]; then' "$REPO_ROOT/$HOOK")" "1"
 
 harness_end
