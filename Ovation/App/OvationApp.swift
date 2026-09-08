@@ -24,7 +24,7 @@ struct OvationApp: App {
             .map { FileProblemsJournal(url: $0) } ?? InMemoryProblemsJournal()
 
         let store = ProblemsStore(journal: journal)
-        store.load()
+        store.load(now: Date())
 
         // THE LAUNCH SEQUENCE RUNS HERE, BEFORE THE PRESENTER REFRESHES, so a
         // refusal it raises is in the store by the time the first screen asks

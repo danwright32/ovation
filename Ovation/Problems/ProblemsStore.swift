@@ -86,7 +86,15 @@ final class ProblemsStore {
 
     /// Rebuild from the journal. Replays in order, so the last record about a
     /// problem is the state it is in.
-    func load() {
+    ///
+    /// IT TAKES `now` FOR THE SAME REASON EVERY OTHER PATH DOES (ovation#89).
+    /// Anything this raises is a problem found AT THIS LOAD, and the two it can
+    /// raise are about the journal itself. Reading the clock here, or stamping a
+    /// placeholder, both put a current failure at a time it did not happen: the
+    /// placeholder dated them 1 January 2001, which reads as a corrupt record
+    /// rather than as today's problem, and any later ordering or staleness
+    /// question about the list then gets a wrong answer from it.
+    func load(now: Date) {
         let records: [ProblemJournalRecord]
         do {
             records = try journal.load()
@@ -96,7 +104,6 @@ final class ProblemsStore {
             // its own sentence: a read that failed is not a write that failed,
             // and a message may claim only what its check measured (L11).
             let id = Problem.identity(kind: .problemsJournalUnreadable, subject: nil)
-            let now = Date(timeIntervalSinceReferenceDate: 0)
             problems[id] = Problem(
                 id: id, kind: .problemsJournalUnreadable, subject: nil,
                 sentence: "Ovation could not read its record of problems, so anything reported "
@@ -123,7 +130,10 @@ final class ProblemsStore {
             let id = Problem.identity(kind: .problemsJournalDamaged, subject: nil)
             let sentence = "\(skipped) record(s) in Ovation's problem history could not be read "
                 + "and have been left out. Everything else in the list loaded normally."
-            let now = records.last?.problem.lastRaised ?? Date(timeIntervalSinceReferenceDate: 0)
+            // STAMPED WHEN THE DAMAGE WAS FOUND, which is now, not with the last
+            // surviving record's time. The survivors are older by construction,
+            // so borrowing one would date the discovery to before it happened and
+            // sort it among history rather than at the moment it was made.
             problems[id] = Problem(id: id, kind: .problemsJournalDamaged, subject: nil,
                                    sentence: sentence, firstRaised: now, lastRaised: now,
                                    occurrences: 1, acknowledgedAt: nil,

@@ -139,7 +139,7 @@ struct ProblemsStoreTests {
         first.acknowledge(id, now: at(12))
 
         let reloaded = ProblemsStore(journal: journal)
-        reloaded.load()
+        reloaded.load(now: at(20))
 
         #expect(reloaded.all.count == 2)
         #expect(reloaded.needingPresentation.count == 1)
@@ -154,7 +154,7 @@ struct ProblemsStoreTests {
         let journal = LossyProblemsJournal(skipped: 2)
         let store = ProblemsStore(journal: journal)
 
-        store.load()
+        store.load(now: at(30))
 
         #expect(store.open.contains { $0.kind == .problemsJournalDamaged })
         #expect(store.open.first(where: { $0.kind == .problemsJournalDamaged })?
@@ -164,7 +164,7 @@ struct ProblemsStoreTests {
     @Test("a journal that lost nothing says nothing")
     func anIntactJournalIsQuiet() {
         let store = ProblemsStore(journal: LossyProblemsJournal(skipped: 0))
-        store.load()
+        store.load(now: at(30))
 
         #expect(!store.open.contains { $0.kind == .problemsJournalDamaged })
     }
@@ -177,11 +177,52 @@ struct ProblemsStoreTests {
         // claim only what its check measured (L11).
         let store = ProblemsStore(journal: RefusingProblemsJournal())
 
-        store.load()
+        store.load(now: at(30))
 
         #expect(store.open.contains { $0.kind == .problemsJournalUnreadable })
         #expect(!store.open.contains { $0.kind == .problemsJournalUnwritable })
         #expect(store.open.first?.sentence.contains("could not read") == true)
+    }
+
+    @Test("a problem raised BY the load carries the time of that load, not a placeholder")
+    func loadStampsItsOwnProblemsWithTheRealTime() {
+        // ovation#89. Every other path takes `now` as a parameter precisely so
+        // nothing reads the clock at the point of use, and `load` was the one
+        // that had no clock at all: both problems it can raise about the journal
+        // itself were stamped 1 January 2001. A current failure dated twenty five
+        // years ago reads as a corrupt record rather than as today's problem, and
+        // any later ordering or staleness question about the list gets a wrong
+        // answer from it.
+        let unreadable = ProblemsStore(journal: RefusingProblemsJournal())
+        unreadable.load(now: at(30))
+        let read = try! #require(unreadable.open.first { $0.kind == .problemsJournalUnreadable })
+        #expect(read.firstRaised == at(30))
+        #expect(read.lastRaised == at(30))
+
+        let damaged = ProblemsStore(journal: LossyProblemsJournal(skipped: 2))
+        damaged.load(now: at(30))
+        let lost = try! #require(damaged.open.first { $0.kind == .problemsJournalDamaged })
+        #expect(lost.firstRaised == at(30))
+        #expect(lost.lastRaised == at(30))
+    }
+
+    @Test("the damaged notice is stamped when the damage was FOUND, not when the survivors were written")
+    func theDamagedNoticeIsStampedAtTheLoad() {
+        // The surviving records carry their own, older times. Stamping the notice
+        // with the last of those would date the discovery to before it happened
+        // and sort it among history rather than at the moment it was found.
+        let journal = LossyProblemsJournal(skipped: 1)
+        journal.records = [ProblemJournalRecord(
+            action: .raised,
+            problem: Problem(id: "x", kind: .foreignStore, subject: "s", sentence: "old",
+                             firstRaised: at(10), lastRaised: at(10), occurrences: 1,
+                             acknowledgedAt: nil, resolvedAt: nil, resolutionReason: nil))]
+        let store = ProblemsStore(journal: journal)
+
+        store.load(now: at(30))
+
+        let lost = try! #require(store.open.first { $0.kind == .problemsJournalDamaged })
+        #expect(lost.firstRaised == at(30))
     }
 
     @Test("a journal that cannot be written does not lose the problem from the screen")
@@ -233,10 +274,12 @@ private final class LossyProblemsJournal: ProblemsJournal {
     let isDurable = true
     let skippedOnLastLoad: Int
 
+    var records: [ProblemJournalRecord] = []
+
     init(skipped: Int) { skippedOnLastLoad = skipped }
 
     func append(_ record: ProblemJournalRecord) throws {}
-    func load() throws -> [ProblemJournalRecord] { [] }
+    func load() throws -> [ProblemJournalRecord] { records }
 }
 
 private final class RefusingProblemsJournal: ProblemsJournal {
