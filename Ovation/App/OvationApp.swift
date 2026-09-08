@@ -26,6 +26,30 @@ struct OvationApp: App {
         let store = ProblemsStore(journal: journal)
         store.load(now: Date())
 
+        // A SECOND RUNNING COPY STANDS ASIDE, BEFORE ANYTHING IS OPENED
+        // (ovation#84, plan 1.3, PRD 5.37). Two copies over one store are two
+        // writers of Dan's invoices, and the serialized writers that make the
+        // rules enforceable serialize within ONE process: nothing in them can
+        // see a second one, so an invoice number issued twice is reachable only
+        // this way.
+        //
+        // It is checked HERE, before the launch sequence, because that sequence
+        // writes: it checkpoints, backs up and opens. Standing aside afterwards
+        // would be standing aside after doing the dangerous part.
+        //
+        // The refusal reaches Dan through the one launch presenter below, never
+        // as an independent alert (L242).
+        let ownExecutable = Bundle.main.executableURL?.resolvingSymlinksInPath().path
+        let secondInstance = ownExecutable.map {
+            SecondInstance.check(executablePath: $0, runningPIDs: SecondInstance.pidsRunning)
+        } ?? .theOnlyCopy
+
+        if let sentence = SecondInstance.sentence(for: secondInstance),
+           case .standingAsideFor(let pid, _) = secondInstance {
+            _ = store.raise(kind: .secondRunningCopy, subject: String(pid),
+                            sentence: sentence, now: Date())
+        }
+
         // THE LAUNCH SEQUENCE RUNS HERE, BEFORE THE PRESENTER REFRESHES, so a
         // refusal it raises is in the store by the time the first screen asks
         // what is wrong. Identify, checkpoint, back up, then open (plan 1.2).
@@ -34,7 +58,7 @@ struct OvationApp: App {
         // refuses under one, so there is nothing to identify and nothing to back
         // up, and running the sequence against a fabricated path would raise
         // problems about a store nobody has (plan 1.9, the isolation floor).
-        if let storeURL = StoreLocation.liveStoreURL() {
+        if secondInstance.mayRun, let storeURL = StoreLocation.liveStoreURL() {
             StoreLaunchSequence(
                 storeURL: storeURL,
                 problems: store,

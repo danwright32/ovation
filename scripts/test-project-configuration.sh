@@ -16,7 +16,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "project configuration tests" 22
+harness_begin "project configuration tests" 24
 
 require_target "project.yml"
 
@@ -215,6 +215,24 @@ check "the debug entitlements file DOES, or Xcode cannot debug the app" \
 #
 # Asserted from the settings rather than left to the launch smoke check, because
 # that check is run deliberately and this must go red on a push.
+# ovation#84. THE KEY THAT MUST STAY ABSENT, asserted rather than only explained
+# in a comment. `LSMultipleInstancesProhibited` is how a second running copy
+# would be refused BY THE SYSTEM, and plan 1.3 says explicitly not to use it: a
+# running Debug app holding that lock makes the xctest host fail to launch, so
+# the suite dies AFTER a full build, and Overture's own runner records that the
+# misdiagnosis "sent hours of elimination in the wrong direction".
+#
+# The refusal lives in application code instead (Ovation/App/SecondInstance.swift),
+# which is Downbeat's pattern rather than a workaround. A constraint recorded only
+# as a comment beside the code is enforced by nothing while reading as binding
+# (L407), and the cost of somebody adding this key is a build's worth of
+# elimination in the wrong direction.
+check "the project declares no LSMultipleInstancesProhibited anywhere" \
+    "$(grep -c 'LSMultipleInstancesProhibited:' project.yml)" "0"
+check "and the generated project carries none either" \
+    "$(grep -c 'LSMultipleInstancesProhibited' Ovation.xcodeproj/project.pbxproj 2>/dev/null \
+        || true)" "0"
+
 check "Debug builds no separate debug dylib, which hardened runtime cannot load" \
     "$(setting Debug ENABLE_DEBUG_DYLIB)" "NO"
 

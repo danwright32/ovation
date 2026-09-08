@@ -32,6 +32,7 @@ Exit codes, one per outcome (L11):
     2  the entry point is not there, or does not carry @main
     3  it builds the sequence and never runs it, which is the shape of the
        original defect: the parts present and the protection absent
+    4  it never checks for a second running copy, or checks and runs anyway
 """
 import os
 import re
@@ -43,6 +44,11 @@ ENTRY = os.environ.get("OVATION_ENTRY_POINT",
 
 CONSTRUCTS = re.compile(r"\bStoreLaunchSequence\s*\(")
 RUNS = re.compile(r"\.run\s*\(\s*now\s*:")
+# ovation#84. The second copy check has the same shape of problem as the sequence
+# itself: it lives in the one file no test can compile, and it is only a
+# safeguard if the entry point both ASKS and HONOURS the answer.
+ASKS_ABOUT_SECOND_COPY = re.compile(r"\bSecondInstance\.check\s*\(")
+HONOURS_SECOND_COPY = re.compile(r"\bmayRun\b")
 
 
 def fail(code, message):
@@ -77,7 +83,23 @@ def main():
                 "the exact shape of the defect this guard exists for: the parts "
                 "present, the protection absent." % ENTRY)
 
-    print("OK: the entry point builds the launch sequence and runs it.")
+    # ovation#84. Two copies over one store are two writers of Dan's invoices,
+    # and every serialized writer Ovation has serializes within ONE process, so
+    # nothing inside them can see a second one. ASKING is not enough: the answer
+    # has to gate the sequence, because standing aside AFTER checkpointing,
+    # backing up and opening is standing aside after doing the dangerous part.
+    if not ASKS_ABOUT_SECOND_COPY.search(code):
+        fail(4, "%s never asks SecondInstance.check whether another copy is running. "
+                "Two copies over one store are two writers of the same invoices, and "
+                "the serialized writers cannot see each other across processes." % ENTRY)
+
+    if not HONOURS_SECOND_COPY.search(code):
+        fail(4, "%s asks whether another copy is running and never reads the answer. "
+                "The check is present and the protection is absent, which is the same "
+                "shape as building the sequence and not running it." % ENTRY)
+
+    print("OK: the entry point builds the launch sequence, runs it, and stands aside "
+          "for a second running copy.")
 
 
 main()

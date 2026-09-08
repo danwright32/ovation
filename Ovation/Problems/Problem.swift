@@ -43,6 +43,12 @@ extension ProblemKind {
     /// downgrade next time.
     static let storeVersionNotRecorded = ProblemKind("store.version-not-recorded")
 
+    /// Another copy of Ovation is already running, so this one stood aside
+    /// (ovation#84). Its own kind because the remedy is not about a file at all:
+    /// there is nothing wrong with the store, and the action is to use the copy
+    /// that is already open.
+    static let secondRunningCopy = ProblemKind("app.second-running-copy")
+
     /// The backup could not be verified (ovation#57).
     static let backupFailed = ProblemKind("backup.failed")
 

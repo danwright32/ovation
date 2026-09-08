@@ -90,5 +90,42 @@ struct OvationApp: App {
 SWIFT
 check "a sequence mentioned only in a comment does not satisfy it" 1 "$(run_on "${WORK}/comment-only.swift")"
 
+# 4: ovation#84. An entry point that runs the sequence perfectly and never asks
+# whether another copy of Ovation is already running. Two copies over one store
+# are two writers of the same invoices, and every serialized writer Ovation has
+# serializes within ONE process, so nothing inside them can see the other.
+cat > "${WORK}/no-second-copy-check.swift" <<'SWIFT'
+@main
+struct OvationApp: App {
+    init() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        if let storeURL = StoreLocation.liveStoreURL() {
+            StoreLaunchSequence(storeURL: storeURL, problems: store).run(now: Date())
+        }
+    }
+}
+SWIFT
+check "an entry point that never asks about a second copy is refused" 4 \
+    "$(run_on "${WORK}/no-second-copy-check.swift")"
+
+# 4, the other half and the more likely one: it ASKS and runs anyway. Standing
+# aside after checkpointing, backing up and opening is standing aside after doing
+# the dangerous part.
+cat > "${WORK}/asks-and-ignores.swift" <<'SWIFT'
+@main
+struct OvationApp: App {
+    init() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let verdict = SecondInstance.check(executablePath: "x", runningPIDs: { _ in [] })
+        _ = verdict
+        if let storeURL = StoreLocation.liveStoreURL() {
+            StoreLaunchSequence(storeURL: storeURL, problems: store).run(now: Date())
+        }
+    }
+}
+SWIFT
+check "an entry point that asks and never reads the answer is refused too" 4 \
+    "$(run_on "${WORK}/asks-and-ignores.swift")"
+
 echo "launch sequence wiring tests: ${PASSED} passed, ${FAILED} failed"
 [[ "${FAILED}" -eq 0 ]]
