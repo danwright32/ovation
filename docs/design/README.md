@@ -510,8 +510,22 @@ belongs to is worse than one that says less.
 
 ### What is deliberately still open
 
-What the sidebar counts do about an invoice that cannot be sent (ovation#129). That is the whole
-list for this screen now, and it belongs to another issue.
+What the sidebar counts do about an invoice that cannot be sent (ovation#129).
+
+**And two controls this screen is supposed to carry are not drawn at all**, both quoted from
+ovation#111's own list of what the PRD had already decided must live here. This section claimed for
+a few hours that the sidebar counts were the whole remaining list, which was wrong, and it was wrong
+because the claim was written from the rounds that had just been run rather than checked against
+that list.
+
+1. **Line items come from the fixed service type list, and a new type can be added from inside the
+   invoice** without going to settings first (PRD 4). The screen draws `Add a line` as a word with
+   nothing behind it. The types exist in code, `Ovation/Domain/ServiceType.swift`, seeded into a new
+   store by ovation#107, and no surface reaches them.
+2. **The due date can be overridden per invoice as well as per client** (PRD 7). The foot draws
+   `Dated 29 Aug 2026, due 12 Sep 2026` as static text with no way to change it.
+
+Neither is a question about how something looks, so neither is a round. Both are a missing control.
 
 **The discount's edit line is Dan's, settled 2026-09-08.** It had been chosen to solve a layout
 problem rather than designed, and he kept it against three alternatives: the percentage edited where
