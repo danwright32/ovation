@@ -63,7 +63,11 @@ enum ShootWhen: Equatable, Hashable, Codable, Sendable {
         switch self {
         case .timed(let startsAt, let endsAt):
             let seconds = Int64(endsAt.timeIntervalSince(startsAt.instant).rounded())
-            return Hours(tenths: Rounding.halfAwayFromZero(seconds * 10, over: 3_600))
+            // HUNDREDTHS, since ovation#127: a quarter hour is not a tenth, and
+            // 94% of Dan's billed lines land on a quarter. Rounding to tenths
+            // here would price a 1.75 hour shoot at 1.7 or 1.8 before anything
+            // downstream had a chance to be correct.
+            return Hours(hundredths: Rounding.halfAwayFromZero(seconds * 100, over: 3_600))
         case .dayOnly:
             return nil
         }

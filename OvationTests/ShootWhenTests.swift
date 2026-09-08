@@ -25,31 +25,52 @@ struct ShootWhenTests {
         #expect(try Self.hours(4 * 3_600) == Hours(whole: 4))
     }
 
-    @Test("two and a half hours is twenty five tenths, which is what the rate multiplies")
-    func halfHoursAreTenths() throws {
+    @Test("two and a half hours is exact, in tenths and in quarters alike")
+    func halfHoursAreExact() throws {
+        #expect(try Self.hours(9_000) == Hours(hundredths: 250))
         #expect(try Self.hours(9_000) == Hours(tenths: 25))
+        #expect(try Self.hours(9_000) == Hours(quarters: 10))
     }
 
-    @Test("PRD 5.3 says exact to one decimal, so a shoot is billed in tenths and rounded there")
-    func minutesRoundToTenths() throws {
-        // 2h35m is 25.83 tenths of an hour.
-        #expect(try Self.hours(9_300) == Hours(tenths: 26))
-        // 2h32m30s is 25.42, which rounds the other way.
-        #expect(try Self.hours(9_150) == Hours(tenths: 25))
+    @Test("a duration is kept to HUNDREDTHS, so a quarter hour survives it")
+    func minutesRoundToHundredths() throws {
+        // CORRECTED BY ovation#127, and these three cases used to assert tenths.
+        // PRD 5.3 said "exact to one decimal" and round 4 of ovation#111 settled
+        // rounding to the nearest QUARTER, which Dan chose. 1.25 and 1.75 hours
+        // are not representable in tenths at all, so the old assertion was
+        // defending a requirement its own product decision had reversed (L430).
+        //
+        // 2h35m is 258.33 hundredths of an hour.
+        #expect(try Self.hours(9_300) == Hours(hundredths: 258))
+        // 2h32m30s is 254.17, which rounds the other way.
+        #expect(try Self.hours(9_150) == Hours(hundredths: 254))
     }
 
-    @Test("a tenth exactly on the half rounds away from zero, the way every other amount does")
-    func aHalfTenthRoundsAwayFromZero() throws {
-        // 2h33m is 25.5 tenths exactly.
-        #expect(try Self.hours(9_180) == Hours(tenths: 26))
+    @Test("a quarter hour comes through EXACTLY, which tenths could not do")
+    func aquarterHourSurvives() throws {
+        // The case the old unit could not hold. 1h45m is 1.75 hours, which
+        // appears on eleven lines of Dan's real history, and at $250 an hour is
+        // $437.50 rather than the $425.00 or $450.00 a tenth would have priced.
+        #expect(try Self.hours(6_300) == Hours(quarters: 7))
+        #expect(try Self.hours(4_500) == Hours(quarters: 5), "1h15m")
+        #expect(Money.charge(for: try Self.hours(6_300), at: Money(dollars: 250))
+            == Money(cents: 43_750))
     }
 
-    @Test("a shoot shorter than a tenth of an hour still records the time it took")
+    @Test("a hundredth exactly on the half rounds away from zero, as every other amount does")
+    func ahalfHundredthRoundsAwayFromZero() throws {
+        // 2h33m18s is 255.5 hundredths exactly.
+        #expect(try Self.hours(9_198) == Hours(hundredths: 256))
+    }
+
+    @Test("a shoot shorter than a hundredth of an hour still records the time it took")
     func aVeryShortShootIsNotZeroedOut() throws {
         // Three minutes. The ONE HOUR MINIMUM is a pricing rule and is applied by
         // the line item (ovation#43), not here: a surface reporting how long Dan
         // was actually there must not be handed a number rounded up for billing.
-        #expect(try Self.hours(180) == Hours(tenths: 1))
+        // The QUARTER rounding is that issue's too, for the same reason: this is
+        // the duration, and the billed figure is derived from it.
+        #expect(try Self.hours(180) == Hours(hundredths: 5))
     }
 
     // MARK: what cannot be constructed at all

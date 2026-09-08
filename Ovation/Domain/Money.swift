@@ -89,7 +89,7 @@ struct Money: Equatable, Hashable, Comparable, Codable, Sendable {
     /// pricing rules and live with the invoice (ovation#43). This is the
     /// arithmetic only.
     static func charge(for hours: Hours, at hourlyRate: Money) -> Money {
-        Money(cents: Rounding.halfAwayFromZero(hourlyRate.cents * hours.tenths, over: 10))
+        Money(cents: Rounding.halfAwayFromZero(hourlyRate.cents * hours.hundredths, over: 100))
     }
 }
 
@@ -101,16 +101,44 @@ struct Money: Equatable, Hashable, Comparable, Codable, Sendable {
 /// site: the compiler refuses rather than the invoice being wrong by a factor of
 /// the rate.
 struct Hours: Equatable, Hashable, Comparable, Codable, Sendable {
-    let tenths: Int64
 
-    init(tenths: Int64) { self.tenths = tenths }
-    init(whole: Int64) { self.tenths = whole * 10 }
+    /// HUNDREDTHS OF AN HOUR, and the unit is the whole of ovation#127.
+    ///
+    /// It was TENTHS, from PRD 5.3's "exact to one decimal", and that requirement
+    /// was wrong by construction from the moment round 4 of ovation#111 settled
+    /// on rounding to the nearest QUARTER hour, which Dan chose. A quarter is
+    /// 0.25, and 1.25 and 1.75 hours are not representable in tenths at all.
+    ///
+    /// IT IS NOT A ROUNDING NICETY, IT IS MONEY. Measured from the FreshBooks
+    /// export: quarter hour values appear throughout Dan's real history, 1.75 on
+    /// eleven lines alone, and 2.25, 3.25, 4.25, 4.75 and 6.25 besides. At $250
+    /// an hour, a 1.75 hour shoot forced onto a tenth prices at $425.00 or
+    /// $450.00 against the $437.50 it ran.
+    ///
+    /// HUNDREDTHS AND NOT QUARTERS, because the history holds 2.15 and 1.15,
+    /// which are on neither a quarter nor a tenth. Hundredths represent every
+    /// value Dan has ever billed exactly, and tenths and quarters are both whole
+    /// numbers of them, so nothing that used to be exact stopped being so.
+    let hundredths: Int64
 
-    static let zero = Hours(tenths: 0)
+    init(hundredths: Int64) { self.hundredths = hundredths }
 
-    static func < (lhs: Hours, rhs: Hours) -> Bool { lhs.tenths < rhs.tenths }
+    /// Tenths remain a legitimate way to SAY a duration, and this is why every
+    /// existing call site still reads correctly: a tenth is ten hundredths.
+    init(tenths: Int64) { self.hundredths = tenths * 10 }
 
-    static func + (lhs: Hours, rhs: Hours) -> Hours { Hours(tenths: lhs.tenths + rhs.tenths) }
+    /// The unit the rounding rule actually produces (docs/design/rules/duration.js).
+    init(quarters: Int64) { self.hundredths = quarters * 25 }
+
+    init(whole: Int64) { self.hundredths = whole * 100 }
+
+    static let zero = Hours(hundredths: 0)
+
+    static func < (lhs: Hours, rhs: Hours) -> Bool { lhs.hundredths < rhs.hundredths }
+
+    static func + (lhs: Hours, rhs: Hours) -> Hours {
+        Hours(hundredths: lhs.hundredths + rhs.hundredths)
+    }
 }
 
 /// A sales tax rate, in thousandths of a percent, which is what it takes to hold

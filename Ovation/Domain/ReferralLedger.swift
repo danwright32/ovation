@@ -97,7 +97,7 @@ actor ReferralLedger {
         guard !alreadySpent else { throw ReferralRefusal.alreadySpentOnInvoice(id: invoiceID) }
 
         modelContext.insert(ReferralLedgerEntry(
-            client: client, hours: Hours(tenths: -hours.tenths), occurredOn: day,
+            client: client, hours: Hours(hundredths: -hours.hundredths), occurredOn: day,
             earnedFromBookingKey: nil, spentOnInvoiceID: invoiceID, note: nil))
         try modelContext.save()
     }
@@ -121,7 +121,7 @@ actor ReferralLedger {
         }
 
         modelContext.insert(ReferralLedgerEntry(
-            client: earned.client, hours: Hours(tenths: -earned.hours.tenths), occurredOn: day,
+            client: earned.client, hours: Hours(hundredths: -earned.hours.hundredths), occurredOn: day,
             earnedFromBookingKey: nil,
             note: "Withdrawn: \(reason.trimmingCharacters(in: .whitespacesAndNewlines))"))
         try modelContext.save()

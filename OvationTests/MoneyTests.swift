@@ -181,11 +181,36 @@ struct TaxRateTests {
 /// pricing takes one of each.
 struct HoursTests {
 
-    @Test("hours are stored as whole tenths")
-    func hoursAreTenths() {
-        #expect(Hours(tenths: 15).tenths == 15)
-        #expect(Hours(whole: 2).tenths == 20)
-        #expect(Hours.zero.tenths == 0)
+    @Test("hours are stored as whole HUNDREDTHS, so a quarter hour is exact")
+    func hoursAreHundredths() {
+        // ovation#127. It was tenths, from PRD 5.3's "exact to one decimal", and
+        // that was wrong by construction the moment round 4 of ovation#111
+        // settled on rounding to the nearest QUARTER: 1.25 and 1.75 hours are not
+        // representable in tenths at all, and 94% of Dan's billed lines land on
+        // a quarter.
+        #expect(Hours(tenths: 15).hundredths == 150, "a tenth is still exact")
+        #expect(Hours(whole: 2).hundredths == 200)
+        #expect(Hours.zero.hundredths == 0)
+        #expect(Hours(quarters: 7).hundredths == 175, "1.75 hours, which tenths cannot hold")
+        #expect(Hours(quarters: 1) == Hours(hundredths: 25))
+        #expect(Hours(quarters: 2) == Hours(tenths: 5), "and a half hour is both")
+    }
+
+    @Test("a quarter hour shoot is priced EXACTLY, which is what ovation#127 was about")
+    func aquarterHourIsPricedExactly() {
+        // At $250 an hour a 1.75 hour shoot is $437.50. Forced onto a tenth it
+        // was $425.00 or $450.00, so the defect was money rather than rounding
+        // style, and 1.75 appears on eleven lines of the real history alone.
+        let rate = Money(dollars: 250)
+        #expect(Money.charge(for: Hours(quarters: 7), at: rate) == Money(cents: 43_750))
+        #expect(Money.charge(for: Hours(quarters: 5), at: rate) == Money(cents: 31_250))
+        #expect(Money.charge(for: Hours(quarters: 9), at: rate) == Money(cents: 56_250))
+        #expect(Money.charge(for: Hours(quarters: 25), at: rate) == Money(cents: 156_250))
+
+        // The values from the history that are on NEITHER a quarter nor a tenth
+        // are exact too, which is why the unit is hundredths and not quarters.
+        #expect(Money.charge(for: Hours(hundredths: 215), at: rate) == Money(cents: 53_750))
+        #expect(Money.charge(for: Hours(hundredths: 115), at: rate) == Money(cents: 28_750))
     }
 
     @Test("hours order and add the way durations do")
