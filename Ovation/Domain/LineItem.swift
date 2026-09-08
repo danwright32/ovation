@@ -98,11 +98,9 @@ final class ServiceType {
         self.defaultUnitAmount = defaultUnitAmount
     }
 
-// PRD 5.4's PROPOSED STARTING LIST IS DELIBERATELY NOT HERE, and this says so
-// rather than leaving the absence to be read as an oversight. A `startingList()`
-// was written and removed in the same change: nothing seeds a store yet, so it
-// would have been called by nobody, and a seeder nothing calls is dead code that
-// a docstring turns into a decision nobody revisits (L29, L346). Seeding belongs
-// with whatever first opens a real store, which is the launch sequence in
-// ovation#88, and the list itself is in PRD 5.4 where Dan can correct it.
+// PRD 5.4's STARTING LIST IS IN `ServiceTypeSeed.swift`, beside the seeder that
+// writes it, and it got there the moment there was something to call it
+// (ovation#107). It was written here during ovation#60 and removed in the same
+// change, because nothing seeded a store then and a seeder nothing calls is dead
+// code that a docstring turns into a decision nobody revisits (L29, L346).
 }

@@ -55,6 +55,10 @@ struct StoreLaunchSequence {
     let takeBackup: @Sendable (Date) throws -> URL
     let openContainer: @Sendable (URL) throws -> ModelContainer
     let identify: @Sendable (URL) -> StoreSchemaGuard.Verdict
+    /// ovation#107. Puts PRD 5.4's starting service types into a store that has
+    /// none, and answers how many it wrote. Injected like every other step, so a
+    /// test can make it fail without damaging anything (L196).
+    let seed: @Sendable (ModelContainer) throws -> Int
 
     @discardableResult
     func run(now: Date) -> Outcome {
@@ -101,14 +105,42 @@ struct StoreLaunchSequence {
         }
 
         // 4. OPEN.
+        let container: ModelContainer
         do {
-            _ = try openContainer(storeURL)
+            container = try openContainer(storeURL)
         } catch {
             let sentence = "The store was identified as Ovation's and still would not open: "
                 + "\(error.localizedDescription)"
             _ = problems.raise(kind: .unreadableStore, subject: storeURL.path,
                                sentence: sentence, now: now)
             return .refused(step: .identify, detail: sentence)
+        }
+
+        // 5. SEED, and it is LAST for two reasons rather than one. There is no
+        // container to write into until the store is open, and seeding WRITES,
+        // so putting it before the backup would be a write the backup does not
+        // carry.
+        //
+        // A failure here is REPORTED and the launch continues, the same choice
+        // as the backup and for a weaker reason, so with a weaker consequence: an
+        // empty service type picker is an annoyance Dan can fix by typing a name,
+        // where refusing to open would leave him unable to invoice at all. It is
+        // still said out loud, because a picker silently empty on a fresh install
+        // reads as a product with no service types rather than as a step that
+        // failed (L10).
+        //
+        // A launch that seeded NOTHING raises nothing. That is every launch after
+        // the first, and a notice on the commonest case is one Dan learns to
+        // click past (L36).
+        do {
+            _ = try seed(container)
+        } catch {
+            _ = problems.raise(
+                kind: .startingDataNotSeeded, subject: storeURL.path,
+                sentence: "Ovation could not write its starting service type list into a new "
+                    + "store: \(error.localizedDescription). It opened anyway, and the service "
+                    + "type picker on a new invoice will be empty until a type is added.",
+                now: now)
         }
 
         return .opened

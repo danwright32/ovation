@@ -31,6 +31,11 @@ extension ProblemKind {
     /// The backup could not be verified (ovation#57).
     static let backupFailed = ProblemKind("backup.failed")
 
+    /// The starting service types could not be written into a fresh store
+    /// (ovation#107). Its own kind, because the remedy is not the store's: the
+    /// app is open and usable, and what is missing is three rows in a picker.
+    static let startingDataNotSeeded = ProblemKind("seed.starting-data")
+
     /// No export has been run for long enough to be worth saying (ovation#64).
     static let exportStale = ProblemKind("export.stale")
 

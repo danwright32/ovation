@@ -52,7 +52,13 @@ struct OvationApp: App {
                         storeURL: $0,
                         ownEntityTables: StoreSchemaGuard.entityTableNames(
                             for: OvationSchema.schema))
-                }
+                },
+                // ovation#107. PRD 5.4's starting service types, into a store
+                // that holds none. It runs here rather than anywhere a screen
+                // could reach, because it must happen exactly once on an empty
+                // store and never again: a rename Dan makes from inside an
+                // invoice must not be undone by the next launch.
+                seed: { try ServiceTypeSeed.seedIfEmpty(ModelContext($0)) }
             ).run(now: Date())
         }
 

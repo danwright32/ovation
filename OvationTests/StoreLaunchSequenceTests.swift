@@ -26,7 +26,7 @@ struct StoreLaunchSequenceTests {
         let outcome = world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
-        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "seed"])
         #expect(world.store.open.isEmpty)
     }
 
@@ -114,7 +114,7 @@ struct StoreLaunchSequenceTests {
 
         #expect(outcome == .opened)
         #expect(world.store.open.contains { $0.kind == .backupFailed })
-        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "seed"])
     }
 
     @Test("the backup failure names which half failed")
@@ -136,6 +136,67 @@ struct StoreLaunchSequenceTests {
     /// for the checkpoint and the backup so a test never has to make a real one
     /// fail by damaging the machine.
     @MainActor
+    // MARK: seeding, which happens AFTER the store is open
+
+    @Test("the starting service types are seeded, and only after the store opened")
+    func seedingRunsLast() throws {
+        // ovation#107. It cannot run before `open`, because there is no container
+        // to write into until then, and it must not run before the BACKUP either:
+        // seeding writes, and a write before the backup is a write the backup
+        // does not carry.
+        let world = try World()
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(world.recorder.steps.last == "seed")
+        #expect(world.recorder.steps.firstIndex(of: "seed")! > world.recorder.steps.firstIndex(of: "backup")!)
+    }
+
+    @Test("a store that refuses at IDENTIFY is never seeded")
+    func arefusedLaunchSeedsNothing() throws {
+        // Seeding is a WRITE, and the whole reason identify comes first is that
+        // every later step writes. A foreign file must not gain three service
+        // types.
+        let world = try World()
+        try world.writeForeignStore()
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(!world.recorder.steps.contains("seed"))
+    }
+
+    @Test("a seed that fails is RAISED and the app still opens")
+    func afailedSeedIsReportedRatherThanFatal() throws {
+        // Same choice as the backup, for a weaker reason and so a weaker
+        // consequence: an empty service type picker is an annoyance Dan can fix
+        // by typing a name, where refusing to open would leave him unable to
+        // invoice at all. It is still SAID, because a picker that is silently
+        // empty on a fresh install reads as a product with no service types
+        // rather than as a step that failed (L10).
+        let world = try World(seed: { _ in throw SeedFailure.refused })
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        let problem = try #require(
+            world.store.open.first { (p: Problem) in p.kind == ProblemKind.startingDataNotSeeded })
+        #expect(problem.sentence.contains("service type"))
+        #expect(problem.sentence.contains("opened anyway"))
+    }
+
+    @Test("a launch that seeded nothing raises nothing, because that is the ordinary case")
+    func asecondLaunchIsQuiet() throws {
+        // Every launch after the first seeds zero, and a notice on that would
+        // fire forever on the commonest case.
+        let world = try World(seed: { _ in 0 })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(world.store.open.isEmpty)
+    }
+
+    private enum SeedFailure: Error { case refused }
+
     private struct World {
         let directory: URL
         let storeURL: URL
@@ -149,9 +210,11 @@ struct StoreLaunchSequenceTests {
             func record(_ step: String) { steps.append(step) }
         }
 
+        @MainActor
         init(withStore: Bool = true,
              checkpoint: (@Sendable (URL) -> StoreCheckpoint.Outcome)? = nil,
-             backup: (@Sendable (Date) throws -> URL)? = nil) throws {
+             backup: (@Sendable (Date) throws -> URL)? = nil,
+             seed: (@Sendable (ModelContainer) throws -> Int)? = nil) throws {
             directory = URL.temporaryDirectory
                 .appending(path: "ovation-launch-\(UUID().uuidString)",
                            directoryHint: .isDirectory)
@@ -197,6 +260,11 @@ struct StoreLaunchSequenceTests {
                         storeURL: url,
                         ownEntityTables: StoreSchemaGuard.entityTableNames(
                             for: Schema([Client.self])))
+                },
+                seed: { container in
+                    recorder.record("seed")
+                    if let seed { return try seed(container) }
+                    return try ServiceTypeSeed.seedIfEmpty(ModelContext(container))
                 })
         }
 
