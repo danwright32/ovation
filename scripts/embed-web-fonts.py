@@ -92,10 +92,15 @@ def faces_in(css, wanted_subset="latin"):
     looks correct.
     """
     found = []
+    blocks = 0
+    labelled = 0
     for block in FACE_BLOCK.finditer(css):
+        blocks += 1
         preceding = css[:block.start()]
         comments = SUBSET_COMMENT.findall(preceding)
         subset = comments[-1].lower() if comments else None
+        if subset is not None:
+            labelled += 1
         if subset != wanted_subset:
             continue
         declarations = {name.lower(): value.strip()
@@ -112,10 +117,28 @@ def faces_in(css, wanted_subset="latin"):
             "url": source.group(1),
         })
     if not found:
+        # THREE WAYS TO FIND NOTHING, AND THEY NEED THREE SENTENCES (L11). The
+        # subset lives ONLY in a comment above each block, so a stylesheet whose
+        # blocks carry no such comment is not a family without a latin subset, it
+        # is a response in a shape this cannot read at all, and the remedies are
+        # opposite: one is a different URL, the other is that this script needs
+        # teaching. Reported as "no latin subset" they are the same message
+        # pointing at the wrong work.
+        if blocks == 0:
+            raise Refusal(
+                "this stylesheet declares no @font-face at all, so it is not the "
+                "CSS a font service returns. Nothing was emitted.")
+        if labelled == 0:
+            raise Refusal(
+                f"{blocks} @font-face block(s), and not one carries a subset "
+                "comment above it. The subset is named ONLY in that comment, so "
+                "this cannot tell latin from any other alphabet here and refuses "
+                "rather than embedding whichever blocks happen to be present.")
         raise Refusal(
-            f"no {wanted_subset} subset in this stylesheet. Either the URL names a "
-            "family that has none, or the response was not the CSS that was asked "
-            "for. Nothing was emitted rather than embedding another alphabet.")
+            f"no {wanted_subset} subset in this stylesheet, out of {labelled} "
+            f"labelled block(s). Either the URL names a family that has none, or "
+            "the response was not the CSS that was asked for. Nothing was emitted "
+            "rather than embedding another alphabet.")
     return found
 
 

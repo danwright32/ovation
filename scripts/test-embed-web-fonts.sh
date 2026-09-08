@@ -14,7 +14,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "web font embedding tests" 19
+harness_begin "web font embedding tests" 22
 
 TARGET="scripts/embed-web-fonts.py"
 require_target "$TARGET"
@@ -114,6 +114,25 @@ check "and it says nothing was emitted rather than embedding another alphabet" \
     "$(run_on "$WORK/no-latin.css" | grep -c 'another alphabet')" "1"
 check "and it emits no font-face at all" \
     "$(out_of "$WORK/no-latin.css" | grep -c '@font-face')" "0"
+
+# THREE WAYS TO FIND NO LATIN FACE, and they need three sentences, because the
+# remedies are opposite: a different URL against this script needing teaching.
+cat > "$WORK/unlabelled.css" <<CSS
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400;
+  src: url($WORK/archivo-latin.woff2) format('woff2');
+}
+CSS
+check "faces with no subset comment at all are refused" \
+    "$(status_on "$WORK/unlabelled.css")" "1"
+check "and NOT as a family with no latin subset, which is different work" \
+    "$(run_on "$WORK/unlabelled.css" | grep -c 'not one carries a subset comment')" "1"
+
+printf 'body { margin: 0; }\n' > "$WORK/nofaces.css"
+check "a stylesheet declaring no face at all says THAT" \
+    "$(run_on "$WORK/nofaces.css" | grep -c 'declares no @font-face at all')" "1"
 
 cat > "$WORK/not-woff2.css" <<CSS
 /* latin */
