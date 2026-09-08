@@ -380,7 +380,13 @@ a file that reaches out (ovation#114). Zero network requests, all four typefaces
 
 The switch above the window is BEHAVIOUR rather than a chooser, the same as the quiet day switch on
 the Clients screen: an invoice passes through all of these states and none of them can be seen from a
-still. Set the two times, answer the tax status, press History in the header, and take a discount or
+still.
+
+**Every decision below with a code consequence is also a numbered PRD requirement, 51 to 51e**, the
+same way the invoice list's are 43 to 49 and the client's PDF is 50 to 50f. That is the deliverable
+rule for a settled design and not a habit: this record is where a decision is explained, and the PRD
+is what the implementation is built from, so a decision living only here is one the build never
+sees. Set the two times, answer the tax status, press History in the header, and take a discount or
 a referral credit from the Edit menu.
 
 It shipped on 2026-09-08 as two files, `invoice-being-priced.html` and `invoice-after-sending.html`,
