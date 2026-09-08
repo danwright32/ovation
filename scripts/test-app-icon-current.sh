@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "app icon currency tests" 19
+harness_begin "app icon currency tests" 23
 
 TARGET="scripts/check-app-icon-current.sh"
 require_target "$TARGET"
@@ -82,6 +82,37 @@ check "one generated file edited by hand is refused" "$LAST_STATUS" "1"
 check "and ONLY that file is named, not the nine that are fine" \
     "$(said 'is a different picture')" "1"
 check "and it is the one that was edited" "$(said 'icon_256x256@2x.png:')" "1"
+
+# Contents.json differing only in FORMATTING is not a difference. The first
+# version appended it as a problem carrying a blank explanation, which is a
+# refusal saying nothing about what it measured (L11).
+REFORMATTED="$WORK/reformatted"
+cp -R "$BLUE_SET" "$REFORMATTED"
+python3 -c 'import json, sys
+with open(sys.argv[1] + "/Contents.json") as h:
+    data = json.load(h)
+with open(sys.argv[1] + "/Contents.json", "w") as h:
+    json.dump(data, h, indent=8, sort_keys=True)' "$REFORMATTED"
+check "the fixture really did change the bytes of Contents.json" \
+    "$(cmp -s "$REFORMATTED/Contents.json" "$BLUE_SET/Contents.json" && echo same || echo differs)" \
+    "differs"
+measure "$WORK/blue.png" "$REFORMATTED"
+check "a Contents.json that is the same JSON differently formatted passes" "$LAST_STATUS" "0"
+
+# One that declares something DIFFERENT is refused, so the case above is not the
+# check having stopped reading it.
+CHANGED_JSON="$WORK/changed-json"
+cp -R "$BLUE_SET" "$CHANGED_JSON"
+python3 -c 'import json, sys
+with open(sys.argv[1] + "/Contents.json") as h:
+    data = json.load(h)
+data["images"][0]["size"] = "9x9"
+with open(sys.argv[1] + "/Contents.json", "w") as h:
+    json.dump(data, h)' "$CHANGED_JSON"
+measure "$WORK/blue.png" "$CHANGED_JSON"
+check "a Contents.json declaring different images is refused" "$LAST_STATUS" "1"
+check "and the refusal says what is wrong rather than nothing at all" \
+    "$(said 'declares different images or sizes')" "1"
 
 # A file of the right picture at the wrong SIZE is its own sentence, because the
 # remedy is the same but the diagnosis is not.

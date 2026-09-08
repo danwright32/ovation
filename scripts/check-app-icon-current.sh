@@ -118,7 +118,16 @@ def compare(catalog, rebuilt):
             identical_bytes += 1
             continue
         if name.lower().endswith(".json"):
-            problems.append((name, describe_json(left, right)))
+            # THE EMPTY ANSWER MEANS "the same JSON, differently formatted", and
+            # it must not be appended. Appending it unconditionally reported a
+            # problem carrying a BLANK explanation, which is a refusal that says
+            # nothing about what it measured (L11), and it refused a catalog whose
+            # Contents.json differs only in whitespace or key order. Same
+            # treatment as the pixel comparison two lines below, for the same
+            # reason: what ships is the meaning, not the encoding.
+            difference = describe_json(left, right)
+            if difference:
+                problems.append((name, difference))
             continue
         if name.lower().endswith(".png"):
             difference = describe_pixels(left, right)
