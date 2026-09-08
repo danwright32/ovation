@@ -46,6 +46,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # Ovation.xcodeproj is GENERATED from project.yml and is gitignored, so a
+      # fresh checkout has no project at all. The suites that read it answer
+      # CANNOT MEASURE without this, which is honest but measures nothing.
+      - name: Install xcodegen
+        run: brew install xcodegen
+
       - name: Run every shell suite
         run: |
           set +e
@@ -74,8 +81,17 @@ jobs:
       # installed rather than worked around, so this runs the same run-tests.sh
       # Dan's machine does: a CI only branch through the runner would mean the
       # thing being tested here is not the thing that gates a push (L380).
-      - name: Install flock
-        run: brew install flock
+      - name: Install flock and xcodegen
+        run: brew install flock xcodegen
+
+      # THE PROJECT IS GENERATED, NOT COMMITTED. Ovation.xcodeproj is gitignored
+      # and produced from project.yml, so a fresh checkout has nothing to build:
+      # the first run of this job said `Ovation.xcodeproj does not exist`. It is
+      # generated HERE rather than inside scripts/build-products.sh, because that
+      # command is also what Dan runs locally and regenerating his project on
+      # every build is a different decision from making one on a bare machine.
+      - name: Generate the Xcode project
+        run: xcodegen generate
 
       # An unattended keychain, whose password this invents. It is not a secret:
       # it protects a self signed throwaway identity on an ephemeral machine, and
