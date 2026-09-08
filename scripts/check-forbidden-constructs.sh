@@ -16,6 +16,32 @@ RULE TWO, THE AMBIENT CALENDAR (plan 1.5). Every business date goes through
 `BusinessCalendar`, pinned to America/New_York. The second calendar does not
 arrive as a decision; it arrives inside a convenience somebody adds later (L39).
 
+RULE THREE, BLOCKING WORK ON THE COOPERATIVE POOL (plan 1.9, ovation#85). Ported
+IN SUBSTANCE from danwright32/downbeat Downbeat/DownbeatTests/
+CooperativePoolTests.swift @ 66966ccf9bab12427fff9949cf566d188616bafe, and
+deliberately NOT line by line, which is recorded here because a port that changes
+shape has to say so.
+
+Downbeat's is a Swift suite carrying its own file walk, its own comment stripper
+borrowed from a third suite, and its own "there are sources to check" floor.
+Ovation already has all three, here, and they are the parts most easily got
+subtly wrong. Copying the suite would have shared the DATA (one token) while
+copying the LOGIC beside it, which is not consolidation and is the exact defect
+this file's own header cites (L370). What survives the port unchanged is
+everything that MATTERS about the original: the token, the empty exemption list,
+the reason each exemption must carry, comments stripped so the file explaining
+the trap is not itself the first violation, and the scope.
+
+THE SCOPE IS THE SAME AND SO IS ITS REASON. Downbeat scans app sources only,
+because a test suite that starves itself fails loudly and immediately, which is
+its own report, and the harm being guarded against is an app that goes quiet in
+Dan's hands. Ovation's scan root is the app sources, so that holds without
+anything being added.
+
+WHY IT MATTERS HERE SPECIFICALLY, in the plan's own words: "Ovation runs Vision
+on every receipt, so this defect is otherwise pre-ordained." Vision on a receipt
+image blocks, and so does a keychain read (ovation#76).
+
 WHAT IT NEVER PRINTS: the source line. It reports the file, the line number and
 the type name only. Printing the line would put whatever that line says into
 transcripts and terminal scrollback, and a comment on a money line is exactly
@@ -63,6 +89,19 @@ RULES = (
         ),
     },
     {
+        "name": "blocking work on the cooperative pool",
+        "tokens": ("Task.detached",),
+        "because": (
+            "The cooperative pool is about one thread per core and does not grow, "
+            "so work that BLOCKS a thread never gives it back and enough of them "
+            "starve every other await in the app (L241, plan 1.9). Task.detached "
+            "reads like 'run this somewhere else', and somewhere else is that same "
+            "fixed pool. Use a dispatch global queue, which grows. Ovation runs "
+            "Vision on every receipt and reads the keychain, which is exactly this "
+            "shape, so the rule is that the tree stays free of it."
+        ),
+    },
+    {
         "name": "ambient calendar",
         "tokens": ("Calendar.current", "NSCalendar.current", "TimeZone.current", "Locale.current"),
         "because": (
@@ -83,6 +122,12 @@ RULES = (
 # adding the day something owns "now", which is the export run record's staleness
 # report (ovation#64).
 
+# THE EXEMPTION LIST STARTS EMPTY FOR RULE THREE TOO, and that is a finding
+# rather than an oversight: no Ovation source uses `Task.detached` at all today,
+# so the rule is that it stays that way. An inherited exemption carrying no
+# written reason is evidence nobody reasoned about it rather than evidence it was
+# considered (L233), so nothing was carried across from the sibling.
+#
 # EMPTY ON PURPOSE, and it stays that way until something earns a place.
 # Each entry is "<path relative to the scan root> # <the reason>", and an entry
 # with no reason is refused rather than honoured: an exemption carrying no
