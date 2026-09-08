@@ -93,10 +93,39 @@ struct SecondInstanceTests {
         // strength of not having looked, which is the permissive answer reached
         // by a check that did not happen (L215, L98).
         let verdict = SecondInstance.check(
-            executablePath: Self.path, ownPID: 900, runningPIDs: { _ in [-1] })
+            executablePath: Self.path, ownPID: 900,
+            runningPIDs: { _ in [SecondInstance.lookupFailed] })
 
         #expect(!verdict.mayRun)
-        #expect(verdict == .standingAsideFor(pid: -1, executablePath: Self.path))
+        #expect(verdict == .couldNotTell(reason: "the list of running processes could not be read"))
+    }
+
+    @Test("and it does NOT claim another copy is running, because nothing measured that")
+    func afailedLookupDoesNotInventACopy() throws {
+        // The action is the same and the sentence must not be. The first version
+        // reported this as `standingAsideFor(pid: -1)`, which stands aside
+        // correctly and then tells Dan another copy is running as process -1,
+        // sending him to find something that does not exist (L11).
+        let verdict = SecondInstance.check(
+            executablePath: Self.path, ownPID: 900,
+            runningPIDs: { _ in [SecondInstance.lookupFailed] })
+        let sentence = try #require(SecondInstance.sentence(for: verdict))
+
+        // The needle is the CLAIM, not a substring of it. "is already running"
+        // also appears inside "could not check WHETHER another copy is already
+        // running", which is a question rather than an assertion, and a test that
+        // banned the substring would have banned the honest sentence too.
+        #expect(!sentence.contains("-1"), "there is no process -1 to send anybody looking for")
+        #expect(!sentence.contains("Another copy of Ovation is already running"))
+        #expect(sentence.hasPrefix("Ovation could not check whether"))
+        #expect(sentence.contains("stood aside"))
+        #expect(sentence.contains("rather than assume it is alone"))
+
+        // And the sentence for a copy that WAS found still makes the claim, so
+        // this is not passing because the wording went vague everywhere.
+        let found = try #require(SecondInstance.sentence(
+            for: .standingAsideFor(pid: 412, executablePath: Self.path)))
+        #expect(found.contains("Another copy of Ovation is already running"))
     }
 
     @Test("the sentence names the process and the path, and says what it did NOT do")

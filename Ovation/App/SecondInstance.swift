@@ -44,11 +44,20 @@ struct SecondInstance {
         /// Another process is running the same executable. Carries its PID so Dan
         /// can find it, and the path so he can tell which build it is.
         case standingAsideFor(pid: Int32, executablePath: String)
+        /// The lookup did not run, so whether another copy exists is UNKNOWN.
+        ///
+        /// ITS OWN CASE, and it took a second look to get right. The first
+        /// version reported this as `standingAsideFor(pid: -1)`, which stands
+        /// aside correctly and then tells Dan "another copy of Ovation is
+        /// already running (process -1)". That is a claim the check never
+        /// measured, sending him to find a process that does not exist (L11).
+        /// The ACTION is the same and the SENTENCE must not be.
+        case couldNotTell(reason: String)
 
         var mayRun: Bool {
             switch self {
             case .theOnlyCopy: return true
-            case .standingAsideFor: return false
+            case .standingAsideFor, .couldNotTell: return false
             }
         }
     }
@@ -71,7 +80,11 @@ struct SecondInstance {
         ownPID: Int32 = ProcessInfo.processInfo.processIdentifier,
         runningPIDs: RunningPIDs
     ) -> Verdict {
-        let others = runningPIDs(executablePath).filter { $0 != ownPID }
+        let found = runningPIDs(executablePath)
+        if found.contains(lookupFailed) {
+            return .couldNotTell(reason: "the list of running processes could not be read")
+        }
+        let others = found.filter { $0 != ownPID }
         // The LOWEST other PID is named, so two launches racing name the same
         // copy rather than each naming the other and reading as a disagreement.
         guard let other = others.min() else { return .theOnlyCopy }
@@ -82,13 +95,30 @@ struct SecondInstance {
     /// already running" is what somebody sees while looking at a Dock with two
     /// identical icons in it (ovation#103).
     static func sentence(for verdict: Verdict) -> String? {
-        guard case .standingAsideFor(let pid, let path) = verdict else { return nil }
-        return "Another copy of Ovation is already running (process \(pid), at \(path)). "
-            + "This one has stood aside and opened nothing, because two copies sharing one "
-            + "database can each believe they are the only writer, and an invoice number or a "
-            + "referral credit issued twice is not something either of them would report. "
-            + "Use the copy that is already open."
+        let why = "two copies sharing one database can each believe they are the only writer, "
+            + "and an invoice number or a referral credit issued twice is not something either "
+            + "of them would report"
+        switch verdict {
+        case .theOnlyCopy:
+            return nil
+        case .standingAsideFor(let pid, let path):
+            return "Another copy of Ovation is already running (process \(pid), at \(path)). "
+                + "This one has stood aside and opened nothing, because \(why). "
+                + "Use the copy that is already open."
+        case .couldNotTell(let reason):
+            // IT DOES NOT SAY ANOTHER COPY IS RUNNING, because nothing measured
+            // that. It says what actually happened and what it did about it.
+            return "Ovation could not check whether another copy of itself is already "
+                + "running: \(reason). It has stood aside and opened nothing rather than "
+                + "assume it is alone, because \(why). If no other copy is open, quitting "
+                + "and reopening Ovation should let it look again."
+        }
     }
+
+    /// The value `pidsRunning` answers with when the lookup itself did not run.
+    /// Not a PID: no process has one, and `check` turns it into its own verdict
+    /// rather than letting it be read as a copy to name.
+    static let lookupFailed: Int32 = -1
 
     /// Every process running the executable at this path, by PID.
     ///
@@ -108,9 +138,7 @@ struct SecondInstance {
             // A LOOKUP THAT COULD NOT RUN IS NOT AN EMPTY ANSWER. Returning []
             // here would say "no other copy" on the strength of a failure, which
             // is the permissive answer arrived at by not looking (L215, L98).
-            // Reported as its own pid so the caller sees a copy it cannot name,
-            // which errs toward standing aside.
-            return [-1]
+            return [lookupFailed]
         }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
