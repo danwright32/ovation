@@ -1344,7 +1344,7 @@ function checkSuitesAreIsolated() {
   var tables = { DURATION_CASES: DURATION_CASES,
                  TIME_CASES_MINUTES: TIME_CASES_MINUTES, TIME_CASES_BUMP: TIME_CASES_BUMP,
                  TYPING_CASES: TYPING_CASES, TAX_CASES: TAX_CASES,
-                 MONEY_CASES: MONEY_CASES };
+                 MONEY_CASES: MONEY_CASES, WAITING_CASES: WAITING_CASES };
   var problems = [];
   Object.keys(tables).forEach(function (name) {
     if (!Array.isArray(tables[name]) || !tables[name].length)
@@ -1355,6 +1355,176 @@ function checkSuitesAreIsolated() {
   return problems;
 }
 
+
+/* WHAT THE INVOICE IS WAITING ON, named as the thing that is actually missing.
+
+   Dan, 2026-09-08: "I plan to create drafts with no end time (although I can put
+   the start time in from the creation). When I go to send the invoice I will
+   always know the end time."
+
+   That makes a start time with no end time THE ORDINARY STATE OF EVERY DRAFT,
+   and the screen was drawing it as the empty state: "Needs the times" with one
+   of them plainly on screen, and a greyed Send reading "Waiting on the shoot's
+   start and end times" while waiting on one of them.
+
+   ONE THING AT A TIME, IN A FIXED ORDER, which is round 4's settled rule and the
+   reason this returns a single reason rather than a list. Dan's own argument for
+   it: "what happens if I set the tax status before the hours? That line just
+   disappears and nothing takes its place." The order here is the times, then the
+   duration they produce, then the tax status.
+
+   THE TIMES BEING IN IS NOT THE SAME AS THE TIMES BEING USABLE. Both times can
+   be present and still price nothing, because a span over the cap is a typo
+   rather than a shoot (see duration.js). Asking for the times again in that
+   state asks for something already given, so it has its own reason. PRD 5.3b
+   wants such a value refused BY NAME and this is that name.
+
+   THE SENTENCES LIVE HERE, WITH THE REASON. They are drawn in two places, where
+   the figure would be and under the greyed Send, and a screen that says one
+   thing in one place and something else in the other is two vocabularies for one
+   fact (L113, L611).
+
+   start and end are minutes since midnight or null. status is null, "exempt" or
+   "not-exempt". Returns null when nothing is outstanding. */
+
+function waitingOnFor(start, end, status) {
+  if (start === null && end === null) {
+    return { reason: "times",
+             says: "Needs the times",
+             tip: "Waiting on the shoot's start and end times." };
+  }
+  if (end === null) {
+    return { reason: "end",
+             says: "Needs the end time",
+             tip: "Waiting on the time the shoot ended." };
+  }
+  if (start === null) {
+    return { reason: "start",
+             says: "Needs the start time",
+             tip: "Waiting on the time the shoot started." };
+  }
+
+  /* Both times are in. Whether they produce a billable duration is the
+     duration rule's decision, asked here rather than re-implemented (L370). */
+  var pad = function (m) {
+    return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  };
+  if (durationBetween(pad(start), pad(end)) === null) {
+    return { reason: "duration",
+             says: "Longer than a shoot",
+             tip: "That is more than " + CAP_HOURS + " hours, so it prices nothing. Check the times." };
+  }
+
+  if (status === null) {
+    return { reason: "status",
+             says: null,
+             tip: "Waiting on this client's tax status." };
+  }
+  return null;
+}
+
+/* WHAT THE INVOICE IS WAITING ON, and it must name the thing that is actually
+   missing rather than the class of thing.
+
+   Dan, 2026-09-08, describing the workflow the screen has to serve: "I plan to
+   create drafts with no end time (although I can put the start time in from the
+   creation). When I go to send the invoice I will always know the end time."
+
+   So A DRAFT CARRYING A START TIME AND NO END TIME IS THE ORDINARY STATE OF
+   EVERY DRAFT, not an edge case. Measured on the committed screen before this
+   rule existed: that state was drawn identically to a draft with nothing in it
+   at all, saying "Needs the times" while one of them was plainly on screen, and
+   the greyed Send read "Waiting on the shoot's start and end times" while
+   waiting on one. The everyday case was being drawn as the empty case, which no
+   fixture had ever reached because every fixture had both times or neither
+   (L101).
+
+   ONE VOCABULARY, COMPLETE OVER ITS STATES. The reason and the two sentences
+   that carry it come from here together, so the screen cannot say one thing
+   where the figure is drawn and a different thing under the Send (L113, L611).
+
+   start and end are minutes since midnight or null. status is null,
+   "exempt" or "not-exempt". */
+
+var WAITING_CASES = [
+  /* start, end, status, expected reason, why */
+  [null, null, null, "times",
+   "nothing in at all: the only state that may ask for both"],
+  [1170, null, null, "end",
+   "THE EVERYDAY DRAFT. A start time and no end time asks for the END, by name"],
+  [null, 1290, null, "start",
+   "and the other way round, which a booking with only a finish would give"],
+  [1170, 1290, null, "status",
+   "both times in, so the next thing outstanding is the tax status"],
+  [1170, 1290, "not-exempt", null,
+   "nothing outstanding: the invoice can be sent"],
+  [1170, 1290, "exempt", null,
+   "an exempt client is answered too, and answered is not the same as untaxed"],
+  [540, 480, null, "duration",
+   "9:00 AM to 8:00 AM is 23 hours, over the cap, so the TIMES are in and the "
+   + "duration is the thing that is wrong: asking for the times again is asking "
+   + "for something already given"],
+  [1170, 1170, null, "duration",
+   "identical times read as a whole day, which is also over the cap"]
+];
+
+function runWaitingTests() {
+  var failures = [];
+  WAITING_CASES.forEach(function (c) {
+    var got = waitingOnFor(c[0], c[1], c[2]);
+    var reason = got === null ? null : got.reason;
+    if (reason !== c[3]) {
+      failures.push(c[4] + ": reason " + JSON.stringify(reason)
+                    + ", expected " + JSON.stringify(c[3]));
+      return;
+    }
+    if (got === null) return;
+    /* A REASON THE SEND CANNOT EXPLAIN IS A DEAD CONTROL. Every reason carries a
+       tip, always, because the greyed Send is the one place the person is
+       looking when they cannot send (L109, L148). */
+    if (!got.tip) {
+      failures.push(c[4] + ": reason " + reason + " leaves the Send with nothing to say");
+    }
+    if (got.tip && got.tip.slice(-1) !== ".") {
+      failures.push(c[4] + ": the tip is a sentence and needs its full stop");
+    }
+    /* `says` is what is drawn BESIDE THE TIMES, and exactly one reason has none:
+       once both times are in, that space carries the duration the invoice is
+       actually billing, and the tax status is asked in the totals block where
+       the figure it changes appears. Asserted as an equivalence rather than
+       skipped, so a second reason quietly losing its sentence is caught. */
+    if ((got.says === null) !== (reason === "status")) {
+      failures.push(c[4] + ": reason " + reason + " has says=" + JSON.stringify(got.says)
+                    + ", but only the tax status is answered away from the times");
+    }
+  });
+
+  /* THE TWO THAT THE WHOLE RULE TURNS ON, asserted directly rather than left to
+     the table: a half filled draft must not say what an empty one says. */
+  var empty = waitingOnFor(null, null, null);
+  var started = waitingOnFor(1170, null, null);
+  if (empty.reason === started.reason)
+    failures.push("a draft with a start time says the same as one with nothing in it");
+  if (empty.says === started.says || empty.tip === started.tip)
+    failures.push("the two read identically on screen even though the reasons differ");
+  if (started.says.indexOf("end") === -1 || started.tip.indexOf("ended") === -1)
+    failures.push("a draft waiting on its end time does not say END anywhere a person reads");
+
+  /* And the times being IN is different again from the times being wrong. */
+  var overCap = waitingOnFor(540, 480, null);
+  if (overCap.reason === empty.reason)
+    failures.push("an implausible duration asks for the times as though none were given");
+
+  /* EVERY REASON THE RULE CAN RETURN IS COVERED ABOVE. A vocabulary whose
+     completeness nothing enforces silently grows a member nobody drew (L113). */
+  var seen = {};
+  WAITING_CASES.forEach(function (c) { if (c[3]) seen[c[3]] = true; });
+  ["times", "start", "end", "duration", "status"].forEach(function (r) {
+    if (!seen[r]) failures.push("the reason " + r + " has no case");
+  });
+
+  return { ran: WAITING_CASES.length + 5, failures: failures };
+}
 
 /* ============================================================
    THE SCREEN. Everything above this line is a rule, carried
@@ -1557,7 +1727,8 @@ function buildInvoice() {
 
   /* ONE AT A TIME, IN ORDER. The tax status is not even asked until the times
      are in, so answering it early cannot leave a gap where a reason used to be. */
-  var waitingOn = hours === null ? "times" : (STATE.status === null ? "status" : null);
+  var waiting = waitingOnFor(timeToMinutes(STATE.start), timeToMinutes(STATE.end), STATE.status);
+  var waitingOn = waiting === null ? null : waiting.reason;
 
   /* An exempt client is charged at zero, which is a MEASURED rate rather than an
      absent one, so it goes through the same arithmetic as any other. */
@@ -1591,8 +1762,8 @@ function buildInvoice() {
                el("b", null, d.billedHours.toFixed(2)),
                el("span", null, d.atMinimum ? " hours, the one hour minimum"
                                             : " hours, rounded to the nearest quarter"));
-  } else if (waitingOn === "times") {
-    der.append(el("span", "needs", "Needs the times"));
+  } else if (waiting && waiting.says) {
+    der.append(el("span", "needs", waiting.says));
   }
   pair.append(der);
   ht.append(pair);
@@ -1704,9 +1875,7 @@ function buildInvoice() {
       /* The refusal names what it is waiting on rather than saying the action is
          unavailable, because a dead control with no reason leaves pressing it
          again as the only diagnosis available. */
-      var why = waitingOn === "times"
-        ? "Waiting on the shoot's start and end times."
-        : "Waiting on this client's tax status.";
+      var why = waiting.tip;
       act.setAttribute("role", "button");
       act.setAttribute("aria-disabled", "true");
       act.tabIndex = 0;
@@ -1907,7 +2076,7 @@ function buildScreen() {
    scripts/check-design-rules-inline.sh is what says so. */
 var iso = checkSuitesAreIsolated();
 var suites = [runDurationTests(), runTimeFieldTests(), runTypingTests(),
-              runTaxTests(), runMoneyTests()];
+              runTaxTests(), runMoneyTests(), runWaitingTests()];
 var fails = iso.concat(suites.reduce(function (a, s) { return a.concat(s.failures); }, []));
 var ran = suites.reduce(function (a, s) { return a + s.ran; }, 0);
 /* THE VERDICT IS ONE LINE. It used to list what every suite covers, which is

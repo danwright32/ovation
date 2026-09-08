@@ -9,7 +9,7 @@ function checkSuitesAreIsolated() {
   var tables = { DURATION_CASES: DURATION_CASES,
                  TIME_CASES_MINUTES: TIME_CASES_MINUTES, TIME_CASES_BUMP: TIME_CASES_BUMP,
                  TYPING_CASES: TYPING_CASES, TAX_CASES: TAX_CASES,
-                 MONEY_CASES: MONEY_CASES };
+                 MONEY_CASES: MONEY_CASES, WAITING_CASES: WAITING_CASES };
   var problems = [];
   Object.keys(tables).forEach(function (name) {
     if (!Array.isArray(tables[name]) || !tables[name].length)

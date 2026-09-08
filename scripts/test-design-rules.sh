@@ -37,8 +37,10 @@ if [ -z "$NODE" ]; then
 fi
 
 cat "${RULES}"/duration.js "${RULES}"/time-field.js "${RULES}"/tax-line.js "${RULES}"/money.js \
+    "${RULES}"/waiting.js \
     "${RULES}"/duration.cases.js "${RULES}"/time-field.cases.js "${RULES}"/typing.cases.js \
-    "${RULES}"/tax-line.cases.js "${RULES}"/money.cases.js "${RULES}"/suite-isolation.js \
+    "${RULES}"/tax-line.cases.js "${RULES}"/money.cases.js "${RULES}"/waiting.cases.js \
+    "${RULES}"/suite-isolation.js \
   > "${TMPDIR:-/tmp}/ovation-design-rules.$$.js"
 
 cat >> "${TMPDIR:-/tmp}/ovation-design-rules.$$.js" <<'JS'
@@ -48,6 +50,7 @@ var suites = [
   ["time field", runTimeFieldTests()],
   ["typing", runTypingTests()],
   ["tax line", runTaxTests()],
+  ["waiting on", runWaitingTests()],
   ["money", runMoneyTests()]
 ];
 var ran = suites.reduce(function (a, s) { return a + s[1].ran; }, 0);
