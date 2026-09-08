@@ -40,6 +40,7 @@ check-booking-queue.sh	gated	A repo wide guard.
 check-custody-files.sh	gated	A repo wide guard.
 check-custody-not-staged.sh	gated	A repo wide guard.
 check-design-collisions.py	tool-untested	Takes a settled stylesheet and one design round's stylesheet and refuses a class name collision the round did not declare. It is a DESIGN ROUND tool taking two file arguments, not a repo wide guard, so nothing can run it on a schedule. ovation#132 gives it a sibling.
+check-design-rules-inline.sh	gated	A repo wide guard.
 check-design-self-contained.sh	gated	A repo wide guard.
 check-forbidden-constructs.sh	gated	A repo wide guard.
 check-identity-leaks.sh	gated	A repo wide guard.
@@ -76,6 +77,7 @@ test-bundle-identity-checks.sh	suite
 test-check-ported-artifacts.sh	suite	
 test-custody-files.sh	suite	
 test-custody-not-staged.sh	suite	
+test-design-rules-inline.sh	suite	
 test-design-rules.sh	suite	
 test-design-self-contained.sh	suite	
 test-embed-web-fonts.sh	suite	

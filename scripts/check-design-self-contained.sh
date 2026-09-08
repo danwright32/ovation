@@ -14,8 +14,10 @@ is a claim nobody is checking (L32).
 
 WHY IT IS WORTH MORE THAN THE ONE FILE IT STARTS ON. The design record is the
 artefact the whole design process produces, and its value is that it outlives
-whatever rendered it. There are five such files today and at least three more
-coming (ovation#100, ovation#101, ovation#131).
+whatever rendered it. There are several such files today and at least three more
+coming (ovation#100, ovation#101, ovation#131). The count is deliberately not
+written down here, because a number in a comment goes stale silently: this check
+prints how many files it actually scanned on every run.
 
 TWO THINGS ARE REFUSED, and they are different failures with the same remedy.
 A NETWORK reference stops the file rendering offline. A reference to another
