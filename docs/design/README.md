@@ -415,8 +415,8 @@ present on macOS in the 26.5 SDK. What that LOOKS like has not been checked, onl
 
 **Every rule behind this screen is executable, and the screen RUNS the rules rather than resembling
 them.** `rules/` holds them as functions with their cases, run by `scripts/test-design-rules.sh` as
-part of the ordinary suite: 137 cases across the duration, the time field and its typing, the tax
-line and the money. They exist so whoever ports this to Swift has something to port AGAINST rather
+part of the ordinary suite: 150 cases across the duration, the time field and its typing, the tax
+line, the money, and what the invoice is waiting on. They exist so whoever ports this to Swift has something to port AGAINST rather
 than a description to interpret.
 
 A design file must be one self contained document (ovation#114), so it cannot load `rules/` at render
@@ -431,7 +431,7 @@ from `rules/` by a script rather than typed, and nothing stops the next person e
 alone: what stops it SHIPPING is the guard, in the push gate. Change the rule in `rules/`, and copy
 it back.
 
-The page prints its own verdict line above the window, and it reports the same 137 across the same 5
+The page prints its own verdict line above the window, and it reports the same 150 across the same 6
 suites that `scripts/test-design-rules.sh` reports. Two numbers that must agree, from two places,
 which is the cheapest possible check that the copy is the copy.
 
@@ -467,12 +467,30 @@ belongs to is worse than one that says less.
 
 ### What is deliberately still open
 
-Whether the hours stay separately typable for a shoot whose times were never noted. What the sidebar
-counts do about an invoice that cannot be sent (ovation#129). The discount's edit line, which was
-chosen to solve a layout problem rather than designed. The history pane's own width, button and
-wording. And what the screen SAYS when a duration is over the cap: the number is settled and the
-rule guarantees such a value prices nothing, but PRD 5.3b wants it refused BY NAME and no surface
-draws that refusal yet, so today it is indistinguishable from a shoot whose times are not in.
+What the sidebar counts do about an invoice that cannot be sent (ovation#129). The discount's edit
+line, which was chosen to solve a layout problem rather than designed. And the history pane's own
+width, button and wording.
+
+**The hours are never typed, settled 2026-09-08.** The question had been whether they stay separately
+typable for a shoot whose times were never noted, and Dan's answer removed it rather than choosing
+between the four renderings: "I plan to create drafts with no end time (although I can put the start
+time in from the creation). When I go to send the invoice I will always know the end time." He always
+has both times at the moment it matters, so there is no case for a second way in, and a second way in
+would be a second source of truth for one number.
+
+**What his answer did produce is `rules/waiting.js`,** because the state he described is the ordinary
+state of every draft and the screen was drawing it as the empty one. A draft carrying a start time
+and no end time said `Needs the times`, with one of them plainly on screen, and its greyed Send read
+`Waiting on the shoot's start and end times` while waiting on one. No fixture had ever reached it,
+because every fixture had both times or neither (L101). The screen now asks the rule what it is
+waiting on and gets a reason with the two sentences that carry it, so what is drawn beside the times
+and what the Send says cannot disagree about one invoice.
+
+That rule also closed the cap's surface question, which this section named as open a few hours
+earlier. Both times present and 23 hours apart is not the same fact as no times at all, so it has its
+own reason: the screen says `Longer than a shoot` where the figure would be, and the Send says
+`That is more than 12 hours, so it prices nothing. Check the times.` PRD 5.3b asks for such a value
+to be refused BY NAME, and that is the name.
 
 The referral credit and the discount ARE drawn now, above and below the subtotal as PRD 5.4a and 5.8
 settle them, using treatments the screen already had. Nobody has approved how they look: Dan chose on
