@@ -143,16 +143,34 @@ final class ReferralLedgerEntry {
     /// is refused against (ovation#38). Nil on a spending entry.
     var earnedFromBookingKey: String?
 
+    /// The invoice this credit was spent on (ovation#38). Nil on an earning.
+    ///
+    /// IT IS THE SECOND IDEMPOTENCY KEY, and it is here for the same reason the
+    /// first one is: editing and resending an invoice re-runs whatever applied
+    /// its credit, exactly as it re-crosses the paid transition, and without a
+    /// key the client is charged their own credit twice.
+    ///
+    /// It also makes the two records reconcilable. The invoice FREEZES what it
+    /// applied (`ReferralCredit`) and the ledger is the running total, and the
+    /// two must agree about which credit was used; without this neither can be
+    /// checked against the other.
+    ///
+    /// Ovation's own UUID rather than a relationship, because a ledger entry is
+    /// an append only fact about the past and must not be cascaded away with the
+    /// invoice it mentions (L38, PRD 5.30).
+    var spentOnInvoiceID: UUID?
+
     var note: String?
 
     init(
         client: Client?, hours: Hours, occurredOn: BusinessDate,
-        earnedFromBookingKey: String?, note: String?
+        earnedFromBookingKey: String?, spentOnInvoiceID: UUID? = nil, note: String?
     ) {
         self.client = client
         self.hours = hours
         self.occurredOn = occurredOn
         self.earnedFromBookingKey = earnedFromBookingKey
+        self.spentOnInvoiceID = spentOnInvoiceID
         self.note = note
     }
 }

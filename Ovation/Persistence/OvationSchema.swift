@@ -77,6 +77,24 @@ enum OvationSchema {
 /// added to the app cannot be in the store and missing from its version, or the
 /// reverse. A second hand maintained list is the defect that guard exists for
 /// (L41, L96).
+///
+/// THAT DELEGATION IS CORRECT AT ONE VERSION AND BECOMES A LIE AT TWO, and it is
+/// written down here rather than left to be discovered (ovation#134). A versioned
+/// schema is supposed to describe the shape THAT version had; this one describes
+/// whatever the app holds right now. At one version those are the same sentence.
+/// The day somebody adds `OvationSchemaV2`, V1 will silently describe V2's
+/// models, both versions will be the same shape, and any stage between them will
+/// have nothing to carry. `check-migration-stages.sh` cannot see it: the stage
+/// will be present and correctly paired, because it compares the LIST of
+/// versions and both claims about their contents come from one expression (L70).
+///
+/// V1 HAS NEVER BEEN WRITTEN TO DISK. Verified 2026-09-08: no `Ovation.store`
+/// exists under Application Support on either the Debug or the Release path. So
+/// a field added today is still part of the FIRST shape rather than a change to
+/// a shipped one, which is why ovation#38 added `ReferralLedgerEntry`'s
+/// `spentOnInvoiceID` without bumping the version. That stops being true the
+/// first time Dan runs a build and saves anything, and ovation#134 has to be
+/// settled before the first real version 2.
 enum OvationSchemaV1: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
     static var models: [any PersistentModel.Type] { OvationSchema.models }
