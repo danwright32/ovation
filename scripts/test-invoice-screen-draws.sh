@@ -113,9 +113,14 @@ UNPAINTED="$WORK/unpainted.html"
 check "the palette's block is where the mutation expects it" \
     "$(mutate "$UNPAINTED" 's/^\.screen {$/.win {/' '^\.win {$')" "2"
 check "a palette that does not reach the menu bar is refused" "$(status_on "$UNPAINTED")" "1"
-check "and the claims that fired name the two things that stop being drawn" \
+# THREE claims fire, and all three are true: the panel that asks before a rare
+# action is outside the app window too, so its accent stops resolving and the
+# destructive word can no longer be compared against it. That third one appeared
+# only after the comparison was made to REFUSE an unreadable accent rather than
+# quietly pass on half of itself.
+check "and the claims that fired name everything that stops being drawn" \
     "$(failed_claims "$UNPAINTED")" \
-    "the menu's highlighted row is painted;the open menu's chip in the menu bar is painted;"
+    "the destructive word does not look like the ordinary one;the menu's highlighted row is painted;the open menu's chip in the menu bar is painted;"
 
 # 5. THE ROW CLIPPING ITS OWN CONTROL. Taking the overflow rule off the row
 #    being added puts the type list back inside a clipping box, where it is

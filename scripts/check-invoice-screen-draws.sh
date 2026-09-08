@@ -375,12 +375,24 @@ window.addEventListener("load", function () {
             ? "rgb(" + parseInt(accent.slice(1, 3), 16) + ", "
                      + parseInt(accent.slice(3, 5), 16) + ", "
                      + parseInt(accent.slice(5, 7), 16) + ")"
-            : accent;
-          claim("the destructive word does not look like the ordinary one",
-                !!harm && !!ordinary && harmColour !== plainColour && harmColour !== asRgb,
-                harm ? harmColour + " against the quiet " + plainColour
-                       + " and the ordinary confirm's " + asRgb
-                     : "no destructive word");
+            : null;
+          if (asRgb === null) {
+            /* AN UNREADABLE ACCENT IS ITS OWN ANSWER. Left as the raw string it
+               would never equal a computed colour, so half the comparison would
+               silently succeed and the claim would pass having checked one
+               thing rather than two (L50). The token going missing is exactly
+               the fault that made the menu chip stop painting, so it is a
+               refusal here rather than a shrug. */
+            claim("the destructive word does not look like the ordinary one", false,
+                  "the accent could not be read as a colour ("
+                    + JSON.stringify(accent) + "), so the comparison could not be made");
+          } else {
+            claim("the destructive word does not look like the ordinary one",
+                  !!harm && !!ordinary && harmColour !== plainColour && harmColour !== asRgb,
+                  harm ? harmColour + " against the quiet " + plainColour
+                         + " and the ordinary confirm's " + asRgb
+                       : "no destructive word");
+          }
           if (harm) harm.click();
 
           /* AN INVOICE RECORDED AS NOT BILLED IS NOT A DELETED ONE (PRD 1b), so
