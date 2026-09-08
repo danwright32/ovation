@@ -61,6 +61,7 @@ LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 # halves so the CI branch cannot quietly become the ordinary one.
 KEYCHAIN="${OVATION_SIGNING_KEYCHAIN:-$LOGIN_KEYCHAIN}"
 KEYCHAIN_PASSWORD="${OVATION_SIGNING_KEYCHAIN_PASSWORD:-}"
+SUDO="${OVATION_SUDO_BIN:-sudo}"
 SECURITY="${OVATION_SECURITY_BIN:-/usr/bin/security}"
 OPENSSL="${OVATION_OPENSSL_BIN:-openssl}"
 
@@ -189,8 +190,23 @@ else
   PARTITION_SET=yes
 fi
 
-echo "==> Trusting the certificate for code signing (enter your login password if prompted)"
-"$SECURITY" add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem"
+# TRUSTING IT IS THE STEP THAT ASKS, and on a machine with nobody at it that is
+# a hang rather than a failure (L110). Measured by the first CI run this
+# repository ever had (ovation#143): the job sat on this script for minutes with
+# no output at all, because add-trusted-cert into a USER keychain asks for admin
+# authorisation. The admin domain form answers on its own under sudo, which a
+# runner has without a password.
+#
+# Dan's path is untouched: no sudo, no system keychain, and the same prompt the
+# message below tells him to expect.
+if [ -n "$KEYCHAIN_PASSWORD" ]; then
+  echo "==> Trusting the certificate for code signing (admin domain, unattended)"
+  "$SUDO" "$SECURITY" add-trusted-cert -d -r trustRoot -p codeSign \
+    -k /Library/Keychains/System.keychain "$TMP/cert.pem"
+else
+  echo "==> Trusting the certificate for code signing (enter your login password if prompted)"
+  "$SECURITY" add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem"
+fi
 
 # READ IT BACK. A command that ran is not an identity that exists, and a setup
 # script reporting success while the thing it set up is absent is worse than one

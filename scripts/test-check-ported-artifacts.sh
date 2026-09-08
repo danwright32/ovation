@@ -198,9 +198,41 @@ check "and a tree holding only such prose reports no artifacts, not a failure" \
 #     against the real siblings, through the real default search roots, which no
 #     other case can reach.
 OUT10="$(OVATION_PORT_SCAN_ROOT="$PWD" "./$TARGET" 2>&1)"; ST10=$?
-check "scanning Ovation itself verifies its real ports against the real siblings" \
+
+# A MACHINE WITHOUT THE SIBLINGS CANNOT ANSWER THIS, AND MUST NOT REPORT RED.
+#
+# These two cases and case 11 are the only ones that use the real default search
+# roots, which is their whole point, and that makes them the only ones that need
+# the sibling checkouts to actually be on the disk. A fresh clone, Dan's second
+# Mac and a CI runner have none, and a failure there is indistinguishable from a
+# genuinely stale port (L411). Found by the first CI run this repository ever had
+# (ovation#143): four red assertions about ports that are perfectly fine.
+#
+# THE LIMIT, SAID RATHER THAN LEFT TO BE FOUND: the signal is the check's own
+# report, so a check that wrongly believed the siblings were missing would turn
+# these into skips rather than failures. Case 3 above stages that path against a
+# root of its own and is what keeps it honest, and on the machine that has the
+# siblings, which is the one these cases were written for, they run at full
+# strength.
+SIBLINGS_HERE=yes
+if printf '%s' "$OUT10" | grep -q "is not on this machine"; then
+    SIBLINGS_HERE=no
+    echo "UNMEASURABLE HERE: the sibling checkouts are not on this machine, so the"
+    echo "    cases that verify the real ports against them are not being run."
+fi
+# Said out loud above and counted the same either way, so the suite's own count
+# cannot silently shrink on a machine that skips them (L288).
+check_with_siblings() {
+    if [ "$SIBLINGS_HERE" = yes ]; then
+        check "$1" "$2" "$3"
+    else
+        check "$1 (not run: no sibling checkouts here)" "unmeasurable" "unmeasurable"
+    fi
+}
+
+check_with_siblings "scanning Ovation itself verifies its real ports against the real siblings" \
     "$ST10" "0"
-check "and project.yml is one of them, reported OK" \
+check_with_siblings "and project.yml is one of them, reported OK" \
     "$(printf '%s' "$OUT10" | grep -c '^OK: project.yml')" "1"
 check "and it still does not match its own marker" \
     "$(printf '%s' "$OUT10" | grep -c "UNREADABLE HEADER")" "0"
@@ -226,10 +258,12 @@ check "and it does not report the repository as empty now that a port exists" \
 # environment: not merely that it passes, but that it says the same thing.
 OUT11="$(GIT_DIR="$PWD/.git" GIT_WORK_TREE="$PWD" \
     OVATION_PORT_SCAN_ROOT="$PWD" "./$TARGET" 2>&1)"; ST11=$?
-check "an inherited GIT_DIR does not stop the siblings being resolved" "$ST11" "0"
+check_with_siblings "an inherited GIT_DIR does not stop the siblings being resolved" "$ST11" "0"
+# This one is a comparison of two runs on the SAME machine, so it holds whether
+# or not the siblings are here: both sides move together.
 check "and the verdict is the same one a clean environment reaches" \
     "$(printf '%s' "$OUT11" | tail -1)" "$(printf '%s' "$OUT10" | tail -1)"
-check "and nothing is reported as missing from a machine it is on" \
+check_with_siblings "and nothing is reported as missing from a machine it is on" \
     "$(printf '%s' "$OUT11" | grep -c "is not on this machine")" "0"
 
 # ---------------------------------------------------------------------------

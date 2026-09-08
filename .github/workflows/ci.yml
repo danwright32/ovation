@@ -81,11 +81,25 @@ jobs:
       # it protects a self signed throwaway identity on an ephemeral machine, and
       # the identity exists so the built bundles carry the SAME code identity the
       # bundle assertions were written against.
+      # A STEP TIMEOUT, because this is the step that can WAIT rather than fail.
+      # The first run of this workflow sat here for minutes: trusting a
+      # certificate in a user keychain asks for admin authorisation, and there is
+      # nobody to answer. The script takes the admin domain path under sudo now,
+      # and this is the bound if some other prompt ever appears (L110).
       - name: Create the signing identity
+        timeout-minutes: 5
         env:
           OVATION_SIGNING_KEYCHAIN: ${{ runner.temp }}/ovation-ci.keychain-db
           OVATION_SIGNING_KEYCHAIN_PASSWORD: ovation-ci-throwaway
         run: bash scripts/setup-signing.sh
+
+      # READ IT BACK BEFORE BUILDING. A script that reported success is not an
+      # identity codesign can use, and without this the first sign of a bad
+      # identity is a build failure that reads as a compiler problem (L12, L3).
+      - name: Prove the identity is usable
+        run: |
+          security find-identity -v -p codesigning
+          security find-identity -v -p codesigning | grep -q "Ovation Local Signing"
 
       # The command from scripts/build-products.sh's own header, unchanged. A
       # workflow that rewrote it would be a second definition of the decision.
