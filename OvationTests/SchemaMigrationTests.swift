@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import SwiftData
 import Testing
 @testable import Ovation
@@ -110,6 +111,172 @@ struct SchemaMigrationTests {
 
     /// A store written under version 1, checkpointed so the store file alone
     /// carries the row, and closed before it is reopened.
+    // MARK: the DOWNGRADE, which ovation#116 needs measured before anything is built
+
+    @Test("MEASUREMENT: what a store written by a LATER version does when an EARLIER one opens it")
+    func adowngradeIsMeasuredRatherThanGuessed() throws {
+        // ovation#116. Dan runs a newer build, its migration adds a field, then
+        // he launches an older build. What SwiftData does then is what this
+        // records. The possibilities are not equally bad: refusing is safe,
+        // opening and ignoring the new column is survivable, and migrating
+        // BACKWARDS would destroy data only the newer build knows about.
+        //
+        // Ovation ships as a Debug and a Release build on the same Mac
+        // (ovation#103), and a restore from an archive taken by a newer build
+        // lands in the same place, so this is not hypothetical.
+        let directory = URL.temporaryDirectory
+            .appending(path: "ovation-downgrade-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "Probe.store")
+
+        // A store written by version TWO, carrying a value only version two has.
+        let newer = try ModelContainer(
+            for: ProbeSchemaV2.Probe.self, migrationPlan: nil,
+            configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
+                                               url: url))
+        let writing = ModelContext(newer)
+        let row = ProbeSchemaV2.Probe(name: "Ashgrove Chamber Players", amount: 27219)
+        row.note = "only version two knows this"
+        writing.insert(row)
+        try writing.save()
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+
+        // Now the OLDER build opens it, with no plan, exactly as an older build
+        // would.
+        var opened = false
+        var refusal: String?
+        do {
+            let older = try ModelContainer(
+                for: ProbeSchemaV1.Probe.self, migrationPlan: nil,
+                configurations: ModelConfiguration(
+                    schema: Schema(versionedSchema: ProbeSchemaV1.self), url: url))
+            opened = true
+            let reading = ModelContext(older)
+            let rows = try reading.fetch(FetchDescriptor<ProbeSchemaV1.Probe>())
+            #expect(rows.count == 1, "MEASURED: the older build read the row")
+            #expect(rows.first?.amount == 27219, "MEASURED: and the fields it knows about survived")
+        } catch {
+            refusal = "\(error)"
+        }
+
+        // THE FINDING, whichever way it went, recorded as the assertion so a
+        // future OS changing it turns this red rather than passing quietly.
+        #expect(opened, "MEASURED on macOS 26.5: an older build OPENS a newer store rather than refusing. Refusal would have been the safe answer, so the guard in ovation#116 has to supply it.")
+        #expect(refusal == nil)
+
+        // And the question that decides how bad that is: is the newer build's
+        // value still there afterwards?
+        let backAgain = try ModelContainer(
+            for: ProbeSchemaV2.Probe.self, migrationPlan: nil,
+            configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
+                                               url: url))
+        let after = try ModelContext(backAgain).fetch(FetchDescriptor<ProbeSchemaV2.Probe>())
+        #expect(after.count == 1, "MEASURED: the row itself survived")
+        #expect(after.first?.name == "Ashgrove Chamber Players",
+                "MEASURED: and the fields BOTH versions know about survived")
+
+        // THE FINDING, AND IT IS THE WORST OF THE THREE THE ISSUE NAMED.
+        // Measured 2026-09-08 on macOS 26.5, Swift 6.3.3: the older build did not
+        // refuse, and it did not merely ignore the column it does not know about.
+        // It MIGRATED THE STORE BACKWARDS and the value is GONE. Reopening under
+        // version two returns nil, not the string version two wrote.
+        //
+        // So the downgrade case destroys data that only the newer build knows
+        // about, silently, on a store whose backup was taken before any of it.
+        // Nothing in the app can currently tell this is about to happen, which is
+        // the whole of ovation#116.
+        #expect(after.first?.note == nil,
+                Comment(rawValue: "MEASURED: the older build DROPPED the column it does not know "
+                    + "about. This is data loss, not a graceful downgrade, and it is why the "
+                    + "guard has to refuse before the store is opened."))
+    }
+
+    @Test("MEASUREMENT: whether a raw SQLite read can tell WHICH version wrote the store")
+    func theversionInTheFileIsMeasured() throws {
+        // ovation#116's first question. `StoreSchemaGuard` already reads
+        // sqlite_master read only, so if the version is reachable that way the
+        // guard can answer; if it is not, the answer has to come from somewhere
+        // else, such as a version file Ovation writes beside the store.
+        let directory = URL.temporaryDirectory
+            .appending(path: "ovation-version-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "Probe.store")
+
+        let container = try ModelContainer(
+            for: ProbeSchemaV2.Probe.self, migrationPlan: nil,
+            configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
+                                               url: url))
+        let context = ModelContext(container)
+        context.insert(ProbeSchemaV2.Probe(name: "Ashgrove Chamber Players", amount: 1))
+        try context.save()
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+
+        let tables = Self.rawTableNames(at: url)
+        #expect(tables.contains("Z_METADATA"),
+                "MEASURED: Core Data's metadata table is there and a raw read can reach it")
+
+        // WHAT IT DOES NOT CARRY is the finding that matters. Z_METADATA holds
+        // Core Data's model version HASHES, not the semantic version Ovation
+        // declares. A hash answers "different", never "newer", and ovation#116
+        // needs the DIRECTION: a foreign store is a file to move aside, and a
+        // newer one means "you are running the wrong build", which is a
+        // completely different sentence to read at launch (L11).
+        let metadata = Self.rawMetadataText(at: url)
+        #expect(metadata != nil, "MEASURED: a raw read can pull the metadata blob out")
+        #expect(metadata?.contains("2.0.0") == false,
+                Comment(rawValue: "MEASURED: the semantic version Ovation declares is NOT in "
+                    + "the file, so the guard cannot answer this question from sqlite_master alone"))
+    }
+
+    /// The table names in a store file, read only, the same way
+    /// `StoreSchemaGuard` does. Here rather than in production because nothing
+    /// in the app needs it: this is a measurement, and adding API for a
+    /// measurement is how a test's convenience becomes a shipped surface.
+    private static func rawTableNames(at url: URL) -> [String] {
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let database else { return [] }
+        defer { sqlite3_close(database) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, "SELECT name FROM sqlite_master WHERE type='table';",
+                                 -1, &statement, nil) == SQLITE_OK, let statement else { return [] }
+        defer { sqlite3_finalize(statement) }
+        var names: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let raw = sqlite3_column_text(statement, 0) { names.append(String(cString: raw)) }
+        }
+        return names
+    }
+
+    /// Everything readable out of Z_METADATA, as text, so the measurement can ask
+    /// what is and is not in it.
+    private static func rawMetadataText(at url: URL) -> String? {
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let database else { return nil }
+        defer { sqlite3_close(database) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, "SELECT * FROM Z_METADATA;",
+                                 -1, &statement, nil) == SQLITE_OK, let statement else { return nil }
+        defer { sqlite3_finalize(statement) }
+        var found = ""
+        while sqlite3_step(statement) == SQLITE_ROW {
+            for column in 0..<sqlite3_column_count(statement) {
+                if let raw = sqlite3_column_text(statement, column) {
+                    found += String(cString: raw)
+                }
+                if let blob = sqlite3_column_blob(statement, column) {
+                    let size = Int(sqlite3_column_bytes(statement, column))
+                    let data = Data(bytes: blob, count: size)
+                    found += String(decoding: data, as: UTF8.self)
+                }
+            }
+        }
+        return found
+    }
+
     private func writeVersionOne() throws -> URL {
         let directory = URL.temporaryDirectory
             .appending(path: "ovation-migration-\(UUID().uuidString)", directoryHint: .isDirectory)
