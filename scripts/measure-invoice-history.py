@@ -23,11 +23,25 @@ import statistics
 import sys
 
 
-def numeric(text):
-    text = (text or "").replace("$", "").replace(",", "").strip()
+UNREADABLE = collections.Counter()
+
+
+def numeric(text, column="unnamed"):
+    """A number, or None. NEVER a zero standing in for one.
+
+    Callers used to write `numeric(x) or 0`, which turns a value the script
+    could not read into a confident zero: an unreadable discount was counted as
+    NO discount, and nothing said so (L11). Every refusal is counted here and
+    reported at the end, so a malformed export is visible rather than quietly
+    scored as a tidy answer."""
+    raw = (text or "").strip()
+    cleaned = raw.replace("$", "").replace(",", "")
+    if cleaned == "":
+        return None
     try:
-        return float(text)
+        return float(cleaned)
     except ValueError:
+        UNREADABLE[column] += 1
         return None
 
 
@@ -66,7 +80,7 @@ def main(argv):
     for n in sorted(lines):
         print(f"  {n:>2}   {lines[n]:4d}   {lines[n] / total:6.1%}")
 
-    hours = [numeric(r["Quantity"]) for r in issued if numeric(r["Quantity"]) is not None]
+    hours = [numeric(r["Quantity"], "Quantity") for r in issued if numeric(r["Quantity"], "Quantity") is not None]
     if hours:
         on_quarter = sum(1 for h in hours if abs(h * 4 - round(h * 4)) < 1e-9)
         print("\nHOURS BILLED")
@@ -76,8 +90,8 @@ def main(argv):
         print(f"  exactly 1.0                {sum(1 for h in hours if h == 1.0) / len(hours):6.1%}")
         print(f"  on a quarter hour          {on_quarter / len(hours):6.1%}")
 
-    discounted = {r["Invoice #"] for r in issued if (numeric(r["Discount Percentage"]) or 0) != 0}
-    credits = {r["Invoice #"] for r in issued if (numeric(r["Line Subtotal"]) or 0) < 0}
+    discounted = {r["Invoice #"] for r in issued if numeric(r["Discount Percentage"], "Discount Percentage") not in (None, 0.0)}
+    credits = {r["Invoice #"] for r in issued if (numeric(r["Line Subtotal"], "Line Subtotal") or 0) < 0}
     print("\nHOW OFTEN THE RARE THINGS HAPPEN")
     print(f"  invoices with a discount   {len(discounted):4d}   {len(discounted) / total:6.1%}")
     print(f"  invoices with a credit     {len(credits):4d}   {len(credits) / total:6.1%}")
@@ -96,8 +110,18 @@ def main(argv):
     for n in sorted(events):
         print(f"  {n:>2}   {events[n]:4d}   {events[n] / total:6.1%}")
 
-    taxed = {r["Invoice #"] for r in issued if (numeric(r["Tax 1 Amount"]) or 0) != 0}
+    taxed = {r["Invoice #"] for r in issued if numeric(r["Tax 1 Amount"], "Tax 1 Amount") not in (None, 0.0)}
     print(f"\nINVOICES CHARGING TAX        {len(taxed):4d}   {len(taxed) / total:6.1%}")
+
+    # Said out loud, and said even when it is zero, because "no unreadable
+    # values" and "nobody looked" must not be the same output (L98).
+    print("\nVALUES THE SCRIPT COULD NOT READ")
+    if UNREADABLE:
+        for column, count in sorted(UNREADABLE.items()):
+            print(f"  {column:<22} {count:4d}")
+        print("  every figure above was computed WITHOUT these.")
+    else:
+        print("  none, in any column it reads")
     return 0
 
 

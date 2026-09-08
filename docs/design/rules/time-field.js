@@ -64,6 +64,12 @@ function formatTime(t) {
    keystrokes mean different things depending on how fast they were pressed.
    The buffer clears when the segment fills, and when focus leaves. */
 function typeDigit(buffer, digit, max, isHour) {
+  /* THE BUFFER IS REFUSED IF IT IS NOT DIGITS, before it can reach any
+     comparison. parseInt of anything else gives NaN, and NaN > max is FALSE, so
+     the guard below that exists to reset an illegal value never fires and the
+     segment ends up reading NaN. A parsed value must not feed a comparison
+     directly (L50). */
+  if (!/^[0-9]*$/.test(String(buffer == null ? "" : buffer))) buffer = "";
   var candidate = (buffer || "") + String(digit);
   if (candidate.length > 2 || parseInt(candidate, 10) > max) candidate = String(digit);
   var n = parseInt(candidate, 10);

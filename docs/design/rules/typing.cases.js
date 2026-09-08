@@ -27,7 +27,9 @@ var TYPING_CASES = [
   ["7",  5, 59, false, 5,  "5",  "seventy five is not a minute, so it starts again"],
   ["",   0, 59, false, 0,  "0",  "minute zero"],
   ["0",  5, 59, false, 5,  "",   "and five past"],
-  ["12", 3, 12, true,  3,  "3",  "a full buffer starts again rather than growing to three digits"]
+  ["12", 3, 12, true,  3,  "3",  "a full buffer starts again rather than growing to three digits"],
+  ["a",  5, 12, true,  5,  "5",  "a buffer that is not digits cannot survive into the value (L50): parseInt gives NaN, and NaN > max is FALSE, so the guard that should reset it never fires and the segment reads NaN"],
+  ["",   5, 12, true,  5,  "5",  "the ordinary path is unchanged by that guard"]
 ];
 
 function runTypingTests() {
