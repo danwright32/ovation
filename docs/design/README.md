@@ -632,10 +632,13 @@ pane stays. That last part is why the pane is a shared function now rather than 
 path: `buildInvoice` has two endings, and an invoice losing its history depending on which ending it
 took is a defect nothing on screen would explain.
 
-**Two things follow from the decision rather than being chosen in it**, and are written here so they
-can be reversed. `Bill it after all` is in the Edit menu, because round 5 put the rare actions there
-and a recorded decision that nothing can revisit is a dead end. And the after state itself was not a
-round: what the LIST does when you come back is ovation#125, which is open.
+**There is no way back from a dismissal, and that is a decision rather than an omission.** A
+`Bill it after all` was drawn in the Edit menu on the reasoning that a recorded decision nothing can
+revisit is a dead end, and Dan took it out the same day for a reason worth keeping: it was a control
+he had never been shown. Everything else on this screen was chosen from renderings, and one arrived
+at by argument does not get to sit beside them. So the dead end stays real and visible rather than
+papered over by a guess, and undoing a dismissal is ovation#150. The after state itself was not a
+round either, and what the LIST does when you come back is ovation#125.
 
 **The destructive word is not drawn like the ordinary one, and saying so took a measurement.**
 Written as a bare class it lost to the panel's own more specific rule and came out in exactly the

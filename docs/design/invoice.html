@@ -2660,14 +2660,18 @@ function buildMenu() {
     : ["Apply a referral credit", function () { CREDIT = 100; }]);
   if (INVSTATE === "draft") {
     items.push(["Combine with another draft", null]);
-    /* BILLING IT AFTER ALL IS IN THE MENU, and that follows from two settled
-       things rather than being chosen: round 5 put the rare actions here, and a
-       recorded decision that nothing can revisit is a dead end (PRD 1b records
-       the decision, it does not destroy the invoice). It is written here so it
-       can be reversed if it is wrong. */
-    items.push(NOTBILLED
-      ? ["Bill it after all", function () { NOTBILLED = false; }]
-      : ["Dismiss this draft", function () { ASKING = true; }]);
+    /* THERE IS NO WAY BACK FROM HERE YET, and that is deliberate rather than an
+       omission. A `Bill it after all` was drawn in this menu on the reasoning
+       that a recorded decision nothing can revisit is a dead end, and Dan took
+       it out on 2026-09-08 because it was a control he had never been shown:
+       every other thing on this screen was chosen from renderings, and one
+       arrived at by argument does not get to sit beside them. So the dead end
+       is REAL and visible here rather than papered over by a guess, and undoing
+       a dismissal is an open question (ovation#150). Dismissing is offered only
+       while there is something to dismiss. */
+    if (!NOTBILLED) {
+      items.push(["Dismiss this draft", function () { ASKING = true; }]);
+    }
   } else {
     items.push(["Edit and resend", null], ["Cancel this invoice", null]);
   }
