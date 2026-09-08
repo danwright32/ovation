@@ -33,7 +33,26 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_DIR_LOCK OVATION_FILE_LOCK OVATION_FLOCK_BIN \
       OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL
 
+# THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
+# FAILURE (L411).
+#
+# The runner takes Overture's lock with Homebrew flock and REFUSES to run without
+# it, deliberately, so on a machine that does not have it every case here fails
+# for one reason that has nothing to do with the runner being wrong. That is a
+# red indistinguishable from a real one, and it is what the first CI run of the
+# shell suites job produced: 25 failures, all of them this.
+#
+# CANNOT MEASURE is the honest verdict there, and the harness has its own exit
+# code for it. Two cases below still ask the same question because they STAGE a
+# held lock rather than merely needing the tool, and they read it from here so
+# there is one definition of where flock is.
+SUITE_FLOCK="${OVATION_SUITE_FLOCK_BIN:-/opt/homebrew/bin/flock}"
+
 harness_begin "test runner lock tests" 65
+
+[ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
+    "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
+    "install it with: brew install flock"
 
 TARGET="scripts/run-tests.sh"
 REPO_ROOT_SCRIPTS="$PWD/scripts"
@@ -50,7 +69,7 @@ run_runner() {
     OVATION_FILE_LOCK="$FILE_LOCK" \
     OVATION_LOCK_TIMEOUT="${TIMEOUT_OVERRIDE:-2}" \
     OVATION_LOCK_POLL_INTERVAL="${POLL_OVERRIDE:-0.05}" \
-    OVATION_FLOCK_BIN="${FLOCK_OVERRIDE:-/opt/homebrew/bin/flock}" \
+    OVATION_FLOCK_BIN="${FLOCK_OVERRIDE:-$SUITE_FLOCK}" \
     OVATION_TEST_COMMAND="${1:-true}" \
     OVATION_UNLOCKED_COMMAND="${2:-true}" \
         "./$TARGET" 2>&1
@@ -82,18 +101,17 @@ rmdir "$DIR_LOCK"
 # 4. Overture's lock held: same answer, by the other mechanism. Proving only one
 #    of the two would leave the other arm untested, and it is the arm that uses
 #    the tool Ovation does not own.
-if [ -x "/opt/homebrew/bin/flock" ]; then
     : > "$FILE_LOCK"
     # Held until the test RELEASES it, not for a fixed number of seconds. A
     # timed holder asserts about machine load: too short and it lets go before
     # the test has observed anything, too long and every run pays for it (L290).
     HOLD_SENTINEL="$WORK/hold-1"; : > "$HOLD_SENTINEL"
-    ( /opt/homebrew/bin/flock "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL" ) &
+    ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL" ) &
     HOLDER=$!
     # Wait for the holder to actually HAVE the lock, rather than sleeping and
     # hoping: a fixed wait asserts about machine load, not about the lock (L290).
     waited=0
-    while /opt/homebrew/bin/flock -n "$FILE_LOCK" true 2>/dev/null; do
+    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
         waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
     done
     OUT4="$(run_runner)"; ST4=$?
@@ -103,10 +121,7 @@ if [ -x "/opt/homebrew/bin/flock" ]; then
         "$(mentions "$OUT4" "$FILE_LOCK")" "yes"
     rm -f "$HOLD_SENTINEL"
     wait "$HOLDER" 2>/dev/null || true
-else
-    check "Overture's file lock also stops Ovation running" "skipped-no-flock" "skipped-no-flock"
-    check "and it names that lock too" "skipped-no-flock" "skipped-no-flock"
-fi
+
 
 # 5. THE ORDER IS FIXED, and that is what makes deadlock impossible. Neither
 #    sibling takes two locks, so as long as Ovation always takes them in the same
@@ -189,13 +204,12 @@ rmdir "$DIR_LOCK"
 #     So the second lock is tried WITHOUT blocking, and if it is not free the
 #     first is RELEASED before waiting and retrying. Ovation waits for both,
 #     holds neither while waiting, and still cannot deadlock.
-if [ -x "/opt/homebrew/bin/flock" ]; then
     : > "$FILE_LOCK"
     HOLD_SENTINEL2="$WORK/hold-2"; : > "$HOLD_SENTINEL2"
-    ( /opt/homebrew/bin/flock "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL2" ) &
+    ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL2" ) &
     HOLDER2=$!
     waited=0
-    while /opt/homebrew/bin/flock -n "$FILE_LOCK" true 2>/dev/null; do
+    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
         waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
     done
 
@@ -225,10 +239,7 @@ if [ -x "/opt/homebrew/bin/flock" ]; then
     wait "$RUNNER" 2>/dev/null || true
     check "and neither lock is left behind afterwards" \
         "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
-else
-    check "Downbeat's lock is released between attempts, not held for the whole wait" "skip" "skip"
-    check "and neither lock is left behind afterwards" "skip" "skip"
-fi
+
 
 # ---------------------------------------------------------------------------
 # NO SUITE MAY TAKE A SUITE LEVEL ARGUMENT.

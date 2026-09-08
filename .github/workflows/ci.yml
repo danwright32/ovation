@@ -50,8 +50,14 @@ jobs:
       # Ovation.xcodeproj is GENERATED from project.yml and is gitignored, so a
       # fresh checkout has no project at all. The suites that read it answer
       # CANNOT MEASURE without this, which is honest but measures nothing.
-      - name: Install xcodegen
-        run: brew install xcodegen
+      #
+      # flock is here for the same reason and it is the sharper one: the runner
+      # takes Overture's lock with it and REFUSES to run without it, so its own
+      # suite could measure nothing at all. This job does not take any lock, since
+      # it skips the phase the locks protect, but the suite that TESTS the locking
+      # still needs the tool.
+      - name: Install xcodegen and flock
+        run: brew install xcodegen flock
 
       - name: Run every shell suite
         run: |
