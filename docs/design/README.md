@@ -510,9 +510,23 @@ belongs to is worse than one that says less.
 
 ### What is deliberately still open
 
-What the sidebar counts do about an invoice that cannot be sent (ovation#129). And the discount's
-edit line, which was chosen to solve a layout problem rather than designed. That is the whole list
-for this screen now.
+What the sidebar counts do about an invoice that cannot be sent (ovation#129). That is the whole
+list for this screen now, and it belongs to another issue.
+
+**The discount's edit line is Dan's, settled 2026-09-08.** It had been chosen to solve a layout
+problem rather than designed, and he kept it against three alternatives: the percentage edited where
+it already sits so nothing is added below the row, the controls appearing only on hover or focus, and
+nothing on the invoice at all with changing and removing in the Edit menu. Every option was checked
+for the thing round 5 measured twice to protect, that every figure in the totals keeps one right
+edge, and all four hold it.
+
+**One duplication came out of that round rather than being chosen in it.** With the edit line always
+on screen when a discount exists, the Edit menu's `Remove the discount` was the same action offered
+twice, and the copy in the menu is the one further from the thing it acts on (L605). The menu now
+ADDS a discount and never removes one. That follows from two decisions Dan made, round 5 putting the
+rare things in the menu and this round keeping the line, rather than being a decision of its own, and
+it is written here so it can be reversed if he disagrees. The referral credit keeps its menu entry,
+because it has no controls of its own anywhere.
 
 **The history pane came off it on 2026-09-08**, over three rounds in one sitting: its width settled
 at 300px against three alternatives, its wording kept against three, and its control's placement kept
