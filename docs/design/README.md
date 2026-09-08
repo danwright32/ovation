@@ -449,8 +449,15 @@ improving, so 330 was drawn and is dominated. It was 272 until that day, which w
 272 the sent entry still wrapped to three lines. The invoice works at 556px as well as at 856px, and
 that is measured rather than assumed.
 
-**Two things about the pane are still Claude's, not Dan's**, and are marked as such on ovation#111:
-where the button sits, and what each entry says. Neither has been drawn against an alternative.
+**The entries say what the SYSTEM did, and that is Dan's too**, settled 2026-09-08 by keeping it
+against three alternatives drawn beside it at the same 300px and judged at one entry and at four: the
+same events said as what HAPPENED rather than as what the record did (Booked, Invoiced, Paid, Cleared
+the bank), the same events said as tersely as possible, and the two tier shape dropped for one
+sentence a line. Keeping a thing after seeing what it is not is a decision. Keeping it because nobody
+drew the alternatives is an accident, and until that day this was the second.
+
+**One thing about the pane is still Claude's, not Dan's**, and is marked as such on ovation#111:
+where the button sits. It has not been drawn against an alternative.
 
 **That round could not be run on the first attempt**, which is worth recording because it is how the
 worst defect of the day was found. Dan opened the four options and answered "I can't see the history
