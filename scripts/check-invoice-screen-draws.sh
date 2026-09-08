@@ -331,6 +331,77 @@ window.addEventListener("load", function () {
       }
     }
 
+    /* ---- asking before a rare, consequential action ---- */
+    var edit2 = Array.prototype.filter.call(
+      document.querySelectorAll(".menubar [role=button]"),
+      function (s) { return s.textContent === "Edit"; })[0];
+    if (edit2) {
+      /* OPEN it, never toggle it: an earlier claim can leave the menu standing,
+         and a second click would then CLOSE it, so this claim would fail for a
+         reason that has nothing to do with what it is about. */
+      if (!document.querySelector(".menu")) edit2.click();
+      var dismiss = Array.prototype.filter.call(
+        document.querySelectorAll(".menu div"),
+        function (d) { return d.textContent === "Dismiss this draft"; })[0];
+      if (!dismiss) {
+        claim("a rare action asks before it acts, and names this shoot", false,
+              "the Edit menu has no Dismiss this draft");
+      } else {
+        dismiss.click();
+        var asking = document.querySelector(".askpanel");
+        var text = asking ? asking.textContent : "";
+        claim("a rare action asks before it acts, and names this shoot",
+              !!asking && text.indexOf("Side by Side concert") !== -1
+                && text.indexOf("stays in the list") !== -1,
+              asking ? text.trim().replace(/\s+/g, " ").slice(0, 120)
+                     : "nothing asked");
+        if (asking) {
+          /* THE DESTRUCTIVE WORD DOES NOT LOOK LIKE THE ORDINARY ONE. It is a
+             rule about two colours being DIFFERENT, which no source reading can
+             check: written as a bare class it loses to the panel's own more
+             specific rule and comes out in the ordinary accent. */
+          var harm = asking.querySelector(".harm");
+          var ordinary = asking.querySelectorAll(".panelacts button")[0];
+          var harmColour = harm ? getComputedStyle(harm).color : null;
+          var plainColour = ordinary ? getComputedStyle(ordinary).color : null;
+          /* IT IS COMPARED AGAINST THE ACCENT AN ORDINARY CONFIRM IS DRAWN IN,
+             not only against the quiet word beside it. Against the quiet word
+             alone, removing the destructive colour altogether still passes:
+             the button falls back to the accent, which differs from quiet just
+             as much. Measured that way it agreed with the right answer for the
+             wrong reason. */
+          var accent = getComputedStyle(asking).getPropertyValue("--accent").trim();
+          var asRgb = /^#[0-9a-fA-F]{6}$/.test(accent)
+            ? "rgb(" + parseInt(accent.slice(1, 3), 16) + ", "
+                     + parseInt(accent.slice(3, 5), 16) + ", "
+                     + parseInt(accent.slice(5, 7), 16) + ")"
+            : accent;
+          claim("the destructive word does not look like the ordinary one",
+                !!harm && !!ordinary && harmColour !== plainColour && harmColour !== asRgb,
+                harm ? harmColour + " against the quiet " + plainColour
+                       + " and the ordinary confirm's " + asRgb
+                     : "no destructive word");
+          if (harm) harm.click();
+
+          /* AN INVOICE RECORDED AS NOT BILLED IS NOT A DELETED ONE (PRD 1b), so
+             it stays on screen saying what it now is, and it KEEPS ITS HISTORY:
+             this ending of buildInvoice is a second one, and an invoice losing
+             its pane depending on which ending it took is a defect nothing on
+             screen would explain. */
+          var footNow = document.querySelector(".invfoot");
+          var quiet = document.querySelector(".inv.notbilled");
+          var pane = document.querySelector(".hpane");
+          claim("an invoice recorded as not billed says so and keeps its history",
+                !!quiet && !!pane && footNow
+                  && footNow.textContent.indexOf("recorded as not billed") !== -1,
+                (quiet ? "drawn quiet" : "NOT drawn quiet")
+                  + ", " + (pane ? "history kept" : "HISTORY GONE")
+                  + ", foot says " + JSON.stringify(
+                      footNow ? footNow.textContent.trim().replace(/\s+/g, " ").slice(0, 60) : null));
+        }
+      }
+    }
+
     /* EVERY FIGURE KEEPS ONE RIGHT EDGE, which is what the totals were measured
        twice to protect and what a widened row silently breaks. */
     var edges = {};

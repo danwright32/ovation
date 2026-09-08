@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 29
+harness_begin "invoice screen rendering checks" 35
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -162,6 +162,29 @@ check "the dates are gone from the mutated copy's terms" \
 check "terms that do not say what they land on are refused" "$(status_on "$BARE")" "1"
 check "and the claim that fired names the terms" \
     "$(failed_claims "$BARE")" "every term says the date it lands on;"
+
+#  9. A DESTRUCTIVE WORD DRAWN LIKE AN ORDINARY ONE. Taking out the override
+#     leaves the panel's own rule winning, and the word that will not bill a
+#     shoot comes out in exactly the accent that saves one. No error, no mark,
+#     and no source reading can see it: the rule is that two colours DIFFER.
+SAMEWORD="$WORK/same-word.html"
+check "the override is gone from the mutated copy" \
+    "$(mutate "$SAMEWORD" 's|^.newpanel .panelacts button.harm { color: #8C4A3C; font-weight: 600; }$||' 'button.harm {')" "0"
+check "a destructive word drawn like an ordinary one is refused" "$(status_on "$SAMEWORD")" "1"
+check "and the claim that fired names the destructive word" \
+    "$(failed_claims "$SAMEWORD")" "the destructive word does not look like the ordinary one;"
+
+# 10. AN INVOICE LOSING ITS HISTORY ON ONE OF ITS TWO ENDINGS. buildInvoice ends
+#     twice now, ordinarily and for an invoice recorded as not billed, and the
+#     history pane is shared between them for exactly this reason. Returning the
+#     invoice alone from the second ending drops the pane, which nothing on
+#     screen would explain.
+LOSTPANE="$WORK/lost-pane.html"
+check "the second ending is where the mutation expects it" \
+    "$(mutate "$LOSTPANE" 's|^    return besideItsHistory(inv, t.total);$|    return inv;|' '^    return inv;$')" "1"
+check "an invoice that loses its history is refused" "$(status_on "$LOSTPANE")" "1"
+check "and the claim that fired names the recorded decision" \
+    "$(failed_claims "$LOSTPANE")" "an invoice recorded as not billed says so and keeps its history;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.

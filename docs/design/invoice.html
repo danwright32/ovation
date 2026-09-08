@@ -587,6 +587,42 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
           font-size: 12px; line-height: 1.35; color: var(--ink);
           margin: 0 0 12px; }
 
+/* ============================================================
+   ASKING BEFORE A RARE, CONSEQUENTIAL ACTION, settled
+   2026-09-08.
+
+   THE PANEL THIS SCREEN ALREADY HAS asks, so there is one
+   treatment for every question it puts. Kept against asking in
+   the foot with nothing covered, against a macOS sheet from the
+   window's title bar, and against not asking at all and offering
+   an undo afterwards.
+
+   It was rendered on DISMISSING A DRAFT, which PRD 1c
+   deliberately moved into this screen, and what it settles is
+   what the other two rare actions are written to: combining two
+   drafts, and cancelling a sent invoice.
+   ============================================================ */
+.askpanel { width: 380px; }
+.askpanel p { margin: 0 0 14px; font-size: 13px; line-height: 1.45; color: var(--soft); }
+.askpanel p b { color: var(--ink); font-weight: 600; }
+
+/* A DESTRUCTIVE WORD DOES NOT LOOK LIKE THE ORDINARY ONE BESIDE IT, and saying
+   so takes a selector as specific as the one it is overriding AND a position
+   after it. Written as a bare `.harm` it lost to `.newpanel .panelacts
+   button.go` and the word came out in the ordinary accent, which is the whole of
+   what this rule exists to prevent. Measured rather than seen. */
+.newpanel .panelacts button.harm { color: #8C4A3C; font-weight: 600; }
+
+/* WHAT THE INVOICE IS AFTERWARDS. Dismissing is not a delete (PRD 1b): the
+   invoice stays, so it is drawn as what it now is rather than taken off the
+   screen. The lines and the totals go quiet because they are no longer a claim
+   on anyone, and the foot states the recorded decision and its date. */
+.inv.notbilled .invlines, .inv.notbilled .invsum { opacity: .45; }
+.didit { display: flex; align-items: center; gap: 14px; }
+.didit .doneword { font-family: "Archivo", ui-sans-serif, sans-serif;
+                   font-size: 12.5px; color: var(--soft); }
+.didit .doneword b { color: var(--ink); font-weight: 600; }
+
 /* The amount, typed, and sized to the amount column so the figures keep the one
    right edge round 5 measured twice to protect. */
 .lamt { font-family: "IBM Plex Mono", ui-monospace, monospace;
@@ -1977,6 +2013,54 @@ var ISSUED = Date.UTC(2026, 7, 29);          /* 29 Aug 2026, the shoot */
 var DUE = ISSUED + 14 * 86400000;            /* PRD 7's default term */
 var DUEOPEN = false;                         /* the terms are showing */
 var DUEPANEL = false;                        /* another date is being typed */
+var ASKING = false;                          /* the panel is asking before acting */
+var NOTBILLED = false;                       /* the answer was yes, and it is recorded */
+
+/* THE CONSEQUENCE, said in the words of the domain rather than of the screen.
+   It names THIS shoot, because a warning shown on every dismissal carries no
+   information and reads the same whether it is taking one row or a subtree
+   (L180).
+
+   IT MAY NOT SAY THE INVOICE IS REMOVED. PRD 1b: dismissing keeps the row and
+   records the decision and its date, which is what finally lets Ovation tell a
+   comped shoot from an invoice Dan forgot. */
+/* DERIVED WHEN IT IS READ, not when the file loads. Written as a `var` computed
+   at load it ran BEFORE the month names it needs were assigned, and threw:
+   `var` hoists the name and not the value, so `MONTHS` was undefined and the
+   whole page stopped, verdict and all. */
+function shootName() { return "Side by Side concert, " + dateText(ISSUED); }
+var TODAY = "7 Sep 2026";
+
+function askNotBilling() {
+  var holder = el("div");
+  var veil = el("div", "newveil");
+  veil.addEventListener("click", function () { ASKING = false; redraw(); });
+
+  var panel = el("div", "newpanel askpanel");
+  panel.append(el("h6", null, "Do not bill this shoot"));
+  var says = el("p");
+  says.append(el("span", null, "Cedar Hill Youth Orchestra will not be billed for "),
+              el("b", null, shootName()),
+              el("span", null, ". The invoice stays in the list, recorded as not billed on "
+                               + TODAY + ", so it is no longer waiting on you."));
+  panel.append(says);
+
+  var acts = el("div", "panelacts");
+  var keep = el("button", null, "Keep it");
+  keep.type = "button";
+  keep.addEventListener("click", function () { ASKING = false; redraw(); });
+  var go = el("button", "go harm", "Do not bill it");
+  go.type = "button";
+  go.addEventListener("click", function () {
+    ASKING = false;
+    NOTBILLED = true;
+    redraw();
+  });
+  acts.append(keep, go);
+  panel.append(acts);
+  holder.append(veil, panel);
+  return holder;
+}
 
 var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -2430,6 +2514,22 @@ function buildInvoice() {
   }
 
   var foot = el("div", "invfoot");
+
+  /* THE FOOT STATES THE RECORDED DECISION once it is made, in place of the
+     dated line and the Send, because neither is true of an invoice that is not
+     being billed. */
+  if (NOTBILLED) {
+    inv.className = "inv notbilled";
+    var done = el("div", "didit");
+    var said = el("div", "doneword");
+    said.append(el("span", null, "Not billed. "), el("b", null, shootName()),
+                el("span", null, " is recorded as not billed on " + TODAY + "."));
+    done.append(said);
+    foot.append(done);
+    inv.append(hd, lines, sumBox, foot);
+    return besideItsHistory(inv, t.total);
+  }
+
   var f = footFor(INVSTATE);
   var acts = el("div", "acts");
   if (f.said) acts.append(el("span", "paidmark", f.said));
@@ -2459,14 +2559,23 @@ function buildInvoice() {
 
   inv.append(hd, lines, sumBox, foot);
 
-  /* The pane PUSHES the invoice across rather than covering it, which is what
-     Dan chose. It takes its width from the layout, so the invoice beside it
-     genuinely narrows to 584px and has to work there. */
+  return besideItsHistory(inv, t.total);
+}
+
+/* The pane PUSHES the invoice across rather than covering it, which is what Dan
+   chose. It takes its width from the layout, so the invoice beside it genuinely
+   narrows to 584px and has to work there.
+
+   IT IS A FUNCTION because buildInvoice has two endings now, the ordinary one
+   and the one for an invoice recorded as not billed, and an invoice that lost
+   its history depending on which ending it took would be a defect nothing on
+   screen explains. */
+function besideItsHistory(inv, total) {
   var panewrap = el("div", "panewrap" + (PANE_OPEN ? " paneopen" : ""));
   var pane = el("aside", "hpane");
   pane.append(el("h6", null, "History"));
   var list = el("div", "hlist");
-  historyFor(INVSTATE, t.total).forEach(function (e) {
+  historyFor(INVSTATE, total).forEach(function (e) {
     var hrow = el("div", "hev");
     var what = el("div");
     what.append(el("span", "hwhat", e.what));
@@ -2550,7 +2659,15 @@ function buildMenu() {
     ? ["Remove the referral credit", function () { CREDIT = 0; }]
     : ["Apply a referral credit", function () { CREDIT = 100; }]);
   if (INVSTATE === "draft") {
-    items.push(["Combine with another draft", null], ["Dismiss this draft", null]);
+    items.push(["Combine with another draft", null]);
+    /* BILLING IT AFTER ALL IS IN THE MENU, and that follows from two settled
+       things rather than being chosen: round 5 put the rare actions here, and a
+       recorded decision that nothing can revisit is a dead end (PRD 1b records
+       the decision, it does not destroy the invoice). It is written here so it
+       can be reversed if it is wrong. */
+    items.push(NOTBILLED
+      ? ["Bill it after all", function () { NOTBILLED = false; }]
+      : ["Dismiss this draft", function () { ASKING = true; }]);
   } else {
     items.push(["Edit and resend", null], ["Cancel this invoice", null]);
   }
@@ -2628,6 +2745,7 @@ function buildScreen() {
   screen.append(bar, win);
   if (PANEL) screen.append(newTypePanel());
   if (DUEPANEL) screen.append(duePanel());
+  if (ASKING) screen.append(askNotBilling());
   return screen;
 }
 

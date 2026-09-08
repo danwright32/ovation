@@ -518,9 +518,10 @@ belongs to is worse than one that says less.
 
 What the sidebar counts do about an invoice that cannot be sent (ovation#129).
 
-**Both controls this screen was supposed to carry and did not draw are now settled**, over three
+**Both controls this screen was supposed to carry and did not draw are now settled**, over four
 rounds on 2026-09-08: how a line is added, how a service type that does not exist yet is created,
-and how the due date is changed. They are recorded below. This section claimed for a few hours that
+how the due date is changed, and how the screen asks before a rare, consequential action. They
+are recorded below. This section claimed for a few hours that
 the sidebar counts were the whole remaining list, which was wrong, and it was wrong because the
 claim was written from the rounds that had just been run rather than checked against ovation#111's
 own list of what the PRD had already decided must live here.
@@ -607,7 +608,44 @@ term later, so the header's `29 Aug 2026` and the foot's two dates all come from
 than being typed in three places that can disagree. It is UTC throughout, since a date built in
 local time and read back in another is off by one for half of every day (L39).
 
-### One component came out of the three rounds
+### Asking before a rare, consequential action, settled 2026-09-08
+
+**The panel this screen already has asks**, so there is one treatment for every question it puts.
+Kept against asking in the foot with nothing covered, against a macOS sheet dropping from the
+window's title bar, and against not asking at all and offering an undo afterwards.
+
+**It was rendered on dismissing a draft and what it settles is not only that.** Three rare actions
+sat in the Edit menu with their placement settled and their behaviour undrawn: dismissing, combining
+two drafts, and cancelling a sent invoice. They are different acts and cannot share a round, but
+they share the thing nobody had decided, which is how this screen asks. Combining and cancelling are
+now written to this.
+
+**The sentence says what happens in the domain, and names this shoot.** Dismissing is not a delete
+(PRD 1b): the invoice stays in the list, recorded as not billed on the day it was said, which is
+what finally lets Ovation tell a comped shoot from an invoice that was forgotten. A confirmation
+saying the invoice will be removed would be describing a different product, and a warning that reads
+the same on every dismissal carries no information (L180).
+
+**Afterwards the invoice is drawn as what it now is**: the lines and the totals go quiet, the foot
+states the recorded decision and its date in place of the dated line and the Send, and the history
+pane stays. That last part is why the pane is a shared function now rather than the tail of one
+path: `buildInvoice` has two endings, and an invoice losing its history depending on which ending it
+took is a defect nothing on screen would explain.
+
+**Two things follow from the decision rather than being chosen in it**, and are written here so they
+can be reversed. `Bill it after all` is in the Edit menu, because round 5 put the rare actions there
+and a recorded decision that nothing can revisit is a dead end. And the after state itself was not a
+round: what the LIST does when you come back is ovation#125, which is open.
+
+**The destructive word is not drawn like the ordinary one, and saying so took a measurement.**
+Written as a bare class it lost to the panel's own more specific rule and came out in exactly the
+accent that CONFIRMS things, in three of the four options. The check now compares it against both
+the quiet word beside it and the accent an ordinary confirm uses: against the quiet word alone,
+removing the destructive colour altogether still passed, because the button fell back to the accent,
+which differs from quiet just as much. That is a check agreeing with the right answer for the wrong
+reason, and it was caught by running the mutation rather than by reading it.
+
+### One component came out of the four rounds
 
 **There is one popup list, used twice.** The service types hang off the row's description cell and
 the due date's terms hang off the foot, and they are the same object: a short list of choices with
