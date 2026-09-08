@@ -15,9 +15,10 @@
 // the whole list with no default branch, so adding a case fails the build rather
 // than landing somewhere plausible (L113, PRD 5.2a, 5.19a).
 //
-// DELIBERATELY NOT HERE: the Schedule C map (ovation#62), the asset and duplicate
-// flags (ovation#82), and the cleared step's own workflow (ovation#48). This file
-// holds what each value IS, not what any one milestone does with it.
+// DELIBERATELY NOT HERE: the Schedule C map (`ScheduleCMap.swift`, ovation#62),
+// the asset and duplicate flags (ovation#82), and the cleared step's own workflow
+// (ovation#48). This file holds what each value IS, not what any one milestone
+// does with it.
 import Foundation
 
 /// What an invoice is for. PRD 5.2a, added so print sales and licensing can be
@@ -98,9 +99,11 @@ enum PaymentMethod: String, CaseIterable, Codable, Hashable, Sendable {
 
 /// What an expense was for. PRD 5.19, Dan's own list.
 ///
-/// The Schedule C line each one maps to is ovation#62, and it is deliberately
-/// absent here: the map has to be complete over this enum and enforced by a test,
-/// and putting it in the same file would let one edit satisfy both halves.
+/// The Schedule C line each one maps to is in `ScheduleCMap.swift` (ovation#62),
+/// and it is deliberately not in this file: the map has to be complete over this
+/// enum, and putting it here would let one edit satisfy both halves. Adding a
+/// case below therefore fails the BUILD until it is given a line, which was seen
+/// to happen before it was relied on.
 enum ExpenseCategory: String, CaseIterable, Codable, Hashable, Sendable {
     case gear = "gear"
     case software = "software"
