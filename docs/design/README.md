@@ -358,3 +358,51 @@ ovation#40 roster clean up lives, since a shared contract email is currently dra
 differently from any other. A first attempt marked it one
 shade quieter, which measured as no difference at all on screen and was removed rather than
 left as a distinction the page claims and does not draw.
+
+## The invoice screen
+
+`invoice-being-priced.html` and `invoice-after-sending.html` are the agreed design for the screen
+where an invoice is built, settled with Dan on 2026-09-07 over nine rounds, tracked as `ovation#111`.
+**Open them in any browser.** Each needs nothing external, verified: zero network requests, all four
+typefaces embedded.
+
+They are two files rather than one because they show the invoice at two points in its life. The state
+switch above each window is BEHAVIOUR rather than a chooser, the same as the quiet day switch on the
+Clients screen: none of these states can be seen from a still.
+
+### What the nine rounds settled
+
+| | |
+| --- | --- |
+| Shape | The invoice takes the whole content area. The list gives way and the title bar carries the way back. |
+| Arriving | A push: the list stands aside to the left by 18% while the invoice comes in from the right, 280ms. |
+| The hours | Derived from the shoot's real start and end times, which sit beside the shoot. Never typed directly. |
+| Rounding | To the nearest quarter hour, with the one hour minimum, and always spelled out: `1h 32m, billed as 1.50 hours, rounded to the nearest quarter`. |
+| Unpriced | `Needs hours` where the amount goes. Never `$0.00`, which is a legitimate comped invoice. |
+| Refusals | One at a time, in order: the times first, then the tax status. The Send greys out with a tip naming what it waits on. |
+| Tax | No figure and no total until the status is answered. Exempt draws the line at `0.00` and names the reason. |
+| Discount | Reached from the Edit menu, never on the screen until there is one. Below the subtotal, dollars or percent. |
+| Referral credit | Its own block above the subtotal, out of the line items. Contradicts PRD 5.8, deliberately (ovation#126). |
+| After sending | The action for the state with the next most likely beside it, and the audit history in a pane that pushes the invoice across. |
+
+### Three things worth knowing before changing it
+
+**The time control is not the browser's.** It is segmented, hour, minute and meridiem, because the
+macOS control is and because a single typed field has to resolve "7:30", which is ambiguous. In the
+real app this is a SwiftUI `DatePicker` limited to `hourAndMinute` in its field style, both confirmed
+present on macOS in the 26.5 SDK. What that LOOKS like has not been checked, only that it exists.
+
+**Every rule behind these screens is executable.** `rules/` holds them as functions with their cases,
+run by `scripts/test-design-rules.sh` as part of the ordinary suite: 135 cases across the duration,
+the time field and its typing, the tax line and the money. They exist so whoever ports this to Swift
+has something to port AGAINST rather than a description to interpret.
+
+**Two of the numbers on these screens are Claude's, not Dan's**, and are marked as such on ovation#111:
+the 12 hour cap above which a duration prices nothing, and the history pane's own design, which Dan
+specified but never saw alternatives for.
+
+### What is deliberately still open
+
+Whether the hours stay separately typable for a shoot whose times were never noted. What the sidebar
+counts do about an invoice that cannot be sent (ovation#129). And the discount's edit line, which was
+chosen to solve a layout problem rather than designed.
