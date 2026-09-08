@@ -62,6 +62,20 @@ final class Client {
     var sharedAddressAcknowledgedFor: String?
     var sharedAddressAcknowledgedOn: BusinessDate?
 
+    /// Downbeat's own identifier for this client, for LOOKUP only (ovation#34).
+    ///
+    /// AN EXTERNAL IDENTIFIER IS NEVER THE IDENTITY, which is the rule the
+    /// invoice header states and which applies here for the same reason: it is
+    /// stored so a queued booking can FIND an existing client through Ovation's
+    /// own lookup, never so it can land on one by construction. A lookup needing
+    /// exactly one row refuses on more than one rather than taking the first
+    /// (L521).
+    ///
+    /// It is the STABLE thing to match on. A queued record freezes its values at
+    /// commit time by Dan's decision (2026-08-27), so a client renamed since then
+    /// will not match by name, and this will.
+    var downbeatClientID: UUID?
+
     /// PRD 5.7's per client override of the fourteen day default. Nil means the
     /// default, and it is a real absence rather than a zero.
     var paymentTermDays: Int?
