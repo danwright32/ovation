@@ -43,7 +43,12 @@ the file goes on rendering perfectly on a machine with a network and fails only 
 offline, which is the exact scenario the embedding exists for.
 
 The three typefaces are embedded as base64 inside the file, so it
-renders identically with no internet, forever. Latin subset only, since the page is pure
+renders identically with no internet, forever. `scripts/embed-web-fonts.py` is what does the
+embedding (ovation#115), so the step is the same for every file rather than as good as whoever did
+it that day: it takes a Google Fonts CSS URL, keeps the latin subset, folds a variable font served
+as one file into a single face with a weight range, and REFUSES a face it could not verify rather
+than emitting one. A face that quietly fails to embed falls back to a system font and the page
+still looks finished. Latin subset only, since the page is pure
 ASCII. Archivo is a variable font and Google serves one identical file for all four weights,
 verified by hash, so it is embedded once with a weight range rather than four times, which
 saved 105KB. All three families are open licensed (OFL), so embedding is permitted. The file
