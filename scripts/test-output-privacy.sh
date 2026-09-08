@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 31
+harness_begin "output privacy tests" 33
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -355,6 +355,28 @@ mkdir -p "$WIRED_ROOT"
 check "the launch wiring guard prints no identity when it refuses" \
     "$(leaks_in "$(OVATION_ENTRY_POINT="$WIRED_ROOT/OvationApp.swift" \
         ./scripts/check-launch-sequence-wired.sh 2>&1)")" "clean"
+
+# ---------------------------------------------------------------------------
+# The icon currency guard. It prints FILENAMES and PATHS, which the privacy floor
+# permits, and never the content of anything. The fixture puts a client name
+# where the guard would have to reach in order to leak it: inside the catalog, as
+# a stray file's own bytes, on the path that NAMES a file no derivation produces.
+# ---------------------------------------------------------------------------
+ICON_WORK="$WORK/icon"
+mkdir -p "$ICON_WORK/catalog"
+python3 -c 'import sys
+from PIL import Image
+Image.new("RGB", (1254, 1254), (12, 34, 56)).save(sys.argv[1] + "/art.png")' \
+    "$ICON_WORK" 2>/dev/null || true
+printf 'a note about %s at %s\n' "$CLIENT" "$VENUE" > "$ICON_WORK/catalog/stray.txt"
+check "the icon currency guard prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_ICON_SOURCE="$ICON_WORK/art.png" \
+        OVATION_ICON_CATALOG="$ICON_WORK/catalog" \
+        ./scripts/check-app-icon-current.sh 2>&1)")" "clean"
+check "and none when it cannot measure at all" \
+    "$(leaks_in "$(OVATION_ICON_SOURCE="$ICON_WORK/nowhere.png" \
+        OVATION_ICON_CATALOG="$ICON_WORK/catalog" \
+        ./scripts/check-app-icon-current.sh 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------
 # The invoice history tool. It is the one script here that opens Dan's REAL

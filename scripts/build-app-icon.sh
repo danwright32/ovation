@@ -30,9 +30,13 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-SOURCE="icon/ovation-app-icon.png"
+SOURCE="${OVATION_ICON_SOURCE:-icon/ovation-app-icon.png}"
 CATALOG="Ovation/Assets.xcassets"
-ICONSET="$CATALOG/AppIcon.appiconset"
+# WHERE IT WRITES IS A SEAM, so the catalog can be reproduced somewhere else and
+# COMPARED with the committed one rather than over it (ovation#102). A check that
+# has to overwrite the thing it is checking in order to check it destroys good
+# state before its replacement is verified (L5).
+ICONSET="${OVATION_ICONSET_OUT:-$CATALOG/AppIcon.appiconset}"
 
 if [ ! -f "$SOURCE" ]; then
     echo "REFUSED: the source artwork is not at $SOURCE."

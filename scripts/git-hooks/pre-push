@@ -128,6 +128,25 @@ if [ -x "${REPO_ROOT}/scripts/check-design-self-contained.sh" ]; then
     fi
 fi
 
+# ovation#102. The AppIcon catalog is DERIVED from icon/ovation-app-icon.png and
+# both are committed. Nothing asserted they were still in step, and both ways it
+# goes wrong are silent: the artwork replaced without the script being re-run, so
+# the app ships the previous icon while the repository shows the new one, or one
+# generated PNG edited by hand, so the shipped icon is something no source here
+# produces. The bundle icon check passes in both cases.
+if [ -x "${REPO_ROOT}/scripts/check-app-icon-current.sh" ]; then
+    "${REPO_ROOT}/scripts/check-app-icon-current.sh"
+    case "$?" in
+        0) ;;
+        # CANNOT MEASURE IS NOT A REFUSAL. The catalog is committed precisely so a
+        # machine without Pillow can build the app, so such a machine is expected
+        # and must not be unable to push (L411).
+        2) echo "pre-push: the icon catalog could not be checked here (see above)." >&2 ;;
+        *) echo "pre-push: the committed icon catalog is not what the artwork produces. Push refused." >&2
+           exit 1 ;;
+    esac
+fi
+
 # The launch sequence must be WIRED into the entry point. ovation#88: the store
 # schema guard was written and fully tested and then called by nothing, because
 # the file carrying @main is the one file the pure test target cannot compile, so

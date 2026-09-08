@@ -32,9 +32,10 @@
 #   reads-real-data  A tool that opens Dan's real records. Must have a sibling
 #                  AND privacy coverage, because it prints to a terminal.
 #
-build-app-icon.sh	tool-untested	Regenerates the committed icon catalog from icon/ovation-app-icon.png. Run by hand when the artwork changes. ovation#102 is the guard that the catalog is still in step with its source, and it is where this gets its sibling.
+build-app-icon.sh	tool	Regenerates the committed icon catalog from icon/ovation-app-icon.png. Run by hand when the artwork changes, and never by the build, so a machine without Pillow can still build the app. test-app-icon-current.sh drives it against throwaway artwork, and check-app-icon-current.sh holds the committed catalog to it (ovation#102).
 build-install.sh	tool	Builds and installs the app. Dan runs the installs himself (2026-08-28), so nothing automated may call it. test-build-install.sh drives it against stubs.
 build-products.sh	tool	Takes minutes to build both configurations, so no push may wait on it. It is the command CI will call when CI exists, and until then it is run by a person. test-build-products.sh covers it.
+check-app-icon-current.sh	gated	A repo wide guard.
 check-booking-queue.sh	gated	A repo wide guard.
 check-custody-files.sh	gated	A repo wide guard.
 check-custody-not-staged.sh	gated	A repo wide guard.
@@ -64,6 +65,7 @@ measure-invoice-history.py	reads-real-data	Reads the real FreshBooks export and 
 run-tests.sh	tool	The suite's entry point, run by a person and by the push gate. test-run-tests.sh covers its locking.
 setup-signing.sh	tool	Configures code signing on a machine. Run once per machine by a person. test-setup-signing.sh covers it.
 smoke-launch.sh	tool	Launches the built app and counts its windows, so it opens a REAL window on Dan's screen and no push may run it. test-smoke-launch.sh drives every verdict against a stub.
+test-app-icon-current.sh	suite	
 test-booking-queue.sh	suite	
 test-build-install.sh	suite	
 test-build-products.sh	suite	
