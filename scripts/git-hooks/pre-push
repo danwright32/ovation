@@ -115,6 +115,19 @@ if [ -x "${REPO_ROOT}/scripts/check-migration-stages.sh" ]; then
     fi
 fi
 
+# ovation#114. The design record's whole value is that it outlives whatever
+# rendered it: each file is one document that opens in any browser with no
+# network, forever, which is why the typefaces are embedded as base64 rather than
+# linked. A `<link>` to a font service added by anyone would make that false with
+# no symptom at all, because the file goes on rendering perfectly on a machine
+# with a network and only fails years later, offline.
+if [ -x "${REPO_ROOT}/scripts/check-design-self-contained.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-design-self-contained.sh"; then
+        echo "pre-push: a design file reaches outside itself. Push refused." >&2
+        exit 1
+    fi
+fi
+
 # The launch sequence must be WIRED into the entry point. ovation#88: the store
 # schema guard was written and fully tested and then called by nothing, because
 # the file carrying @main is the one file the pure test target cannot compile, so

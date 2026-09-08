@@ -35,7 +35,14 @@ three things in it are web idioms that must be translated rather than copied:
 
 ## It needs nothing external
 
-**Zero network requests.** The three typefaces are embedded as base64 inside the file, so it
+**Zero network requests, and `scripts/check-design-self-contained.sh` is what keeps that true.**
+It runs in the ordinary suite and on every push, and refuses any file here that reaches the network
+OR names another file on disk. Until ovation#114 this paragraph was a claim with nothing behind it:
+a `<link>` to a font service added by anyone would have made it false with no symptom at all, since
+the file goes on rendering perfectly on a machine with a network and fails only years later,
+offline, which is the exact scenario the embedding exists for.
+
+The three typefaces are embedded as base64 inside the file, so it
 renders identically with no internet, forever. Latin subset only, since the page is pure
 ASCII. Archivo is a variable font and Google serves one identical file for all four weights,
 verified by hash, so it is embedded once with a weight range rather than four times, which
@@ -363,8 +370,9 @@ left as a distinction the page claims and does not draw.
 
 `invoice-being-priced.html` and `invoice-after-sending.html` are the agreed design for the screen
 where an invoice is built, settled with Dan on 2026-09-07 over nine rounds, tracked as `ovation#111`.
-**Open them in any browser.** Each needs nothing external, verified: zero network requests, all four
-typefaces embedded.
+**Open them in any browser.** Each needs nothing external, and that is enforced rather than
+asserted: `scripts/check-design-self-contained.sh` refuses a file that reaches out (ovation#114).
+Zero network requests, all four typefaces embedded.
 
 They are two files rather than one because they show the invoice at two points in its life. The state
 switch above each window is BEHAVIOUR rather than a chooser, the same as the quiet day switch on the

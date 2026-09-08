@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 27
+harness_begin "output privacy tests" 29
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -304,6 +304,27 @@ check "and none when the versions and stages are in step" \
         ./scripts/check-migration-stages.sh 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------
+# The design self containment guard. It prints the FILE, the LINE and the name
+# of the construct, never the line itself, so a client name sitting in a design
+# file beside a forbidden reference must not reach the output.
+# ---------------------------------------------------------------------------
+DESIGN_ROOT="$WORK/design"
+mkdir -p "$DESIGN_ROOT"
+cat > "$DESIGN_ROOT/invoice-list.html" <<HTML
+<h1>$CLIENT at $VENUE</h1>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo">
+HTML
+check "the design self containment guard prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$DESIGN_ROOT" \
+        ./scripts/check-design-self-contained.sh 2>&1)")" "clean"
+cat > "$DESIGN_ROOT/invoice-list.html" <<HTML
+<h1>$CLIENT at $VENUE</h1>
+HTML
+check "and none when the record is self contained" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$DESIGN_ROOT" \
+        ./scripts/check-design-self-contained.sh 2>&1)")" "clean"
+
+# ---------------------------------------------------------------------------
 # The live data bracket. It prints watched PATHS relative to Application
 # Support, which are Ovation's own filenames, never a client's.
 # ---------------------------------------------------------------------------
@@ -341,7 +362,7 @@ check "the launch wiring guard prints no identity when it refuses" \
 # for (L96, L247). So the list is asserted against what is actually on disk, and
 # a new check script fails HERE until somebody points it at the fixture.
 # ---------------------------------------------------------------------------
-COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-forbidden-constructs.sh check-identity-leaks.sh check-isolation-floor.sh check-launch-sequence-wired.sh check-live-data-untouched.sh check-migration-stages.sh check-ported-artifacts.sh check-preconditions.sh check-schema-registered.sh check-sibling-installs.sh"
+COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-design-self-contained.sh check-forbidden-constructs.sh check-identity-leaks.sh check-isolation-floor.sh check-launch-sequence-wired.sh check-live-data-untouched.sh check-migration-stages.sh check-ported-artifacts.sh check-preconditions.sh check-schema-registered.sh check-sibling-installs.sh"
 ON_DISK="$(cd scripts && ls -1 check-*.sh | sort | tr '\n' ' ')"
 check "every check script on disk is covered by this suite" \
     "$(printf '%s' "$ON_DISK" | tr -s ' ' | sed 's/ $//')" \
