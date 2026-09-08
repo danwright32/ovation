@@ -128,6 +128,20 @@ if [ -x "${REPO_ROOT}/scripts/check-design-self-contained.sh" ]; then
     fi
 fi
 
+# ovation#111. Because a design file may reach outside itself NEVER, it cannot
+# load docs/design/rules/ at render time and carries its own copy of every rule
+# it runs. Two copies with nothing comparing them had already drifted: a12b32a
+# fixed a NaN defect in typeDigit in the rules and left the design file's copy
+# alone, and the suite stayed green because the suite reads the rules. The screen
+# the design record IS went on holding the defect, and nothing could say so.
+if [ -x "${REPO_ROOT}/scripts/check-design-rules-inline.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-design-rules-inline.sh"; then
+        echo "pre-push: a design file's copy of a rule disagrees with docs/design/rules/." >&2
+        echo "          Push refused." >&2
+        exit 1
+    fi
+fi
+
 # ovation#102. The AppIcon catalog is DERIVED from icon/ovation-app-icon.png and
 # both are committed. Nothing asserted they were still in step, and both ways it
 # goes wrong are silent: the artwork replaced without the script being re-run, so

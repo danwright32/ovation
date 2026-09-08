@@ -125,7 +125,7 @@ rules only become visible under the six inputs that exercise them.
 
 **It answers to the LETTERHEAD, not to the app.** This is the only Ovation surface a client
 ever sees, so it obeys Dan Wright Photography's stationery rather than the espresso interface
-language the other two files share. It also has to survive being printed in black and white,
+language every other file here shares. It also has to survive being printed in black and white,
 opened in a mail preview pane, and read by an accounts department.
 
 **The brand kit and the letterhead disagree, and the letterhead won.** The kit (v1.0, 2025)
@@ -373,15 +373,23 @@ left as a distinction the page claims and does not draw.
 
 ## The invoice screen
 
-`invoice-being-priced.html` and `invoice-after-sending.html` are the agreed design for the screen
-where an invoice is built, settled with Dan on 2026-09-07 over nine rounds, tracked as `ovation#111`.
-**Open them in any browser.** Each needs nothing external, and that is enforced rather than
-asserted: `scripts/check-design-self-contained.sh` refuses a file that reaches out (ovation#114).
-Zero network requests, all four typefaces embedded.
+`invoice.html` is the agreed design for the screen where an invoice is built, settled with Dan on
+2026-09-07 over nine rounds, tracked as `ovation#111`. **Open it in any browser.** It needs nothing
+external, and that is enforced rather than asserted: `scripts/check-design-self-contained.sh` refuses
+a file that reaches out (ovation#114). Zero network requests, all four typefaces embedded.
 
-They are two files rather than one because they show the invoice at two points in its life. The state
-switch above each window is BEHAVIOUR rather than a chooser, the same as the quiet day switch on the
-Clients screen: none of these states can be seen from a still.
+The switch above the window is BEHAVIOUR rather than a chooser, the same as the quiet day switch on
+the Clients screen: an invoice passes through all of these states and none of them can be seen from a
+still. Set the two times, answer the tax status, press History in the header, and take a discount or
+a referral credit from the Edit menu.
+
+It shipped on 2026-09-08 as two files, `invoice-being-priced.html` and `invoice-after-sending.html`,
+which was a decision made at midnight rather than a design decision: rounds 1 to 8 built the draft
+being priced and round 9 built what it becomes after sending, and they always shared a shell, a
+fixture and every rule. Merging them was measured rather than attempted blind, and it was safe: 216
+of the roughly 240 selectors were already byte identical and only five differed, four of those being
+a block declared twice over rather than a decision. What the merge deleted was the CSS of options the
+rounds REJECTED, which nothing drew any more.
 
 ### What the nine rounds settled
 
@@ -405,14 +413,51 @@ macOS control is and because a single typed field has to resolve "7:30", which i
 real app this is a SwiftUI `DatePicker` limited to `hourAndMinute` in its field style, both confirmed
 present on macOS in the 26.5 SDK. What that LOOKS like has not been checked, only that it exists.
 
-**Every rule behind these screens is executable.** `rules/` holds them as functions with their cases,
-run by `scripts/test-design-rules.sh` as part of the ordinary suite: 135 cases across the duration,
-the time field and its typing, the tax line and the money. They exist so whoever ports this to Swift
-has something to port AGAINST rather than a description to interpret.
+**Every rule behind this screen is executable, and the screen RUNS the rules rather than resembling
+them.** `rules/` holds them as functions with their cases, run by `scripts/test-design-rules.sh` as
+part of the ordinary suite: 137 cases across the duration, the time field and its typing, the tax
+line and the money. They exist so whoever ports this to Swift has something to port AGAINST rather
+than a description to interpret.
 
-**Two of the numbers on these screens are Claude's, not Dan's**, and are marked as such on ovation#111:
+A design file must be one self contained document (ovation#114), so it cannot load `rules/` at render
+time and carries its own copy instead. That is two copies of one rule with nothing comparing them,
+and it had already gone wrong: `a12b32a` fixed a real NaN defect in `typeDigit` in
+`rules/time-field.js`, added a case for it, and left the identical copy in the design file untouched.
+The suite stayed green, because the suite reads `rules/`. The screen the design record IS still held
+the defect and nothing could have said so. **`scripts/check-design-rules-inline.sh` now refuses a
+design file whose copy of a rule has drifted**, comparing each rule as a contiguous run of lines
+rather than as lines that merely all occur somewhere. The rules block in `invoice.html` was copied
+from `rules/` by a script rather than typed, and nothing stops the next person editing one side
+alone: what stops it SHIPPING is the guard, in the push gate. Change the rule in `rules/`, and copy
+it back.
+
+The page prints its own verdict line above the window, and it reports the same 137 across the same 5
+suites that `scripts/test-design-rules.sh` reports. Two numbers that must agree, from two places,
+which is the cheapest possible check that the copy is the copy.
+
+**Two of the numbers on this screen are Claude's, not Dan's**, and are marked as such on ovation#111:
 the 12 hour cap above which a duration prices nothing, and the history pane's own design, which Dan
 specified but never saw alternatives for.
+
+### Three things the merge found, all of them the record disagreeing with itself
+
+**The history pane's own file said twice that it OVERLAYS the invoice**, once in the page's visible
+copy and once in a code comment, when Dan had chosen the push ("it should push the invoice over, not
+cover it") and the CSS implemented the push. Corrected. Measured after the merge: the invoice goes
+from 855px to 584px and the browser reports the slide running 13ms to 279ms, the 280 it is written to
+take.
+
+**The rounding sentence was never drawn as round 4 settled it.** The round's own record gives two
+sentences, `1h 32m, billed as 1.50 hours, rounded to the nearest quarter` and, at the floor,
+`billed as 1.00 hours, the one hour minimum`. Both files stopped at "billed as 1.50", so the reason
+the figure had moved was on the page nowhere, and `durationBetween` had returned `atMinimum` since
+the day it was written with nothing ever reading it. Both sentences are drawn now. Drawing the second
+one immediately exposed a third fault: an elapsed time under an hour read as `0h 40m`, which neither
+file could ever have shown, because both fixtures were an hour and a half.
+
+**The payment in the audit history named a constant, `$408.28`,** which was true only while the total
+could not change. It is the invoice's own total now, because a history contradicting the invoice it
+belongs to is worse than one that says less.
 
 ### What is deliberately still open
 

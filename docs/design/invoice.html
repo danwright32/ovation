@@ -1,5 +1,5 @@
 <meta charset="utf-8">
-<title>Ovation, the invoice while it is being priced</title>
+<title>Ovation, the invoice screen</title>
 <style>
 :root { color-scheme: light; }
 body { margin: 0; background: #F4F1ED; color: #1B1613;
@@ -7,9 +7,11 @@ body { margin: 0; background: #F4F1ED; color: #1B1613;
 .frame { max-width: 1180px; margin: 0 auto; padding: 28px 24px 24px; }
 .eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #6E6259; margin: 0 0 6px; }
 h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
-.asks { margin: 0 0 12px; max-width: 68ch; color: #3D342E; }
+.asks { margin: 0 0 8px; max-width: 68ch; color: #3D342E; }
+.measurement { margin: 0 0 14px; max-width: 68ch; color: #6E6259; font-size: 13px; }
 .verdict { font-size: 13px; margin: 0 0 16px; padding: 8px 12px; border-radius: 7px;
            max-width: 70ch; border: 1px solid #B6C7B2; background: #FFFDFB; color: #3D342E; }
+
 .stage { display: flex; background: #E9E4DE; border: 1px solid #DDD5CD;
          border-radius: 10px; padding: 24px; }
 .stage > * { margin: auto; }
@@ -597,14 +599,6 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
            padding: 8px 0 9px; border-bottom: 1px solid var(--rule-soft); }
 .timerow .lab { font-size: 12.5px; color: var(--quiet); }
 
-/* The switch for how many events the invoice covers. */
-.countbar { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; }
-.countbar .lab { font-size: 13px; color: #6E6259; }
-.cbtn { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px;
-        border: 1px solid #DAD1C8; background: #FFFDFB; color: #1B1613; cursor: default; }
-.cbtn[aria-pressed="true"] { background: #1B1613; border-color: #1B1613; color: #FBFAF8; }
-.cbtn .share { color: #7C7168; font-size: 11px; margin-left: 5px; }
-.cbtn[aria-pressed="true"] .share { color: #C9C1BA; }
 
 /* ============================================================
    THE TIME CONTROL, first class. Segmented like the macOS one:
@@ -658,12 +652,6 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 
 .taxfix { color: var(--accent); font-weight: 600; }
 
-.countbar { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; flex-wrap: wrap; }
-.countbar .lab { font-size: 13px; color: #6E6259; }
-.cbtn { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px;
-        border: 1px solid #DAD1C8; background: #FFFDFB; color: #1B1613; cursor: default; }
-.cbtn[aria-pressed="true"] { background: #1B1613; border-color: #1B1613; color: #FBFAF8; }
-
 /* The two answers, offered rather than assumed. They sit in the note that
    states the fact, because the thing stopping the invoice should be answerable
    where it is said. */
@@ -675,15 +663,190 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 .taxpick:hover { background: var(--selbg); }
 .taxpick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* ============================================================
+   ROUND 5, ovation#111. The discount.
+
+   Measured: 5 of 130 issued invoices carry one, so 96% do not.
+   The values were 10% three times, 4% once, and one 14.24%,
+   which is what a round dollar amount looks like after an export
+   has converted it to a percentage. PRD 5.4a allows either.
+
+   So this is a RARE thing, and the rule Dan settled on the
+   invoice list applies: space is earned by frequency. It is
+   reached from the Edit menu and is not on the screen at all
+   until there is one.
+
+   PRD 5.4a: it is not a line item. It sits below the subtotal,
+   the tax is charged on what is left, and the hourly rate is
+   never touched.
+   ============================================================ */
+
+/* The discount, once there. Below the subtotal, above the tax, so the page
+   reads in the order the arithmetic happens. */
+/* .discline, NOT .disc: `.disc` is already the disclosure row in the settled
+   stylesheet, and its `grid-template-columns: var(--cols)` reached this row and
+   set its label column to 160px instead of 208, which put the discount's figure
+   24px left of every other figure on the invoice. Found by measuring, after
+   two wrong fixes aimed at the width. */
+.sline.discline .fig { color: var(--ink); }
+.dpick { font: inherit; font-size: 12px; padding: 1px 7px; border-radius: 5px;
+         border: 1px solid var(--rule); background: var(--chrome); color: var(--soft); }
+.dpick[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-ink); }
+.dval { font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink);
+        width: 64px; text-align: right; padding: 1px 5px;
+        background: var(--sunk); border: 1px solid var(--rule); border-radius: 4px; }
+.dval:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* One declaration, where the two files this record was merged from had three,
+   each overriding the last. The values here are what those three computed to. */
+.dropit { color: var(--faint); font-size: 11.5px; margin-left: 4px; }
+
+/* EVERY TOTALS ROW KEEPS ONE WIDTH, so every figure keeps one right edge, which
+   is the thing the committed invoice list record describes fixing once already.
+   The controls for the discount do not fit in that row's 208px label column, so
+   they sit on their own compact line beneath it rather than widening the row.
+   Two earlier attempts widened it, and both put the discount's figure off the
+   shared edge, once 24px left and once 24px right. Measured both times.
+
+   THIS LINE'S OWN DESIGN WAS NEVER PUT TO DAN. It was chosen to solve that
+   layout problem, and no alternative was ever drawn beside it, so it is one of
+   the things ovation#111 still holds open. */
+.discedit { display: flex; align-items: center; justify-content: flex-end;
+            gap: 7px; width: 318px; padding-top: 2px; }
+.discedit .lab { font-size: 12px; color: var(--quiet); }
+
+/* A menu, drawn as the menu bar would draw it, because round 5 settled that the
+   rare things live there and never on the screen. */
+.menu { position: absolute; top: 25px; left: 96px; z-index: 5;
+        background: #F7F4F1; border: 1px solid #CFC7BF; border-radius: 6px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 5px 0; min-width: 210px; }
+.menu div { padding: 4px 16px; font-size: 13px; color: #1F1812; }
+.menu div.on { background: var(--accent); color: var(--on-ink); }
+.menu div.sep { border-top: 1px solid #DED6CE; margin: 5px 0; padding: 0; height: 0; }
+.screen { position: relative; }
+.menubar .openmenu { background: var(--accent); color: var(--on-ink);
+                     padding: 2px 7px; margin: 0 -3px; border-radius: 4px; }
+
+/* ============================================================
+   ROUND 9, ovation#111. The remaining actions, sorted by how
+   often they happen rather than by what they are.
+
+   Measured on 130 issued invoices: every one was sent and every
+   one was paid, so SEND and RECORD A PAYMENT happen once per
+   invoice each. A discount appeared 5 times, a referral credit
+   once, and dismissing, combining and cancelling are rarer
+   still. Recording a payment is not a rare action and does not
+   belong with them.
+
+   Round 5 already settled that the rare ones live in the menu.
+   What is left is what the FOOT carries, and it changes with the
+   invoice's state.
+   ============================================================ */
+
+.acts { display: flex; align-items: center; gap: 16px; }
+.actsecond { font-size: 13px; color: var(--quiet); }
+.paidmark { font-size: 12.5px; color: var(--quiet); }
+
+/* The switch above the window. It changes the invoice's STATE, which is
+   behaviour, not a chooser between designs: an invoice passes through all of
+   these and none of them can be seen from a still. */
+.statebar { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; flex-wrap: wrap; }
+.statebar .lab { font-size: 13px; color: #6E6259; }
+.sbtn { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px;
+        border: 1px solid #DAD1C8; background: #FFFDFB; color: #1B1613; cursor: default; }
+.sbtn[aria-pressed="true"] { background: #1B1613; border-color: #1B1613; color: #FBFAF8; }
+.sbtn .share { color: #7C7168; font-size: 11px; margin-left: 5px; }
+.sbtn[aria-pressed="true"] .share { color: #C9C1BA; }
+
+/* ============================================================
+   THE HISTORY PANE. Dan, 2026-09-07: "I don't like this line...
+   I think we should have a separate pane that shows the audit
+   history of draft created, sent, paid, etc that I can pop open
+   to the right."
+
+   So the inline history line is gone. What replaces it is a pane
+   over the right of the invoice, opened from a word in the
+   header and closed the same way.
+
+   It PUSHES the invoice across rather than covering it (Dan,
+   2026-09-07: "it should push the invoice over, not cover it").
+   An earlier version overlaid it, on the argument that reflowing
+   moves the thing being read; Dan chose the push, so the invoice
+   works at 584px as well as 856px and that is checked rather
+   than assumed. It slides at 280ms with the same easing as the
+   list to invoice transition settled in round 1b, so the app has
+   one motion rather than two.
+
+   THE PANE'S OWN DESIGN HAD NO ROUND. Dan specified that it
+   exists, where it opens from and that it pushes; the 272px
+   width, the position of the button and the wording of each
+   entry are Claude's and were never drawn against alternatives.
+   ============================================================ */
+
+.panewrap { flex: 1; min-height: 0; display: flex; align-items: stretch; min-width: 0; }
+.panewrap > .inv { flex: 1; min-width: 0; }
+
+/* The pane takes its width from the layout rather than floating over it, so the
+   invoice beside it genuinely narrows. Its CONTENT is held at a fixed width so
+   the text does not squash and re-wrap on every frame of the slide. */
+.hpane { width: 0; flex: none; overflow: hidden;
+         background: var(--chrome); border-left: 1px solid transparent;
+         transition: width 280ms cubic-bezier(.32,.72,0,1); }
+.paneopen .hpane { width: 272px; border-left-color: var(--rule); }
+.hpane > * { width: 272px; }
+@media (prefers-reduced-motion: reduce) { .hpane { transition: none; } }
+
+.hpane h6 { margin: 0; padding: 13px 18px 10px; font-size: 10.5px; font-weight: 700;
+            letter-spacing: .13em; text-transform: uppercase; color: var(--faint);
+            border-bottom: 1px solid var(--rule); }
+.hlist { padding: 6px 0; overflow-y: auto; }
+/* A rule between each entry, so the pane reads as a list of separate events
+   rather than one block of text (Dan, 2026-09-07). */
+.hev { display: grid; grid-template-columns: 74px minmax(0,1fr); gap: 10px;
+       padding: 9px 18px; align-items: baseline;
+       border-bottom: 1px solid var(--rule-soft); }
+.hev:last-child { border-bottom: 0; }
+.hev .hwhen { font-family: "IBM Plex Mono", ui-monospace, monospace;
+              font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--faint); }
+.hev .hwhat { font-size: 13px; color: var(--ink); }
+.hev .hmore { font-size: 11.5px; color: var(--quiet); display: block; }
+
+.histbtn { font: inherit; font-size: 12.5px; color: var(--quiet);
+           background: none; border: 0; padding: 0; }
+.histbtn:hover { color: var(--ink); }
+.histbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.invhd .hdright { display: flex; align-items: baseline; gap: 14px; flex: none; }
 </style>
 <div class="frame">
   <p class="eyebrow">Ovation, the design record</p>
-  <h1>The invoice while it is being priced</h1>
-  <p class="asks">Rounds 1 to 8 of ovation#111. Set the two times, then answer the tax status. The state switch above the window is BEHAVIOUR rather than a chooser, the same way the quiet day switch is on the Clients screen: these states cannot be seen from a still.</p>
+  <h1>The invoice screen</h1>
+  <p class="asks">ovation#111, settled with Dan over nine rounds on 7 September. Set the two times, then answer the tax status. Use the switch for the states an invoice passes through, press History in the header, and open Edit in the menu bar for a discount, a referral credit, and the rest of the rare things. The switch is BEHAVIOUR rather than a chooser, the same way the quiet day switch is on the Clients screen: none of these states can be seen from a still.</p>
+  <!-- NO PARAGRAPH OF EVIDENCE HERE, deliberately. What the nine rounds settled and what they were
+       measured from is in this folder's README, and the frequency behind the foot's order is stated
+       in this file's own round 9 comment. Both files this record was merged from carried two prose
+       blocks above the window; carrying all three took the top of the design from 380px down the
+       page to 514px, measured on an 800px laptop window, which is more than half the screen gone
+       before the thing the page exists to show. -->
   <p class="verdict" id="verdict"></p>
   <div class="stage" id="stage"></div>
 </div>
+
 <script>
+/* ============================================================
+   THE RULES, CARRIED VERBATIM FROM docs/design/rules/.
+
+   A design file must be one self contained document (ovation#114), so it
+   cannot load them at render time and carries its own copy instead. Two
+   copies of one rule with nothing comparing them is L370, and it had
+   already gone wrong: a12b32a fixed a NaN defect in typeDigit in
+   rules/time-field.js and left the copy in the design file untouched, and
+   the suite stayed green because the suite reads rules/.
+
+   scripts/check-design-rules-inline.sh compares the two and refuses a
+   design file whose copy has drifted, so this block is generated rather
+   than typed. Edit the rule in rules/ and copy it back, never here alone.
+   ============================================================ */
+
 /* HOURS DERIVED FROM A START AND AN END TIME. Dan, 2026-09-07: "I'd love to be
    able to do a start and end time and have it calculate the hours", rounding to
    the nearest quarter hour (his choice, put to him with the measurement: 94% of
@@ -747,6 +910,7 @@ function durationBetween(startText, endText) {
   return { minutes: minutes, rawHours: raw, billedHours: billed,
            roundedUp: billed > raw, atMinimum: billed === MINIMUM_HOURS && roundToQuarter(raw) < MINIMUM_HOURS };
 }
+
 /* A FIRST CLASS TIME CONTROL. Dan, 2026-09-07, on the native one: "this needs to
    be first class, not this ugly picker."
 
@@ -813,12 +977,19 @@ function formatTime(t) {
    keystrokes mean different things depending on how fast they were pressed.
    The buffer clears when the segment fills, and when focus leaves. */
 function typeDigit(buffer, digit, max, isHour) {
+  /* THE BUFFER IS REFUSED IF IT IS NOT DIGITS, before it can reach any
+     comparison. parseInt of anything else gives NaN, and NaN > max is FALSE, so
+     the guard below that exists to reset an illegal value never fires and the
+     segment ends up reading NaN. A parsed value must not feed a comparison
+     directly (L50). */
+  if (!/^[0-9]*$/.test(String(buffer == null ? "" : buffer))) buffer = "";
   var candidate = (buffer || "") + String(digit);
   if (candidate.length > 2 || parseInt(candidate, 10) > max) candidate = String(digit);
   var n = parseInt(candidate, 10);
   var value = (isHour && n === 0) ? 12 : n;
   return { value: value, buffer: candidate.length >= 2 ? "" : candidate };
 }
+
 /* THE TAX LINE, PRD 5.5, 5.5b and 5.5c. Three states, and they are three rather
    than two on purpose.
 
@@ -859,6 +1030,93 @@ function taxLineFor(status, taxable) {
   }
   return { label: null, amount: null, drawn: false, refusesSend: true, saysWhy: true };
 }
+
+/* THE DISCOUNT AND THE REFERRAL CREDIT, PRD 5.4a, 5.4b and 5.8.
+
+   They net out to the same tax, which is exactly why they are easy to merge and
+   must not be. The difference is WHERE each one acts:
+
+   A REFERRAL CREDIT IS A NEGATIVE LINE, so it is INSIDE the subtotal. It is
+   earned against a ledger, one hour per hour of the referred client's first
+   booking, and it is spent.
+
+   A DISCOUNT IS NOT A LINE. It sits BELOW the subtotal and is a decision Dan
+   makes on the day, answering to nothing.
+
+   So a discount applies to a subtotal that has ALREADY had the credit taken out
+   of it. Reverse those and the money is different, and the export needs them
+   apart to answer how much was given away in a year. */
+
+function cents(n) { return Math.round(n * 100) / 100; }
+
+function discountAmount(kind, value, subtotal) {
+  if (value === null || !isFinite(value) || value <= 0) return 0;
+  if (kind === "percent") return cents(subtotal * (value / 100));
+  return cents(Math.min(value, subtotal));
+}
+
+/* creditHours is what the client has EARNED and not yet spent. A credit may
+   never exceed the balance, nor take an invoice below nothing: PRD 5.1b makes a
+   zero invoice legitimate, and nothing below it is. */
+function invoiceTotals(lineTotal, creditRequested, creditBalance, kind, value, taxRate) {
+  var lines = cents(lineTotal);
+  var credit = cents(Math.max(0, Math.min(creditRequested || 0, creditBalance || 0, lines)));
+  var sub = cents(lines - credit);
+  var off = discountAmount(kind, value, sub);
+  var taxable = cents(sub - off);
+  var tax = cents(taxable * taxRate);
+  return { lines: lines, credit: credit, subtotal: sub, discount: off,
+           taxable: taxable, tax: tax, total: cents(taxable + tax),
+           creditRefused: cents(Math.max(0, (creditRequested || 0) - credit)) };
+}
+
+var DURATION_CASES = [
+  ["19:30", "21:00",  90,  1.5,   false, "an ordinary evening, already tidy"],
+  ["19:32", "21:04",  92,  1.5,   false, "1h32m rounds down to the quarter"],
+  ["19:32", "21:10",  98,  1.75,  true,  "1h38m rounds up to the quarter"],
+  ["19:00", "19:40",  40,  1,     true,  "40 minutes bills the one hour minimum (PRD 5.3)"],
+  ["19:00", "20:00",  60,  1,     false, "an exact hour is not touched by the minimum"],
+  ["19:00", "19:08",   8,  1,     true,  "eight minutes still bills the minimum, never 0.25"],
+  ["21:00", "00:30", 210,  3.5,   false, "a concert that ends after midnight is not a negative shoot"],
+  ["22:15", "01:00", 165,  2.75,  false, "and again across midnight, landing on a quarter"],
+  ["19:00", "19:00", 1440, null,  false, "identical times read as a whole day, which is over the cap"],
+  ["19:00", "01:30", 390,  6.5,   false, "a long evening, just under the longest ever billed plus room"],
+  ["09:00", "08:00", 1380, null,  false, "a 23 hour span is a typo, not a shoot, and prices nothing"],
+  ["7:30",  "9:00",   90,  1.5,   false, "a single digit hour parses"],
+  ["19:67", "21:00", null, null,  false, "minutes past 59 are not a time"],
+  ["25:00", "26:00", null, null,  false, "hours past 23 are not a time"],
+  ["1930",  "21:00", null, null,  false, "a time needs its colon"],
+  ["",      "21:00", null, null,  false, "no start means no duration, which is not the same as a bad one"]
+];
+
+function runDurationTests() {
+  var failures = [];
+
+  /* The invariant the cases cannot see, because it is about the CONSTANTS
+     rather than about any input: the minimum must be a whole number of
+     quarters, or the order of rounding and flooring starts to matter and the
+     billed figure can land off a quarter. */
+  var steps = MINIMUM_HOURS / QUARTER;
+  if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+    failures.push("the one hour minimum (" + MINIMUM_HOURS + ") is not a whole number of "
+                  + QUARTER + " hour steps, so rounding and the minimum no longer commute");
+  }
+
+  DURATION_CASES.forEach(function (c) {
+    var got = durationBetween(c[0], c[1]);
+    var where = c[0] + " to " + c[1] + " (" + c[5] + ")";
+    if (c[3] === null) {
+      if (got !== null) failures.push(where + ": expected nothing priced, got " + JSON.stringify(got));
+      return;
+    }
+    if (got === null) { failures.push(where + ": expected " + c[3] + " hours, got nothing"); return; }
+    if (got.minutes !== c[2]) failures.push(where + ": elapsed " + got.minutes + "m, expected " + c[2] + "m");
+    if (got.billedHours !== c[3]) failures.push(where + ": billed " + got.billedHours + ", expected " + c[3]);
+    if (got.roundedUp !== c[4]) failures.push(where + ": roundedUp " + got.roundedUp + ", expected " + c[4]);
+  });
+  return { ran: DURATION_CASES.length, failures: failures };
+}
+
 var TIME_CASES_MINUTES = [
   [{h12:12, min:0,  pm:false}, 0,    "midnight is 12 AM and is zero, the case every 12 hour clock gets wrong"],
   [{h12:12, min:0,  pm:true},  720,  "noon is 12 PM and is 720, the other one it gets wrong"],
@@ -904,6 +1162,7 @@ function runTimeFieldTests() {
   }
   return { ran: TIME_CASES_MINUTES.length + TIME_CASES_BUMP.length + 1, failures: failures };
 }
+
 /* TYPING INTO A SEGMENT. Dan, 2026-09-07: "I can't type 12 in this or 11. Looks
    to be single digit only for hours?"
 
@@ -933,7 +1192,9 @@ var TYPING_CASES = [
   ["7",  5, 59, false, 5,  "5",  "seventy five is not a minute, so it starts again"],
   ["",   0, 59, false, 0,  "0",  "minute zero"],
   ["0",  5, 59, false, 5,  "",   "and five past"],
-  ["12", 3, 12, true,  3,  "3",  "a full buffer starts again rather than growing to three digits"]
+  ["12", 3, 12, true,  3,  "3",  "a full buffer starts again rather than growing to three digits"],
+  ["a",  5, 12, true,  5,  "5",  "a buffer that is not digits cannot survive into the value (L50): parseInt gives NaN, and NaN > max is FALSE, so the guard that should reset it never fires and the segment reads NaN"],
+  ["",   5, 12, true,  5,  "5",  "the ordinary path is unchanged by that guard"]
 ];
 
 function runTypingTests() {
@@ -970,6 +1231,7 @@ function runTypingTests() {
   }
   return { ran: TYPING_CASES.length + 12 + 60, failures: failures };
 }
+
 /* status, taxable, expected amount (null means no figure at all), drawn,
    refusesSend, saysWhy, label, why */
 var TAX_CASES = [
@@ -1012,6 +1274,58 @@ function runTaxTests() {
   return { ran: TAX_CASES.length + 4, failures: failures };
 }
 
+var TAXRATE = 0.08875;
+
+/* lines, creditAsked, balance, kind, value, expect {credit, subtotal, discount, tax, total}, why */
+var MONEY_CASES = [
+  [375, 0,   0,   null,      null, {credit:0,   subtotal:375, discount:0,     tax:33.28, total:408.28},
+   "neither, which is almost every invoice"],
+  [375, 100, 250, null,      null, {credit:100, subtotal:275, discount:0,     tax:24.41, total:299.41},
+   "a credit alone, the only shape that has ever appeared in the real data"],
+  [375, 0,   0,   "percent", 10,   {credit:0,   subtotal:375, discount:37.50, tax:29.95, total:367.45},
+   "a discount alone"],
+  [375, 100, 250, "percent", 10,   {credit:100, subtotal:275, discount:27.50, tax:21.97, total:269.47},
+   "BOTH: the discount comes off a subtotal the credit has already reduced"],
+  [375, 100, 250, "amount",  50,   {credit:100, subtotal:275, discount:50,    tax:19.97, total:244.97},
+   "both, with an amount rather than a percentage"],
+  [375, 375, 500, null,      null, {credit:375, subtotal:0,   discount:0,     tax:0,     total:0},
+   "a credit covering the whole invoice, which is a legitimate zero (PRD 5.1b)"],
+  [375, 500, 500, null,      null, {credit:375, subtotal:0,   discount:0,     tax:0,     total:0},
+   "a credit larger than the invoice takes it to nothing, never below"],
+  [375, 250, 100, null,      null, {credit:100, subtotal:275, discount:0,     tax:24.41, total:299.41},
+   "spending credit the client does not have is capped at the balance (PRD 5.8)"],
+  [375, 100, 0,   null,      null, {credit:0,   subtotal:375, discount:0,     tax:33.28, total:408.28},
+   "no balance at all means no credit, not a negative one"]
+];
+
+function runMoneyTests() {
+  var failures = [];
+  MONEY_CASES.forEach(function (c) {
+    var g = invoiceTotals(c[0], c[1], c[2], c[3], c[4], TAXRATE);
+    var e = c[5], why = c[6];
+    ["credit", "subtotal", "discount", "tax", "total"].forEach(function (k) {
+      if (g[k] !== e[k]) failures.push(why + ": " + k + " was " + g[k] + ", expected " + e[k]);
+    });
+  });
+
+  /* THE INVARIANT THAT KEEPS THE TWO APART, checked on every case rather than
+     asserted once: the credit acts INSIDE the subtotal and the discount acts on
+     what is left, so swapping them changes the money. */
+  MONEY_CASES.forEach(function (c) {
+    var g = invoiceTotals(c[0], c[1], c[2], c[3], c[4], TAXRATE);
+    if (cents(g.lines - g.credit) !== g.subtotal)
+      failures.push(c[6] + ": the credit is not inside the subtotal");
+    if (cents(g.subtotal - g.discount) !== g.taxable)
+      failures.push(c[6] + ": the discount is not taken off the subtotal");
+    if (cents(g.taxable + g.tax) !== g.total)
+      failures.push(c[6] + ": the figures down the page do not add up");
+    if (g.total < 0 || g.subtotal < 0) failures.push(c[6] + ": a figure went below nothing");
+    if (g.credit > c[2]) failures.push(c[6] + ": more credit was spent than was earned");
+  });
+  return { ran: MONEY_CASES.length, failures: failures };
+}
+
+
 /* NO TWO SUITES MAY SHARE A GLOBAL. These files are concatenated into one page,
    so a name declared at the top level of two of them leaves only the last, and
    the other suite then runs against data that is not its own. That happened on
@@ -1019,8 +1333,10 @@ function runTaxTests() {
    reported five failures about tax values. It went red rather than quietly
    green, which is the safe direction, but the failures said nothing true. */
 function checkSuitesAreIsolated() {
-  var tables = { TIME_CASES_MINUTES: TIME_CASES_MINUTES, TIME_CASES_BUMP: TIME_CASES_BUMP,
-                 TYPING_CASES: TYPING_CASES, TAX_CASES: TAX_CASES };
+  var tables = { DURATION_CASES: DURATION_CASES,
+                 TIME_CASES_MINUTES: TIME_CASES_MINUTES, TIME_CASES_BUMP: TIME_CASES_BUMP,
+                 TYPING_CASES: TYPING_CASES, TAX_CASES: TAX_CASES,
+                 MONEY_CASES: MONEY_CASES };
   var problems = [];
   Object.keys(tables).forEach(function (name) {
     if (!Array.isArray(tables[name]) || !tables[name].length)
@@ -1030,21 +1346,32 @@ function checkSuitesAreIsolated() {
     problems.push("a global called CASES still exists, which is the name that collided");
   return problems;
 }
-/* ovation#111, the invoice screen as settled, with two corrections from Dan on
-   2026-09-07.
 
-   ONE THING AT A TIME, IN A FIXED ORDER. His reasoning is the fault in the
-   unordered version: "what happens if I set the tax status before the hours?
-   That line just disappears and nothing takes its place." Two independent
-   refusals mean the screen tells a different story depending on which is
-   answered first. Asking for the times first, and only then the tax status,
+
+/* ============================================================
+   THE SCREEN. Everything above this line is a rule, carried
+   verbatim from docs/design/rules/ and checked against it by
+   scripts/check-design-rules-inline.sh. Everything below is the
+   drawing.
+
+   ONE THING AT A TIME, IN A FIXED ORDER. Dan's reasoning is the
+   fault in the unordered version: "what happens if I set the tax
+   status before the hours? That line just disappears and nothing
+   takes its place." Two independent refusals mean the screen
+   tells a different story depending on which is answered first.
+   Asking for the times first, and only then the tax status,
    gives one story.
+   ============================================================ */
 
-   A FIRST CLASS TIME CONTROL, segmented, with no browser furniture. */
+var RATE = 250;
+var CREDIT_BALANCE = 250;
 
-var RATE = 250, TAX = 0.08875;
+var INVSTATE = "draft";                                 /* draft, sent, paid */
 var STATE = { start: null, end: null, status: null };   /* null means not answered */
-var CURRENT = null;
+var DISCOUNT = null;                                    /* { kind, value } once there */
+var CREDIT = 0;                                         /* referral credit spent here */
+var PANE_OPEN = false;
+var MENU_OPEN = false;
 
 /* What has been typed into the segment being typed into, and which one that is.
    It lives OUTSIDE the DOM because the screen is rebuilt on every keystroke,
@@ -1060,6 +1387,16 @@ function rememberTyping(field, seg, buffer) {
 }
 function forgetTyping() { TYPING = { field: null, seg: null, buffer: "" }; }
 
+/* An invoice that has been SENT is priced and its client's status is answered,
+   because the screen refuses to send one that is not. So moving the switch past
+   draft fills in whatever the draft was still waiting on, rather than showing a
+   sent invoice that could never have been sent. */
+function ensureIssued() {
+  if (STATE.start === null) STATE.start = { h12: 7, min: 0, pm: true };
+  if (STATE.end === null) STATE.end = { h12: 8, min: 30, pm: true };
+  if (STATE.status === null) STATE.status = "not-exempt";
+}
+
 function el(t, c, x) {
   var n = document.createElement(t);
   if (c) n.className = c;
@@ -1070,7 +1407,26 @@ function money(n) {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/* ---- the control ---- */
+/* HOW LONG IT ACTUALLY RAN. A shoot under an hour is the case that reaches the
+   one hour minimum, and it is the case neither of the files this record was
+   merged from could ever draw, because both were fixed at an hour and a half: an
+   elapsed time of forty minutes came out as "0h 40m". A branch a fixture cannot
+   reach is the branch that ships (L101). */
+function elapsedText(minutes) {
+  var h = Math.floor(minutes / 60), m = minutes % 60;
+  if (!h) return m + "m";
+  return h + "h" + (m ? " " + m + "m" : "");
+}
+
+/* The two times as the duration rule wants them, which is the only place the
+   control's model and the rule meet. */
+function clockText(t) {
+  var m = timeToMinutes(t);
+  if (m === null) return "";
+  return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+}
+
+/* ---- the time control ---- */
 function timeField(key, label) {
   var wrap = el("div", "tfield");
   var segs = el("div", "tsegs");
@@ -1154,22 +1510,53 @@ function focusSeg(key, name) {
   if (n) n.focus();
 }
 
+/* THE FOOT, settled in round 9: the main action plus the next most likely
+   beside it. */
+function footFor(state) {
+  if (state === "draft") return { main: "Send", second: null, said: null };
+  if (state === "sent") return { main: "Record a payment", second: "Remind", said: null };
+  return { main: null, second: "Send a copy", said: "Paid in full" };
+}
+
+/* The audit history. Draft created, sent, paid, and what happened in between,
+   which is what ovation#46 will need somewhere to be read.
+
+   THE PAYMENT NAMES ITS AMOUNT, and that amount is the invoice's own total
+   rather than a figure written into this list. The file this was merged from
+   carried "$408.28 by check" as a constant, which was true only because its
+   total could not change. Here a discount or a referral credit moves it, and a
+   history contradicting the invoice it belongs to is worse than one that says
+   less. */
+function historyFor(state, total) {
+  var events = [{ when: "24 Aug", what: "Draft created", more: "from a Downbeat booking" }];
+  if (state !== "draft") {
+    events.push({ when: "12 Sep", what: "Sent", more: "to office@cedarhillyo.example" });
+  }
+  if (state === "paid") {
+    events.push({ when: "26 Sep", what: "Payment recorded", more: "$" + money(total) + " by check" },
+                 { when: "2 Oct", what: "Cleared", more: null });
+  }
+  return events;
+}
+
 /* ---- the invoice ---- */
 function buildInvoice() {
   var inv = el("div", "inv");
+  var isDraft = INVSTATE === "draft";
   var haveTimes = STATE.start !== null && STATE.end !== null;
-  var d = haveTimes ? durationBetween(
-    String(Math.floor(timeToMinutes(STATE.start) / 60)).padStart(2, "0") + ":"
-      + String(timeToMinutes(STATE.start) % 60).padStart(2, "0"),
-    String(Math.floor(timeToMinutes(STATE.end) / 60)).padStart(2, "0") + ":"
-      + String(timeToMinutes(STATE.end) % 60).padStart(2, "0")) : null;
+  var d = haveTimes ? durationBetween(clockText(STATE.start), clockText(STATE.end)) : null;
   var hours = d === null ? null : d.billedHours;
-  var sub = hours === null ? 0 : hours * RATE;
-  var tax = Math.round(sub * TAX * 100) / 100;
 
   /* ONE AT A TIME, IN ORDER. The tax status is not even asked until the times
      are in, so answering it early cannot leave a gap where a reason used to be. */
   var waitingOn = hours === null ? "times" : (STATE.status === null ? "status" : null);
+
+  /* An exempt client is charged at zero, which is a MEASURED rate rather than an
+     absent one, so it goes through the same arithmetic as any other. */
+  var rate = STATE.status === "exempt" ? 0 : TAX_RATE;
+  var t = invoiceTotals(hours === null ? 0 : hours * RATE, CREDIT, CREDIT_BALANCE,
+                        DISCOUNT ? DISCOUNT.kind : null,
+                        DISCOUNT ? DISCOUNT.value : null, rate);
 
   var hd = el("div", "invhd");
   var who = el("div");
@@ -1177,20 +1564,50 @@ function buildInvoice() {
              el("div", "invshoot", "Side by Side concert, 29 Aug 2026"));
   var ht = el("div", "hdrtimes");
   var pair = el("div", "hdrpair");
-  pair.append(el("span", "lab", "Ran"), timeField("start", "Start time"),
-              el("span", "lab", "to"), timeField("end", "End time"));
+  if (isDraft) {
+    pair.append(el("span", "lab", "Ran"), timeField("start", "Start time"),
+                el("span", "lab", "to"), timeField("end", "End time"));
+  } else {
+    pair.append(el("span", "lab", "Ran " + formatTime(STATE.start) + " to " + formatTime(STATE.end)));
+  }
   var der = el("span", "derived");
   if (d) {
-    der.append(el("span", null, Math.floor(d.minutes / 60) + "h "
-                 + (d.minutes % 60 ? (d.minutes % 60) + "m" : "") + ", billed as "),
-               el("b", null, d.billedHours.toFixed(2)));
+    /* THE ROUNDING IS NEVER SILENT, and it says WHICH rule moved the figure.
+       Round 4 settled both sentences: `1h 32m, billed as 1.50 hours, rounded to
+       the nearest quarter`, and at the floor `billed as 1.00 hours, the one hour
+       minimum`. Neither of the two files this record was merged from drew either
+       of them: both stopped at "billed as 1.50", so the reason the figure moved
+       was on the page nowhere. `durationBetween` has returned `atMinimum` since
+       it was written and nothing had ever read it (L46). */
+    der.append(el("span", null, elapsedText(d.minutes) + ", billed as "),
+               el("b", null, d.billedHours.toFixed(2)),
+               el("span", null, d.atMinimum ? " hours, the one hour minimum"
+                                            : " hours, rounded to the nearest quarter"));
   } else if (waitingOn === "times") {
     der.append(el("span", "needs", "Needs the times"));
   }
   pair.append(der);
   ht.append(pair);
   who.append(ht);
-  hd.append(who, el("div", "invstate", "Draft"));
+
+  var right = el("div", "hdright");
+  right.append(el("div", "invstate", isDraft ? "Draft" : "Invoice 1042"));
+  var hb = el("button", "histbtn", PANE_OPEN ? "Hide history" : "History");
+  hb.type = "button";
+  hb.setAttribute("aria-expanded", String(PANE_OPEN));
+  /* TOGGLING DOES NOT REBUILD THE SCREEN. Rebuilding replaces the pane with a
+     new element that is already at its final width, so the browser has nothing
+     to animate FROM and the slide silently does not happen, which looks exactly
+     like having chosen not to animate it. The class is flipped on the element
+     that is already there. */
+  hb.addEventListener("click", function () {
+    PANE_OPEN = !PANE_OPEN;
+    document.querySelector(".panewrap").classList.toggle("paneopen", PANE_OPEN);
+    hb.textContent = PANE_OPEN ? "Hide history" : "History";
+    hb.setAttribute("aria-expanded", String(PANE_OPEN));
+  });
+  right.append(hb);
+  hd.append(who, right);
 
   var lines = el("div", "invlines");
   var lhd = el("div", "lhd");
@@ -1198,12 +1615,15 @@ function buildInvoice() {
              el("div", "fig", "Rate"), el("div", "fig", "Amount"));
   var row = el("div", "lrow");
   var amt = el("div", "fig" + (hours === null ? " pending" : ""));
+  /* Never $0.00 where the hours are unknown: a zero total is a legitimate comped
+     invoice (PRD 5.1b) and the two must never look alike. */
   if (hours === null) amt.append(el("span", "needs", "Needs hours"));
-  else amt.textContent = money(sub);
+  else amt.textContent = money(t.lines);
   row.append(el("div", "ldesc", "Concert photography"),
              el("div", "fig" + (hours === null ? " pending" : ""), hours === null ? "" : hours.toFixed(2)),
              el("div", "fig", "250.00"), amt);
-  lines.append(lhd, row, el("div", "ladd", "Add a line"));
+  lines.append(lhd, row);
+  if (isDraft) lines.append(el("div", "ladd", "Add a line"));
 
   var sumBox = el("div", "invsum");
   function line(label, fig, cls) {
@@ -1211,9 +1631,28 @@ function buildInvoice() {
     ln.append(el("div", null, label), el("div", "fig", fig));
     return ln;
   }
+
   if (hours !== null) {
-    var tl = taxLineFor(STATE.status, sub);
-    sumBox.append(line("Subtotal", money(sub)));
+    var tl = taxLineFor(STATE.status, t.taxable);
+
+    /* THE REFERRAL CREDIT IS A NEGATIVE LINE INSIDE THE SUBTOTAL, and the
+       discount is not a line at all and sits below it. They net out to the same
+       tax, which is exactly why they are easy to merge and must not be
+       (rules/money.js). When there is no credit the lines total and the subtotal
+       are the same number, and a quantity stated twice is not drawn. */
+    if (t.credit > 0) {
+      sumBox.append(line("Photography", money(t.lines)));
+      sumBox.append(line("Referral credit", "-" + money(t.credit)));
+    }
+    sumBox.append(line("Subtotal", money(t.subtotal)));
+
+    if (DISCOUNT) {
+      sumBox.append(line(DISCOUNT.kind === "percent"
+                           ? "Discount, " + DISCOUNT.value + "%"
+                           : "Discount",
+                         "-" + money(t.discount), "discline"));
+      sumBox.append(discountEdit());
+    }
 
     /* NO TAX FIGURE AND NO TOTAL UNTIL THE STATUS IS KNOWN. Dan, 2026-09-07:
        "let's not show sales tax before we know if we need it." A total computed
@@ -1222,7 +1661,7 @@ function buildInvoice() {
        gives an unpriced draft. */
     if (tl.drawn) {
       sumBox.append(line(tl.label, money(tl.amount)));
-      sumBox.append(line("Total", money(sub + tl.amount), "tot"));
+      sumBox.append(line("Total", money(t.total), "tot"));
     }
 
     if (tl.saysWhy) {
@@ -1235,10 +1674,10 @@ function buildInvoice() {
          was Claude explaining the interface rather than the domain. */
       var note = el("div", "taxnote", "Tax status never recorded for this client.");
       var answers = el("div", "taxanswers");
-      [["exempt", "Exempt"], ["not-exempt", "Not exempt"]].forEach(function (pair) {
-        var pick = el("button", "taxpick", pair[1]);
+      [["exempt", "Exempt"], ["not-exempt", "Not exempt"]].forEach(function (choice) {
+        var pick = el("button", "taxpick", choice[1]);
         pick.type = "button";
-        pick.addEventListener("click", function () { STATE.status = pair[0]; redraw(); });
+        pick.addEventListener("click", function () { STATE.status = choice[0]; redraw(); });
         answers.append(pick);
       });
       sumBox.append(note, answers);
@@ -1246,25 +1685,85 @@ function buildInvoice() {
   }
 
   var foot = el("div", "invfoot");
-  var wrap = el("div", "sendwrap");
-  var act = el("div", "invact" + (waitingOn ? " greyed" : ""), "Send");
-  if (waitingOn) {
-    var why = waitingOn === "times"
-      ? "Waiting on the shoot's start and end times."
-      : "Waiting on this client's tax status.";
-    act.setAttribute("role", "button");
-    act.setAttribute("aria-disabled", "true");
-    act.tabIndex = 0;
-    act.setAttribute("aria-describedby", "sendwhy");
-    var tip = el("div", "tip", why);
-    tip.id = "sendwhy";
-    wrap.append(tip);
+  var f = footFor(INVSTATE);
+  var acts = el("div", "acts");
+  if (f.said) acts.append(el("span", "paidmark", f.said));
+  if (f.second) acts.append(el("span", "actsecond", f.second));
+  if (f.main) {
+    var wrap = el("div", "sendwrap");
+    var act = el("div", "invact" + (isDraft && waitingOn ? " greyed" : ""), f.main);
+    if (isDraft && waitingOn) {
+      /* The refusal names what it is waiting on rather than saying the action is
+         unavailable, because a dead control with no reason leaves pressing it
+         again as the only diagnosis available. */
+      var why = waitingOn === "times"
+        ? "Waiting on the shoot's start and end times."
+        : "Waiting on this client's tax status.";
+      act.setAttribute("role", "button");
+      act.setAttribute("aria-disabled", "true");
+      act.tabIndex = 0;
+      act.setAttribute("aria-describedby", "sendwhy");
+      var tip = el("div", "tip", why);
+      tip.id = "sendwhy";
+      wrap.append(tip);
+    }
+    wrap.append(act);
+    acts.append(wrap);
   }
-  wrap.append(act);
-  foot.append(el("div", "invwhen", "Dated 29 Aug 2026, due 12 Sep 2026"), wrap);
+  foot.append(el("div", "invwhen", "Dated 29 Aug 2026, due 12 Sep 2026"), acts);
 
   inv.append(hd, lines, sumBox, foot);
-  return inv;
+
+  /* The pane PUSHES the invoice across rather than covering it, which is what
+     Dan chose. It takes its width from the layout, so the invoice beside it
+     genuinely narrows to 584px and has to work there. */
+  var panewrap = el("div", "panewrap" + (PANE_OPEN ? " paneopen" : ""));
+  var pane = el("aside", "hpane");
+  pane.append(el("h6", null, "History"));
+  var list = el("div", "hlist");
+  historyFor(INVSTATE, t.total).forEach(function (e) {
+    var hrow = el("div", "hev");
+    var what = el("div");
+    what.append(el("span", "hwhat", e.what));
+    if (e.more) what.append(el("span", "hmore", e.more));
+    hrow.append(el("div", "hwhen", e.when), what);
+    list.append(hrow);
+  });
+  pane.append(list);
+  panewrap.append(inv, pane);
+  return panewrap;
+}
+
+/* The discount's own edit line. Its design was never put to Dan: it exists
+   because the controls do not fit in the totals row's label column without
+   moving every figure off the shared right edge. */
+function discountEdit() {
+  var edit = el("div", "discedit");
+  edit.append(el("span", "lab", "Discount"));
+  [["percent", "%"], ["amount", "$"]].forEach(function (choice) {
+    var b = el("button", "dpick", choice[1]);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(DISCOUNT.kind === choice[0]));
+    b.addEventListener("click", function () {
+      DISCOUNT = { kind: choice[0], value: DISCOUNT.value };
+      redraw();
+    });
+    edit.append(b);
+  });
+  var field = el("input", "dval");
+  field.type = "text";
+  field.value = String(DISCOUNT.value);
+  field.setAttribute("aria-label", "Discount value");
+  field.addEventListener("change", function () {
+    var n = parseFloat(field.value);
+    DISCOUNT = { kind: DISCOUNT.kind, value: isFinite(n) ? n : 0 };
+    redraw();
+  });
+  var drop = el("button", "dropit", "Remove");
+  drop.type = "button";
+  drop.addEventListener("click", function () { DISCOUNT = null; redraw(); });
+  edit.append(field, drop);
+  return edit;
 }
 
 function redraw(after) {
@@ -1272,11 +1771,60 @@ function redraw(after) {
   if (after) after();
 }
 
+/* THE EDIT MENU, holding the rare things round 5 put there. What it contains
+   changes with the state, because cancelling a draft is dismissing it and
+   cancelling a sent invoice is a different act.
+
+   IT OPENS FROM THE MENU BAR RATHER THAN BEING DRAWN PERMANENTLY OPEN. Both
+   files this record was merged from drew it open always, which was harmless in
+   one of them and not in the other: over an invoice that carries time fields in
+   its header it covers the client's name, the shoot, and the start time. A
+   record that hides the thing it exists to show is the same fault whether the
+   thing covering it is chrome or a panel, and round 5's decision is still shown,
+   by clicking Edit, which is what a menu is. */
+function buildMenu() {
+  var menu = el("div", "menu");
+  ["Undo", "Redo"].forEach(function (x) { menu.append(el("div", null, x)); });
+  menu.append(el("div", "sep"));
+
+  var items = [];
+  items.push(DISCOUNT
+    ? ["Remove the discount", function () { DISCOUNT = null; }]
+    /* 10% is the commonest of the five discounts in the whole history. */
+    : ["Add a discount", function () { DISCOUNT = { kind: "percent", value: 10 }; }]);
+  items.push(CREDIT > 0
+    ? ["Remove the referral credit", function () { CREDIT = 0; }]
+    : ["Apply a referral credit", function () { CREDIT = 100; }]);
+  if (INVSTATE === "draft") {
+    items.push(["Combine with another draft", null], ["Dismiss this draft", null]);
+  } else {
+    items.push(["Edit and resend", null], ["Cancel this invoice", null]);
+  }
+
+  items.forEach(function (item, i) {
+    var row = el("div", i === 0 ? "on" : null, item[0]);
+    if (item[1]) {
+      row.addEventListener("click", function () { item[1](); redraw(); });
+    }
+    menu.append(row);
+  });
+  return menu;
+}
+
 function buildScreen() {
   var screen = el("div", "screen");
   var bar = el("div", "menubar");
   bar.append(el("span", "apple"), el("span", "app-name", "Ovation"));
-  ["File", "Edit", "View", "Window", "Help"].forEach(function (x) { bar.append(el("span", null, x)); });
+  ["File", "Edit", "View", "Window", "Help"].forEach(function (x) {
+    var item = el("span", (x === "Edit" && MENU_OPEN) ? "openmenu" : null, x);
+    if (x === "Edit") {
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.setAttribute("aria-expanded", String(MENU_OPEN));
+      item.addEventListener("click", function () { MENU_OPEN = !MENU_OPEN; redraw(); });
+    }
+    bar.append(item);
+  });
   bar.append(el("span", "clock", "Mon 7 Sep  2:40 PM"));
 
   var win = el("div", "win"), app = el("div", "app");
@@ -1303,9 +1851,9 @@ function buildScreen() {
   });
   side.append(el("div", "spacer"));
   var st = el("div", "status");
-  var f = el("div", "fault");
-  f.append(el("b", null, "Backup failed 3 days ago"), el("span", "read", "Read"));
-  st.append(f, el("div", "also", "1 other problem"),
+  var fault = el("div", "fault");
+  fault.append(el("b", null, "Backup failed 3 days ago"), el("span", "read", "Read"));
+  st.append(fault, el("div", "also", "1 other problem"),
     el("div", "looked", "Last looked for bookings and receipts 2 minutes ago. Ovation only looks while it is open."));
   side.append(st);
 
@@ -1314,19 +1862,57 @@ function buildScreen() {
   app.append(side, tb, main);
   win.append(app);
   screen.append(bar, win);
+  if (MENU_OPEN) screen.append(buildMenu());
   return screen;
 }
 
+/* ---- the switch, which changes the invoice's state rather than the design ---- */
+(function () {
+  var anchor = document.querySelector(".asks");
+  var bar = el("div", "statebar");
+  bar.append(el("span", "lab", "This invoice is"));
+  var choices = [["draft", "a draft", ""], ["sent", "sent", "130 of 130"], ["paid", "paid", "130 of 130"]];
+  choices.forEach(function (c) {
+    var b = el("button", "sbtn");
+    b.type = "button";
+    b.append(el("span", null, c[1]));
+    if (c[2]) b.append(el("span", "share", c[2]));
+    b.addEventListener("click", function () {
+      INVSTATE = c[0];
+      if (INVSTATE !== "draft") ensureIssued();
+      [].forEach.call(bar.querySelectorAll(".sbtn"), function (o, i) {
+        o.setAttribute("aria-pressed", String(choices[i][0] === INVSTATE));
+      });
+      redraw();
+    });
+    bar.append(b);
+  });
+  [].forEach.call(bar.querySelectorAll(".sbtn"), function (o, i) {
+    o.setAttribute("aria-pressed", String(i === 0));
+  });
+  anchor.parentNode.insertBefore(bar, anchor.nextSibling);
+})();
+
+/* THE SAME SUITES THE REPOSITORY RUNS. scripts/test-design-rules.sh runs the
+   files under docs/design/rules/ and this page carries them verbatim, so the two
+   counts must agree. If they ever do not, the copy in this file has drifted, and
+   scripts/check-design-rules-inline.sh is what says so. */
 var iso = checkSuitesAreIsolated();
-var suites = [runTimeFieldTests(), runTypingTests(), runTaxTests()];
+var suites = [runDurationTests(), runTimeFieldTests(), runTypingTests(),
+              runTaxTests(), runMoneyTests()];
 var fails = iso.concat(suites.reduce(function (a, s) { return a.concat(s.failures); }, []));
 var ran = suites.reduce(function (a, s) { return a + s.ran; }, 0);
+/* THE VERDICT IS ONE LINE. It used to list what every suite covers, which is
+   worth reading once and is in the README, and which cost 116px above the window
+   on every load. What has to be HERE is the number, because it is the number
+   scripts/test-design-rules.sh reports from the other copy, and two counts that
+   must agree is the cheapest check that this file's copy is still the copy. */
 document.getElementById("verdict").textContent = fails.length
   ? fails.length + " of " + ran + " cases FAIL: " + fails.slice(0, 3).join("; ")
-  : "All " + ran + " cases pass in this page, suites checked isolated first: typing every hour and "
-    + "minute through the path a keystroke takes, 12 AM being midnight, all 1440 minutes surviving "
-    + "the round trip, and the tax line's three states, including that an unknown tax is drawn as "
-    + "nothing while an exempt client's zero is drawn as a figure.";
+  : "All " + ran + " cases pass in this page, across " + suites.length
+    + " suites checked isolated first. scripts/test-design-rules.sh runs the same "
+    + ran + " against docs/design/rules/, and the two counts must agree.";
 if (fails.length) document.getElementById("verdict").style.borderColor = "#C08A7E";
 redraw();
+
 </script>
