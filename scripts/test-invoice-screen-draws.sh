@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 20
+harness_begin "invoice screen rendering checks" 23
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -131,6 +131,17 @@ check "the overflow rule is gone from the mutated copy" \
 check "a list clipped away by its own cell is refused" "$(status_on "$CLIPPED")" "1"
 check "and the claim that fired names the list not being painted" \
     "$(failed_claims "$CLIPPED")" "the list of types is painted where it sits;"
+
+# 6. THE PANEL'S SECOND QUESTION GOING NOWHERE. Taking the prefill out leaves
+#    the panel asking what a type usually charges and nothing reading the
+#    answer, which is a field with a writer and no reader: it looks entirely
+#    correct on screen, and the amount simply never arrives on the line.
+DEAFPANEL="$WORK/deaf-panel.html"
+check "the prefill is gone from the mutated copy" \
+    "$(mutate "$DEAFPANEL" 's/^    field.value = money(ADDING.amount);$//' 'field.value = money(ADDING.amount)')" "0"
+check "a panel whose answer nothing reads is refused" "$(status_on "$DEAFPANEL")" "1"
+check "and the claim that fired names making a type" \
+    "$(failed_claims "$DEAFPANEL")" "a type that does not exist yet can be made from here;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.

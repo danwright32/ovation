@@ -527,11 +527,33 @@ that list. **One of the two is settled** (see below); what is left is:
 1. **The due date can be overridden per invoice as well as per client** (PRD 7). The foot draws
    `Dated 29 Aug 2026, due 12 Sep 2026` as static text with no way to change it.
 
-**And creating a NEW service type from inside the invoice** (PRD 4) is still not drawn. Round A
-settled how a line is added and deliberately left this out of all four of its options, because a
-second variable in one round is what makes a round unreadable. The three seeded types are reachable
-now; a fourth cannot be made without going to settings, which is the thing PRD 4 says must not be
-necessary.
+### A new service type, settled 2026-09-08
+
+**The list's last entry opens a panel**, kept against an entry that turns the row's description into
+a name field and against a list searched rather than read, where a name matching nothing is offered
+as the thing to create. It is the only option where making a type is a separate act from using it,
+and so the only one that can ask a second question.
+
+**It asks one: what the type usually charges.** That is a thing a `ServiceType` genuinely carries
+(`defaultUnitAmount`) and none of the three seeded ones has, and the answer is READ: it prefills the
+amount on the line the type is used for. A panel asking a question nothing reads would be a field
+with a writer and no reader, so the check now creates a type with a usual amount and asserts the
+line comes back carrying it.
+
+**No option asked whether the new type is hourly**, and that is a domain fact rather than a
+simplification. The name is Dan's; the role is not. Exactly one type is the hourly photography line
+and code has to know which, so a second would make the invoice's own pricing ambiguous
+(`Ovation/Domain/LineItem.swift` says so in its own docstring).
+
+**This round had no measurement behind it and that was said up front.** FreshBooks kept the show's
+name in the line description rather than a service type, so the 130 invoice history can say how
+often a second line appears and nothing at all about how often a new type would be wanted.
+
+**Two things follow from the panel rather than being chosen in it.** It sits below the header rather
+than at the top of the window, because there it covered the client's name, the shoot and the start
+time, which is the fault already recorded here once about a panel over this same header. And Create
+looks inert until a name is typed, because a control that does nothing and gives no reason leaves
+pressing it again as the only diagnosis (L109). Both are written here so they can be reversed.
 
 ### Adding a line item, settled 2026-09-08
 
@@ -555,7 +577,7 @@ draws no placeholder reading `0.00`: a zero total is a legitimate comped invoice
 figure the screen has not been given is never drawn as one. An amount it cannot read leaves the row
 where it is rather than committing a line worth nothing.
 
-### Three things round A found in the settled screen, none of them a design question
+### Five things the two rounds found in the settled screen, none of them a design question
 
 1. **The photography row was showing the LINES TOTAL rather than its own amount.** The two are the
    same number while an invoice can only have one line, so the defect could not exist until this
@@ -568,6 +590,26 @@ where it is rather than committing a line worth nothing.
 3. **Choosing anything in that menu left it standing**, so adding a discount left the menu covering
    the invoice it had just changed, which is the one thing you would look at to see whether it had
    worked. It closes on a choice now.
+4. **The palette was defined on the app window rather than on the screen**, so every rule outside
+   that window resolved `var(--anything)` to nothing. The Edit chip in the menu bar and the
+   highlighted row in its menu both declare `background: var(--accent)` and both computed to
+   `rgba(0, 0, 0, 0)`: neither had ever painted (L585, L437). Everything inside the window inherits
+   exactly as before. Swept: neither `clients.html` nor `invoice-list.html` has a rule outside
+   `.win` that uses a token, this file being the only one with a menu.
+5. **The type list round A settled was clipped away by its own cell.** `.ldesc` sets
+   `overflow: hidden` so a long description ellipsises, and an absolutely positioned box inside a
+   clipping one is clipped by it (L566). The list was in the DOM carrying all three types and the
+   TOTALS BLOCK was what got painted at its coordinates, so the whole of what round A settled was
+   invisible for a day. It passed the new check because that check read the DOM, and the list really
+   was there.
+
+**So the check measures paint as well as presence**, which is the distinction ovation#141 exists
+for. `scripts/check-invoice-screen-draws.sh` renders this file and reads back what it drew;
+`scripts/test-invoice-screen-draws.sh` damages a copy in six ways and asserts the check refuses each
+one by name. The paint claims refuse rather than answer when the thing is outside the window, since
+`elementFromPoint` returns null for anything below the viewport and would report a perfectly drawn
+list as missing: that is not hypothetical, it is how the first measurement of the clipping bug was
+taken, and it agreed with the right answer for the wrong reason.
 
 **The discount's edit line is Dan's, settled 2026-09-08.** It had been chosen to solve a layout
 problem rather than designed, and he kept it against three alternatives: the percentage edited where

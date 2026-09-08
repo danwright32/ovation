@@ -189,6 +189,7 @@ window.addEventListener("load", function () {
           var field = document.querySelector(".lamt");
           claim("the new row takes an amount", !!field,
                 field ? "an amount field" : "no amount field");
+
           if (field) {
             claim("the amount asserts no figure it was not given",
                   !field.placeholder || !/\d/.test(field.placeholder),
@@ -196,6 +197,44 @@ window.addEventListener("load", function () {
             field.value = "75";
             field.dispatchEvent(new Event("blur"));
           }
+        }
+      }
+
+      /* A TYPE THAT DOES NOT EXIST YET, on a SECOND line, because the first one
+         now carries a type and so no longer offers a chooser to press. The
+         panel's second question is only worth asking if something reads the
+         answer, so this creates a type WITH a usual amount and checks the line
+         comes back carrying it: a field nothing reads is the defect this claim
+         exists to catch. */
+      var again = document.querySelector(".laddbtn");
+      if (again) { again.click(); }
+      var chooser2 = document.querySelector(".typebtn");
+      if (chooser2) { chooser2.click(); }
+      var makenew = document.querySelector(".typelist .makenew");
+      if (!makenew) {
+        claim("a type that does not exist yet can be made from here", false,
+              "the list has no entry for making one");
+      } else {
+        makenew.click();
+        var panel = document.querySelector(".newpanel");
+        var boxes = panel ? panel.querySelectorAll("input") : [];
+        if (boxes.length < 2) {
+          claim("a type that does not exist yet can be made from here", false,
+                panel ? "the panel asks " + boxes.length + " question(s)" : "no panel opened");
+        } else {
+          boxes[0].value = "Rehearsal coverage";
+          boxes[0].dispatchEvent(new Event("input"));
+          boxes[1].value = "140";
+          panel.querySelector(".panelacts .go").click();
+          var named = document.querySelector(".lrow.newrow .ldesc");
+          var filled = document.querySelector(".lamt");
+          claim("a type that does not exist yet can be made from here",
+                !!named && named.textContent.trim() === "Rehearsal coverage"
+                  && !!filled && parseFloat(filled.value) === 140,
+                "the line reads " + JSON.stringify(named ? named.textContent.trim() : null)
+                  + " and its amount holds " + JSON.stringify(filled ? filled.value : null));
+          /* Left uncommitted deliberately: the row being filled in is part of
+             what the geometry claims below have to hold for. */
         }
       }
     }
@@ -207,12 +246,12 @@ window.addEventListener("load", function () {
       }).join(" | ");
     });
     result.notes = texts;
-    claim("the added line is on the invoice", rows.length === 2, texts.join("  //  "));
+    claim("the added line is on the invoice", rows.length === 3, texts.join("  //  "));
 
     /* THE FIRST LINE SHOWS ITS OWN AMOUNT. Its hours times its rate, read off
        the row itself, so this cannot be satisfied by agreeing with a total that
        is also wrong. */
-    if (rows.length === 2) {
+    if (rows.length >= 2) {
       var cells = rows[0].children;
       var hours = parseFloat(cells[1].textContent.replace(/,/g, ""));
       var rate = parseFloat(cells[2].textContent.replace(/,/g, ""));

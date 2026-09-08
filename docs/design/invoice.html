@@ -495,6 +495,49 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
                    padding: 4px 16px; }
 .typelist button:hover { background: var(--accent); color: var(--on-ink); }
 
+/* ============================================================
+   A NEW SERVICE TYPE, settled 2026-09-08.
+
+   THE LIST'S LAST ENTRY OPENS A PANEL. Kept against two: an
+   entry that turns the row's description into a name field, and
+   a list searched rather than read, where a name matching
+   nothing is offered as the thing to create.
+
+   This is the only one where making a type is a separate act
+   from using it, and so the only one that can ask a second
+   question. It asks one: what the type usually charges, which a
+   ServiceType genuinely carries and none of the three seeded
+   ones has (ServiceTypeSeed.swift).
+   ============================================================ */
+.typelist .tsep { border-top: 1px solid #DED6CE; margin: 5px 0; height: 0; }
+.typelist button.makenew { color: var(--soft); }
+
+/* IT SITS BELOW THE HEADER, over the lines it is about. Drawn at the top of the
+   window it covered the client's name, the shoot and the start time, which is
+   the fault already recorded once here about a panel over this same header: a
+   surface that hides the thing you are working on is the same fault whether it
+   is chrome or a panel. */
+.newveil { position: absolute; inset: 0; background: rgba(31,24,18,.14); z-index: 7; }
+.newpanel { position: absolute; top: 210px; left: 50%; transform: translateX(-50%);
+            z-index: 8; width: 344px; background: var(--bg);
+            border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px 14px;
+            box-shadow: 0 2px 4px rgba(0,0,0,.12), 0 26px 56px rgba(0,0,0,.30); }
+.newpanel h6 { margin: 0 0 12px; font-family: "Instrument Serif", Georgia, serif;
+               font-size: 21px; font-weight: 400; color: var(--ink); }
+.newpanel label { display: block; font-size: 12px; color: var(--quiet); margin: 0 0 3px; }
+.newpanel input { display: block; width: 100%; font: inherit; font-size: 13.5px;
+                  color: var(--ink); padding: 3px 7px; margin: 0 0 12px;
+                  background: var(--sunk); border: 1px solid var(--rule); border-radius: 5px; }
+.newpanel input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.newpanel .panelacts { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.newpanel .panelacts button { font: inherit; font-size: 13.5px; background: none;
+                              border: 0; padding: 0; color: var(--quiet); }
+.newpanel .panelacts button.go { font-weight: 600; color: var(--accent); }
+/* A type with no name cannot be created, and the control says so by looking
+   inert rather than by refusing after the press: a control that does nothing
+   and gives no reason leaves pressing it again as the only diagnosis (L109). */
+.newpanel .panelacts button.go.off { font-weight: 400; color: var(--faint); }
+
 /* The amount, typed, and sized to the amount column so the figures keep the one
    right edge round 5 measured twice to protect. */
 .lamt { font-family: "IBM Plex Mono", ui-monospace, monospace;
@@ -1861,7 +1904,18 @@ function historyFor(state, total) {
    turnaround and Preview images carry no default amount anywhere, which is why
    every added line has an amount to type. A NEW type cannot be created from
    here yet, and that is the next round rather than an omission (ovation#111). */
-var TYPES = ["Photography", "Rush turnaround", "Preview images"];
+/* EACH CARRIES WHAT IT USUALLY CHARGES, because a ServiceType does
+   (`defaultUnitAmount`), and all three seeded ones carry none: Rush turnaround
+   and Preview images have no recorded amount anywhere, and Photography's rate
+   belongs to the invoice rather than to the type. So `null` here is the truth
+   rather than a placeholder standing in for one. */
+var TYPES = [
+  { name: "Photography", amount: null },
+  { name: "Rush turnaround", amount: null },
+  { name: "Preview images", amount: null }
+];
+
+var PANEL = false;     /* the new type panel is up */
 
 var EXTRA = [];        /* lines added and priced */
 var ADDING = null;     /* { name } while a line is being filled in */
@@ -1873,13 +1927,89 @@ function extrasTotal() {
 
 function typeList(choose) {
   var list = el("div", "typelist");
-  TYPES.forEach(function (name) {
-    var b = el("button", null, name);
+  TYPES.forEach(function (type) {
+    var b = el("button", null, type.name);
     b.type = "button";
-    b.addEventListener("click", function () { choose(name); });
+    b.addEventListener("click", function () { choose(type); });
     list.append(b);
   });
+
+  /* THE LAST ENTRY, which opens the panel rather than doing anything in the
+     row. The three dots say a question is coming, which is the macOS
+     convention and is true here. */
+  list.append(el("div", "tsep"));
+  var entry = el("button", "makenew", "New type...");
+  entry.type = "button";
+  entry.addEventListener("click", function () {
+    TYPEOPEN = false;
+    PANEL = true;
+    redraw(function () {
+      var field = document.querySelector(".newpanel input");
+      if (field) field.focus();
+    });
+  });
+  list.append(entry);
   return list;
+}
+
+/* THE PANEL. A new type is ORDINARY, and that is why it is not asked about:
+   the role is code's rather than Dan's, since exactly one type is the hourly
+   photography line and a second would make the invoice's own pricing
+   ambiguous (Ovation/Domain/LineItem.swift). */
+function newTypePanel() {
+  var holder = el("div");
+  var veil = el("div", "newveil");
+  veil.addEventListener("click", function () { PANEL = false; redraw(); });
+
+  var panel = el("div", "newpanel");
+  panel.append(el("h6", null, "A new service type"));
+  panel.append(el("label", null, "Name"));
+  var name = el("input");
+  name.type = "text";
+  panel.append(name);
+  panel.append(el("label", null, "What it usually charges, if it has a usual amount"));
+  var amount = el("input");
+  amount.type = "text";
+  panel.append(amount);
+
+  function create() {
+    var typed = name.value.trim();
+    if (!typed) return;
+    /* AN AMOUNT IT CANNOT READ IS NO AMOUNT, never a zero: a type that charges
+       nothing and a type with no usual amount are different things, and one of
+       them would prefill every line it is used on with 0.00 (PRD 5.1b). */
+    var usual = parseFloat(amount.value.replace(/[$,]/g, ""));
+    var type = { name: typed, amount: isFinite(usual) ? usual : null };
+    if (!TYPES.some(function (t) { return t.name === typed; })) TYPES.push(type);
+    ADDING = type;
+    PANEL = false;
+    redraw();
+  }
+
+  var acts = el("div", "panelacts");
+  var cancel = el("button", null, "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", function () { PANEL = false; redraw(); });
+  var go = el("button", "go off", "Create");
+  go.type = "button";
+  go.setAttribute("aria-disabled", "true");
+  go.addEventListener("click", create);
+  name.addEventListener("input", function () {
+    var ready = name.value.trim() !== "";
+    go.classList.toggle("off", !ready);
+    go.setAttribute("aria-disabled", String(!ready));
+  });
+  [name, amount].forEach(function (field) {
+    field.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); create(); }
+      if (e.key === "Escape") { PANEL = false; redraw(); }
+    });
+  });
+  acts.append(cancel, go);
+  panel.append(acts);
+
+  holder.append(veil, panel);
+  return holder;
 }
 
 /* THE ROW BEING FILLED IN. The type first, then the amount, in the row itself. */
@@ -1897,8 +2027,8 @@ function addingRow() {
     btn.addEventListener("click", function () { TYPEOPEN = !TYPEOPEN; redraw(); });
     wrap.append(btn);
     if (TYPEOPEN) {
-      wrap.append(typeList(function (name) {
-        ADDING = { name: name };
+      wrap.append(typeList(function (type) {
+        ADDING = type;
         TYPEOPEN = false;
         redraw();
       }));
@@ -1910,6 +2040,11 @@ function addingRow() {
   var field = el("input", "lamt");
   field.type = "text";
   field.setAttribute("aria-label", "Amount");
+  /* THE TYPE'S USUAL AMOUNT, where it has one, which is what makes the panel's
+     second question worth asking. A type with none leaves the field empty. */
+  if (ADDING.amount !== null && ADDING.amount !== undefined) {
+    field.value = money(ADDING.amount);
+  }
   /* NO PLACEHOLDER READING 0.00. A zero total is a legitimate comped invoice
      (PRD 5.1b), so a figure the screen has not been given is never drawn as one,
      which is the rule the hours column already keeps. */
@@ -2292,6 +2427,7 @@ function buildScreen() {
   app.append(side, tb, main);
   win.append(app);
   screen.append(bar, win);
+  if (PANEL) screen.append(newTypePanel());
   return screen;
 }
 
