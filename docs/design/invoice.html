@@ -789,15 +789,24 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
    2026-09-07: "it should push the invoice over, not cover it").
    An earlier version overlaid it, on the argument that reflowing
    moves the thing being read; Dan chose the push, so the invoice
-   works at 584px as well as 856px and that is checked rather
+   works at 556px as well as 856px and that is checked rather
    than assumed. It slides at 280ms with the same easing as the
    list to invoice transition settled in round 1b, so the app has
    one motion rather than two.
 
-   THE PANE'S OWN DESIGN HAD NO ROUND. Dan specified that it
-   exists, where it opens from and that it pushes; the 272px
-   width, the position of the button and the wording of each
-   entry are Claude's and were never drawn against alternatives.
+   THE WIDTH IS 300px, AND IT IS DAN'S, settled 2026-09-08 against
+   220, 272 and 330 with the consequence of each measured and on
+   screen beside it. 300 is the first width at which every entry
+   settles to two lines, including the one carrying a client's
+   real email address, which is the longest thing the pane ever
+   holds. Past it the invoice keeps giving up width and the
+   entries stop improving, so 330 was drawn and is dominated. It
+   was 272 until that day, which was mine, and at 272 the sent
+   entry still wrapped to three lines.
+
+   TWO THINGS ABOUT THIS PANE ARE STILL MINE: where the button
+   sits, and what each entry says. Neither has been drawn against
+   an alternative.
    ============================================================ */
 
 .panewrap { flex: 1; min-height: 0; display: flex; align-items: stretch; min-width: 0; }
@@ -809,8 +818,8 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 .hpane { width: 0; flex: none; overflow: hidden;
          background: var(--chrome); border-left: 1px solid transparent;
          transition: width 280ms cubic-bezier(.32,.72,0,1); }
-.paneopen .hpane { width: 272px; border-left-color: var(--rule); }
-.hpane > * { width: 272px; }
+.paneopen .hpane { width: 300px; border-left-color: var(--rule); }
+.hpane > * { width: 300px; }
 @media (prefers-reduced-motion: reduce) { .hpane { transition: none; } }
 
 .hpane h6 { margin: 0; padding: 13px 18px 10px; font-size: 10.5px; font-weight: 700;
