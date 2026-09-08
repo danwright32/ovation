@@ -12,9 +12,26 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 .verdict { font-size: 13px; margin: 0 0 16px; padding: 8px 12px; border-radius: 7px;
            max-width: 70ch; border: 1px solid #B6C7B2; background: #FFFDFB; color: #3D342E; }
 
-.stage { display: flex; background: #E9E4DE; border: 1px solid #DDD5CD;
+/* A BLOCK, NOT A FLEX CONTAINER, and NO overflow declared on either axis. This
+   is the treatment invoice-list.html and clients.html already carry, and the
+   reason is written out in invoice-list.html: setting overflow on one axis makes
+   the other compute to auto too, so a stage that scrolls sideways is a scroll
+   container on BOTH axes waiting to happen, and the window is tall enough that
+   it would start clipping its own bottom while the page looked finished (L566).
+   If the window is wider than the screen, the PAGE scrolls sideways, which is
+   ordinary and visible.
+
+   THIS FILE HAD A FLEX STAGE, inherited from the two round files it was merged
+   from, where centring the window mattered because they were choosers. A flex
+   item SHRINKS. Measured at a 1100px browser window on 2026-09-08: the stage
+   squeezed the 1120px screen to 1002, the 1064px window inside it overflowed by
+   62px, `.screen`'s own `overflow: hidden` cut those 62px off, and the page
+   reported no horizontal scroll at all. The history pane sits exactly there, so
+   it was gone with nothing to say so, which is how Dan came to be asked to judge
+   a pane he could not see (L76). The two settled files never had this because
+   they never had the flex stage. */
+.stage { background: #E9E4DE; border: 1px solid #DDD5CD;
          border-radius: 10px; padding: 24px; }
-.stage > * { margin: auto; }
 
 /* Fonts embedded so this file needs NOTHING external: it renders identically
    with no network at all. Latin subset only, because the page is pure ASCII.
