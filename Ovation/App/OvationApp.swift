@@ -51,14 +51,21 @@ struct OvationApp: App {
                     StoreSchemaGuard.inspect(
                         storeURL: $0,
                         ownEntityTables: StoreSchemaGuard.entityTableNames(
-                            for: OvationSchema.schema))
+                            for: OvationSchema.schema),
+                        runningVersion: OvationSchema.versionedSchema.versionIdentifier)
                 },
                 // ovation#107. PRD 5.4's starting service types, into a store
                 // that holds none. It runs here rather than anywhere a screen
                 // could reach, because it must happen exactly once on an empty
                 // store and never again: a rename Dan makes from inside an
                 // invoice must not be undone by the next launch.
-                seed: { try ServiceTypeSeed.seedIfEmpty(ModelContext($0)) }
+                seed: { try ServiceTypeSeed.seedIfEmpty(ModelContext($0)) },
+                // ovation#116. Written after the open that established it, so the
+                // next launch can refuse a downgrade before opening anything.
+                recordVersion: {
+                    try StoreVersionMarker.write(
+                        OvationSchema.versionedSchema.versionIdentifier, besideStoreAt: $0)
+                }
             ).run(now: Date())
         }
 

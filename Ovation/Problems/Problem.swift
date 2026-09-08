@@ -28,6 +28,21 @@ extension ProblemKind {
     static let storeIsNotADatabase = ProblemKind("store.not-a-database")
     static let unidentifiableStore = ProblemKind("store.unidentifiable")
 
+    /// The store was written by a NEWER Ovation than the one running
+    /// (ovation#116). Its own kind, because the remedy is the opposite of every
+    /// other store refusal: this file is Dan's own invoices and must NOT be moved
+    /// aside, it means the wrong build is running.
+    static let storeFromANewerVersion = ProblemKind("store.from-a-newer-version")
+
+    /// The version marker beside the store could not be read, so a downgrade
+    /// cannot be ruled out. Different from there being no marker at all.
+    static let storeVersionUnreadable = ProblemKind("store.version-unreadable")
+
+    /// The version marker could not be WRITTEN after a successful open
+    /// (ovation#116). The store is fine; what is lost is the ability to refuse a
+    /// downgrade next time.
+    static let storeVersionNotRecorded = ProblemKind("store.version-not-recorded")
+
     /// The backup could not be verified (ovation#57).
     static let backupFailed = ProblemKind("backup.failed")
 

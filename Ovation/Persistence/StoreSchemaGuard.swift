@@ -75,6 +75,28 @@ enum StoreSchemaGuard {
         /// recognise its own by. Not an accusation: the guard has nothing to
         /// examine WITH.
         case unidentifiable(entityTables: [String])
+
+        /// Ovation's own store, written by a NEWER build than the one running
+        /// (ovation#116).
+        ///
+        /// ITS OWN VERDICT RATHER THAN `foreign`, because the two need opposite
+        /// remedies and one sentence cannot serve both (L11). A foreign store is
+        /// somebody else's file to move out of the way. A newer one is Ovation's
+        /// own data, and the remedy is to run the newer build: moving it aside
+        /// would be moving Dan's invoices aside.
+        ///
+        /// WHY IT IS A REFUSAL RATHER THAN A WARNING, measured rather than
+        /// argued. `SchemaMigrationTests` opens a store written by version two
+        /// with version one: it does not refuse, it migrates BACKWARDS, and the
+        /// field only version two knew about is gone, with the backup taken
+        /// before any of it.
+        case fromANewerVersion(found: String, running: String)
+
+        /// Ovation's own store, and the marker beside it could not be read.
+        /// Distinct from a store with no marker at all: that one was never
+        /// opened by a build that writes them, this one has a file saying
+        /// something nobody can parse.
+        case versionUnreadable(detail: String)
     }
 
     /// Core Data writes these into every store it manages regardless of app, so
@@ -111,9 +133,16 @@ enum StoreSchemaGuard {
     /// with `unidentifiable`, never `foreign`: a guard handed no needles examines
     /// nothing, and answering foreign would accuse Ovation's own store while
     /// reading exactly like the guard working (L98, L217).
+    /// `runningVersion` is REQUIRED rather than defaulted, and that is the
+    /// difference between a guard and a suggestion. A default would let a caller
+    /// get the old behaviour by omitting an argument, which is a guard standing
+    /// down for a reason nobody chose (L324), and the case it stands down on is
+    /// the one that loses data.
     nonisolated static func inspect(
         storeURL: URL,
         ownEntityTables: Set<String>,
+        runningVersion: Schema.Version,
+        readMarker: (URL) -> StoreVersionMarker.Reading = StoreVersionMarker.read(besideStoreAt:),
         fileManager: FileManager = .default
     ) -> Verdict {
         guard fileManager.fileExists(atPath: storeURL.path) else { return .noStoreFile }
@@ -194,7 +223,29 @@ enum StoreSchemaGuard {
         guard entityTables.contains(where: { ownEntityTables.contains($0) }) else {
             return .foreign(entityTables: entityTables.sorted())
         }
-        return .ovation
+
+        // ONLY NOW IS THE VERSION WORTH ASKING ABOUT. The marker beside a
+        // foreign store says nothing about it, and a store that is not ours is
+        // refused for a better reason first.
+        switch readMarker(storeURL) {
+        case .version(let found) where found > runningVersion:
+            return .fromANewerVersion(found: Self.describe(found),
+                                      running: Self.describe(runningVersion))
+        case .version, .absent:
+            // ABSENT IS NOT A REFUSAL, and the reason is measured rather than
+            // assumed. A marker cannot describe a store written before markers
+            // existed, which is exactly the population such a detector is blind
+            // to (L223). Measured 2026-09-08: no store exists on this machine on
+            // either build path, so that population is empty and stays empty,
+            // because every store now gets a marker at its first successful open.
+            return .ovation
+        case .unreadable(let detail):
+            return .versionUnreadable(detail: detail)
+        }
+    }
+
+    nonisolated static func describe(_ version: Schema.Version) -> String {
+        "\(version.major).\(version.minor).\(version.patch)"
     }
 
     /// Whether this verdict permits opening the store for writing.
@@ -205,7 +256,8 @@ enum StoreSchemaGuard {
         switch verdict {
         case .noStoreFile, .empty, .ovation:
             return true
-        case .foreign, .notADatabase, .unreadable, .unidentifiable:
+        case .foreign, .notADatabase, .unreadable, .unidentifiable,
+             .fromANewerVersion, .versionUnreadable:
             return false
         }
     }
@@ -242,6 +294,22 @@ enum StoreSchemaGuard {
                 + "build declares no models to recognise one by. It carries "
                 + "\(entityTables.count) table(s). \(restraint) This is a fault in Ovation, not "
                 + "in the file."
+
+        // THE SENTENCE THAT MAKES THE EIGHTH VERDICT WORTH HAVING. It never says
+        // "move the file aside", which every other refusal here says, because
+        // this file is Dan's own invoices. It names the two versions and the one
+        // action that helps.
+        case .fromANewerVersion(let found, let running):
+            return "This database was written by a newer version of Ovation (\(found)) than the "
+                + "one running (\(running)). \(restraint) Opening it with this build would "
+                + "remove anything the newer version added. Open the newer Ovation instead, or "
+                + "install it again."
+
+        case .versionUnreadable(let detail):
+            return "Ovation could not tell which version of itself last opened the database at "
+                + "\(path): \(detail). \(restraint) The version file beside the database is "
+                + "damaged, and until it is readable Ovation cannot rule out that this database "
+                + "came from a newer build."
         }
     }
 }

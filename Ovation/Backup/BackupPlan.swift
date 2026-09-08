@@ -67,6 +67,13 @@ enum BackupPlan {
         // (L63, L98). It holds the only copy of every invoice.
         .init(path: "Ovation.store", kind: .file, expectation: .required),
 
+        // The version marker (ovation#116). REQUIRED, alongside the store it
+        // describes, because an archive carrying the database without it restores
+        // a store nobody can date, and the guard that refuses a downgrade then
+        // has nothing to read. Measured: an older build handed a newer store
+        // migrates it BACKWARDS and the newer field is gone.
+        .init(path: "Ovation.store.version", kind: .file, expectation: .required),
+
         // Its write ahead log and shared memory file. NOT required, because a
         // checkpointed store legitimately has neither, and requiring them would
         // refuse every healthy backup. Carried whenever they ARE there, because
@@ -77,14 +84,20 @@ enum BackupPlan {
         .init(path: "Ovation.store-shm", kind: .file,
               expectation: .presentSometimes(reason: "absent once the store is checkpointed")),
 
+        // THE REFERRAL LEDGER IS NOT IN THIS LIST, and its absence is the entry.
+        // It was declared here as `referral-ledger.jsonl`, not yet built, naming
+        // ovation#38. That issue shipped on 2026-09-08 and the ledger is
+        // `ReferralLedgerEntry` INSIDE the store, so the file it named will never
+        // exist. Left standing, a member whose issue is closed reads as work
+        // outstanding forever, and every archive would report itself short of a
+        // file nothing writes (L346, L377).
+        //
         // Declared now, built later. Each names the issue, so an archive can say
         // what it does not hold and why, rather than being quietly short.
         .init(path: "consumed-bookings.jsonl", kind: .file,
               expectation: .notYetBuilt(issue: "ovation#31")),
         .init(path: "consumed-messages.jsonl", kind: .file,
               expectation: .notYetBuilt(issue: "ovation#79")),
-        .init(path: "referral-ledger.jsonl", kind: .file,
-              expectation: .notYetBuilt(issue: "ovation#38")),
         .init(path: "export-runs.jsonl", kind: .file,
               expectation: .notYetBuilt(issue: "ovation#64")),
     ]

@@ -26,7 +26,7 @@ struct StoreLaunchSequenceTests {
         let outcome = world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
-        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "seed"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed"])
         #expect(world.store.open.isEmpty)
     }
 
@@ -114,7 +114,7 @@ struct StoreLaunchSequenceTests {
 
         #expect(outcome == .opened)
         #expect(world.store.open.contains { $0.kind == .backupFailed })
-        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "seed"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed"])
     }
 
     @Test("the backup failure names which half failed")
@@ -136,6 +136,52 @@ struct StoreLaunchSequenceTests {
     /// for the checkpoint and the backup so a test never has to make a real one
     /// fail by damaging the machine.
     @MainActor
+    // MARK: recording the version, which is what makes the next launch safe
+
+    @Test("the version is recorded straight after the open that established it")
+    func theversionIsRecordedAfterOpening() throws {
+        // ovation#116. It must be written by whatever ESTABLISHES the version
+        // rather than by a surface that happens to notice (L319), and it goes
+        // before the seed so a store that opened is marked even if seeding fails.
+        let world = try World()
+
+        _ = world.sequence.run(now: world.instant)
+
+        let steps = world.recorder.steps
+        #expect(steps.firstIndex(of: "version")! > steps.firstIndex(of: "open")!)
+        #expect(steps.firstIndex(of: "version")! < steps.firstIndex(of: "seed")!)
+    }
+
+    @Test("a store refused at IDENTIFY has no version recorded")
+    func arefusedLaunchRecordsNoVersion() throws {
+        // Writing beside a file that is not ours is still writing beside somebody
+        // else's file.
+        let world = try World()
+        try world.writeForeignStore()
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(!world.recorder.steps.contains("version"))
+    }
+
+    @Test("a version that could not be written is RAISED and the app still opens")
+    func afailedVersionRecordIsReported() throws {
+        // The store is open and correct. What is lost is the ability to refuse a
+        // downgrade NEXT time, which is worth saying and is not worth refusing to
+        // open over (L10).
+        let world = try World(recordVersion: { _ in throw VersionFailure.refused })
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        let problem = try #require(world.store.open.first {
+            (p: Problem) in p.kind == ProblemKind.storeVersionNotRecorded })
+        #expect(problem.sentence.contains("older build"))
+        #expect(problem.sentence.contains("opened normally"))
+    }
+
+    private enum VersionFailure: Error { case refused }
+
     // MARK: seeding, which happens AFTER the store is open
 
     @Test("the starting service types are seeded, and only after the store opened")
@@ -214,7 +260,8 @@ struct StoreLaunchSequenceTests {
         init(withStore: Bool = true,
              checkpoint: (@Sendable (URL) -> StoreCheckpoint.Outcome)? = nil,
              backup: (@Sendable (Date) throws -> URL)? = nil,
-             seed: (@Sendable (ModelContainer) throws -> Int)? = nil) throws {
+             seed: (@Sendable (ModelContainer) throws -> Int)? = nil,
+             recordVersion: (@Sendable (URL) throws -> Void)? = nil) throws {
             directory = URL.temporaryDirectory
                 .appending(path: "ovation-launch-\(UUID().uuidString)",
                            directoryHint: .isDirectory)
@@ -259,12 +306,18 @@ struct StoreLaunchSequenceTests {
                     return StoreSchemaGuard.inspect(
                         storeURL: url,
                         ownEntityTables: StoreSchemaGuard.entityTableNames(
-                            for: Schema([Client.self])))
+                            for: Schema([Client.self])),
+                        runningVersion: Schema.Version(1, 0, 0))
                 },
                 seed: { container in
                     recorder.record("seed")
                     if let seed { return try seed(container) }
                     return try ServiceTypeSeed.seedIfEmpty(ModelContext(container))
+                },
+                recordVersion: { url in
+                    recorder.record("version")
+                    if let recordVersion { return try recordVersion(url) }
+                    try StoreVersionMarker.write(Schema.Version(1, 0, 0), besideStoreAt: url)
                 })
         }
 

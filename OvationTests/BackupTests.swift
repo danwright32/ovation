@@ -17,13 +17,21 @@ struct BackupTests {
         #expect(manifest.dayKey == BusinessCalendar.dayKey(for: world.instant))
 
         let copied = manifest.members.filter { $0.status == .copied }.map(\.path).sorted()
-        #expect(copied == ["Ovation.store", "custody", "documents", "problems.jsonl"])
+        #expect(copied == ["Ovation.store", "Ovation.store.version", "custody", "documents",
+                           "problems.jsonl"])
 
         // An archive is HONEST about what it could not contain. A member nothing
         // has built yet is recorded with the issue that will build it, rather
         // than being silently absent (L98).
+        //
+        // THREE, NOT FOUR: `referral-ledger.jsonl` left the plan when ovation#38
+        // shipped, because the ledger is a model INSIDE the store rather than a
+        // file beside it, so the file it named will never exist. A member whose
+        // issue is closed reads as work outstanding forever and makes every
+        // archive report itself short of a file nothing writes.
         let pending = manifest.members.filter { $0.status == .notYetBuilt }
-        #expect(pending.count == 4)
+        #expect(pending.count == 3)
+        #expect(!pending.contains { $0.path.contains("referral") })
         #expect(pending.allSatisfy { $0.issue?.hasPrefix("ovation#") == true })
 
         // And a member that is legitimately absent says SO, in its own word,
@@ -471,6 +479,13 @@ struct BackupTests {
             // be required (ovation#88).
             try Data("a fabricated store".utf8).write(
                 to: dataDirectory.appendingPathComponent("Ovation.store"))
+            // The version marker beside it (ovation#116). Required for the same
+            // reason the store is: an archive carrying the database without it
+            // restores a store nobody can date, and the guard that refuses a
+            // downgrade then has nothing to read. A real data folder always has
+            // one, because the launch sequence writes it straight after opening.
+            try Data("1.0.0\n".utf8).write(
+                to: dataDirectory.appendingPathComponent("Ovation.store.version"))
 
             let documents = DocumentStore(
                 root: dataDirectory.appendingPathComponent("documents", isDirectory: true))

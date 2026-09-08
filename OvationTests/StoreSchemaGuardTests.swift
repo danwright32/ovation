@@ -16,7 +16,8 @@ struct StoreSchemaGuardTests {
     func anAbsentFileIsAFirstLaunch() throws {
         let scratch = try Scratch()
         #expect(StoreSchemaGuard.inspect(storeURL: scratch.url("Ovation.store"),
-                                         ownEntityTables: ["ZINVOICE"]) == .noStoreFile)
+                                         ownEntityTables: ["ZINVOICE"],
+                                     runningVersion: Schema.Version(1, 0, 0)) == .noStoreFile)
     }
 
     @Test("a database carrying only Core Data's own bookkeeping tables is empty")
@@ -28,7 +29,8 @@ struct StoreSchemaGuardTests {
         try makeDatabase(at: store, tables: ["Z_METADATA", "Z_PRIMARYKEY", "ACHANGE"])
 
         #expect(StoreSchemaGuard.inspect(storeURL: store,
-                                         ownEntityTables: ["ZINVOICE"]) == .empty)
+                                         ownEntityTables: ["ZINVOICE"],
+                                     runningVersion: Schema.Version(1, 0, 0)) == .empty)
     }
 
     @Test("a database carrying one of Ovation's own tables is Ovation's")
@@ -38,7 +40,8 @@ struct StoreSchemaGuardTests {
         try makeDatabase(at: store, tables: ["Z_METADATA", "ZINVOICE"])
 
         #expect(StoreSchemaGuard.inspect(storeURL: store,
-                                         ownEntityTables: ["ZINVOICE", "ZEXPENSE"]) == .ovation)
+                                         ownEntityTables: ["ZINVOICE", "ZEXPENSE"],
+                                     runningVersion: Schema.Version(1, 0, 0)) == .ovation)
     }
 
     @Test("a partial overlap counts as ours, because the permissive answer is the one that destroys nothing")
@@ -48,7 +51,8 @@ struct StoreSchemaGuardTests {
         try makeDatabase(at: store, tables: ["ZINVOICE", "ZSOMETHINGELSE"])
 
         #expect(StoreSchemaGuard.inspect(storeURL: store,
-                                         ownEntityTables: ["ZINVOICE", "ZEXPENSE"]) == .ovation)
+                                         ownEntityTables: ["ZINVOICE", "ZEXPENSE"],
+                                     runningVersion: Schema.Version(1, 0, 0)) == .ovation)
     }
 
     @Test("a database whose entity tables are none of ours is somebody else's data")
@@ -60,7 +64,8 @@ struct StoreSchemaGuardTests {
         try makeDatabase(at: store, tables: ["Z_METADATA", "ZPROSPECT", "ZBOOKING"])
 
         #expect(StoreSchemaGuard.inspect(storeURL: store,
-                                         ownEntityTables: ["ZINVOICE"])
+                                         ownEntityTables: ["ZINVOICE"],
+                                     runningVersion: Schema.Version(1, 0, 0))
                 == .foreign(entityTables: ["ZBOOKING", "ZPROSPECT"]))
     }
 
@@ -74,7 +79,8 @@ struct StoreSchemaGuardTests {
         // this from unreadable below. It is still a refusal: something is at
         // Ovation's path and Ovation did not put it there.
         #expect(StoreSchemaGuard.inspect(storeURL: store,
-                                         ownEntityTables: ["ZINVOICE"]) == .notADatabase)
+                                         ownEntityTables: ["ZINVOICE"],
+                                     runningVersion: Schema.Version(1, 0, 0)) == .notADatabase)
     }
 
     @Test("a file that cannot be read says so, and claims nothing about whose it is")
@@ -85,7 +91,8 @@ struct StoreSchemaGuardTests {
         // manager is concerned, and sqlite cannot open it.
         try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
 
-        let verdict = StoreSchemaGuard.inspect(storeURL: store, ownEntityTables: ["ZINVOICE"])
+        let verdict = StoreSchemaGuard.inspect(storeURL: store, ownEntityTables: ["ZINVOICE"],
+                                     runningVersion: Schema.Version(1, 0, 0))
         guard case .unreadable(let detail) = verdict else {
             Issue.record("expected unreadable, got \(verdict)")
             return
@@ -104,7 +111,8 @@ struct StoreSchemaGuardTests {
         // answered `foreign` would accuse Ovation's own store the moment the
         // schema was wired in wrong, while reading exactly like the guard working
         // (L98, L217).
-        #expect(StoreSchemaGuard.inspect(storeURL: store, ownEntityTables: [])
+        #expect(StoreSchemaGuard.inspect(storeURL: store, ownEntityTables: [],
+                                     runningVersion: Schema.Version(1, 0, 0))
                 == .unidentifiable(entityTables: ["ZINVOICE"]))
     }
 
@@ -230,7 +238,8 @@ struct StoreSchemaGuardTests {
         }
 
         #expect(StoreSchemaGuard.inspect(storeURL: copy,
-                                         ownEntityTables: ["ZINVOICE"]) == .ovation)
+                                         ownEntityTables: ["ZINVOICE"],
+                                     runningVersion: Schema.Version(1, 0, 0)) == .ovation)
     }
 
     // MARK: no side effects
@@ -240,7 +249,8 @@ struct StoreSchemaGuardTests {
         let scratch = try Scratch()
         let store = scratch.url("Ovation.store")
 
-        _ = StoreSchemaGuard.inspect(storeURL: store, ownEntityTables: ["ZINVOICE"])
+        _ = StoreSchemaGuard.inspect(storeURL: store, ownEntityTables: ["ZINVOICE"],
+                                     runningVersion: Schema.Version(1, 0, 0))
 
         #expect(!FileManager.default.fileExists(atPath: store.path))
     }
@@ -252,7 +262,8 @@ struct StoreSchemaGuardTests {
         try makeDatabase(at: store, tables: ["ZINVOICE"])
         let before = try Data(contentsOf: store)
 
-        _ = StoreSchemaGuard.inspect(storeURL: store, ownEntityTables: ["ZINVOICE"])
+        _ = StoreSchemaGuard.inspect(storeURL: store, ownEntityTables: ["ZINVOICE"],
+                                     runningVersion: Schema.Version(1, 0, 0))
 
         #expect(try Data(contentsOf: store) == before)
     }

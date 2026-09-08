@@ -59,6 +59,10 @@ struct StoreLaunchSequence {
     /// none, and answers how many it wrote. Injected like every other step, so a
     /// test can make it fail without damaging anything (L196).
     let seed: @Sendable (ModelContainer) throws -> Int
+    /// ovation#116. Records the schema version that has just opened the store,
+    /// beside it, so the next launch can refuse a downgrade before opening
+    /// anything. Injected like every other step.
+    let recordVersion: @Sendable (URL) throws -> Void
 
     @discardableResult
     func run(now: Date) -> Outcome {
@@ -116,7 +120,27 @@ struct StoreLaunchSequence {
             return .refused(step: .identify, detail: sentence)
         }
 
-        // 5. SEED, and it is LAST for two reasons rather than one. There is no
+        // 5. RECORD THE VERSION, immediately after the open that established it,
+        // because the marker must be written by whatever ESTABLISHES the version
+        // rather than by a surface that happens to notice (L319). It goes before
+        // the seed so that a store which opened is marked even if seeding fails.
+        //
+        // A failure here is REPORTED and the launch continues. The store is open
+        // and correct; what is lost is the ability to refuse a downgrade NEXT
+        // time, which is worth saying and is not worth refusing to open over.
+        do {
+            try recordVersion(storeURL)
+        } catch {
+            _ = problems.raise(
+                kind: .storeVersionNotRecorded, subject: storeURL.path,
+                sentence: "Ovation could not record which version of itself opened this "
+                    + "database: \(error.localizedDescription). It opened normally, but until "
+                    + "this is written Ovation cannot warn you if an older build opens it later, "
+                    + "which would remove anything a newer one added.",
+                now: now)
+        }
+
+        // 6. SEED, and it is LAST for two reasons rather than one. There is no
         // container to write into until the store is open, and seeding WRITES,
         // so putting it before the backup would be a write the backup does not
         // carry.
@@ -172,6 +196,8 @@ struct StoreLaunchSequence {
         case .notADatabase: return .storeIsNotADatabase
         case .unreadable: return .unreadableStore
         case .unidentifiable: return .unidentifiableStore
+        case .fromANewerVersion: return .storeFromANewerVersion
+        case .versionUnreadable: return .storeVersionUnreadable
         case .noStoreFile, .empty, .ovation: return .unidentifiableStore
         }
     }
