@@ -2013,10 +2013,19 @@ function buildMenu() {
   menu.append(el("div", "sep"));
 
   var items = [];
-  items.push(DISCOUNT
-    ? ["Remove the discount", function () { DISCOUNT = null; }]
+  /* THE MENU ADDS A DISCOUNT AND NEVER REMOVES ONE, which follows from the two
+     things Dan settled rather than being a decision of its own. Round 5 put the
+     rare things in this menu, and adding a discount is rare: 5 of 130 invoices.
+     Removing one is not rare in the same way, because by then the discount is on
+     screen and carries its own controls, which he settled on 2026-09-08 by
+     keeping the edit line. So a Remove here would be the same action offered
+     twice on one screen (L605), and the one in the menu is the copy further from
+     the thing it acts on. The referral credit keeps its menu entry, because it
+     has no controls of its own anywhere. */
+  if (!DISCOUNT) {
     /* 10% is the commonest of the five discounts in the whole history. */
-    : ["Add a discount", function () { DISCOUNT = { kind: "percent", value: 10 }; }]);
+    items.push(["Add a discount", function () { DISCOUNT = { kind: "percent", value: 10 }; }]);
+  }
   items.push(CREDIT > 0
     ? ["Remove the referral credit", function () { CREDIT = 0; }]
     : ["Apply a referral credit", function () { CREDIT = 100; }]);
