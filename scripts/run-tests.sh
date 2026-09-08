@@ -88,14 +88,107 @@ trap release_locks EXIT INT TERM
 # PHASE ONE, unlocked. Nothing here touches xcodebuild or any shared state, so
 # it must not wait behind a sibling's build.
 # ---------------------------------------------------------------------------
+# EVERY SUITE IS ASKED, AND EACH ANSWER IS KEPT (ovation#139).
+#
+# This loop was `"$s" || exit $?`, so the FIRST suite that did not exit 0 ended
+# the whole run. Two of them correctly answer CANNOT MEASURE (exit 2) when there
+# is no compiled product, which is the normal state of a fresh checkout or
+# worktree, and they sort early in the glob. Measured on 2026-09-08 in a fresh
+# worktree: every shell suite passed when invoked on its own, and this reported
+# four of the thirty three.
+#
+# THREE VERDICTS, AND THE LOCKED PHASE TREATS TWO OF THEM DIFFERENTLY:
+#
+#   pass            nothing to say.
+#   fail            something is actually broken, so nothing after it is worth
+#                   the sibling locks. The run stops here, as it always did, and
+#                   keeps the suite's own status.
+#   cannot measure  the suite proved nothing either way, which is a reason to
+#                   refuse the run at the END and no reason at all to stop
+#                   asking the other suites or to skip xcodebuild. The verdict is
+#                   carried to the exit and the run continues.
+#
+# A stop and a real failure both used to come out as "non-zero" with the reader
+# left to work out which by looking at where it stopped (L11). The summary below
+# is what tells them apart, so it prints on every path including the green one.
+#
+# THE COUNT IS JUDGED, NOT ONLY THE VERDICTS (L288). `[ -x "$s" ] || continue`
+# drops a suite that lost its executable bit in silence, and a glob that matches
+# fewer files reads as a full green run. The floor is a committed number for the
+# same reason the pure suite's is: refusing only an empty run would catch the
+# total loss and miss every partial one.
+SUITE_DIR="${OVATION_SHELL_SUITE_DIR:-${REPO_ROOT}/scripts}"
+SUITE_FLOOR="${OVATION_SHELL_SUITE_FLOOR:-}"
+SHELL_UNMEASURED=""
+
 if [ -n "${UNLOCKED_COMMAND}" ]; then
   bash -c "${UNLOCKED_COMMAND}" || exit $?
 else
   echo "==> Running the shell suites (no lock needed)"
-  for s in "${REPO_ROOT}"/scripts/test-*.sh; do
+  suites_ran=0
+  suites_passed=0
+  failed_status=0
+  failed_names=""
+  unmeasured_names=""
+  for s in "${SUITE_DIR}"/test-*.sh; do
     [ -x "$s" ] || continue
-    "$s" || exit $?
+    suites_ran=$((suites_ran+1))
+    "$s"
+    suite_status=$?
+    suite_name="$(basename "$s")"
+    if [ "${suite_status}" -eq 0 ]; then
+      suites_passed=$((suites_passed+1))
+    elif [ "${suite_status}" -eq 2 ]; then
+      unmeasured_names="${unmeasured_names}${suite_name} "
+    else
+      failed_names="${failed_names}${suite_name} "
+      failed_status="${suite_status}"
+      break
+    fi
   done
+
+  # ONE SUMMARY, WHATEVER HAPPENED, so a green run and a short run do not look
+  # alike and neither outcome is readable only by scrolling back through
+  # thirty three suites' output.
+  echo "==> Shell suites: ${suites_ran} ran, ${suites_passed} passed, verdicts below"
+  [ -n "${failed_names}" ] && echo "    failed: ${failed_names% }"
+  [ -n "${unmeasured_names}" ] && echo "    could not measure: ${unmeasured_names% }"
+
+  if [ "${failed_status}" -ne 0 ]; then
+    echo "    the run stops here: a failing suite means nothing after it is worth" >&2
+    echo "    taking the sibling locks for." >&2
+    exit "${failed_status}"
+  fi
+
+  # The floor is checked only when nothing FAILED, because a failure breaks out
+  # of the loop and the short count is then a consequence of the failure rather
+  # than a fact about the tree. Reporting both would name the wrong cause (L11).
+  if [ -n "${OVATION_SHELL_SUITE_DIR:-}" ] && [ -z "${SUITE_FLOOR}" ]; then
+    # Said out loud rather than skipped silently, the same way the pure count
+    # skip is: a run driven with throwaway suites cannot be judged against the
+    # real floor, and a skip nobody is told about is indistinguishable from a
+    # check that passed (L98, L320).
+    echo "==> Shell suite count check skipped: the suite directory was injected and no floor was given."
+  else
+    SHELL_FLOOR_FILE="${REPO_ROOT}/scripts/shell-suite-floor.txt"
+    SUITE_FLOOR="${SUITE_FLOOR:-$(cat "${SHELL_FLOOR_FILE}" 2>/dev/null || echo 0)}"
+    if [ "${SUITE_FLOOR}" -eq 0 ]; then
+      echo "Error: no shell suite floor to judge the run against (${SHELL_FLOOR_FILE})." >&2
+      echo "       A run nothing can be compared to is not a green run." >&2
+      exit 7
+    elif [ "${suites_ran}" -lt "${SUITE_FLOOR}" ]; then
+      echo "Error: the shell suites ran ${suites_ran} of a floor of ${SUITE_FLOOR}." >&2
+      echo "       Suites are found by glob and skipped when not executable, so" >&2
+      echo "       this is a suite that lost its executable bit, was renamed, or" >&2
+      echo "       was deleted. Nothing about the missing ones was judged." >&2
+      echo "       If suites were deliberately removed, lower ${SHELL_FLOOR_FILE}." >&2
+      exit 7
+    fi
+  fi
+
+  # Carried to the exit rather than acted on here. It is not a reason to skip
+  # xcodebuild, and it IS a reason for the run to end non-zero.
+  [ -n "${unmeasured_names}" ] && SHELL_UNMEASURED=1
 fi
 
 # ---------------------------------------------------------------------------
@@ -271,6 +364,17 @@ if [ -n "${LIVE_DATA_FINGERPRINT}" ]; then
     [ "${STATUS}" -eq 0 ] && STATUS=7
   fi
   rm -f "${LIVE_DATA_FINGERPRINT}"
+fi
+
+# A SHELL SUITE THAT COULD NOT MEASURE ENDS THE RUN NON-ZERO, at the END rather
+# than where it was found (ovation#139). It keeps its own code, 2, so a caller
+# can tell "something is broken" from "something went unchecked", which is the
+# distinction the suites themselves went to trouble to draw and which this
+# runner used to collapse (L11, L260). It never overwrites a real failure.
+if [ "${STATUS}" -eq 0 ] && [ -n "${SHELL_UNMEASURED}" ]; then
+  echo "==> The run is CANNOT MEASURE: every suite that could run passed, and at" >&2
+  echo "    least one could not measure. Nothing is known about what it covers." >&2
+  STATUS=2
 fi
 
 # Judge by the EXIT CODE, never by a line of output: a tool's final line is
