@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "preconditions tests" 18
+harness_begin "preconditions tests" 26
 
 TARGET="scripts/check-preconditions.sh"
 require_target "$TARGET"
@@ -103,31 +103,83 @@ check "and the missing one is named" \
     "$(says "$(run_pre "$BIN/pass1 $WORK/no-such-check")" "no-such-check")" "yes"
 
 # ---------------------------------------------------------------------------
-# 4. THE PARTITION. Every check-*.sh is run by exactly one of the two entry
-#    points. This is the assertion that stops the next orphan.
+# 4. THE PARTITION, and the INVENTORY it is now derived from (ovation#86).
+#
+# This assertion used to look only at `check-*.sh`, and four scripts sat outside
+# it, each for a real reason that was written nowhere a rule could read. It also
+# could not see `check-design-collisions.py`, which is named like a check, is run
+# by nothing at all, and is Python. A guard driven by a pattern checks only what
+# the pattern happens to match (L96, L247).
+#
+# So every script under scripts/ now declares its role in
+# `lib/script-roles.tsv`, and BOTH completeness rules read that file through
+# `lib/script-roles.sh` rather than each parsing it (L370).
 # ---------------------------------------------------------------------------
-gate_runs() { grep -oE 'check-[a-z-]+\.sh' scripts/git-hooks/pre-push | sort -u; }
-pre_runs() { grep -oE 'check-[a-z-]+\.sh' "$TARGET" | grep -v 'check-preconditions' | sort -u; }
-# One check is a BRACKET rather than a question: check-live-data-untouched.sh
-# snapshots before a test run and compares after, so scripts/run-tests.sh holds
-# both ends and neither entry point above can run it alone. Named here rather
-# than left out of the partition silently, because an exemption nobody wrote down
-# is indistinguishable from an oversight (L129, L233).
-bracketed() { printf 'check-live-data-untouched.sh\n'; }
-on_disk() { (cd scripts && ls -1 check-*.sh | grep -v 'check-preconditions' | sort) \
-    | grep -vxF -f <(bracketed); }
+. scripts/lib/script-roles.sh
 
-check "no check script is run by nothing" \
-    "$(comm -13 <(cat <(gate_runs) <(pre_runs) | sort -u) <(on_disk) | tr '\n' ' ' | sed 's/ $//')" ""
+check "every script on disk is declared, and every declaration names a real script" \
+    "$(diff <(scripts_on_disk) <(roles_paths) >/dev/null 2>&1 && echo agree || echo differ)" \
+    "agree"
+
+# An entry with no reason is evidence nobody reasoned about it (L233). `suite` is
+# the one role that needs none, because a suite is run purely because of what it
+# is called, so the role states the whole fact.
+check "every entry that needs a reason carries one" \
+    "$(roles_entries | awk -F'\t' '$2 != "suite" && ($3 == "" || $3 ~ /^[[:space:]]*$/) { print $1 }' \
+        | tr '\n' ' ' | sed 's/ $//')" ""
+
+check "every role used is one this file defines" \
+    "$(roles_entries | awk -F'\t' '{ print $2 }' | sort -u \
+        | grep -vxE 'gated|suite|library|tool|tool-untested|reads-real-data' \
+        | tr '\n' ' ' | sed 's/ $//')" ""
+
+# THE PARTITION ITSELF, now over the roles rather than over a filename pattern.
+gate_runs() { grep -oE 'check-[a-z-]+\.(sh|py)' scripts/git-hooks/pre-push | sort -u; }
+pre_runs() { grep -oE 'check-[a-z-]+\.(sh|py)' "$TARGET" | grep -v 'check-preconditions' | sort -u; }
+# One gated script is a BRACKET rather than a question: check-live-data-untouched.sh
+# snapshots before a test run and compares after, so scripts/run-tests.sh holds
+# both ends and neither entry point above can run it alone. Its reason is in the
+# inventory beside every other one rather than in a list here.
+bracketed() { printf 'check-live-data-untouched.sh\n'; }
+must_be_run() { roles_with gated | grep -v 'check-preconditions' | grep -vxF -f <(bracketed); }
+
+check "no gated script is run by nothing" \
+    "$(comm -13 <(cat <(gate_runs) <(pre_runs) | sort -u) <(must_be_run) | tr '\n' ' ' | sed 's/ $//')" ""
 check "and none is run by both, which would make its outcome ambiguous" \
     "$(comm -12 <(gate_runs) <(pre_runs) | tr '\n' ' ' | sed 's/ $//')" ""
-# The exemption above is a hand written list, and a guard driven by one checks
-# only what the list names (L96). So the exempted check is asserted to actually
-# BE bracketed by the runner, rather than merely being excused here.
-check "the bracketed check is really run by the test runner" \
+check "the bracketed one is really run by the test runner" \
     "$(grep -c 'check-live-data-untouched.sh' scripts/run-tests.sh)" "1"
-
 check "and neither entry point names a check that does not exist" \
-    "$(comm -23 <(cat <(gate_runs) <(pre_runs) | sort -u) <(on_disk) | tr '\n' ' ' | sed 's/ $//')" ""
+    "$(comm -23 <(cat <(gate_runs) <(pre_runs) | sort -u) <(must_be_run) \
+        | grep -vxF -f <(bracketed) | tr '\n' ' ' | sed 's/ $//')" ""
+
+# WHAT EACH ROLE OBLIGES. Without these the inventory is a list of labels and a
+# script could be given whichever role has the fewest consequences.
+check "every suite is named so run-tests.sh's glob actually reaches it" \
+    "$(roles_with suite | grep -vE '^test-[a-z0-9-]+\.sh$' | tr '\n' ' ' | sed 's/ $//')" ""
+# COVERAGE IS ASSERTED AS A SUITE THAT ACTUALLY RUNS THE TOOL, never as a
+# filename convention. The first version of this looked for `test-<name>.sh` and
+# reported install-git-hooks.sh as uncovered when it is covered in full by
+# test-git-hooks.sh: a rule keyed on spelling reports a name it did not like,
+# which is not the question anybody wanted answered (L63).
+covering_suite() {
+    grep -rlF "$(basename "$1")" scripts --include='test-*.sh' 2>/dev/null | head -1
+}
+check "every tool is actually run by some suite" \
+    "$(for t in $(roles_with tool); do
+         [ -n "$(covering_suite "$t")" ] || printf '%s ' "$t"
+       done | sed 's/ $//')" ""
+check "every untested tool NAMES the issue that will give it a sibling" \
+    "$(for t in $(roles_with tool-untested); do
+         reason_of "$t" | grep -q 'ovation#[0-9]' || printf '%s ' "$t"
+       done | sed 's/ $//')" ""
+check "every real data tool is run by some suite too" \
+    "$(for t in $(roles_with reads-real-data); do
+         [ -n "$(covering_suite "$t")" ] || printf '%s ' "$t"
+       done | sed 's/ $//')" ""
+check "and every library really is sourced by something rather than run" \
+    "$(for l in $(roles_with library); do
+         grep -rlq "$(basename "$l")" scripts --include='*.sh' || printf '%s ' "$l"
+       done | sed 's/ $//')" ""
 
 harness_end

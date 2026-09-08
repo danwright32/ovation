@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 29
+harness_begin "output privacy tests" 31
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -357,15 +357,39 @@ check "the launch wiring guard prints no identity when it refuses" \
         ./scripts/check-launch-sequence-wired.sh 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------
-# COMPLETENESS. A hand written list of covered scripts silently exempts whatever
-# nobody remembered to add, and the exempted one is the one this suite exists
-# for (L96, L247). So the list is asserted against what is actually on disk, and
-# a new check script fails HERE until somebody points it at the fixture.
+# The invoice history tool. It is the one script here that opens Dan's REAL
+# records, so it is the one where a leak would be a real client rather than a
+# fixture. It prints counts and shares only.
 # ---------------------------------------------------------------------------
-COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-design-self-contained.sh check-forbidden-constructs.sh check-identity-leaks.sh check-isolation-floor.sh check-launch-sequence-wired.sh check-live-data-untouched.sh check-migration-stages.sh check-ported-artifacts.sh check-preconditions.sh check-schema-registered.sh check-sibling-installs.sh"
-ON_DISK="$(cd scripts && ls -1 check-*.sh | sort | tr '\n' ' ')"
-check "every check script on disk is covered by this suite" \
-    "$(printf '%s' "$ON_DISK" | tr -s ' ' | sed 's/ $//')" \
-    "$(printf '%s' "$COVERED" | tr -s ' ' | sed 's/ $//')"
+HISTORY="$WORK/history.csv"
+cat > "$HISTORY" <<CSV
+Invoice #,Invoice Status,Client Name,Item Name,Quantity,Line Subtotal,Discount Percentage,Tax 1 Amount,Date Issued
+1101,Paid,$CLIENT,$VENUE,2,500,0,44.38,2026-01-04
+1102,Sent,$CLIENT,$VENUE,1,250,0,22.19,2026-01-06
+CSV
+check "the invoice history tool prints no identity from a real export" \
+    "$(leaks_in "$(./scripts/measure-invoice-history.py "$HISTORY" 2>&1)")" "clean"
+printf 'Invoice #,Invoice Status,Client Name,Item Name,Quantity,Line Subtotal,Discount Percentage,Tax 1 Amount,Date Issued\n1103,Draft,%s,%s,1,250,0,0,2026-01-06\n' \
+    "$CLIENT" "$VENUE" > "$HISTORY"
+check "and none when it refuses because nothing was issued" \
+    "$(leaks_in "$(./scripts/measure-invoice-history.py "$HISTORY" 2>&1)")" "clean"
+
+# ---------------------------------------------------------------------------
+# COMPLETENESS, derived from the script inventory rather than from a hand
+# written list (ovation#86). A list somebody maintains silently exempts whatever
+# nobody remembered to add, and the exempted one is the one this suite exists for
+# (L96, L247). The inventory says which scripts can print about real data:
+# everything `gated`, because a guard reads the tree and Dan's own files, and
+# everything `reads-real-data`. A new one of either fails HERE until it is
+# pointed at a fixture above.
+# ---------------------------------------------------------------------------
+. scripts/lib/script-roles.sh
+MUST_BE_COVERED="$( { roles_with gated; roles_with reads-real-data; } | sort -u | tr '\n' ' ' | sed 's/ $//')"
+# What this suite actually exercises, read from its own text rather than
+# declared beside it, so the two cannot drift (L70).
+EXERCISED="$(grep -oE './scripts/(check|measure)-[a-z-]+\.(sh|py)' "$0" \
+    | sed 's|^./scripts/||' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+check "every script that can print about real data is covered by this suite" \
+    "$EXERCISED" "$MUST_BE_COVERED"
 
 harness_end

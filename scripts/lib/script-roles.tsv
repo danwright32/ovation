@@ -1,0 +1,96 @@
+# Every script under scripts/, and what watches it. ovation#86.
+#
+# WHY THIS FILE EXISTS. Two completeness rules were added on 2026-09-06 and both
+# only looked at `check-*.sh`: one asserts every check script is run by exactly
+# one entry point, the other asserts every check script is covered by the output
+# privacy suite. Four scripts sat outside both, each for a REAL reason, and not
+# one of those reasons was written anywhere a rule could read. Today's state was
+# a habit rather than a decision, which is how the first two orphans happened
+# (L96, L233). A fifth script joining them was an oversight nobody would notice.
+#
+# It also caught one straight away: `check-design-collisions.py` is named like a
+# check and is run by NOTHING, and both rules were blind to it because they match
+# `check-*.sh` and it is Python.
+#
+# THREE TAB SEPARATED COLUMNS: path (relative to scripts/), role, reason.
+# A ROLE DECIDES WHAT IS OBLIGED, and an entry with no reason is refused rather
+# than honoured, because an exemption carrying none is evidence nobody reasoned
+# about it (L233).
+#
+#   gated          Run by exactly one of the push gate or check-preconditions.sh,
+#                  and covered by the output privacy suite.
+#   suite          Run by run-tests.sh's test-*.sh glob. Must be named for it.
+#                  THE ONE ROLE THAT NEEDS NO REASON, and this is why: a suite is
+#                  run purely because of what it is called, so the role states
+#                  the whole fact. A reason column here would be 29 copies of one
+#                  sentence, and a file padded with noise is one people skim.
+#   library        Sourced by another script, never run on its own.
+#   tool           Run by a person on demand. Must have a test-<name>.sh sibling.
+#   tool-untested  Run by a person, with NO sibling yet. The reason must name the
+#                  issue that will give it one, so the gap is tracked rather than
+#                  declared away.
+#   reads-real-data  A tool that opens Dan's real records. Must have a sibling
+#                  AND privacy coverage, because it prints to a terminal.
+#
+build-app-icon.sh	tool-untested	Regenerates the committed icon catalog from icon/ovation-app-icon.png. Run by hand when the artwork changes. ovation#102 is the guard that the catalog is still in step with its source, and it is where this gets its sibling.
+build-install.sh	tool	Builds and installs the app. Dan runs the installs himself (2026-08-28), so nothing automated may call it. test-build-install.sh drives it against stubs.
+build-products.sh	tool	Takes minutes to build both configurations, so no push may wait on it. It is the command CI will call when CI exists, and until then it is run by a person. test-build-products.sh covers it.
+check-booking-queue.sh	gated	A repo wide guard.
+check-custody-files.sh	gated	A repo wide guard.
+check-custody-not-staged.sh	gated	A repo wide guard.
+check-design-collisions.py	tool-untested	Takes a settled stylesheet and one design round's stylesheet and refuses a class name collision the round did not declare. It is a DESIGN ROUND tool taking two file arguments, not a repo wide guard, so nothing can run it on a schedule. ovation#132 gives it a sibling.
+check-design-self-contained.sh	gated	A repo wide guard.
+check-forbidden-constructs.sh	gated	A repo wide guard.
+check-identity-leaks.sh	gated	A repo wide guard.
+check-isolation-floor.sh	gated	A repo wide guard.
+check-launch-sequence-wired.sh	gated	A repo wide guard.
+check-live-data-untouched.sh	gated	A BRACKET rather than a question: run-tests.sh snapshots before the run and compares after, so it holds both ends and neither entry point can run it alone.
+check-migration-stages.sh	gated	A repo wide guard.
+check-ported-artifacts.sh	gated	A repo wide guard.
+check-preconditions.sh	gated	The entry point for the checks a push does not run. It is itself a check, and it runs the others.
+check-schema-registered.sh	gated	A repo wide guard.
+check-sibling-installs.sh	gated	A repo wide guard.
+embed-web-fonts.py	tool	Embeds a typeface into a design file. Run once per design file by a person, against a URL nobody can supply on a schedule. Reads no record of Dan's. test-embed-web-fonts.sh covers it.
+install-git-hooks.sh	tool	Installs the push gate into .git/hooks. Run once per checkout by a person, because a repository cannot install its own hooks. test-git-hooks.sh covers it.
+lib/build-one-configuration.sh	library	Sourced by build-products.sh and build-install.sh.
+lib/built-product.sh	library	Sourced by the bundle checks to find a built app.
+lib/bundle-icon-checks.sh	library	Sourced by test-built-bundle-icon.sh. test-bundle-icon-checks.sh covers its judgements directly.
+lib/bundle-identity-checks.sh	library	Sourced by test-built-bundle-identity.sh. test-bundle-identity-checks.sh covers its judgements directly.
+lib/script-roles.sh	library	The one reader of this file, sourced by both completeness rules so neither parses it itself. It was missing from this list on its first run, which is the rule working before it had a single assertion behind it.
+lib/quit-pid.sh	library	Sourced by smoke-launch.sh to quit the copy it launched, by PID resolved from the executable path.
+lib/test-harness.sh	library	Sourced by every shell suite. test-test-harness.sh covers it directly.
+lib/window-count.sh	library	Sourced by smoke-launch.sh to count the windows the launched copy opened.
+measure-invoice-history.py	reads-real-data	Reads the real FreshBooks export and prints the counts the design record and the PRD cite (ovation#121). It opens Dan's actual invoice history, so it is the one tool here that could print a client name.
+run-tests.sh	tool	The suite's entry point, run by a person and by the push gate. test-run-tests.sh covers its locking.
+setup-signing.sh	tool	Configures code signing on a machine. Run once per machine by a person. test-setup-signing.sh covers it.
+smoke-launch.sh	tool	Launches the built app and counts its windows, so it opens a REAL window on Dan's screen and no push may run it. test-smoke-launch.sh drives every verdict against a stub.
+test-booking-queue.sh	suite	
+test-build-install.sh	suite	
+test-build-products.sh	suite	
+test-built-bundle-icon.sh	suite	
+test-built-bundle-identity.sh	suite	
+test-bundle-icon-checks.sh	suite	
+test-bundle-identity-checks.sh	suite	
+test-check-ported-artifacts.sh	suite	
+test-custody-files.sh	suite	
+test-custody-not-staged.sh	suite	
+test-design-rules.sh	suite	
+test-design-self-contained.sh	suite	
+test-embed-web-fonts.sh	suite	
+test-forbidden-constructs.sh	suite	
+test-git-hooks.sh	suite	
+test-identity-guard.sh	suite	
+test-isolation-floor.sh	suite	
+test-launch-sequence-wired.sh	suite	
+test-live-data-untouched.sh	suite	
+test-measure-invoice-history.sh	suite	
+test-migration-stages.sh	suite	
+test-output-privacy.sh	suite	
+test-preconditions.sh	suite	
+test-project-configuration.sh	suite	
+test-run-tests.sh	suite	
+test-schema-registered.sh	suite	
+test-setup-signing.sh	suite	
+test-sibling-installs.sh	suite	
+test-smoke-launch.sh	suite	
+test-test-harness.sh	suite	
