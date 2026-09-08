@@ -20,11 +20,21 @@ struct PaymentTests {
         return client
     }
 
-    private static func invoice(_ context: ModelContext, for client: Client) -> Invoice {
+    /// `owing` is the flat line the invoice charges, and it is passed EXPLICITLY
+    /// by every test that allocates against it (ovation#108). Before that rule
+    /// existed these fixtures allocated hundreds of dollars to invoices with no
+    /// lines at all, which total nothing and owe nothing, so the tests were
+    /// asserting payment side behaviour on exactly the nonsense state ovation#108
+    /// exists to refuse. Nil means no lines, which two tests below want on
+    /// purpose.
+    private static func invoice(
+        _ context: ModelContext, for client: Client, owing: Money? = nil
+    ) -> Invoice {
         let invoice = Invoice(client: client, kind: .fromABooking,
                               invoiceDate: .stamping(day),
                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
         context.insert(invoice)
+        if let owing { invoice.add(LineItem.flat(owing, describedAs: "Photography")) }
         return invoice
     }
 
@@ -76,8 +86,8 @@ struct PaymentTests {
         let container = try Self.store()
         let context = ModelContext(container)
         let client = Self.client(context)
-        let first = Self.invoice(context, for: client)
-        let second = Self.invoice(context, for: client)
+        let first = Self.invoice(context, for: client, owing: Money(dollars: 500))
+        let second = Self.invoice(context, for: client, owing: Money(dollars: 500))
         let payment = Self.payment(context, for: client, Money(dollars: 500))
         try context.save()
 
@@ -101,7 +111,7 @@ struct PaymentTests {
         let container = try Self.store()
         let context = ModelContext(container)
         let client = Self.client(context)
-        let invoice = Self.invoice(context, for: client)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 1_000))
         let payment = Self.payment(context, for: client, Money(dollars: 100))
         try context.save()
 
@@ -124,7 +134,7 @@ struct PaymentTests {
         let container = try Self.store()
         let context = ModelContext(container)
         let client = Self.client(context)
-        let invoice = Self.invoice(context, for: client)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 1_000))
         let payment = Self.payment(context, for: client, Money(dollars: 100))
         try context.save()
 
@@ -143,8 +153,8 @@ struct PaymentTests {
         let container = try Self.store()
         let context = ModelContext(container)
         let client = Self.client(context)
-        let first = Self.invoice(context, for: client)
-        let second = Self.invoice(context, for: client)
+        let first = Self.invoice(context, for: client, owing: Money(dollars: 1_000))
+        let second = Self.invoice(context, for: client, owing: Money(dollars: 1_000))
         let payment = Self.payment(context, for: client, Money(dollars: 100))
         try context.save()
 
@@ -187,6 +197,142 @@ struct PaymentTests {
         #expect(read.allocated <= read.amount, "the sum never exceeded what arrived")
     }
 
+    // MARK: the other ceiling, which is what the invoice actually owes
+
+    @Test("an allocation past what the invoice OWES is refused by name, carrying what is left")
+    func overApplicationIsRefused() async throws {
+        // ovation#108. The payment side ceiling was enforced from the first
+        // version and the invoice side was not, so $5,000 of a $5,000 payment
+        // could be applied to a $100 invoice. The invoice then reads `paid` with
+        // an outstanding balance of minus $4,900 and the client's held money
+        // reads as fully spent. Both numbers are truthful about their own side
+        // and the pair is nonsense, which is the shape that survives review.
+        //
+        // PRD 5.14a already gives the surplus a home: money received and not yet
+        // allocated sits on the client, visibly. So an over application is not an
+        // alternative way to hold money, it HIDES money that should still be on
+        // the Clients screen.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 100))
+        let payment = Self.payment(context, for: client, Money(dollars: 5_000))
+        try context.save()
+        // $100 plus 8.875% is $108.88.
+        #expect(invoice.total == Money(cents: 10_888))
+
+        let allocator = PaymentAllocator(modelContainer: container)
+        await #expect(throws: AllocationRefusal.wouldExceedWhatIsOwed(
+            outstanding: Money(cents: 10_888), asked: Money(dollars: 5_000))) {
+            try await allocator.allocate(Money(dollars: 5_000), from: payment.persistentModelID,
+                                         to: invoice.persistentModelID, on: .stamping(Self.day))
+        }
+
+        let reader = ModelContext(container)
+        let readPayment = try #require(try reader.fetch(FetchDescriptor<Payment>()).first)
+        #expect(readPayment.allocated == Money.zero, "the refused one wrote nothing at all")
+        #expect(readPayment.unallocated == Money(dollars: 5_000))
+        let readClient = try #require(try reader.fetch(FetchDescriptor<Client>()).first)
+        #expect(readClient.moneyHeld == Money(dollars: 5_000),
+                "and the surplus is still visible on the client, which is where 5.14a puts it")
+    }
+
+    @Test("allocating EXACTLY what is owed is accepted, so the refusal is not off by one")
+    func payingAnInvoiceInFullIsAccepted() async throws {
+        // The boundary in the other direction. A refusal at `>=` would make a
+        // fully paid invoice unreachable, which is the ordinary case.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 100))
+        let payment = Self.payment(context, for: client, Money(dollars: 5_000))
+        try context.save()
+
+        let allocator = PaymentAllocator(modelContainer: container)
+        try await allocator.allocate(Money(cents: 10_888), from: payment.persistentModelID,
+                                     to: invoice.persistentModelID, on: .stamping(Self.day))
+
+        let reader = ModelContext(container)
+        let read = try #require(try reader.fetch(FetchDescriptor<Invoice>())
+            .first { $0.id == invoice.id })
+        #expect(read.paymentState == .paid)
+        #expect(read.amountOutstanding == Money.zero)
+    }
+
+    @Test("the ceiling reads through what ALREADY stands, not just the allocation being made")
+    func theCeilingCountsWhatIsAlreadyAllocated() async throws {
+        // Two allocations that are each within the total and together are not. A
+        // check written against `amount <= invoice.total` rather than against
+        // what is OUTSTANDING passes both and lands in the same nonsense state.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 100))
+        let payment = Self.payment(context, for: client, Money(dollars: 5_000))
+        try context.save()
+
+        let allocator = PaymentAllocator(modelContainer: container)
+        try await allocator.allocate(Money(dollars: 100), from: payment.persistentModelID,
+                                     to: invoice.persistentModelID, on: .stamping(Self.day))
+        await #expect(throws: AllocationRefusal.wouldExceedWhatIsOwed(
+            outstanding: Money(cents: 888), asked: Money(dollars: 100))) {
+            try await allocator.allocate(Money(dollars: 100), from: payment.persistentModelID,
+                                         to: invoice.persistentModelID, on: .stamping(Self.day))
+        }
+
+        let reader = ModelContext(container)
+        let read = try #require(try reader.fetch(FetchDescriptor<Payment>()).first)
+        #expect(read.allocated == Money(dollars: 100))
+    }
+
+    @Test("releasing what stood against an invoice makes it owed again, and allocatable again")
+    func releasingRestoresTheHeadroom() async throws {
+        // The ceiling is derived from the allocations that still stand, so a
+        // release has to give the room back. Storing an "amount applied" on the
+        // invoice would need somebody to remember to undo it here.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 100))
+        let payment = Self.payment(context, for: client, Money(dollars: 5_000))
+        try context.save()
+
+        let allocator = PaymentAllocator(modelContainer: container)
+        try await allocator.allocate(Money(cents: 10_888), from: payment.persistentModelID,
+                                     to: invoice.persistentModelID, on: .stamping(Self.day))
+        try await allocator.releaseAllAllocations(of: invoice.persistentModelID,
+                                                  on: .stamping(Self.day))
+        try await allocator.allocate(Money(cents: 10_888), from: payment.persistentModelID,
+                                     to: invoice.persistentModelID, on: .stamping(Self.day))
+
+        let reader = ModelContext(container)
+        let read = try #require(try reader.fetch(FetchDescriptor<Invoice>())
+            .first { $0.id == invoice.id })
+        #expect(read.paymentState == .paid)
+        #expect(read.amountPaid == Money(cents: 10_888))
+    }
+
+    @Test("an invoice that owes NOTHING takes no money at all, rather than a little")
+    func aZeroInvoiceRefusesEveryAllocation() async throws {
+        // PRD 5.1b makes a zero total legitimate, and `paymentState` already
+        // reads it as paid the moment it exists. Nothing is outstanding on it, so
+        // every allocation is an over application, including the smallest one.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context)
+        let invoice = Self.invoice(context, for: client)
+        let payment = Self.payment(context, for: client, Money(dollars: 5_000))
+        try context.save()
+        #expect(invoice.total == Money.zero)
+
+        let allocator = PaymentAllocator(modelContainer: container)
+        await #expect(throws: AllocationRefusal.wouldExceedWhatIsOwed(
+            outstanding: Money.zero, asked: Money(cents: 1))) {
+            try await allocator.allocate(Money(cents: 1), from: payment.persistentModelID,
+                                         to: invoice.persistentModelID, on: .stamping(Self.day))
+        }
+    }
+
     // MARK: releasing, which is not deleting
 
     @Test("releasing an allocation returns the money to unallocated and keeps the record")
@@ -194,7 +340,7 @@ struct PaymentTests {
         let container = try Self.store()
         let context = ModelContext(container)
         let client = Self.client(context)
-        let invoice = Self.invoice(context, for: client)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 1_000))
         let payment = Self.payment(context, for: client, Money(dollars: 100))
         try context.save()
 
@@ -218,8 +364,8 @@ struct PaymentTests {
         let container = try Self.store()
         let context = ModelContext(container)
         let client = Self.client(context)
-        let cancelled = Self.invoice(context, for: client)
-        let other = Self.invoice(context, for: client)
+        let cancelled = Self.invoice(context, for: client, owing: Money(dollars: 1_000))
+        let other = Self.invoice(context, for: client, owing: Money(dollars: 1_000))
         let payment = Self.payment(context, for: client, Money(dollars: 100))
         try context.save()
 
@@ -309,7 +455,7 @@ struct PaymentTests {
         let container = try Self.store()
         let context = ModelContext(container)
         let client = Self.client(context)
-        let invoice = Self.invoice(context, for: client)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 1_000))
         let settled = Self.payment(context, for: client, Money(dollars: 300))
         _ = Self.payment(context, for: client, Money(dollars: 200))
         try context.save()
