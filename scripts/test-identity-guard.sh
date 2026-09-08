@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 23
+harness_begin "identity guard tests" 31
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -43,7 +43,7 @@ make_export() {
  "bookings":[{"id":"b1","clientId":"c1","clientDisplayName":"Zzfixture Chorale","venueName":"Zzfixture Hall","shootName":"Zzfixture Concert"}]}
 JSON
 }
-tree() { local d="$WORK/$1"; rm -rf "$d"; mkdir -p "$d"; printf '%s\n' "$d"; }
+tree() { [ -n "$WORK" ] || exit 1; local d="$WORK/$1"; rm -rf "$d"; mkdir -p "$d"; printf '%s\n' "$d"; }
 
 EXPORT="$WORK/export.json"; make_export "$EXPORT"
 run_guard() {
@@ -212,5 +212,57 @@ T14="$(tree allplaceholder)"; printf 'TBD
 OUT14="$(run_guard "$T14" "$ALLPLACEHOLDER")"; ST14=$?
 check "an export of nothing but placeholders is REFUSED, not reported clean" \
     "$([ "$ST14" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+
+# ---------------------------------------------------------------------------
+# TWO KINDS OF CANNOT MEASURE, AND THEY ARE NOT THE SAME EVENT (ovation#135).
+#
+# The needles are derived from Dan's live Downbeat export and from the custody
+# snapshots, both of which live OUTSIDE the repository. A machine that has
+# neither, a fresh clone, a second Mac or a CI runner, cannot answer this
+# question and never could. A machine that HAS them and still cannot read one has
+# something wrong with it.
+#
+# Those were one outcome, exit 2, and the gate turned both into "a real identity
+# appears in the tree. Push refused.", which is a refusal nobody can act on and
+# the shape that teaches people to reach for an override (L11, L148, L36).
+#
+# So they are separate codes with separate sentences: 2 for a machine that was
+# never equipped, which a gate may allow through while saying what went
+# unchecked, and 4 for one that was and failed anyway, which a gate refuses.
+NOEXPORT="$WORK/no-such-export.json"
+NOCUSTODY="$WORK/no-such-custody"
+T135="$(tree cannotmeasure)"; printf 'ordinary source\n' > "$T135/a.swift"
+
+OUT135A="$(run_guard "$T135" "$NOEXPORT" "$NOCUSTODY")"; ST135A=$?
+check "a machine with neither source answers CANNOT MEASURE, never equipped" "$ST135A" "2"
+check "and it says this machine never had the sources" \
+    "$(printf '%s' "$OUT135A" | grep -ci 'never')" "1"
+check "and it does not read as a pass" \
+    "$(printf '%s' "$OUT135A" | grep -c 'CANNOT MEASURE')" "1"
+
+# EQUIPPED AND BROKEN: the custody directory is here, so this machine was
+# expected to be able to answer, and a source it holds cannot be read.
+CUSTODY135="$WORK/custody135"; rm -rf "$CUSTODY135"; mkdir -p "$CUSTODY135"
+printf 'not json at all\n' > "$CUSTODY135/snapshot.json"
+OUT135B="$(run_guard "$T135" "$NOEXPORT" "$CUSTODY135")"; ST135B=$?
+check "a machine that HAS a source it cannot read is a different outcome" "$ST135B" "4"
+check "and it says the sources are here, so the fault is on this machine" \
+    "$(printf '%s' "$OUT135B" | grep -ci 'on this machine')" "1"
+
+# AND THE MISSING LIVE EXPORT ON AN EQUIPPED MACHINE IS THAT SAME OUTCOME.
+# Dan's Mac has the custody directory, so an absent export there means something
+# is wrong rather than that this machine was never able to look.
+CUSTODY135B="$WORK/custody135b"; rm -rf "$CUSTODY135B"; mkdir -p "$CUSTODY135B"
+cp "$EXPORT" "$CUSTODY135B/snapshot.json"
+OUT135C="$(run_guard "$T135" "$NOEXPORT" "$CUSTODY135B")"; ST135C=$?
+check "an absent live export on a machine holding custody data is refused" "$ST135C" "4"
+check "and it names the export as the source that was missing" \
+    "$(printf '%s' "$OUT135C" | grep -ci 'export')" "1"
+
+# THE TWO SENTENCES ARE DIFFERENT. Two outcomes given one wording are one
+# outcome in practice, whatever their exit codes say (L11, L260).
+check "the two cannot measure sentences are not the same words" \
+    "$([ "$(printf '%s' "$OUT135A" | head -1)" = "$(printf '%s' "$OUT135B" | head -1)" ] \
+        && echo same || echo different)" "different"
 
 harness_end

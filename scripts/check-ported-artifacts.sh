@@ -123,6 +123,13 @@ main_ref() {
 
 found=0
 not_on_main=0
+# TWO KINDS OF CANNOT MEASURE (ovation#135). A sibling that is not on this
+# machine is a question nothing here could ever have answered, and every fresh
+# clone, second machine and CI runner is in that state. A sibling that IS here
+# and cannot answer is a fault on this machine. The gate lets the first through
+# while naming it and refuses the second, which it cannot do while they share one
+# code (L11, L260).
+sibling_absent=0
 cannot_measure=0
 unreadable=0
 
@@ -149,7 +156,7 @@ while IFS= read -r file; do
             echo "CANNOT MEASURE: $rel"
             echo "    the sibling repository $slug is not on this machine"
             echo "    roots searched: $SEARCH_ROOTS"
-            cannot_measure=$((cannot_measure+1))
+            sibling_absent=$((sibling_absent+1))
             continue
         fi
         if ! ref="$(main_ref "$sibling")"; then
@@ -186,8 +193,11 @@ if [ "$found" -eq 0 ]; then
     exit 3
 fi
 
-echo "examined $found ported artifact(s): $((found - not_on_main - cannot_measure - unreadable)) ok, $not_on_main not on main, $cannot_measure unmeasurable, $unreadable unreadable"
+echo "examined $found ported artifact(s): $((found - not_on_main - cannot_measure - unreadable - sibling_absent)) ok, $not_on_main not on main, $sibling_absent not on this machine, $cannot_measure unmeasurable, $unreadable unreadable"
 [ "$not_on_main" -gt 0 ] && exit 1
+# 4 BEFORE 2: a run that must be refused cannot be softened by an unrelated
+# question nothing on this machine could have answered.
 [ "$unreadable" -gt 0 ] && exit 4
-[ "$cannot_measure" -gt 0 ] && exit 2
+[ "$cannot_measure" -gt 0 ] && exit 4
+[ "$sibling_absent" -gt 0 ] && exit 2
 exit 0

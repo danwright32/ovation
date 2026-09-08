@@ -65,6 +65,17 @@ FLOCK_BIN="${OVATION_FLOCK_BIN:-/opt/homebrew/bin/flock}"
 TEST_COMMAND="${OVATION_TEST_COMMAND:-}"
 HOSTED_TEST_COMMAND="${OVATION_HOSTED_TEST_COMMAND:-}"
 UNLOCKED_COMMAND="${OVATION_UNLOCKED_COMMAND:-}"
+SKIP_XCODE_PHASE="${OVATION_SKIP_XCODE_PHASE:-}"
+
+# STATUS IS THE RUN'S VERDICT AND IT EXISTS FROM THE TOP. The locked phase used to
+# be the only thing that set it, so the skip path above reached the exit with it
+# unbound and, under `set -u`, the runner died with a shell error where a verdict
+# should have been.
+STATUS=0
+
+# Same reason: the bracket is opened inside the locked phase, so the compare at
+# the end has to be able to see that it never was.
+LIVE_DATA_FINGERPRINT=""
 
 DIR_LOCK_HELD=""
 FLOCK_FD=""
@@ -88,179 +99,336 @@ trap release_locks EXIT INT TERM
 # PHASE ONE, unlocked. Nothing here touches xcodebuild or any shared state, so
 # it must not wait behind a sibling's build.
 # ---------------------------------------------------------------------------
+# EVERY SUITE IS ASKED, AND EACH ANSWER IS KEPT (ovation#139).
+#
+# This loop was `"$s" || exit $?`, so the FIRST suite that did not exit 0 ended
+# the whole run. Two of them correctly answer CANNOT MEASURE (exit 2) when there
+# is no compiled product, which is the normal state of a fresh checkout or
+# worktree, and they sort early in the glob. Measured on 2026-09-08 in a fresh
+# worktree: every shell suite passed when invoked on its own, and this reported
+# four of the thirty three.
+#
+# THREE VERDICTS, AND THE LOCKED PHASE TREATS TWO OF THEM DIFFERENTLY:
+#
+#   pass            nothing to say.
+#   fail            something is actually broken, so nothing after it is worth
+#                   the sibling locks. The run stops here, as it always did, and
+#                   keeps the suite's own status.
+#   cannot measure  the suite proved nothing either way, which is a reason to
+#                   refuse the run at the END and no reason at all to stop
+#                   asking the other suites or to skip xcodebuild. The verdict is
+#                   carried to the exit and the run continues.
+#
+# A stop and a real failure both used to come out as "non-zero" with the reader
+# left to work out which by looking at where it stopped (L11). The summary below
+# is what tells them apart, so it prints on every path including the green one.
+#
+# THE COUNT IS JUDGED, NOT ONLY THE VERDICTS (L288). `[ -x "$s" ] || continue`
+# drops a suite that lost its executable bit in silence, and a glob that matches
+# fewer files reads as a full green run. The floor is a committed number for the
+# same reason the pure suite's is: refusing only an empty run would catch the
+# total loss and miss every partial one.
+SUITE_DIR="${OVATION_SHELL_SUITE_DIR:-${REPO_ROOT}/scripts}"
+SUITE_FLOOR="${OVATION_SHELL_SUITE_FLOOR:-}"
+SHELL_UNMEASURED=""
+
 if [ -n "${UNLOCKED_COMMAND}" ]; then
   bash -c "${UNLOCKED_COMMAND}" || exit $?
 else
   echo "==> Running the shell suites (no lock needed)"
-  for s in "${REPO_ROOT}"/scripts/test-*.sh; do
+  suites_ran=0
+  suites_passed=0
+  failed_status=0
+  failed_names=""
+  unmeasured_names=""
+  for s in "${SUITE_DIR}"/test-*.sh; do
     [ -x "$s" ] || continue
-    "$s" || exit $?
-  done
-fi
-
-# ---------------------------------------------------------------------------
-# PHASE TWO, locked. Only xcodebuild needs to exclude the siblings.
-# ---------------------------------------------------------------------------
-if [ ! -x "${FLOCK_BIN}" ]; then
-  echo "Error: flock was not found at ${FLOCK_BIN}." >&2
-  echo "       Ovation's test runner takes Overture's lock, which uses it." >&2
-  echo "       Install it with: brew install flock" >&2
-  echo "       Refusing to run the tests without excluding the sibling apps." >&2
-  exit 2
-fi
-
-# BOTH LOCKS, TAKEN WITHOUT EVER HOLDING ONE WHILE WAITING FOR THE OTHER.
-#
-# The first version took Downbeat's, then waited on Overture's. On its first real
-# use it sat there for four minutes, and for all of that time DOWNBEAT could not
-# run either: blocked by Overture, through Ovation, a coupling nobody chose and
-# which neither sibling can see or diagnose.
-#
-# So the second is tried WITHOUT BLOCKING, and if it is not free the first is
-# RELEASED before waiting and trying again. Ovation waits for both and holds
-# neither while waiting. The fixed order still stands for the acquisition itself,
-# and since nothing is ever held across a wait there is nothing to deadlock on.
-echo "==> Waiting for both test locks (${DIR_LOCK}, ${FILE_LOCK})"
-: > "${FILE_LOCK}" 2>/dev/null || true
-elapsed=0
-while :; do
-  if mkdir "${DIR_LOCK}" 2>/dev/null; then
-    DIR_LOCK_HELD=1
-    printf '%s:%s\n' "$(basename "${REPO_ROOT}")" "$$" > "${DIR_LOCK}/owner" 2>/dev/null || true
-    # Non blocking. If Overture has it, we do not queue holding Downbeat's.
-    exec 9>"${FILE_LOCK}" || { echo "Error: cannot open ${FILE_LOCK}" >&2; exit 3; }
-    if "${FLOCK_BIN}" -n 9; then
-      FLOCK_FD=9
+    suites_ran=$((suites_ran+1))
+    "$s"
+    suite_status=$?
+    suite_name="$(basename "$s")"
+    if [ "${suite_status}" -eq 0 ]; then
+      suites_passed=$((suites_passed+1))
+    elif [ "${suite_status}" -eq 2 ]; then
+      unmeasured_names="${unmeasured_names}${suite_name} "
+    else
+      failed_names="${failed_names}${suite_name} "
+      failed_status="${suite_status}"
       break
     fi
-    exec 9>&- 2>/dev/null || true
-    release_locks
+  done
+
+  # ONE SUMMARY, WHATEVER HAPPENED, so a green run and a short run do not look
+  # alike and neither outcome is readable only by scrolling back through
+  # thirty three suites' output.
+  echo "==> Shell suites: ${suites_ran} ran, ${suites_passed} passed, verdicts below"
+  [ -n "${failed_names}" ] && echo "    failed: ${failed_names% }"
+  [ -n "${unmeasured_names}" ] && echo "    could not measure: ${unmeasured_names% }"
+
+  if [ "${failed_status}" -ne 0 ]; then
+    echo "    the run stops here: a failing suite means nothing after it is worth" >&2
+    echo "    taking the sibling locks for." >&2
+    exit "${failed_status}"
   fi
-  elapsed=$((elapsed+1))
-  if [ "${elapsed}" -gt "${TIMEOUT}" ]; then
-    echo "Error: gave up waiting for the test locks after ${TIMEOUT}s." >&2
-    echo "       ${DIR_LOCK} is Downbeat's, ${FILE_LOCK} is Overture's." >&2
-    echo "       An Overture test run is holding it, or a previous run died." >&2
-    echo "       If nothing is running, remove ${DIR_LOCK} and try again." >&2
-    exit 3
-  fi
-  sleep "${POLL}"
-done
 
-echo "==> Holding both locks. Running Ovation's tests."
-
-# ---------------------------------------------------------------------------
-# BRACKET THE RUN AGAINST LIVE DATA (ovation#58, plan 1.9).
-#
-# The resolvers refuse, and scripts/check-isolation-floor.sh refuses one that is
-# not registered. Both of those read the CODE. This measures the DISK, because
-# the thing being protected is that nothing lands in Dan's real store, not that a
-# particular function returns nil (L63). A test that builds its own path reaches
-# the folder without going through any resolver at all.
-# ---------------------------------------------------------------------------
-LIVE_DATA_GUARD="${REPO_ROOT}/scripts/check-live-data-untouched.sh"
-LIVE_DATA_FINGERPRINT=""
-if [ -x "${LIVE_DATA_GUARD}" ]; then
-  LIVE_DATA_FINGERPRINT="$(mktemp)"
-  "${LIVE_DATA_GUARD}" snapshot "${LIVE_DATA_FINGERPRINT}" >/dev/null || LIVE_DATA_FINGERPRINT=""
-fi
-
-# The command is injectable so the suite can measure the LOCKING without paying
-# for a three minute xcodebuild (L2, L291). The default is the real thing.
-#
-# THE OUTPUT IS TEED, NOT CAPTURED. The count has to be read back (below), and a
-# plain $(...) would hold three minutes of a real xcodebuild in a variable with
-# the terminal silent, so a person watching could not tell a slow run from a hung
-# one. PIPESTATUS[0] is the run's own status: the pipe's is tee's (L183, L184).
-PURE_OUTPUT="$(mktemp)"
-if [ -z "${TEST_COMMAND}" ]; then
-  xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme OvationCore \
-    -destination 'platform=macOS' test 2>&1 | tee "${PURE_OUTPUT}"
-else
-  bash -c "${TEST_COMMAND}" 2>&1 | tee "${PURE_OUTPUT}"
-fi
-STATUS="${PIPESTATUS[0]}"
-
-# ---------------------------------------------------------------------------
-# THE PURE SUITE IS JUDGED BY WHAT IT EXECUTED, NOT ONLY BY ITS EXIT CODE.
-#
-# ovation#106. The hosted run's count has been read back since ovation#59; the
-# pure suite, which is the overwhelming majority of the tests, was judged by exit
-# code alone. A run is judged first by the count it EXECUTED against the count
-# expected, and only then by its failures (L288). A renamed target, a changed
-# scheme, a filter, or a move to parallel workers or sharding can lose most of
-# the suite and still print a verdict, and the push gate stands on this suite
-# being green, so a half run is a gate that passed without judging the change.
-#
-# THE FLOOR IS A COMMITTED NUMBER, not zero. Refusing only an empty run would
-# catch the total loss and miss every partial one, which is the likelier and
-# quieter failure. A change that adds tests bumps the file, which is what makes
-# a DROP visible rather than a matter of somebody noticing.
-if [ "${STATUS}" -eq 0 ] && [ -n "${TEST_COMMAND}" ] && [ -z "${OVATION_TEST_FLOOR:-}" ]; then
-  # Said out loud rather than skipped silently, the same way the hosted skip is:
-  # the runner is being measured with an injected command, which prints no count,
-  # so a floor would refuse every test of the locking. A skip nobody is told
-  # about is indistinguishable from a check that passed (L98, L320).
-  echo "==> Pure count check skipped: the command was injected and no floor was given."
-elif [ "${STATUS}" -eq 0 ]; then
-  FLOOR_FILE="${REPO_ROOT}/scripts/pure-test-floor.txt"
-  PURE_FLOOR="${OVATION_TEST_FLOOR:-$(cat "${FLOOR_FILE}" 2>/dev/null || echo 0)}"
-  PURE_COUNT="$(grep -oE 'Test run with [0-9]+ test' "${PURE_OUTPUT}" \
-    | grep -oE '[0-9]+' | sort -rn | head -1)"
-  PURE_COUNT="${PURE_COUNT:-0}"
-  if [ "${PURE_FLOOR}" -eq 0 ]; then
-    echo "Error: no test floor to judge the run against (${FLOOR_FILE})." >&2
-    echo "       A run nothing can be compared to is not a green run." >&2
-    STATUS=7
-  elif [ "${PURE_COUNT}" -lt "${PURE_FLOOR}" ]; then
-    echo "Error: the suite executed ${PURE_COUNT} tests against a floor of ${PURE_FLOOR}." >&2
-    echo "       It exited 0, so this is a run that lost most of itself and" >&2
-    echo "       still reported success. Nothing about the missing tests was judged." >&2
-    echo "       If tests were deliberately removed, lower ${FLOOR_FILE}." >&2
-    STATUS=7
-  fi
-fi
-rm -f "${PURE_OUTPUT}"
-
-# ---------------------------------------------------------------------------
-# THE HOSTED SUITE, still under both locks.
-#
-# ovation#59 added OvationHostedTests, which renders real SwiftUI views and
-# therefore launches the app. It is a SECOND xcodebuild invocation rather than a
-# wider scheme, because the pure suite must stay in a scheme the app is not part
-# of: a broken app cannot then fail, slow, or even be needed by the run that
-# reports on 100+ domain tests.
-#
-# A NARROWED RUN THAT MATCHES NOTHING PRINTS SUCCESS. `-only-testing:` with a
-# path that resolves to no tests makes xcodebuild print ** TEST SUCCEEDED ** and
-# exit 0, so a renamed target would silently stop running these while the gate
-# stayed green (L98, L288). The count is read back and a run that executed no
-# tests is refused.
-if [ "${STATUS}" -eq 0 ]; then
-  if [ -n "${TEST_COMMAND}" ] && [ -z "${HOSTED_TEST_COMMAND}" ]; then
-    # Said out loud rather than skipped silently: the runner is being measured
-    # with an injected command, so the real hosted run would be meaningless here.
-    echo "==> Hosted suite skipped: the pure command was injected and no hosted one was."
+  # The floor is checked only when nothing FAILED, because a failure breaks out
+  # of the loop and the short count is then a consequence of the failure rather
+  # than a fact about the tree. Reporting both would name the wrong cause (L11).
+  if [ -n "${OVATION_SHELL_SUITE_DIR:-}" ] && [ -z "${SUITE_FLOOR}" ]; then
+    # Said out loud rather than skipped silently, the same way the pure count
+    # skip is: a run driven with throwaway suites cannot be judged against the
+    # real floor, and a skip nobody is told about is indistinguishable from a
+    # check that passed (L98, L320).
+    echo "==> Shell suite count check skipped: the suite directory was injected and no floor was given."
   else
-    echo "==> Running the hosted suite (it launches the app)"
-    if [ -n "${HOSTED_TEST_COMMAND}" ]; then
-      HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1)"
-    else
-      HOSTED_OUTPUT="$(xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme Ovation \
-        -destination 'platform=macOS' -only-testing:OvationHostedTests test 2>&1)"
-    fi
-    HOSTED_STATUS=$?
-    printf '%s\n' "${HOSTED_OUTPUT}"
-
-    if [ "${HOSTED_STATUS}" -ne 0 ]; then
-      STATUS="${HOSTED_STATUS}"
-    elif ! printf '%s' "${HOSTED_OUTPUT}" | grep -qE 'Test run with [1-9][0-9]* test'; then
-      echo "Error: the hosted run reported success and executed NO tests." >&2
-      echo "       A -only-testing: path that matches nothing does exactly this." >&2
-      echo "       Nothing about the launch surface was verified." >&2
-      STATUS=6
+    SHELL_FLOOR_FILE="${REPO_ROOT}/scripts/shell-suite-floor.txt"
+    SUITE_FLOOR="${SUITE_FLOOR:-$(cat "${SHELL_FLOOR_FILE}" 2>/dev/null || echo 0)}"
+    if [ "${SUITE_FLOOR}" -eq 0 ]; then
+      echo "Error: no shell suite floor to judge the run against (${SHELL_FLOOR_FILE})." >&2
+      echo "       A run nothing can be compared to is not a green run." >&2
+      exit 7
+    elif [ "${suites_ran}" -lt "${SUITE_FLOOR}" ]; then
+      echo "Error: the shell suites ran ${suites_ran} of a floor of ${SUITE_FLOOR}." >&2
+      echo "       Suites are found by glob and skipped when not executable, so" >&2
+      echo "       this is a suite that lost its executable bit, was renamed, or" >&2
+      echo "       was deleted. Nothing about the missing ones was judged." >&2
+      echo "       If suites were deliberately removed, lower ${SHELL_FLOOR_FILE}." >&2
+      exit 7
     fi
   fi
+
+  # Carried to the exit rather than acted on here. It is not a reason to skip
+  # xcodebuild, and it IS a reason for the run to end non-zero.
+  [ -n "${unmeasured_names}" ] && SHELL_UNMEASURED=1
+fi
+
+# THE LOCKED PHASE CAN BE SKIPPED WHEN THE PUSH CANNOT HAVE CHANGED IT
+# (ovation#22).
+#
+# Measured twice on 2026-09-05, four minutes each time: a push ran the hook, ran
+# this runner, and waited on Overture's lock while a real Overture suite ran.
+# Overture runs its suite constantly, so that is the normal case rather than bad
+# luck, and most pushes in this phase change only documentation or shell scripts,
+# which no xcodebuild run can be affected by.
+#
+# THE DECISION IS NOT MADE HERE. Only the caller knows what is being pushed, so
+# this is the seam it acts through, and the run SAYS which of the two happened,
+# because a run that skipped the Xcode suite must never look like one that passed
+# it (L98, L11). The shell suites above are unaffected: a skip that also swallowed
+# the cheap checks would switch the gate off on the pushes it is cheapest to run.
+if [ -n "${SKIP_XCODE_PHASE}" ]; then
+  echo "==> Xcode phase SKIPPED: the caller says this change cannot affect it."
+  echo "    The shell suites above are the whole of this run. Nothing was built,"
+  echo "    no sibling lock was taken, and the Swift suites did not run."
+else
+  # ---------------------------------------------------------------------------
+  # PHASE TWO, locked. Only xcodebuild needs to exclude the siblings.
+  # ---------------------------------------------------------------------------
+  if [ ! -x "${FLOCK_BIN}" ]; then
+    echo "Error: flock was not found at ${FLOCK_BIN}." >&2
+    echo "       Ovation's test runner takes Overture's lock, which uses it." >&2
+    echo "       Install it with: brew install flock" >&2
+    echo "       Refusing to run the tests without excluding the sibling apps." >&2
+    exit 2
+  fi
+
+  # BOTH LOCKS, TAKEN WITHOUT EVER HOLDING ONE WHILE WAITING FOR THE OTHER.
+  #
+  # The first version took Downbeat's, then waited on Overture's. On its first real
+  # use it sat there for four minutes, and for all of that time DOWNBEAT could not
+  # run either: blocked by Overture, through Ovation, a coupling nobody chose and
+  # which neither sibling can see or diagnose.
+  #
+  # So the second is tried WITHOUT BLOCKING, and if it is not free the first is
+  # RELEASED before waiting and trying again. Ovation waits for both and holds
+  # neither while waiting. The fixed order still stands for the acquisition itself,
+  # and since nothing is ever held across a wait there is nothing to deadlock on.
+  # WHO HOLDS IT, AND HOW LONG THIS WILL WAIT (ovation#22). It printed the two
+  # paths and nothing else, so a person watching a push sit here could not tell a
+  # busy sibling from a stuck lock, and a wait that cannot be told apart from a
+  # hang is the worse of the two (L110). Both holders are knowable: Downbeat's
+  # lock directory carries an owner file, which Ovation writes for its own runs,
+  # and the file lock can be attributed by asking which process holds it.
+  describe_dir_holder() {
+    if [ -f "${DIR_LOCK}/owner" ]; then
+      printf 'held by %s' "$(head -1 "${DIR_LOCK}/owner" 2>/dev/null)"
+    elif [ -d "${DIR_LOCK}" ]; then
+      printf 'held by a run that left no owner file'
+    else
+      printf 'free'
+    fi
+  }
+  describe_file_holder() {
+    local pid pids="" desc=""
+    if [ -x /usr/sbin/lsof ]; then
+      pids="$(/usr/sbin/lsof -t "${FILE_LOCK}" 2>/dev/null)"
+    fi
+    if [ -z "${pids}" ]; then
+      printf 'free, or held by a process this run cannot see'
+      return
+    fi
+    for pid in ${pids}; do
+      desc="${desc}${pid} ($(ps -o comm= -p "${pid}" 2>/dev/null | sed 's|.*/||')) "
+    done
+    printf 'held by pid %s' "${desc% }"
+  }
+
+  echo "==> Waiting for both test locks, up to ${TIMEOUT}s"
+  echo "    ${DIR_LOCK}: $(describe_dir_holder)"
+  echo "    ${FILE_LOCK}: $(describe_file_holder)"
+  : > "${FILE_LOCK}" 2>/dev/null || true
+  # ELAPSED IS REAL TIME, NOT A COUNT OF ITERATIONS. It was `elapsed=$((elapsed+1))`
+  # against a timeout in seconds, which measures iterations and is only the same
+  # number while the poll interval happens to be one second, so any change to the
+  # interval silently rescaled the deadline (L226).
+  wait_started="$(date +%s)"
+  announced=0
+  while :; do
+    if mkdir "${DIR_LOCK}" 2>/dev/null; then
+      DIR_LOCK_HELD=1
+      printf '%s:%s\n' "$(basename "${REPO_ROOT}")" "$$" > "${DIR_LOCK}/owner" 2>/dev/null || true
+      # Non blocking. If Overture has it, we do not queue holding Downbeat's.
+      exec 9>"${FILE_LOCK}" || { echo "Error: cannot open ${FILE_LOCK}" >&2; exit 3; }
+      if "${FLOCK_BIN}" -n 9; then
+        FLOCK_FD=9
+        break
+      fi
+      exec 9>&- 2>/dev/null || true
+      release_locks
+    fi
+    elapsed=$(( $(date +%s) - wait_started ))
+    # STILL ALIVE, said out loud every thirty seconds with who is holding it, so
+    # a long wait reads as a queue rather than as a hang.
+    if [ "$((elapsed / 30))" -gt "${announced}" ]; then
+      announced=$((elapsed / 30))
+      echo "    still waiting after ${elapsed}s of ${TIMEOUT}s: ${DIR_LOCK} $(describe_dir_holder), ${FILE_LOCK} $(describe_file_holder)"
+    fi
+    if [ "${elapsed}" -gt "${TIMEOUT}" ]; then
+      echo "Error: gave up waiting for the test locks after ${TIMEOUT}s." >&2
+      echo "       ${DIR_LOCK} is Downbeat's, ${FILE_LOCK} is Overture's." >&2
+      echo "       An Overture test run is holding it, or a previous run died." >&2
+      echo "       If nothing is running, remove ${DIR_LOCK} and try again." >&2
+      exit 3
+    fi
+    sleep "${POLL}"
+  done
+
+  echo "==> Holding both locks. Running Ovation's tests."
+
+  # ---------------------------------------------------------------------------
+  # BRACKET THE RUN AGAINST LIVE DATA (ovation#58, plan 1.9).
+  #
+  # The resolvers refuse, and scripts/check-isolation-floor.sh refuses one that is
+  # not registered. Both of those read the CODE. This measures the DISK, because
+  # the thing being protected is that nothing lands in Dan's real store, not that a
+  # particular function returns nil (L63). A test that builds its own path reaches
+  # the folder without going through any resolver at all.
+  # ---------------------------------------------------------------------------
+  LIVE_DATA_GUARD="${REPO_ROOT}/scripts/check-live-data-untouched.sh"
+  LIVE_DATA_FINGERPRINT=""
+  if [ -x "${LIVE_DATA_GUARD}" ]; then
+    LIVE_DATA_FINGERPRINT="$(mktemp)"
+    "${LIVE_DATA_GUARD}" snapshot "${LIVE_DATA_FINGERPRINT}" >/dev/null || LIVE_DATA_FINGERPRINT=""
+  fi
+
+  # The command is injectable so the suite can measure the LOCKING without paying
+  # for a three minute xcodebuild (L2, L291). The default is the real thing.
+  #
+  # THE OUTPUT IS TEED, NOT CAPTURED. The count has to be read back (below), and a
+  # plain $(...) would hold three minutes of a real xcodebuild in a variable with
+  # the terminal silent, so a person watching could not tell a slow run from a hung
+  # one. PIPESTATUS[0] is the run's own status: the pipe's is tee's (L183, L184).
+  PURE_OUTPUT="$(mktemp)"
+  if [ -z "${TEST_COMMAND}" ]; then
+    xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme OvationCore \
+      -destination 'platform=macOS' test 2>&1 | tee "${PURE_OUTPUT}"
+  else
+    bash -c "${TEST_COMMAND}" 2>&1 | tee "${PURE_OUTPUT}"
+  fi
+  STATUS="${PIPESTATUS[0]}"
+
+  # ---------------------------------------------------------------------------
+  # THE PURE SUITE IS JUDGED BY WHAT IT EXECUTED, NOT ONLY BY ITS EXIT CODE.
+  #
+  # ovation#106. The hosted run's count has been read back since ovation#59; the
+  # pure suite, which is the overwhelming majority of the tests, was judged by exit
+  # code alone. A run is judged first by the count it EXECUTED against the count
+  # expected, and only then by its failures (L288). A renamed target, a changed
+  # scheme, a filter, or a move to parallel workers or sharding can lose most of
+  # the suite and still print a verdict, and the push gate stands on this suite
+  # being green, so a half run is a gate that passed without judging the change.
+  #
+  # THE FLOOR IS A COMMITTED NUMBER, not zero. Refusing only an empty run would
+  # catch the total loss and miss every partial one, which is the likelier and
+  # quieter failure. A change that adds tests bumps the file, which is what makes
+  # a DROP visible rather than a matter of somebody noticing.
+  if [ "${STATUS}" -eq 0 ] && [ -n "${TEST_COMMAND}" ] && [ -z "${OVATION_TEST_FLOOR:-}" ]; then
+    # Said out loud rather than skipped silently, the same way the hosted skip is:
+    # the runner is being measured with an injected command, which prints no count,
+    # so a floor would refuse every test of the locking. A skip nobody is told
+    # about is indistinguishable from a check that passed (L98, L320).
+    echo "==> Pure count check skipped: the command was injected and no floor was given."
+  elif [ "${STATUS}" -eq 0 ]; then
+    FLOOR_FILE="${REPO_ROOT}/scripts/pure-test-floor.txt"
+    PURE_FLOOR="${OVATION_TEST_FLOOR:-$(cat "${FLOOR_FILE}" 2>/dev/null || echo 0)}"
+    PURE_COUNT="$(grep -oE 'Test run with [0-9]+ test' "${PURE_OUTPUT}" \
+      | grep -oE '[0-9]+' | sort -rn | head -1)"
+    PURE_COUNT="${PURE_COUNT:-0}"
+    if [ "${PURE_FLOOR}" -eq 0 ]; then
+      echo "Error: no test floor to judge the run against (${FLOOR_FILE})." >&2
+      echo "       A run nothing can be compared to is not a green run." >&2
+      STATUS=7
+    elif [ "${PURE_COUNT}" -lt "${PURE_FLOOR}" ]; then
+      echo "Error: the suite executed ${PURE_COUNT} tests against a floor of ${PURE_FLOOR}." >&2
+      echo "       It exited 0, so this is a run that lost most of itself and" >&2
+      echo "       still reported success. Nothing about the missing tests was judged." >&2
+      echo "       If tests were deliberately removed, lower ${FLOOR_FILE}." >&2
+      STATUS=7
+    fi
+  fi
+  rm -f "${PURE_OUTPUT}"
+
+  # ---------------------------------------------------------------------------
+  # THE HOSTED SUITE, still under both locks.
+  #
+  # ovation#59 added OvationHostedTests, which renders real SwiftUI views and
+  # therefore launches the app. It is a SECOND xcodebuild invocation rather than a
+  # wider scheme, because the pure suite must stay in a scheme the app is not part
+  # of: a broken app cannot then fail, slow, or even be needed by the run that
+  # reports on 100+ domain tests.
+  #
+  # A NARROWED RUN THAT MATCHES NOTHING PRINTS SUCCESS. `-only-testing:` with a
+  # path that resolves to no tests makes xcodebuild print ** TEST SUCCEEDED ** and
+  # exit 0, so a renamed target would silently stop running these while the gate
+  # stayed green (L98, L288). The count is read back and a run that executed no
+  # tests is refused.
+  if [ "${STATUS}" -eq 0 ]; then
+    if [ -n "${TEST_COMMAND}" ] && [ -z "${HOSTED_TEST_COMMAND}" ]; then
+      # Said out loud rather than skipped silently: the runner is being measured
+      # with an injected command, so the real hosted run would be meaningless here.
+      echo "==> Hosted suite skipped: the pure command was injected and no hosted one was."
+    else
+      echo "==> Running the hosted suite (it launches the app)"
+      if [ -n "${HOSTED_TEST_COMMAND}" ]; then
+        HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1)"
+      else
+        HOSTED_OUTPUT="$(xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme Ovation \
+          -destination 'platform=macOS' -only-testing:OvationHostedTests test 2>&1)"
+      fi
+      HOSTED_STATUS=$?
+      printf '%s\n' "${HOSTED_OUTPUT}"
+
+      if [ "${HOSTED_STATUS}" -ne 0 ]; then
+        STATUS="${HOSTED_STATUS}"
+      elif ! printf '%s' "${HOSTED_OUTPUT}" | grep -qE 'Test run with [1-9][0-9]* test'; then
+        echo "Error: the hosted run reported success and executed NO tests." >&2
+        echo "       A -only-testing: path that matches nothing does exactly this." >&2
+        echo "       Nothing about the launch surface was verified." >&2
+        STATUS=6
+      fi
+    fi
+  fi
+
 fi
 
 # The other end of the bracket. A run that wrote to live data FAILS, whatever
@@ -271,6 +439,17 @@ if [ -n "${LIVE_DATA_FINGERPRINT}" ]; then
     [ "${STATUS}" -eq 0 ] && STATUS=7
   fi
   rm -f "${LIVE_DATA_FINGERPRINT}"
+fi
+
+# A SHELL SUITE THAT COULD NOT MEASURE ENDS THE RUN NON-ZERO, at the END rather
+# than where it was found (ovation#139). It keeps its own code, 2, so a caller
+# can tell "something is broken" from "something went unchecked", which is the
+# distinction the suites themselves went to trouble to draw and which this
+# runner used to collapse (L11, L260). It never overwrites a real failure.
+if [ "${STATUS}" -eq 0 ] && [ -n "${SHELL_UNMEASURED}" ]; then
+  echo "==> The run is CANNOT MEASURE: every suite that could run passed, and at" >&2
+  echo "    least one could not measure. Nothing is known about what it covers." >&2
+  STATUS=2
 fi
 
 # Judge by the EXIT CODE, never by a line of output: a tool's final line is

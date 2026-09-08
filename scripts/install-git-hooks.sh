@@ -26,6 +26,34 @@ if [ "$CURRENT" = "$WANT" ]; then
     exit 0
 fi
 
+# AN ABSOLUTE PATH TO THIS REPOSITORY'S OWN HOOKS IS UPGRADED (ovation#138).
+#
+# Configuration installed into git is a COPY, so this script changing to the
+# relative form changed nothing on a machine that had already run the older one,
+# and nothing anywhere reported a machine still carrying it (L423). This
+# repository's own config held an absolute path into the primary checkout, which
+# is what made every worktree run the primary checkout's hook file rather than
+# its own.
+#
+# Only this repository's own tracked hooks are upgraded. Anything else is still
+# refused below: silently taking over another tool's hooks is how a gate somebody
+# was relying on stops running without saying anything.
+# COMPARED AS A DIRECTORY, NOT AS A STRING. On macOS `git rev-parse` answers
+# with the physical path (/private/var/...) while a path written by hand or by an
+# older installer is routinely the symlinked one (/var/...), so a string
+# comparison reports two names for one directory as different and the upgrade
+# never fires on the machine that needs it.
+CURRENT_REAL="$(cd "$CURRENT" 2>/dev/null && pwd -P)"
+OURS_REAL="$(cd "$REPO_ROOT/$WANT" 2>/dev/null && pwd -P)"
+if [ -n "$CURRENT_REAL" ] && [ "$CURRENT_REAL" = "$OURS_REAL" ]; then
+    git -C "$REPO_ROOT" config --local core.hooksPath "$WANT"
+    echo "Upgraded: core.hooksPath was an absolute path to this repository's own"
+    echo "hooks, and is now the relative form, $WANT."
+    echo "That is what makes a push from a worktree run the worktree's own hook"
+    echo "rather than this checkout's copy of it."
+    exit 0
+fi
+
 if [ -n "$CURRENT" ]; then
     echo "Not installing. core.hooksPath is already set to '$CURRENT'." >&2
     echo "Pointing it at $WANT would stop whatever lives there from running." >&2

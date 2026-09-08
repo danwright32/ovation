@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "build products tests" 12
+harness_begin "build products tests" 14
 
 TARGET="scripts/build-products.sh"
 require_target "$TARGET"
@@ -34,6 +34,7 @@ harness_temp_dir WORK
 cat > "$WORK/runner" <<'EOF'
 #!/bin/bash
   echo "runner-invoked" >> "$RECORD"
+  echo "skip-seam:${OVATION_SKIP_XCODE_PHASE:-unset}" >> "$RECORD"
   printf '%s\n' "$OVATION_TEST_COMMAND" >> "$RECORD"
   bash -c "$OVATION_TEST_COMMAND"
 EOF
@@ -114,5 +115,20 @@ OUT_LOCK="$(RECORD="$RECORD" OVATION_BUILD_RUNNER="$WORK/refusing-runner" \
     OVATION_BUILD_COMMAND="$WORK/builder" "./$TARGET" 2>&1)"; ST_LOCK=$?
 check "a runner that cannot take the locks is not reported as a build failure" \
     "$([ "$ST_LOCK" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+
+# THE SKIP SEAM MUST NOT REACH THE BUILDER (ovation#22, ovation#143).
+#
+# OVATION_SKIP_XCODE_PHASE tells the runner not to do the xcodebuild work, which
+# is exactly the work THIS script exists to do, and it is an environment variable
+# so it is inherited by every process started under one that has it set. A hook
+# that set it for a documentation push, and then anything that called this, would
+# get a script that reports both configurations built and builds neither (L169,
+# L439). Twice today a seam was inherited this way, which is why this is a case
+# rather than a comment.
+FAIL_ON="" OVATION_SKIP_XCODE_PHASE=1 run_build >/dev/null 2>&1
+check "the skip seam does not reach the runner this script drives" \
+    "$(grep -c 'skip-seam:unset' "$RECORD")" "1"
+check "and both configurations were still built" \
+    "$(grep -c '^built:' "$RECORD")" "2"
 
 harness_end

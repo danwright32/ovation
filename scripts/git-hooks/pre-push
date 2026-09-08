@@ -23,7 +23,34 @@
 #   the ported artifact ancestry check      added below
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# THE TREE BEING PUSHED, NOT THE TREE THIS FILE LIVES IN (ovation#138).
+#
+# This was derived from the hook file's own location. core.hooksPath had been
+# left as an absolute path into the primary checkout, so a push from a worktree
+# ran the primary checkout's hook against the primary checkout's tree and the
+# primary checkout's copy of every guard beside it. The branch being pushed was
+# never looked at: a gate reading its criteria from a revision it is not judging
+# (L398). It failed in both directions, and the one that bit was a green branch
+# refused for a fault that existed only in the primary checkout, whose fix was
+# already committed on the branch being refused.
+#
+# git runs a pre-push with its working directory at the top of the tree the push
+# comes from, which is what makes this the right question to ask, and
+# scripts/test-git-hooks.sh measures that with a real push rather than trusting
+# it (L82). The installer now also writes core.hooksPath in its relative form and
+# upgrades an absolute one, so the FILE that runs comes from the pushed tree too.
+#
+# REFUSED, NOT GUESSED, when the question cannot be answered: a hook always runs
+# inside a repository, so a failure here means something is wrong with the
+# invocation and falling back to this file's location is how the defect above got
+# in (L93, L173).
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "${REPO_ROOT}" ] || [ ! -d "${REPO_ROOT}" ]; then
+    echo "pre-push: could not work out which working tree is being pushed." >&2
+    echo "pre-push: 'git rev-parse --show-toplevel' answered nothing, so nothing" >&2
+    echo "pre-push: has been checked. Push refused." >&2
+    exit 1
+fi
 
 # The documented one push escape hatch. It ANNOUNCES itself, because an override
 # that can happen quietly is one that happens by accident, and it is good for
@@ -34,73 +61,107 @@ if [ -n "${SKIP_TEST_RUN:-}" ]; then
     exit 0
 fi
 
+# ---------------------------------------------------------------------------
+# ONE PLACE THE POLICY LIVES, AND EXIT CODES RATHER THAN TRUTHINESS (ovation#135).
+#
+# Every check below was its own copy of `if ! script; then <one sentence>; exit
+# 1; fi`. A check that had gone to real trouble to keep three outcomes apart then
+# had two of them collapsed into the sentence that sends somebody hunting for a
+# leak that is not there, and the identity guard's sources live outside the
+# repository, so NOBODY BUT THIS MAC COULD PUSH: a fresh clone, Dan's second
+# machine and a CI runner were each told the tree was contaminated (L11, L148).
+#
+# DAN'S DECISION, 2026-09-08: refuse only when the machine SHOULD have been able
+# to measure. The checks carry that in their codes, because each one knows why it
+# could not answer and this hook does not (L621, L70):
+#
+#   0            passed
+#   2            could not measure, and nothing on this machine ever could have.
+#                Allowed, and NAMED, because a check that went unrun and a check
+#                that passed must never read the same (L98).
+#   4            could not measure, and this machine had what it needs. Refused:
+#                that is a fault here.
+#   anything else refused, with that check's own sentence.
+#
+# Ten copies of a case statement is ten places for the policy to drift, so it is
+# written once and every check goes through it (L30, L613).
+UNMEASURED=""
+
+gate_check() {
+    local name="$1" refusal="$2"
+    local script="${REPO_ROOT}/scripts/${name}"
+    # A CHECK NAMED HERE AND MISSING FROM THE TREE IS A REFUSAL, not a skip. The
+    # hook and the scripts now come from the same revision (ovation#138), so a
+    # name here with no file there is an inconsistent tree, and skipping it would
+    # be the gate silently dropping a check while still reporting green (L96,
+    # L98). The suite stages a stub for every name this file lists, so the list
+    # and the tree cannot drift apart untested.
+    if [ ! -x "${script}" ]; then
+        echo "pre-push: ${name} is named by this gate and is not executable at" >&2
+        echo "pre-push: ${script}. The gate cannot run a check it cannot find," >&2
+        echo "pre-push: and will not pass a push it did not check. Push refused." >&2
+        exit 1
+    fi
+    "${script}"
+    case "$?" in
+        0) return 0 ;;
+        2)
+            UNMEASURED="${UNMEASURED}${name} "
+            echo "pre-push: ${name} could not be measured here (see above)." >&2
+            echo "pre-push: nothing on this machine could have answered it, so the" >&2
+            echo "pre-push: push is not refused for it. What it covers went unchecked." >&2
+            return 0
+            ;;
+        4)
+            echo "pre-push: ${name} could not be measured, although this machine has" >&2
+            echo "pre-push: what it needs to. That is a fault here rather than in the" >&2
+            echo "pre-push: tree, and it is not a pass. Push refused." >&2
+            exit 1
+            ;;
+        *)
+            echo "pre-push: ${refusal} Push refused." >&2
+            exit 1
+            ;;
+    esac
+}
+
 # The ported artifact check first: it is seconds, it needs no lock, and it
 # catches a port made from a stale checkout before a full suite is paid for.
 # CANNOT MEASURE (exit 2) is not a pass, so it blocks too, and NO PORTED
 # ARTIFACTS (exit 3) is only correct until the first port lands.
-if [ -x "${REPO_ROOT}/scripts/check-ported-artifacts.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-ported-artifacts.sh"; then
-        echo "pre-push: the ported artifact check did not pass. Push refused." >&2
-        exit 1
-    fi
-fi
+gate_check check-ported-artifacts.sh "the ported artifact check did not pass."
 
 # Custody next, also seconds and also needing no lock. This is the one that
 # matters most while the repository is public: it asks whether a real receipt or
 # a real QuickBooks export has ever entered git history, which .gitignore cannot
 # answer, because an ignore entry added after a file was committed hides it from
 # git status while leaving it in every clone.
-if [ -x "${REPO_ROOT}/scripts/check-custody-not-staged.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-custody-not-staged.sh"; then
-        echo "pre-push: custody data reached git. Push refused." >&2
-        exit 1
-    fi
-fi
+gate_check check-custody-not-staged.sh "custody data reached git."
 
 # The identity guard last of the three fast checks, because it walks the whole
 # tree. It refuses if a real client, venue or vendor name appears anywhere,
 # including in files .gitignore excludes, and it prints paths and counts only.
-if [ -x "${REPO_ROOT}/scripts/check-identity-leaks.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-identity-leaks.sh"; then
-        echo "pre-push: a real identity appears in the tree. Push refused." >&2
-        exit 1
-    fi
-fi
+gate_check check-identity-leaks.sh "a real identity appears in the tree."
 
 # Money is Int64 minor units and hours are tenths (plan 1.4). `Money` carries no
 # floating point constructor, which makes the mistake impossible INSIDE the money
 # type and says nothing about a `Double` declared anywhere else, so this refuses
 # one anywhere in the app's sources. Fast: it walks Swift files and prints paths,
 # line numbers and type names only.
-if [ -x "${REPO_ROOT}/scripts/check-forbidden-constructs.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-forbidden-constructs.sh"; then
-        echo "pre-push: a floating point type reached the app sources. Push refused." >&2
-        exit 1
-    fi
-fi
+gate_check check-forbidden-constructs.sh "a floating point type reached the app sources."
 
 # Every resolver that can reach live data is registered in LiveDataFloor, and
 # this is what makes the register true (ovation#58, plan 1.9). A guard driven by
 # a hand written list checks only what the list names, so a resolver missing from
 # it is exempt from the very check meant to catch it.
-if [ -x "${REPO_ROOT}/scripts/check-isolation-floor.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-isolation-floor.sh"; then
-        echo "pre-push: a live data resolver is not in the isolation floor. Push refused." >&2
-        exit 1
-    fi
-fi
+gate_check check-isolation-floor.sh "a live data resolver is not in the isolation floor."
 
 # ovation#60. A model type missing from the store's schema simply has no table,
 # and SwiftData says nothing about it: the first symptom is a fetch that returns
 # nothing, at whatever distance from the omission. Same shape as the floor above,
 # and the subjects are derived from the sources rather than from a list somebody
 # maintains.
-if [ -x "${REPO_ROOT}/scripts/check-schema-registered.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-schema-registered.sh"; then
-        echo "pre-push: a model type is not in the store's schema. Push refused." >&2
-        exit 1
-    fi
-fi
+gate_check check-schema-registered.sh "a model type is not in the store's schema."
 
 # ovation#119. `OvationMigrationPlan.stages` is empty and `schemas` names one
 # version. Both are correct today and exactly one of them is silently wrong the
@@ -108,12 +169,7 @@ fi
 # stage: it opens a store that looks fine and the data a renamed property or a
 # changed type held is gone. Nothing else in the repository can tell, since an
 # empty stages list is the correct value right up until it is not.
-if [ -x "${REPO_ROOT}/scripts/check-migration-stages.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-migration-stages.sh"; then
-        echo "pre-push: the migration plan's versions and stages disagree. Push refused." >&2
-        exit 1
-    fi
-fi
+gate_check check-migration-stages.sh "the migration plan's versions and stages disagree."
 
 # ovation#114. The design record's whole value is that it outlives whatever
 # rendered it: each file is one document that opens in any browser with no
@@ -121,12 +177,7 @@ fi
 # linked. A `<link>` to a font service added by anyone would make that false with
 # no symptom at all, because the file goes on rendering perfectly on a machine
 # with a network and only fails years later, offline.
-if [ -x "${REPO_ROOT}/scripts/check-design-self-contained.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-design-self-contained.sh"; then
-        echo "pre-push: a design file reaches outside itself. Push refused." >&2
-        exit 1
-    fi
-fi
+gate_check check-design-self-contained.sh "a design file reaches outside itself."
 
 # ovation#111. Because a design file may reach outside itself NEVER, it cannot
 # load docs/design/rules/ at render time and carries its own copy of every rule
@@ -134,13 +185,7 @@ fi
 # fixed a NaN defect in typeDigit in the rules and left the design file's copy
 # alone, and the suite stayed green because the suite reads the rules. The screen
 # the design record IS went on holding the defect, and nothing could say so.
-if [ -x "${REPO_ROOT}/scripts/check-design-rules-inline.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-design-rules-inline.sh"; then
-        echo "pre-push: a design file's copy of a rule disagrees with docs/design/rules/." >&2
-        echo "          Push refused." >&2
-        exit 1
-    fi
-fi
+gate_check check-design-rules-inline.sh "a design file's copy of a rule disagrees with docs/design/rules/."
 
 # ovation#102. The AppIcon catalog is DERIVED from icon/ovation-app-icon.png and
 # both are committed. Nothing asserted they were still in step, and both ways it
@@ -148,30 +193,24 @@ fi
 # the app ships the previous icon while the repository shows the new one, or one
 # generated PNG edited by hand, so the shipped icon is something no source here
 # produces. The bundle icon check passes in both cases.
-if [ -x "${REPO_ROOT}/scripts/check-app-icon-current.sh" ]; then
-    "${REPO_ROOT}/scripts/check-app-icon-current.sh"
-    case "$?" in
-        0) ;;
-        # CANNOT MEASURE IS NOT A REFUSAL. The catalog is committed precisely so a
-        # machine without Pillow can build the app, so such a machine is expected
-        # and must not be unable to push (L411).
-        2) echo "pre-push: the icon catalog could not be checked here (see above)." >&2 ;;
-        *) echo "pre-push: the committed icon catalog is not what the artwork produces. Push refused." >&2
-           exit 1 ;;
-    esac
-fi
+# CANNOT MEASURE IS NOT A REFUSAL HERE, and this check is where that was first
+# got right: the catalog is committed precisely so a machine without Pillow can
+# build the app, so such a machine is expected and must not be unable to push
+# (L411). gate_check is that rule made general.
+gate_check check-app-icon-current.sh "the committed icon catalog is not what the artwork produces."
 
 # The launch sequence must be WIRED into the entry point. ovation#88: the store
 # schema guard was written and fully tested and then called by nothing, because
 # the file carrying @main is the one file the pure test target cannot compile, so
 # no test in the suite can reach the wiring. This is the only instrument there is
 # for it, which is exactly why its absence let the first omission stand.
-if [ -x "${REPO_ROOT}/scripts/check-launch-sequence-wired.sh" ]; then
-    if ! "${REPO_ROOT}/scripts/check-launch-sequence-wired.sh"; then
-        echo "pre-push: the entry point does not run the store launch sequence. Push refused." >&2
-        exit 1
-    fi
-fi
+gate_check check-launch-sequence-wired.sh "the entry point does not run the store launch sequence."
+
+# ovation#143. The workflow carries decisions nothing else in the repository
+# reads: a timeout on every job, every action pinned to a commit, and the command
+# Dan decided CI runs. Each of those fails silently, and the last one fails while
+# leaving a green tick on the board.
+gate_check check-ci-workflow.sh "the CI workflow has drifted from what it is for."
 
 # THE LIVE DATA BRACKET IS NOT RUN HERE. It is a bracket around the test run
 # rather than a check that can be answered on its own: it snapshots before and
@@ -182,19 +221,150 @@ fi
 #
 # Injectable so scripts/test-git-hooks.sh can measure the GATE without paying for
 # a real suite run (L2, L291). The default is the real thing.
+# ---------------------------------------------------------------------------
+# WHETHER THE XCODE PHASE CAN BE SKIPPED FOR THIS PUSH (ovation#22).
+#
+# Measured twice on 2026-09-05, four minutes each time: this hook ran the runner,
+# which waited on Overture's lock while a real Overture suite ran. Overture runs
+# its suite constantly, so that is the normal case rather than bad luck, and most
+# pushes in this phase change only documentation or shell scripts, which no
+# xcodebuild run can read.
+#
+# ONLY THIS HOOK KNOWS WHAT IS BEING PUSHED. git hands it one line per ref on
+# stdin, so the decision is made here and the runner only carries it out.
+#
+# IT FAILS CLOSED, and that is the whole design. The skippable set is a short
+# list of paths nothing in an Xcode build or test can read; everything else, and
+# every range this cannot place, runs the full thing. The list is written as what
+# may be SKIPPED rather than what must be RUN, because a run set is a list of
+# everything somebody thought of and its omissions are silent (L96).
+ZERO_SHA="0000000000000000000000000000000000000000"
+EMPTY_TREE="$(git hash-object -t tree /dev/null 2>/dev/null)"
+PUSHED_PATHS=""
+RANGE_UNKNOWN=""
+SAW_A_REF=""
+
+# STDIN IS ONLY READ WHEN SOMETHING IS FEEDING IT. git always does; a person
+# running this by hand does not, and an unguarded `read` there waits for ever.
+# A hang is worse than a failure because it cannot be told from slowness, and
+# this one was staged the moment the loop was written: the suite went from
+# seconds to a timeout (L110).
+if [ -t 0 ]; then
+    RANGE_UNKNOWN=1
+fi
+
+while [ -z "${RANGE_UNKNOWN}" ] && read -r _local_ref local_sha _remote_ref remote_sha; do
+    SAW_A_REF=1
+    if [ -z "${local_sha:-}" ] || [ -z "${remote_sha:-}" ] || [ "${local_sha}" = "${ZERO_SHA}" ]; then
+        # A deletion, or a line this cannot read. Neither is a claim about content.
+        RANGE_UNKNOWN=1
+        break
+    fi
+    base=""
+    if [ "${remote_sha}" != "${ZERO_SHA}" ] && git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+        base="${remote_sha}"
+    else
+        # A branch the remote does not have yet. What is actually being added is
+        # what is not on any remote, and in a repository with no remote at all
+        # that is every commit, which lands on the empty tree and therefore on
+        # every file: the full run, which is the right answer there.
+        oldest="$(git rev-list "${local_sha}" --not --remotes 2>/dev/null | tail -1)"
+        if [ -n "${oldest}" ]; then
+            base="$(git rev-parse -q --verify "${oldest}^" 2>/dev/null)"
+            base="${base:-${EMPTY_TREE}}"
+        fi
+    fi
+    if [ -z "${base}" ]; then
+        RANGE_UNKNOWN=1
+        break
+    fi
+    if ! paths="$(git diff --name-only "${base}" "${local_sha}" 2>/dev/null)"; then
+        RANGE_UNKNOWN=1
+        break
+    fi
+    PUSHED_PATHS="${PUSHED_PATHS}${paths}
+"
+done
+
+[ -n "${SAW_A_REF}" ] || RANGE_UNKNOWN=1
+
+
+# The one list of what an Xcode build and test cannot read. Everything else is
+# relevant by default.
+skippable_path() {
+    case "$1" in
+        docs/*|scripts/*|.github/*|*.md|.gitignore|.gitattributes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+FIRST_RELEVANT=""
+PATH_COUNT=0
+while IFS= read -r one; do
+    [ -n "${one}" ] || continue
+    PATH_COUNT=$((PATH_COUNT+1))
+    if [ -z "${FIRST_RELEVANT}" ] && ! skippable_path "${one}"; then
+        FIRST_RELEVANT="${one}"
+    fi
+done <<< "${PUSHED_PATHS}"
+
+SKIP_XCODE=""
+if [ -n "${RANGE_UNKNOWN}" ]; then
+    echo "pre-push: could not work out what this push contains, so the full suite" >&2
+    echo "pre-push: runs. That is the safe direction, not a fault." >&2
+elif [ -n "${FIRST_RELEVANT}" ]; then
+    echo "pre-push: ${FIRST_RELEVANT} is in this push, so the full suite runs." >&2
+else
+    SKIP_XCODE=1
+    echo "pre-push: ${PATH_COUNT} path(s) in this push, none of them readable by an" >&2
+    echo "pre-push: Xcode build or test, so skipping the Xcode phase and the wait" >&2
+    echo "pre-push: for the sibling locks. The shell suites still run." >&2
+fi
+
 TEST_COMMAND="${OVATION_HOOK_TEST_COMMAND:-}"
 if [ -n "${TEST_COMMAND}" ]; then
     bash -c "${TEST_COMMAND}"
 else
-    "${REPO_ROOT}/scripts/run-tests.sh"
+    OVATION_SKIP_XCODE_PHASE="${SKIP_XCODE}" "${REPO_ROOT}/scripts/run-tests.sh"
 fi
 STATUS=$?
 
-if [ "${STATUS}" -ne 0 ]; then
+# THE SUITE ANSWERS THE SAME THREE WAYS (ovation#139). run-tests.sh returns 2
+# when every suite that could run passed and at least one could not measure,
+# which on a tree with no built product is the two bundle suites. Refusing there
+# would mean no push at all, not even a docs change, until both configurations
+# are built under the sibling locks, which is the cost ovation#139 was filed
+# about. It is allowed and NAMED, never called green.
+if [ "${STATUS}" -eq 2 ] && [ -n "${SKIP_XCODE}" ]; then
+    # This machine COULD have measured those suites, it simply has not built
+    # anything yet, so Dan's rule turns on whether the push contains anything
+    # they judge. It does not: the same answer the Xcode phase decision was made
+    # from is read again here rather than a second rule that can disagree with
+    # the first (L70).
+    echo "pre-push: the suite could not be measured in full (see above)." >&2
+    echo "pre-push: everything that could run passed, and nothing in this push is" >&2
+    echo "pre-push: something those suites judge, so it is not refused for them." >&2
+    UNMEASURED="${UNMEASURED}the test suite "
+elif [ "${STATUS}" -eq 2 ]; then
+    # The other half, and the one the rule is actually about. A range this could
+    # not place lands here too, because not knowing what is in a push is not the
+    # same as knowing there is nothing in it (L98).
+    echo "pre-push: the suite could not be measured in full (see above), and this" >&2
+    echo "pre-push: push contains something those suites judge. Push refused." >&2
+    echo "pre-push: build both configurations first, which is what makes them" >&2
+    echo "pre-push: measurable: bash scripts/build-products.sh" >&2
+    exit 1
+elif [ "${STATUS}" -ne 0 ]; then
     echo "pre-push: the suite is RED. Push refused." >&2
     echo "pre-push: fix it, or push this one time with SKIP_TEST_RUN=1, which says so." >&2
     exit 1
+else
+    echo "pre-push: unit suite is green." >&2
 fi
 
-echo "pre-push: unit suite is green." >&2
+# SAID ONCE MORE AT THE END, because the notice that mattered scrolled past
+# several minutes of suite output and the last line is the one that gets read.
+if [ -n "${UNMEASURED}" ]; then
+    echo "pre-push: allowed, with these unmeasured on this machine: ${UNMEASURED% }" >&2
+fi
 exit 0

@@ -18,14 +18,41 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-# THE FLOOR SEAM IS CLEARED FIRST. It is an environment variable, so a value set
-# in the shell that launched this suite is inherited by every runner spawned
-# below and silently answers for them (L169). Measured: exporting
-# OVATION_TEST_FLOOR=9999 to prove the guard fires on the real suite made six of
-# these cases fail instead, because their child runners inherited it too.
-unset OVATION_TEST_FLOOR
+# EVERY SEAM IS CLEARED FIRST, not just the one that was caught. They are
+# environment variables, so a value set in the shell that launched this suite is
+# inherited by every runner spawned below and silently answers for them (L169,
+# L439). Measured twice: exporting OVATION_TEST_FLOOR=9999 to prove the guard
+# fires on the real suite made six of these cases fail instead, and running this
+# suite THROUGH the runner with the pure and hosted commands injected made the
+# hosted skip case fail, because its inner runner inherited a command it was
+# never given. The last case in this file asserts this list is complete, so a
+# seam added to the runner tomorrow cannot be left out of it (L284, L30).
+unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
+      OVATION_UNLOCKED_COMMAND OVATION_SHELL_SUITE_DIR OVATION_SHELL_SUITE_FLOOR \
+      OVATION_SKIP_XCODE_PHASE \
+      OVATION_DIR_LOCK OVATION_FILE_LOCK OVATION_FLOCK_BIN \
+      OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL
 
-harness_begin "test runner lock tests" 38
+# THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
+# FAILURE (L411).
+#
+# The runner takes Overture's lock with Homebrew flock and REFUSES to run without
+# it, deliberately, so on a machine that does not have it every case here fails
+# for one reason that has nothing to do with the runner being wrong. That is a
+# red indistinguishable from a real one, and it is what the first CI run of the
+# shell suites job produced: 25 failures, all of them this.
+#
+# CANNOT MEASURE is the honest verdict there, and the harness has its own exit
+# code for it. Two cases below still ask the same question because they STAGE a
+# held lock rather than merely needing the tool, and they read it from here so
+# there is one definition of where flock is.
+SUITE_FLOCK="${OVATION_SUITE_FLOCK_BIN:-/opt/homebrew/bin/flock}"
+
+harness_begin "test runner lock tests" 65
+
+[ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
+    "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
+    "install it with: brew install flock"
 
 TARGET="scripts/run-tests.sh"
 REPO_ROOT_SCRIPTS="$PWD/scripts"
@@ -42,7 +69,7 @@ run_runner() {
     OVATION_FILE_LOCK="$FILE_LOCK" \
     OVATION_LOCK_TIMEOUT="${TIMEOUT_OVERRIDE:-2}" \
     OVATION_LOCK_POLL_INTERVAL="${POLL_OVERRIDE:-0.05}" \
-    OVATION_FLOCK_BIN="${FLOCK_OVERRIDE:-/opt/homebrew/bin/flock}" \
+    OVATION_FLOCK_BIN="${FLOCK_OVERRIDE:-$SUITE_FLOCK}" \
     OVATION_TEST_COMMAND="${1:-true}" \
     OVATION_UNLOCKED_COMMAND="${2:-true}" \
         "./$TARGET" 2>&1
@@ -74,18 +101,17 @@ rmdir "$DIR_LOCK"
 # 4. Overture's lock held: same answer, by the other mechanism. Proving only one
 #    of the two would leave the other arm untested, and it is the arm that uses
 #    the tool Ovation does not own.
-if [ -x "/opt/homebrew/bin/flock" ]; then
     : > "$FILE_LOCK"
     # Held until the test RELEASES it, not for a fixed number of seconds. A
     # timed holder asserts about machine load: too short and it lets go before
     # the test has observed anything, too long and every run pays for it (L290).
     HOLD_SENTINEL="$WORK/hold-1"; : > "$HOLD_SENTINEL"
-    ( /opt/homebrew/bin/flock "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL" ) &
+    ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL" ) &
     HOLDER=$!
     # Wait for the holder to actually HAVE the lock, rather than sleeping and
     # hoping: a fixed wait asserts about machine load, not about the lock (L290).
     waited=0
-    while /opt/homebrew/bin/flock -n "$FILE_LOCK" true 2>/dev/null; do
+    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
         waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
     done
     OUT4="$(run_runner)"; ST4=$?
@@ -95,10 +121,7 @@ if [ -x "/opt/homebrew/bin/flock" ]; then
         "$(mentions "$OUT4" "$FILE_LOCK")" "yes"
     rm -f "$HOLD_SENTINEL"
     wait "$HOLDER" 2>/dev/null || true
-else
-    check "Overture's file lock also stops Ovation running" "skipped-no-flock" "skipped-no-flock"
-    check "and it names that lock too" "skipped-no-flock" "skipped-no-flock"
-fi
+
 
 # 5. THE ORDER IS FIXED, and that is what makes deadlock impossible. Neither
 #    sibling takes two locks, so as long as Ovation always takes them in the same
@@ -181,13 +204,12 @@ rmdir "$DIR_LOCK"
 #     So the second lock is tried WITHOUT blocking, and if it is not free the
 #     first is RELEASED before waiting and retrying. Ovation waits for both,
 #     holds neither while waiting, and still cannot deadlock.
-if [ -x "/opt/homebrew/bin/flock" ]; then
     : > "$FILE_LOCK"
     HOLD_SENTINEL2="$WORK/hold-2"; : > "$HOLD_SENTINEL2"
-    ( /opt/homebrew/bin/flock "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL2" ) &
+    ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL2" ) &
     HOLDER2=$!
     waited=0
-    while /opt/homebrew/bin/flock -n "$FILE_LOCK" true 2>/dev/null; do
+    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
         waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
     done
 
@@ -217,10 +239,7 @@ if [ -x "/opt/homebrew/bin/flock" ]; then
     wait "$RUNNER" 2>/dev/null || true
     check "and neither lock is left behind afterwards" \
         "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
-else
-    check "Downbeat's lock is released between attempts, not held for the whole wait" "skip" "skip"
-    check "and neither lock is left behind afterwards" "skip" "skip"
-fi
+
 
 # ---------------------------------------------------------------------------
 # NO SUITE MAY TAKE A SUITE LEVEL ARGUMENT.
@@ -377,5 +396,261 @@ check "and a suite using \$1 only inside its own functions is not" \
 #    somebody writes the twelfth suite with a parameter.
 check "no suite in this repository takes a suite level argument" \
     "$(positional_readers "$REPO_ROOT_SCRIPTS")" ""
+
+# ---------------------------------------------------------------------------
+# EVERY SHELL SUITE RUNS, AND THE RUN SAYS WHAT EACH ONE ANSWERED (ovation#139).
+#
+# The loop was `"$s" || exit $?`, so the FIRST suite that did not exit 0 ended
+# the whole run. Two suites correctly answer CANNOT MEASURE (exit 2) when there
+# is no compiled product, which is the normal state of a fresh checkout or
+# worktree, and they sort early in the glob. Measured on 2026-09-08 in a fresh
+# worktree: every shell suite passed when invoked on its own, and the runner
+# reported four of them.
+#
+# CANNOT MEASURE is still the right verdict and the run still ends non-zero. What
+# was wrong is that it ended the run, so the twenty six suites after it were
+# never asked, and a stop and a real failure both came out as "non-zero" with the
+# reader left to work out which by looking at where it stopped (L11, L98).
+#
+# THE VERDICTS, and why the locked phase treats two of them differently:
+#   pass          the suite measured and was happy
+#   fail          the suite measured and was not: nothing after it is worth
+#                 running, so this stops the run before xcodebuild, as before
+#   cannot measure the suite proved nothing either way, which is not a reason to
+#                 refuse to measure everything else, so the run CONTINUES and the
+#                 verdict is carried to the end
+#
+# The suite directory is a seam so these cases drive the loop with throwaway
+# suites rather than the thirty three real ones, which would recurse through this
+# very file (L245) and take minutes (L291).
+# Guarded before any rm, as above (L5).
+[ -n "$WORK" ] || exit 1
+SUITES="$WORK/suites"
+mkdir -p "$SUITES"
+
+# Named so the glob order puts the awkward one FIRST, which is what the real
+# defect needed: test-built-bundle-icon.sh sorts fifth of thirty three.
+stage_suite() {
+    printf '#!/bin/bash\necho "RAN-%s"\nexit %s\n' "$1" "$2" > "$SUITES/test-$1.sh"
+    chmod +x "$SUITES/test-$1.sh"
+}
+clear_suites() { rm -f "$SUITES"/test-*.sh; }
+
+shell_run() {
+    OVATION_SHELL_SUITE_DIR="$SUITES" \
+    OVATION_SHELL_SUITE_FLOOR="${1:-}" \
+    OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+    OVATION_TEST_COMMAND="true" \
+    OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+        "$TARGET" 2>&1
+}
+shell_status() { shell_run "${1:-}" >/dev/null 2>&1; printf '%s' "$?"; }
+
+# 11a. A suite that cannot measure does not take the rest of the run with it.
+clear_suites
+stage_suite "a-cannot" 2
+stage_suite "b-pass" 0
+OUT11="$(shell_run)"; ST11=$?
+check "a suite that cannot measure does not stop the ones after it" \
+    "$(printf '%s' "$OUT11" | grep -c 'RAN-b-pass')" "1"
+check "and the run's own verdict is CANNOT MEASURE, not a pass" "$ST11" "2"
+check "and the summary names the suite that could not measure" \
+    "$(printf '%s' "$OUT11" | grep -c 'test-a-cannot.sh')" "1"
+
+# 11b. AND IT DOES NOT STOP THE LOCKED PHASE EITHER. This is the whole cost the
+#      issue was filed about: a change touching only scripts or docs could not
+#      learn whether anything else was green without first building both
+#      configurations.
+check "a suite that cannot measure does not stop the locked phase" \
+    "$(printf '%s' "$OUT11" | grep -c 'Holding both locks')" "1"
+
+# 11c. A FAILURE IS THE OTHER OUTCOME AND KEEPS ITS OLD BEHAVIOUR. Something is
+#      actually broken, so nothing after it is worth the sibling locks.
+clear_suites
+stage_suite "a-fail" 3
+stage_suite "b-pass" 0
+OUT11C="$(shell_run)"; ST11C=$?
+check "a failing suite fails the run with its own status" "$ST11C" "3"
+check "and the summary names the suite that failed" \
+    "$(printf '%s' "$OUT11C" | grep -c 'test-a-fail.sh')" "1"
+check "and a failure still stops the run before the locked phase" \
+    "$(printf '%s' "$OUT11C" | grep -c 'Holding both locks')" "0"
+check "and the suites after a failure are not run" \
+    "$(printf '%s' "$OUT11C" | grep -c 'RAN-b-pass')" "0"
+
+# 11d. All green is still all green.
+clear_suites
+stage_suite "a-pass" 0
+stage_suite "b-pass" 0
+check "with every suite passing the run passes" "$(shell_status)" "0"
+
+# 11e. A FAILURE OUTRANKS A CANNOT MEASURE, and neither hides the other. Two
+#      outcomes reported as one is the thing this issue is about (L11).
+clear_suites
+stage_suite "a-cannot" 2
+stage_suite "b-fail" 4
+OUT11E="$(shell_run)"; ST11E=$?
+check "a failure outranks a cannot measure in the verdict" "$ST11E" "4"
+check "and both are still named, so neither is hidden by the other" \
+    "$(printf '%s' "$OUT11E" | grep -c 'test-a-cannot.sh\|test-b-fail.sh')" "2"
+
+# 11f. THE COUNT OF SUITES IS JUDGED, NOT ONLY THEIR VERDICTS (L288).
+#      `[ -x "$s" ] || continue` skips a suite that lost its executable bit in
+#      silence, and a glob that matches fewer files reads as a full green run.
+#      The floor is what makes a DROP visible, exactly as the pure suite's is.
+clear_suites
+stage_suite "a-pass" 0
+stage_suite "b-pass" 0
+stage_suite "c-pass" 0
+check "a run at the suite floor passes" "$(shell_status 3)" "0"
+chmod -x "$SUITES/test-c-pass.sh"
+OUT11F="$(shell_run 3)"; ST11F=$?
+check "a suite that lost its executable bit is refused, not silently skipped" \
+    "$([ "$ST11F" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+check "and it names the count it ran against the floor" \
+    "$(printf '%s' "$OUT11F" | grep -c '2 .*3')" "1"
+
+# 11g. The floor is a real committed number, not only a seam (L96). It is NOT
+#      compared against the real suite count here: the runner does exactly that
+#      on every run, and a second copy of the number would be a place for the two
+#      to disagree (L41).
+check "the committed shell suite floor is a positive integer" \
+    "$(grep -cE '^[1-9][0-9]*$' "$PWD/scripts/shell-suite-floor.txt")" "1"
+
+# 11h. An injected suite directory with no floor says the count check was
+#      skipped, rather than passing quietly, the same way the pure one does
+#      (L98, L320).
+clear_suites
+stage_suite "a-pass" 0
+check "an injected suite directory with no floor announces the skip" \
+    "$(shell_run | grep -c 'Shell suite count check skipped')" "1"
+
+# ---------------------------------------------------------------------------
+# EVERY SEAM THE RUNNER HONOURS IS CLEARED BY THIS SUITE, not just the one that
+# was caught being inherited.
+#
+# The seams are environment variables, so anything set in the shell that
+# launched this suite is inherited by every runner spawned below and silently
+# answers for them (L169, L439). OVATION_TEST_FLOOR was unset at the top for
+# exactly that reason, discovered when exporting it made six cases fail.
+#
+# It happened again the moment the runner grew two more seams (ovation#139).
+# Running this suite THROUGH the runner, with the pure and hosted commands
+# injected on the outer run, made the case that asserts the hosted skip fail:
+# its inner runner inherited a hosted command it was never given. A suite that
+# sets some of a script's seams runs every unset one for real, and the real ones
+# are the slow and the dangerous ones (L284).
+#
+# So the rule is the whole list rather than the instance (L30): every OVATION_
+# name the runner reads is cleared here, and each helper sets back only what its
+# own case needs. This assertion is what keeps the two in step when the next seam
+# is added, since a seam nobody clears fails in exactly the runs that inherit it.
+seams_honoured() {
+    grep -oE 'OVATION_[A-Z_]+' "$TARGET" | sort -u
+}
+# Read from the unset STATEMENT, continuation lines and all, rather than from
+# the whole file: every seam name necessarily appears elsewhere in here, in the
+# helper that sets it, so a whole file search would answer yes to everything and
+# the guard would pass while clearing nothing (L135, L245).
+cleared_seams() {
+    awk '/^unset /{p=1} p{print; if ($0 !~ /\\$/) exit}' scripts/test-run-tests.sh
+}
+seams_not_cleared() {
+    local seam missing="" cleared
+    cleared="$(cleared_seams)"
+    while read -r seam; do
+        printf '%s' "$cleared" | grep -qE "(^|[[:space:]])${seam}([[:space:]]|$)" \
+            || missing="${missing}${seam} "
+    done < <(seams_honoured)
+    printf '%s' "${missing% }"
+}
+check "every seam the runner honours is cleared by this suite" \
+    "$(seams_not_cleared)" ""
+
+# ---------------------------------------------------------------------------
+# THE XCODE PHASE CAN BE SKIPPED WHEN THE PUSH CANNOT HAVE CHANGED IT
+# (ovation#22).
+#
+# Measured twice on 2026-09-05, four minutes each time: a push ran the hook, ran
+# this runner, and waited on Overture's lock while a real Overture suite ran.
+# Overture runs its suite constantly, so that is the normal case rather than bad
+# luck, and most pushes in this phase change only documentation or shell scripts,
+# which no xcodebuild run can be affected by.
+#
+# The DECISION is the hook's, because only the hook knows the pushed range. This
+# is the seam it acts through, and the run says which of the two it did, because
+# a run that skipped the Xcode suite must never look like one that passed it
+# (L98, L11).
+skip_run() {
+    OVATION_SHELL_SUITE_DIR="$SUITES" \
+    OVATION_SKIP_XCODE_PHASE="${1}" \
+    OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+    OVATION_TEST_COMMAND="echo THE-XCODE-PHASE-RAN" \
+    OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+        "$TARGET" 2>&1
+}
+clear_suites
+stage_suite "a-pass" 0
+OUT22A="$(skip_run 1)"; ST22A=$?
+check "with the skip set the xcode phase does not run" \
+    "$(printf '%s' "$OUT22A" | grep -c 'THE-XCODE-PHASE-RAN')" "0"
+check "and the sibling locks are never taken for it" \
+    "$(printf '%s' "$OUT22A" | grep -c 'Holding both locks')" "0"
+check "and the shell suites still ran" \
+    "$(printf '%s' "$OUT22A" | grep -c 'RAN-a-pass')" "1"
+check "and the run says it skipped rather than reporting a full pass" \
+    "$(printf '%s' "$OUT22A" | grep -c 'Xcode phase SKIPPED')" "1"
+check "and it still passes" "$ST22A" "0"
+
+# A FAILING SHELL SUITE STILL FAILS. The skip is about the locked phase only, and
+# a skip that also swallowed the cheap checks would be the gate switching itself
+# off on the pushes it is cheapest to check.
+clear_suites
+stage_suite "a-fail" 5
+check "a failing shell suite still fails a skipped run" \
+    "$(skip_run 1 >/dev/null 2>&1; printf '%s' "$?")" "5"
+
+clear_suites
+stage_suite "a-pass" 0
+check "without the skip the xcode phase runs as before" \
+    "$(skip_run "" | grep -c 'THE-XCODE-PHASE-RAN')" "1"
+
+# ---------------------------------------------------------------------------
+# THE WAIT SAYS WHO IS HOLDING THE LOCK AND HOW LONG IT WILL WAIT (ovation#22).
+#
+# It printed the two lock paths and nothing else, so a person watching a push sit
+# there had no way to tell a busy sibling from a stuck lock, and a wait that
+# cannot be told apart from a hang is the worse of the two (L110). The holder is
+# knowable: Downbeat's lock directory carries an owner file, which Ovation writes
+# itself, and Overture's file lock can be attributed by asking which process
+# holds it.
+clear_suites
+stage_suite "a-pass" 0
+mkdir -p "$DIR_LOCK"
+printf 'downbeat:12345\n' > "$DIR_LOCK/owner"
+OUT22W="$(TIMEOUT_OVERRIDE=1 run_runner)"
+check "the wait names who holds the directory lock" \
+    "$(printf '%s' "$OUT22W" | grep -c 'downbeat:12345')" "1"
+check "and it says how long it will wait before giving up" \
+    "$(printf '%s' "$OUT22W" | grep -cE 'up to [0-9]+ ?s')" "1"
+rm -rf "$DIR_LOCK"
+
+# THE DEADLINE IS REAL TIME, NOT A COUNT OF POLLS. It was `elapsed=elapsed+1`
+# against a timeout in seconds, so the two were the same number only while the
+# poll interval happened to be one second: at the interval these cases use, the
+# runner gave up twenty times sooner than it said it would (L226).
+#
+# A LOWER BOUND ONLY. Asserting how long it took would be a measurement of what
+# else this machine is running; asserting it waited at least as long as it said
+# it would is a claim about the code (L224).
+mkdir -p "$DIR_LOCK"
+WAIT_FROM="$(date +%s)"
+TIMEOUT_OVERRIDE=2 POLL_OVERRIDE=0.05 run_runner >/dev/null 2>&1
+WAITED=$(( $(date +%s) - WAIT_FROM ))
+check "it waits for the time it announced, not for a number of polls" \
+    "$([ "$WAITED" -ge 2 ] && echo waited || echo "gave-up-after-${WAITED}s")" "waited"
+rm -rf "$DIR_LOCK"
 
 harness_end

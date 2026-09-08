@@ -53,7 +53,13 @@ done
 
 echo "Building ${CONFIGURATIONS// / and } under the sibling test locks."
 
-OVATION_UNLOCKED_COMMAND=true OVATION_TEST_COMMAND="$INNER" "$RUNNER"
+# THE SKIP SEAM IS CLEARED, NOT INHERITED (ovation#22). It tells the runner not
+# to do the xcodebuild work, which is exactly the work this script exists to do,
+# and it is an environment variable, so anything running under a shell that has
+# it set would get a script reporting both configurations built while building
+# neither (L169, L439).
+OVATION_UNLOCKED_COMMAND=true OVATION_TEST_COMMAND="$INNER" \
+    env -u OVATION_SKIP_XCODE_PHASE "$RUNNER"
 STATUS=$?
 
 # JUDGED BY THE EXIT CODE, never by a line of output (L184). A non zero status

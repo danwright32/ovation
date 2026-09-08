@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ported artifact check tests" 30
+harness_begin "ported artifact check tests" 35
 
 TARGET="scripts/check-ported-artifacts.sh"
 require_target "$TARGET"
@@ -198,9 +198,41 @@ check "and a tree holding only such prose reports no artifacts, not a failure" \
 #     against the real siblings, through the real default search roots, which no
 #     other case can reach.
 OUT10="$(OVATION_PORT_SCAN_ROOT="$PWD" "./$TARGET" 2>&1)"; ST10=$?
-check "scanning Ovation itself verifies its real ports against the real siblings" \
+
+# A MACHINE WITHOUT THE SIBLINGS CANNOT ANSWER THIS, AND MUST NOT REPORT RED.
+#
+# These two cases and case 11 are the only ones that use the real default search
+# roots, which is their whole point, and that makes them the only ones that need
+# the sibling checkouts to actually be on the disk. A fresh clone, Dan's second
+# Mac and a CI runner have none, and a failure there is indistinguishable from a
+# genuinely stale port (L411). Found by the first CI run this repository ever had
+# (ovation#143): four red assertions about ports that are perfectly fine.
+#
+# THE LIMIT, SAID RATHER THAN LEFT TO BE FOUND: the signal is the check's own
+# report, so a check that wrongly believed the siblings were missing would turn
+# these into skips rather than failures. Case 3 above stages that path against a
+# root of its own and is what keeps it honest, and on the machine that has the
+# siblings, which is the one these cases were written for, they run at full
+# strength.
+SIBLINGS_HERE=yes
+if printf '%s' "$OUT10" | grep -q "is not on this machine"; then
+    SIBLINGS_HERE=no
+    echo "UNMEASURABLE HERE: the sibling checkouts are not on this machine, so the"
+    echo "    cases that verify the real ports against them are not being run."
+fi
+# Said out loud above and counted the same either way, so the suite's own count
+# cannot silently shrink on a machine that skips them (L288).
+check_with_siblings() {
+    if [ "$SIBLINGS_HERE" = yes ]; then
+        check "$1" "$2" "$3"
+    else
+        check "$1 (not run: no sibling checkouts here)" "unmeasurable" "unmeasurable"
+    fi
+}
+
+check_with_siblings "scanning Ovation itself verifies its real ports against the real siblings" \
     "$ST10" "0"
-check "and project.yml is one of them, reported OK" \
+check_with_siblings "and project.yml is one of them, reported OK" \
     "$(printf '%s' "$OUT10" | grep -c '^OK: project.yml')" "1"
 check "and it still does not match its own marker" \
     "$(printf '%s' "$OUT10" | grep -c "UNREADABLE HEADER")" "0"
@@ -226,10 +258,49 @@ check "and it does not report the repository as empty now that a port exists" \
 # environment: not merely that it passes, but that it says the same thing.
 OUT11="$(GIT_DIR="$PWD/.git" GIT_WORK_TREE="$PWD" \
     OVATION_PORT_SCAN_ROOT="$PWD" "./$TARGET" 2>&1)"; ST11=$?
-check "an inherited GIT_DIR does not stop the siblings being resolved" "$ST11" "0"
+check_with_siblings "an inherited GIT_DIR does not stop the siblings being resolved" "$ST11" "0"
+# This one is a comparison of two runs on the SAME machine, so it holds whether
+# or not the siblings are here: both sides move together.
 check "and the verdict is the same one a clean environment reaches" \
     "$(printf '%s' "$OUT11" | tail -1)" "$(printf '%s' "$OUT10" | tail -1)"
-check "and nothing is reported as missing from a machine it is on" \
+check_with_siblings "and nothing is reported as missing from a machine it is on" \
     "$(printf '%s' "$OUT11" | grep -c "is not on this machine")" "0"
+
+# ---------------------------------------------------------------------------
+# TWO KINDS OF CANNOT MEASURE, THE SAME SPLIT THE GATE NOW READS (ovation#135).
+#
+# A sibling repository that is NOT ON THIS MACHINE is a question nothing here
+# could ever have answered: a fresh clone, Dan's second Mac and a CI runner are
+# all in that state, and the gate lets them push while naming what went
+# unchecked. A sibling that IS here and cannot answer, because it holds no main
+# to compare against or does not contain the commit, is a fault on this machine,
+# and the gate refuses.
+#
+# They were one code, so either every machine without the siblings was refused or
+# a genuinely broken sibling was waved through. There is no third position while
+# the two share a verdict (L11, L260).
+ABSENT_COMMIT="0123456789abcdef0123456789abcdef01234567"
+
+T20="$(new_tree 20)"
+port_header "danwright32/nosuchrepo" "scripts/x.sh" "$ON_MAIN" > "$T20/ported.sh"
+OUT20="$(run_check "$T20")"; ST20=$?
+check "a sibling that is not on this machine is the never equipped outcome" "$ST20" "2"
+
+T21="$(new_tree 21)"
+port_header "danwright32/downbeat" "scripts/x.sh" "$ABSENT_COMMIT" > "$T21/ported.sh"
+OUT21="$(run_check "$T21")"; ST21=$?
+check "a sibling that IS here and does not hold the commit is the other outcome" "$ST21" "4"
+check "and it says the sibling was present, so the fault is here" \
+    "$(printf '%s' "$OUT21" | grep -c 'COMMIT NOT FOUND')" "1"
+
+# BOTH AT ONCE: the refusing one wins, because a run that must be refused cannot
+# be softened by an unrelated question nothing could answer.
+T22="$(new_tree 22)"
+port_header "danwright32/nosuchrepo" "scripts/x.sh" "$ON_MAIN" > "$T22/absent.sh"
+port_header "danwright32/downbeat" "scripts/x.sh" "$ABSENT_COMMIT" > "$T22/broken.sh"
+OUT22="$(run_check "$T22")"; ST22=$?
+check "a run holding both outcomes reports the one that refuses" "$ST22" "4"
+check "and the summary counts them separately rather than as one number" \
+    "$(printf '%s' "$OUT22" | grep -cE '1 not on this machine.*1 unmeasurable|1 unmeasurable.*1 not on this machine')" "1"
 
 harness_end
