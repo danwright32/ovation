@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 27
+harness_begin "git hooks tests" 39
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -142,11 +142,23 @@ check "the escape hatch is stripped before the hook is measured" \
 # Measured on 2026-09-08: pushing a worktree branch was refused for a fault that
 # existed only in the primary checkout, and the fix for that fault was already
 # committed ON the branch being refused.
+# EVERY CHECK THE GATE NAMES GETS A PASSING STUB, derived from the hook itself
+# rather than listed here, so a check added to the gate tomorrow is staged by
+# these cases without anybody remembering to (L41, L96). The gate refuses a name
+# it cannot find, which is what makes that derivation load bearing rather than
+# convenient.
+gate_check_names() { grep -oE '^gate_check +check-[a-z-]+\.(sh|py)' "$REPO_ROOT/$HOOK" | awk '{print $2}'; }
+
 stage_tree() {
     local r="$WORK/$1"; rm -rf "$r"; mkdir -p "$r/scripts/git-hooks"
     ( cd "$r" && git init -q -b main && git config user.email t@t && git config user.name t ) >/dev/null 2>&1
     printf '#!/bin/bash\necho "SUITE-FROM-%s"\nexit %s\n' "$1" "$2" > "$r/scripts/run-tests.sh"
     chmod +x "$r/scripts/run-tests.sh"
+    local c
+    for c in $(gate_check_names); do
+        printf '#!/bin/bash\nexit 0\n' > "$r/scripts/$c"
+        chmod +x "$r/scripts/$c"
+    done
     cp "$REPO_ROOT/$HOOK" "$r/scripts/git-hooks/pre-push"
     printf '%s' "$r"
 }
@@ -239,5 +251,77 @@ R138D="$(fresh_repo foreign)"
 OUT138D="$( cd "$R138D" && bash scripts/install-git-hooks.sh 2>&1 )"; ST138D=$?
 check "an absolute path to somebody else's hooks is still refused" \
     "$([ "$ST138D" -ne 0 ] && echo refused || echo taken-over)" "refused"
+
+# ---------------------------------------------------------------------------
+# THE GATE READS EXIT CODES, NOT TRUTHINESS (ovation#135).
+#
+# Every check was `if ! script; then echo <one sentence>; exit 1; fi`, so a check
+# that went to real trouble to keep three outcomes apart had two of them
+# collapsed into the single sentence that sends somebody hunting for a leak that
+# is not there. Worse, it meant NOBODY BUT THIS MAC COULD PUSH: the identity
+# guard derives its needles from sources outside the repository, so a fresh
+# clone, Dan's second machine and a CI runner were each told the tree was
+# contaminated (L11, L148, L36).
+#
+# DAN'S DECISION, 2026-09-08: refuse only when the machine SHOULD have been able
+# to measure. So the codes carry that, and one function applies it to every check
+# rather than ten copies of the same case statement drifting apart (L30, L613).
+#
+#   0  passed
+#   2  could not measure, and nothing here ever could have: allowed, and said
+#   4  could not measure, and this machine had what it needed: refused
+#   anything else: refused, with that check's own sentence
+add_check() {
+    printf '#!/bin/bash\necho "CHECK-%s-RAN"\nexit %s\n' "$2" "$3" > "$1/scripts/$2"
+    chmod +x "$1/scripts/$2"
+}
+
+G1="$(stage_tree gate1 0)"; add_check "$G1" "check-identity-leaks.sh" 1
+OUT135A="$(hook_from_tree_in "$G1" "$G1")"; ST135A=$?
+check "a check that found a fault refuses the push" \
+    "$([ "$ST135A" -ne 0 ] && echo refused || echo allowed)" "refused"
+check "and it says a real identity is in the tree, which is what code 1 means" \
+    "$(printf '%s' "$OUT135A" | grep -ci 'identity appears')" "1"
+
+G2="$(stage_tree gate2 0)"; add_check "$G2" "check-identity-leaks.sh" 2
+OUT135B="$(hook_from_tree_in "$G2" "$G2")"; ST135B=$?
+check "a check nothing on this machine could answer does not refuse the push" \
+    "$([ "$ST135B" -ne 0 ] && echo refused || echo allowed)" "allowed"
+# The closing line, not just any mention: the notice that matters scrolls past
+# several minutes of suite output, and the last line is the one that gets read.
+check "and the closing line names the check that went unmeasured" \
+    "$(printf '%s' "$OUT135B" | grep -c 'unmeasured on this machine: check-identity-leaks')" "1"
+check "and it does NOT accuse the tree of holding a real identity" \
+    "$(printf '%s' "$OUT135B" | grep -ci 'identity appears')" "0"
+
+G3="$(stage_tree gate3 0)"; add_check "$G3" "check-identity-leaks.sh" 4
+OUT135C="$(hook_from_tree_in "$G3" "$G3")"; ST135C=$?
+check "a check that should have been able to measure and could not refuses" \
+    "$([ "$ST135C" -ne 0 ] && echo refused || echo allowed)" "refused"
+check "and it says the fault is on this machine, not in the tree" \
+    "$(printf '%s' "$OUT135C" | grep -ci 'machine')" "1"
+
+# THE SUITE ITSELF ANSWERS THE SAME WAY NOW (ovation#139). run-tests.sh returns 2
+# when every suite that could run passed and at least one could not, which on a
+# tree with no built product is the two bundle suites. Refusing there would mean
+# no push at all until both configurations are built, which is the cost that
+# issue was filed about.
+G4="$(stage_tree gate4 2)"
+OUT135D="$(hook_from_tree_in "$G4" "$G4")"; ST135D=$?
+check "a suite that could not measure does not refuse the push" \
+    "$([ "$ST135D" -ne 0 ] && echo refused || echo allowed)" "allowed"
+check "and the gate does not call that run green" \
+    "$(printf '%s' "$OUT135D" | grep -ci 'suite is green')" "0"
+check "and it says the suite itself is what went unmeasured" \
+    "$(printf '%s' "$OUT135D" | grep -c 'unmeasured on this machine: the test suite')" "1"
+
+# SEEN TO FAIL (L1). The refusal above is the whole reason the stub staging is
+# derived from the hook, so it has to be shown firing rather than assumed.
+G5="$(stage_tree gate5 0)"; rm -f "$G5/scripts/check-identity-leaks.sh"
+OUT135E="$(hook_from_tree_in "$G5" "$G5")"; ST135E=$?
+check "a check the gate names and the tree does not hold refuses the push" \
+    "$([ "$ST135E" -ne 0 ] && echo refused || echo allowed)" "refused"
+check "and it names the check it could not find" \
+    "$(printf '%s' "$OUT135E" | grep -c 'check-identity-leaks.sh is named by this gate')" "1"
 
 harness_end

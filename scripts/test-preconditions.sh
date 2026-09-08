@@ -134,7 +134,13 @@ check "every role used is one this file defines" \
         | tr '\n' ' ' | sed 's/ $//')" ""
 
 # THE PARTITION ITSELF, now over the roles rather than over a filename pattern.
-gate_runs() { grep -oE 'check-[a-z-]+\.(sh|py)' scripts/git-hooks/pre-push | sort -u; }
+# READ FROM THE gate_check CALLS, which are now the one form a check is run in
+# (ovation#135). It used to grep the whole file for anything shaped like a check
+# script name, which also matched a check merely MENTIONED in a comment: a note
+# explaining why something is NOT run by the gate would have counted as it being
+# run (L103, L135). The call is the thing that runs it, so the call is what is
+# read.
+gate_runs() { grep -oE '^gate_check +check-[a-z-]+\.(sh|py)' scripts/git-hooks/pre-push | awk '{print $2}' | sort -u; }
 pre_runs() { grep -oE 'check-[a-z-]+\.(sh|py)' "$TARGET" | grep -v 'check-preconditions' | sort -u; }
 # One gated script is a BRACKET rather than a question: check-live-data-untouched.sh
 # snapshots before a test run and compares after, so scripts/run-tests.sh holds

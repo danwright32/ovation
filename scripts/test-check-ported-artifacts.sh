@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ported artifact check tests" 30
+harness_begin "ported artifact check tests" 35
 
 TARGET="scripts/check-ported-artifacts.sh"
 require_target "$TARGET"
@@ -231,5 +231,42 @@ check "and the verdict is the same one a clean environment reaches" \
     "$(printf '%s' "$OUT11" | tail -1)" "$(printf '%s' "$OUT10" | tail -1)"
 check "and nothing is reported as missing from a machine it is on" \
     "$(printf '%s' "$OUT11" | grep -c "is not on this machine")" "0"
+
+# ---------------------------------------------------------------------------
+# TWO KINDS OF CANNOT MEASURE, THE SAME SPLIT THE GATE NOW READS (ovation#135).
+#
+# A sibling repository that is NOT ON THIS MACHINE is a question nothing here
+# could ever have answered: a fresh clone, Dan's second Mac and a CI runner are
+# all in that state, and the gate lets them push while naming what went
+# unchecked. A sibling that IS here and cannot answer, because it holds no main
+# to compare against or does not contain the commit, is a fault on this machine,
+# and the gate refuses.
+#
+# They were one code, so either every machine without the siblings was refused or
+# a genuinely broken sibling was waved through. There is no third position while
+# the two share a verdict (L11, L260).
+ABSENT_COMMIT="0123456789abcdef0123456789abcdef01234567"
+
+T20="$(new_tree 20)"
+port_header "danwright32/nosuchrepo" "scripts/x.sh" "$ON_MAIN" > "$T20/ported.sh"
+OUT20="$(run_check "$T20")"; ST20=$?
+check "a sibling that is not on this machine is the never equipped outcome" "$ST20" "2"
+
+T21="$(new_tree 21)"
+port_header "danwright32/downbeat" "scripts/x.sh" "$ABSENT_COMMIT" > "$T21/ported.sh"
+OUT21="$(run_check "$T21")"; ST21=$?
+check "a sibling that IS here and does not hold the commit is the other outcome" "$ST21" "4"
+check "and it says the sibling was present, so the fault is here" \
+    "$(printf '%s' "$OUT21" | grep -c 'COMMIT NOT FOUND')" "1"
+
+# BOTH AT ONCE: the refusing one wins, because a run that must be refused cannot
+# be softened by an unrelated question nothing could answer.
+T22="$(new_tree 22)"
+port_header "danwright32/nosuchrepo" "scripts/x.sh" "$ON_MAIN" > "$T22/absent.sh"
+port_header "danwright32/downbeat" "scripts/x.sh" "$ABSENT_COMMIT" > "$T22/broken.sh"
+OUT22="$(run_check "$T22")"; ST22=$?
+check "a run holding both outcomes reports the one that refuses" "$ST22" "4"
+check "and the summary counts them separately rather than as one number" \
+    "$(printf '%s' "$OUT22" | grep -cE '1 not on this machine.*1 unmeasurable|1 unmeasurable.*1 not on this machine')" "1"
 
 harness_end

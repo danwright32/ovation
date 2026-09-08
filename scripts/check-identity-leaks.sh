@@ -157,15 +157,47 @@ def main():
     elif os.environ.get("OVATION_GUARD_CUSTODY_DIR"):
         pass  # a deliberately absent custody dir in a test is not a problem
 
-    if not os.path.exists(EXPORT) and not needles:
+    # TWO KINDS OF CANNOT MEASURE, AND THEY ARE NOT THE SAME EVENT (ovation#135).
+    #
+    # Both sources live OUTSIDE the repository. A machine that has NEITHER, a
+    # fresh clone, a second Mac, a CI runner, cannot answer this and never could.
+    # A machine that HAS one and cannot read it has something wrong with it.
+    # Those were one outcome, and the gate turned both into "a real identity
+    # appears in the tree. Push refused.", which is a refusal nobody can act on
+    # and the shape that teaches people to reach for an override (L11, L148).
+    #
+    # 2 says nothing here could ever have answered, and a gate may allow the push
+    # while naming what went unchecked. 4 says this machine had what it needed
+    # and the answer still could not be got, which a gate refuses. Each has its
+    # own sentence, because two outcomes given one wording are one outcome
+    # however different their exit codes are (L260).
+    export_present = os.path.exists(EXPORT)
+    custody_present = os.path.isdir(CUSTODY)
+
+    if not export_present and not custody_present:
+        print("CANNOT MEASURE: no needle source exists on this machine.")
+        print("    the live export is not at: " + EXPORT)
+        print("    the custody directory is not at: " + CUSTODY)
+        print("    Nothing was verified, and nothing here ever could have been.")
+        print("    This machine never held the sources, so this is not evidence")
+        print("    of a clean tree and not a fault in the tree either.")
+        return 2
+
+    # An absent live export on a machine that HOLDS custody data is this second
+    # case, not the first. Until now it passed: the needles came from custody
+    # alone and a smaller population found nothing, which is what a clean tree
+    # looks like (L98).
+    if not export_present:
         problems.append("the live export is not at the configured path")
 
     if problems:
-        print("CANNOT MEASURE: a needle source could not be read.")
+        print("CANNOT MEASURE: a needle source is present here and could not be read.")
         for p in problems:
             print("    " + p)
-        print("    Nothing was verified. This is not a pass.")
-        return 2
+        print("    Nothing was verified. The sources are on this machine, so this")
+        print("    is a fault here rather than a machine that never had them.")
+        print("    This is not a pass.")
+        return 4
 
     dropped = sorted(n for n in needles if n.strip().lower() in PLACEHOLDERS)
     needles = {n for n in needles if n.strip().lower() not in PLACEHOLDERS}
