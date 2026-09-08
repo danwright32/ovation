@@ -1,0 +1,102 @@
+name: CI
+
+# ovation#143. Until this existed, the pre push hook was the only thing that
+# checked anything, and it only runs on a machine where scripts/install-git-hooks.sh
+# has been run. Nothing checked a push from anywhere else, and nothing checked the
+# branch after it landed.
+#
+# WHY macOS FOR BOTH JOBS, and what has to be re-measured before that stops being
+# right. Standard GitHub hosted runners, macOS included, are free and unlimited on
+# a PUBLIC repository, and this repository is public on purpose. The ten times
+# multiplier everyone quotes applies to billed minutes, which start the day
+# ovation#15 makes it private. So the premise here is not "macOS is free", it is
+# "this repository is public", and it can be re-measured in one command:
+#
+#     gh repo view --json visibility
+#
+# The day that answers private, this file is the thing to look at: the shell
+# suites need no Xcode and would run on Linux for nothing, and moving them is
+# untested rather than impossible.
+#
+# THE ONE MACHINE PROBLEM THIS SOLVES. scripts/build-products.sh exists because
+# Dan decided on 2026-09-06 that CI BUILDS BOTH configurations: skipping the
+# build dependent suites here would leave the shipping build's bundle assertions
+# running on exactly one machine, and those are the assertions that caught a real
+# security defect in ovation#9.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A second push supersedes the first. Nothing downstream reads a cancelled run,
+# and on a shared runner pool a superseded run delays every other repository's.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The cheap half, on its own, because it answers in a couple of minutes and it
+  # can fail alone. A job whose isolation does no work is not worth its own
+  # minute; this one gates nothing the other job does not, and it tells you which
+  # half is broken without waiting for a build (L310).
+  shell-suites:
+    name: Shell suites
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Run every shell suite
+        run: |
+          set +e
+          OVATION_SKIP_XCODE_PHASE=1 bash scripts/run-tests.sh
+          status=$?
+          set -e
+          case "$status" in
+            0) ;;
+            # CANNOT MEASURE. A runner has no built product, no sibling
+            # checkouts and no custody data, so some suites can prove nothing
+            # either way here and never could. That is the same policy the push
+            # gate applies (ovation#135): allowed, and NAMED, never called green.
+            2) echo "::warning::Some shell suites could not measure on this runner. See the log for which." ;;
+            *) exit $status ;;
+          esac
+
+  # The half Dan's decision is about.
+  build-and-test:
+    name: Build both configurations and run everything
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # The runner needs the tool Ovation inherits from Overture's lock. It is
+      # installed rather than worked around, so this runs the same run-tests.sh
+      # Dan's machine does: a CI only branch through the runner would mean the
+      # thing being tested here is not the thing that gates a push (L380).
+      - name: Install flock
+        run: brew install flock
+
+      # An unattended keychain, whose password this invents. It is not a secret:
+      # it protects a self signed throwaway identity on an ephemeral machine, and
+      # the identity exists so the built bundles carry the SAME code identity the
+      # bundle assertions were written against.
+      - name: Create the signing identity
+        env:
+          OVATION_SIGNING_KEYCHAIN: ${{ runner.temp }}/ovation-ci.keychain-db
+          OVATION_SIGNING_KEYCHAIN_PASSWORD: ovation-ci-throwaway
+        run: bash scripts/setup-signing.sh
+
+      # The command from scripts/build-products.sh's own header, unchanged. A
+      # workflow that rewrote it would be a second definition of the decision.
+      - name: Build both, then run everything
+        run: |
+          set +e
+          bash scripts/build-products.sh && bash scripts/run-tests.sh
+          status=$?
+          set -e
+          case "$status" in
+            0) ;;
+            2) echo "::warning::Something could not be measured on this runner. See the log for which." ;;
+            *) exit $status ;;
+          esac

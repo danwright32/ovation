@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "setup-signing tests" 18
+harness_begin "setup-signing tests" 27
 
 TARGET="scripts/setup-signing.sh"
 require_target "$TARGET"
@@ -181,5 +181,57 @@ printf '  1) ABC "Ovation Local Signing"\n     1 valid identities found\n' > "$W
 OUT_EXISTS="$(run_target)"
 check "an existing identity still explains what to do if builds are prompting" \
     "$(printf '%s' "$OUT_EXISTS" | grep -ci "Always Allow")" "1"
+
+# ---------------------------------------------------------------------------
+# AN UNATTENDED KEYCHAIN, FOR A MACHINE WITH NOBODY AT IT (ovation#143).
+#
+# CI builds both configurations, decided by Dan on 2026-09-06, because otherwise
+# the shipping build's bundle assertions run on exactly one machine and those are
+# the assertions that caught a real security defect in ovation#9. A build needs
+# this identity, and every interactive step here is interactive because it acts
+# on Dan's LOGIN keychain: the partition list is what raises the password prompt.
+#
+# A throwaway keychain whose password this script invents has no such problem, so
+# the two differ in exactly one place. The seams are the difference, and the
+# DEFAULT is unchanged: with no keychain given it is the login keychain and no
+# password is ever put on a command line, which is the property the comment
+# beside that call exists to protect.
+reset_calls
+: > "$WORK/identities"
+CI_KEYCHAIN="$WORK/ovation-ci.keychain-db"
+run_target_ci() {
+    OVATION_SECURITY_BIN="$WORK/security" OVATION_OPENSSL_BIN="$WORK/openssl" \
+    OVATION_SIGNING_KEYCHAIN="$CI_KEYCHAIN" \
+    OVATION_SIGNING_KEYCHAIN_PASSWORD="throwaway" \
+        "./$TARGET" 2>&1
+}
+OUT20="$(run_target_ci)"; ST20=$?
+check "an unattended run succeeds" "$ST20" "0"
+check "and it creates the keychain it was given" \
+    "$(calls_matching "$WORK/security-calls" "create-keychain")" "1"
+check "and unlocks it, because a locked keychain cannot be imported into" \
+    "$(calls_matching "$WORK/security-calls" "unlock-keychain")" "1"
+# The list is READ before it is SET, so the assertion is on the setting call:
+# counting every mention would pass on a run that only looked.
+check "and puts it on the search list, or codesign will not find the identity" \
+    "$(calls_matching "$WORK/security-calls" "list-keychains -d user -s")" "1"
+check "and it imports into that keychain rather than the login one" \
+    "$(calls_matching "$WORK/security-calls" "import.*ovation-ci")" "1"
+check "and the partition list is set with the password it invented" \
+    "$(calls_matching "$WORK/security-calls" "set-key-partition-list.*-k throwaway")" "1"
+check "and the login keychain is never touched" \
+    "$(calls_matching "$WORK/security-calls" "login.keychain")" "0"
+
+# THE DEFAULT IS UNCHANGED, and this is the assertion that keeps it that way.
+# `-k <password>` on Dan's login keychain would put it in the process table, the
+# shell history and any transcript, which is why that call deliberately has no
+# password and lets macOS ask him directly.
+reset_calls
+: > "$WORK/identities"
+run_target >/dev/null 2>&1
+check "with no keychain given, no keychain is created" \
+    "$(calls_matching "$WORK/security-calls" "create-keychain")" "0"
+check "and no password is ever put on the partition list command line" \
+    "$(calls_matching "$WORK/security-calls" "set-key-partition-list.*-k ")" "0"
 
 harness_end

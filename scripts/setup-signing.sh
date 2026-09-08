@@ -47,6 +47,20 @@ set -euo pipefail
 
 IDENTITY="Ovation Local Signing"
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+
+# AN UNATTENDED RUN, FOR A MACHINE WITH NOBODY AT IT (ovation#143).
+#
+# CI builds both configurations, decided by Dan on 2026-09-06, and a build needs
+# this identity. Every interactive step below is interactive because it acts on
+# Dan's LOGIN keychain: the partition list is what raises the password prompt.
+# A throwaway keychain whose password this script invents has no such problem.
+#
+# THE DEFAULT IS UNCHANGED. With no keychain given this is the login keychain and
+# NO PASSWORD IS EVER PUT ON A COMMAND LINE, which is the property the comment
+# beside set-key-partition-list exists to protect, and the suite asserts both
+# halves so the CI branch cannot quietly become the ordinary one.
+KEYCHAIN="${OVATION_SIGNING_KEYCHAIN:-$LOGIN_KEYCHAIN}"
+KEYCHAIN_PASSWORD="${OVATION_SIGNING_KEYCHAIN_PASSWORD:-}"
 SECURITY="${OVATION_SECURITY_BIN:-/usr/bin/security}"
 OPENSSL="${OVATION_OPENSSL_BIN:-openssl}"
 
@@ -74,6 +88,24 @@ if identity_exists; then
   echo "    use this key. Answer 'Always Allow', NOT 'Allow': Allow grants it once"
   echo "    and it returns on every subsequent build."
   exit 0
+fi
+
+# A keychain given by name is one this script owns, so it makes it, unlocks it
+# and puts it on the search list. Unlocking is not optional: an import into a
+# locked keychain raises the dialog there is nobody to answer, and a search list
+# it is not on means codesign cannot find the identity that was just created,
+# which fails much later and reads as a signing problem rather than a setup one.
+if [ -n "$KEYCHAIN_PASSWORD" ]; then
+  echo "==> Preparing an unattended keychain: $KEYCHAIN"
+  if [ ! -f "$KEYCHAIN" ]; then
+    "$SECURITY" create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+  fi
+  # No auto lock and no lock on sleep: a build that takes longer than the
+  # default timeout would otherwise meet a locked keychain part way through.
+  "$SECURITY" set-keychain-settings -lut 21600 "$KEYCHAIN" >/dev/null 2>&1 || true
+  "$SECURITY" unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+  "$SECURITY" list-keychains -d user -s "$KEYCHAIN" \
+    $("$SECURITY" list-keychains -d user 2>/dev/null | tr -d '"' | tr '\n' ' ') >/dev/null 2>&1 || true
 fi
 
 echo "==> Creating self signed code signing certificate: $IDENTITY"
@@ -115,7 +147,7 @@ CNF
   -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
   -out "$TMP/identity.p12" -passout pass:ovation -name "$IDENTITY" >/dev/null 2>&1
 
-"$SECURITY" import "$TMP/identity.p12" -k "$LOGIN_KEYCHAIN" -P ovation \
+"$SECURITY" import "$TMP/identity.p12" -k "$KEYCHAIN" -P ovation \
   -T /usr/bin/codesign -A >/dev/null
 
 # THE PARTITION LIST, WHICH IS THE ACTUAL GATE. ovation#24.
@@ -135,9 +167,17 @@ CNF
 # `-k <password>` would put Dan's login keychain password on a command line,
 # where it reaches the process table, the shell history and any transcript. Left
 # off, `security` asks him for it directly, which is the only place it belongs.
-echo "==> Authorising codesign to use the key (macOS will ask for your login password)"
-if ! "$SECURITY" set-key-partition-list -S apple-tool-:,apple:,codesign: -s \
-    "$LOGIN_KEYCHAIN" >/dev/null 2>&1; then
+# THE PASSWORD IS PASSED ONLY FOR A KEYCHAIN THIS SCRIPT INVENTED. For Dan's
+# login keychain it is still left off, so macOS asks him directly and his real
+# password never reaches the process table.
+if [ -n "$KEYCHAIN_PASSWORD" ]; then
+  echo "==> Authorising codesign to use the key (unattended)"
+  set -- -S apple-tool-:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+else
+  echo "==> Authorising codesign to use the key (macOS will ask for your login password)"
+  set -- -S apple-tool-:,apple:,codesign: -s "$KEYCHAIN"
+fi
+if ! "$SECURITY" set-key-partition-list "$@" >/dev/null 2>&1; then
   # NOT a failure of the setup. The identity exists and is usable; what is
   # missing is the pre-authorisation, so builds will prompt. Saying nothing here
   # would leave that dialog unexplained, which is the whole defect this fixes
@@ -150,13 +190,13 @@ else
 fi
 
 echo "==> Trusting the certificate for code signing (enter your login password if prompted)"
-"$SECURITY" add-trusted-cert -r trustRoot -p codeSign -k "$LOGIN_KEYCHAIN" "$TMP/cert.pem"
+"$SECURITY" add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem"
 
 # READ IT BACK. A command that ran is not an identity that exists, and a setup
 # script reporting success while the thing it set up is absent is worse than one
 # that fails, because everything after it trusts the report (L12, L98).
 if identity_exists; then
-  echo "==> Done. '$IDENTITY' is in your login keychain."
+  echo "==> Done. '$IDENTITY' is in $KEYCHAIN."
   echo "    Next: tell Claude, and project.yml is pointed at it. Until then Ovation"
   echo "    still ad hoc signs, so nothing is broken by waiting."
   echo

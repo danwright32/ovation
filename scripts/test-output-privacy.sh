@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 35
+harness_begin "output privacy tests" 37
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -444,5 +444,30 @@ EXERCISED="$(grep -oE './scripts/(check|measure)-[a-z-]+\.(sh|py)' "$0" \
     | sed 's|^./scripts/||' | sort -u | tr '\n' ' ' | sed 's/ $//')"
 check "every script that can print about real data is covered by this suite" \
     "$EXERCISED" "$MUST_BE_COVERED"
+
+# ---------------------------------------------------------------------------
+# THE CI WORKFLOW GUARD (ovation#143). It reads a YAML file and prints job names,
+# file names and counts. A workflow is an unlikely place for a client name, which
+# is exactly why it is covered: the rule is that every gated script is checked,
+# not every gated script somebody thought was risky (L129, L96).
+# ---------------------------------------------------------------------------
+WF="$WORK/workflows"
+mkdir -p "$WF"
+# The job key is a plain token ON PURPOSE, because the guard's refusal PRINTS
+# the job name and a key with spaces in it would not parse as one: the case would
+# then pass without ever reaching the line that prints anything (L159).
+cat > "$WF/ci.yml" <<YML
+name: A run for $CLIENT at $VENUE
+jobs:
+  a-job:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "$CLIENT at $VENUE"
+YML
+check "the CI workflow guard prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_WORKFLOW_DIR="$WF" ./scripts/check-ci-workflow.sh 2>&1)")" "clean"
+check "and that refusal really did print a job name, so the case reached it" \
+    "$(OVATION_WORKFLOW_DIR="$WF" ./scripts/check-ci-workflow.sh 2>&1 | grep -c 'NO TIMEOUT: a-job')" "1"
 
 harness_end

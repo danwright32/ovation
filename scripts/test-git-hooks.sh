@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 49
+harness_begin "git hooks tests" 50
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -395,5 +395,14 @@ check "one relevant path among irrelevant ones still runs the xcode phase" \
 # Every case above supplies its own stdin, so none of them can reach it.
 check "the ref loop does not read a terminal it was never given" \
     "$(grep -c 'if \[ -t 0 \]; then' "$REPO_ROOT/$HOOK")" "1"
+
+# The workflow files are on the skippable list too: nothing in an Xcode build or
+# test reads .github/, and the shell suites, which DO read it now that
+# check-ci-workflow.sh exists, run in every case regardless of this decision.
+WF22="$( cd "$R22" && mkdir -p .github/workflows && printf 'name: x\n' > .github/workflows/ci.yml \
+    && git add .github/workflows/ci.yml && git commit -qm wf >/dev/null 2>&1 && git rev-parse HEAD )"
+OUT22F="$(hook_with_range "$R22" "refs/heads/main $WF22 refs/heads/main $MIXED22")"
+check "a push touching only the workflow skips the xcode phase" \
+    "$(printf '%s' "$OUT22F" | grep -c 'SKIP=1')" "1"
 
 harness_end

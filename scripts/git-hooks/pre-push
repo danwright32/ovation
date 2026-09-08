@@ -206,6 +206,12 @@ gate_check check-app-icon-current.sh "the committed icon catalog is not what the
 # for it, which is exactly why its absence let the first omission stand.
 gate_check check-launch-sequence-wired.sh "the entry point does not run the store launch sequence."
 
+# ovation#143. The workflow carries decisions nothing else in the repository
+# reads: a timeout on every job, every action pinned to a commit, and the command
+# Dan decided CI runs. Each of those fails silently, and the last one fails while
+# leaving a green tick on the board.
+gate_check check-ci-workflow.sh "the CI workflow has drifted from what it is for."
+
 # THE LIVE DATA BRACKET IS NOT RUN HERE. It is a bracket around the test run
 # rather than a check that can be answered on its own: it snapshots before and
 # compares after, and scripts/run-tests.sh holds both ends. Running it here would
@@ -287,7 +293,7 @@ done
 # relevant by default.
 skippable_path() {
     case "$1" in
-        docs/*|scripts/*|*.md|.gitignore|.gitattributes) return 0 ;;
+        docs/*|scripts/*|.github/*|*.md|.gitignore|.gitattributes) return 0 ;;
         *) return 1 ;;
     esac
 }
