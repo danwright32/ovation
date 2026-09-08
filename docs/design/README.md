@@ -456,8 +456,16 @@ the bank), the same events said as tersely as possible, and the two tier shape d
 sentence a line. Keeping a thing after seeing what it is not is a decision. Keeping it because nobody
 drew the alternatives is an accident, and until that day this was the second.
 
-**One thing about the pane is still Claude's, not Dan's**, and is marked as such on ovation#111:
-where the button sits. It has not been drawn against an alternative.
+**The control opens from the invoice header, and that is Dan's**, settled 2026-09-08 by keeping it
+against the foot beside the actions, a vertical pull on the invoice's own edge that slid aside as the
+pane opened, and the View menu with nothing on the invoice at all. All four started closed and
+carried the same label, so the position was what was judged. The View menu option was put to him as a
+real one rather than assumed wrong, because the frequency argument that kept dismissing a draft off
+the invoice list applies here too.
+
+**Nothing about this pane is Claude's any more.** Its existence, where it opens from, that it pushes,
+its width, its wording and its control's placement are all Dan's, each settled against alternatives
+he saw.
 
 **That round could not be run on the first attempt**, which is worth recording because it is how the
 worst defect of the day was found. Dan opened the four options and answered "I can't see the history
@@ -502,9 +510,15 @@ belongs to is worse than one that says less.
 
 ### What is deliberately still open
 
-What the sidebar counts do about an invoice that cannot be sent (ovation#129). The discount's edit
-line, which was chosen to solve a layout problem rather than designed. And the history pane's own
-width, button and wording.
+What the sidebar counts do about an invoice that cannot be sent (ovation#129). And the discount's
+edit line, which was chosen to solve a layout problem rather than designed. That is the whole list
+for this screen now.
+
+**The history pane came off it on 2026-09-08**, over three rounds in one sitting: its width settled
+at 300px against three alternatives, its wording kept against three, and its control's placement kept
+against three. Two of those three changed nothing in the file, and were committed anyway, because
+keeping a thing after seeing what it is not is a decision while keeping it because nobody drew the
+alternatives is an accident.
 
 **The hours are never typed, settled 2026-09-08.** The question had been whether they stay separately
 typable for a shoot whose times were never noted, and Dan's answer removed it rather than choosing
