@@ -441,17 +441,45 @@ his median is 1.625. He took the loosest of the four that still refuses somethin
 mistyped meridiem on an evening job comes to 10 hours and is priced rather than caught. It had been
 Claude's until then.
 
-**The history pane's own design is still Claude's, not Dan's**, and is marked as such on ovation#111:
-he specified that it exists, where it opens from and that it pushes, but never saw its 272px width,
-its button placement or its entry wording against any alternative.
+**The history pane is 300px wide, and that is Dan's**, settled 2026-09-08 against 220, 272 and 330
+with each option's consequence measured and drawn beside it. 300 is the first width at which every
+entry settles to two lines, including the one carrying a client's real email address, which is the
+longest thing the pane ever holds. Past it the invoice keeps giving up width and the entries stop
+improving, so 330 was drawn and is dominated. It was 272 until that day, which was Claude's, and at
+272 the sent entry still wrapped to three lines. The invoice works at 556px as well as at 856px, and
+that is measured rather than assumed.
 
-### Three things the merge found, all of them the record disagreeing with itself
+**Two things about the pane are still Claude's, not Dan's**, and are marked as such on ovation#111:
+where the button sits, and what each entry says. Neither has been drawn against an alternative.
+
+**That round could not be run on the first attempt**, which is worth recording because it is how the
+worst defect of the day was found. Dan opened the four options and answered "I can't see the history
+pane at all in the rendo": his browser window was narrower than the record needs, and rather than
+scrolling, the page was deleting the right hand side of the app window and saying nothing. See below.
+
+### Four things found by looking, every one of them invisible to the suite
 
 **The history pane's own file said twice that it OVERLAYS the invoice**, once in the page's visible
 copy and once in a code comment, when Dan had chosen the push ("it should push the invoice over, not
-cover it") and the CSS implemented the push. Corrected. Measured after the merge: the invoice goes
-from 855px to 584px and the browser reports the slide running 13ms to 279ms, the 280 it is written to
-take.
+cover it") and the CSS implemented the push. Corrected. Measured after the width was settled: the
+invoice goes from 856px to 556px and the browser reports the slide running 3ms to 278ms, the 280 it
+is written to take.
+
+**THE SCREEN WAS CUTTING ITS OWN RIGHT HAND SIDE OFF, SILENTLY.** Found by Dan, who could not see the
+history pane in a round about the history pane. Measured at a 1100px browser window: the stage
+squeezed the 1120px screen to 1002, the 1064px window inside it overflowed by 62px, `.screen`'s own
+`overflow: hidden` cut those 62px off, and the page reported no horizontal scroll at all. The pane
+sits exactly in that band. Even at 1440 the screen had been 1082 rather than its declared 1120, so it
+had never once been drawn at its own size.
+
+The cause was this merge: `invoice.html` inherited `display: flex` on its stage from the two round
+files it was built from, where centring mattered because they were choosers rather than screens, and
+a flex item shrinks. `invoice-list.html` and `clients.html` have a plain block stage and never had
+this. The fix is their treatment, not a new one, and the near miss is the part worth keeping: the
+obvious remedy is `overflow-x: auto` on the stage, and `invoice-list.html` carries a comment saying
+that exact thing was tried and rejected, because setting overflow on one axis makes the other compute
+to auto too and the stage starts clipping its own bottom while the page looks finished (L566). It was
+very nearly shipped here before that comment was found (L542).
 
 **The rounding sentence was never drawn as round 4 settled it.** The round's own record gives two
 sentences, `1h 32m, billed as 1.50 hours, rounded to the nearest quarter` and, at the floor,
