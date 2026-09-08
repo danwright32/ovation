@@ -478,7 +478,7 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 /* The type, chosen in the row's own description cell. It reads as a control at
    rest rather than on hover only (L49), and its triangle is drawn in CSS rather
    than typed, so no pipe between here and a browser can mangle it. */
-.typewrap { position: relative; display: inline-block; }
+.popwrap { position: relative; display: inline-block; }
 .typebtn { font: inherit; font-size: 13.5px; color: var(--soft);
            display: inline-flex; align-items: center; gap: 6px;
            background: var(--chrome); border: 1px solid var(--rule);
@@ -487,13 +487,33 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 .typebtn .tri { flex: none; width: 0; height: 0;
                 border-left: 4px solid transparent; border-right: 4px solid transparent;
                 border-top: 5px solid var(--faint); }
-.typelist { position: absolute; z-index: 6; background: #F7F4F1;
-            border: 1px solid #CFC7BF; border-radius: 6px;
-            box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 5px 0; min-width: 186px; }
-.typelist button { display: block; width: 100%; text-align: left; font: inherit;
-                   font-size: 13px; color: #1F1812; background: none; border: 0;
-                   padding: 4px 16px; }
-.typelist button:hover { background: var(--accent); color: var(--on-ink); }
+/* ONE POPUP LIST, USED TWICE. The service types hang off the row's description
+   cell and the due date's terms hang off the foot, and they are the same object:
+   a short list of choices with an optional trailing entry that asks a question.
+   They were built as two, `.typelist` and `.duelist`, and merged in the same
+   change rather than left as a cleanup, because the second copy is what makes
+   the first stop being the single site (L370, L613).
+
+   The FACE is set here rather than inherited. Both call sites sit inside
+   something with its own face, the foot being monospace, so `font: inherit`
+   silently drew the terms in the wrong one: this screen's rule is words in
+   Archivo and figures in the mono face, and a list carries both. */
+.poplist { position: absolute; z-index: 6; background: #F7F4F1;
+           border: 1px solid #CFC7BF; border-radius: 6px;
+           box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 5px 0; min-width: 186px; }
+/* Hung upward, for a list opened from the foot, where there is no room below. */
+.poplist.up { bottom: calc(100% + 6px); left: 0; }
+.poplist button { display: block; width: 100%; text-align: left;
+                  font: inherit; font-family: "Archivo", ui-sans-serif, sans-serif;
+                  font-size: 13px; color: #1F1812; background: none; border: 0;
+                  padding: 4px 16px; white-space: nowrap; }
+.poplist button:hover { background: var(--accent); color: var(--on-ink); }
+/* What a row's choice LANDS on, said beside it rather than left to be worked
+   out: a term is only meaningful as the date it produces. */
+.poplist button .when { font-family: "IBM Plex Mono", ui-monospace, monospace;
+                        font-variant-numeric: tabular-nums;
+                        color: var(--faint); margin-left: 10px; }
+.poplist button:hover .when { color: var(--rail-dim); }
 
 /* ============================================================
    A NEW SERVICE TYPE, settled 2026-09-08.
@@ -509,8 +529,8 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
    ServiceType genuinely carries and none of the three seeded
    ones has (ServiceTypeSeed.swift).
    ============================================================ */
-.typelist .tsep { border-top: 1px solid #DED6CE; margin: 5px 0; height: 0; }
-.typelist button.makenew { color: var(--soft); }
+.poplist .tsep { border-top: 1px solid #DED6CE; margin: 5px 0; height: 0; }
+.poplist button.plast { color: var(--soft); }
 
 /* IT SITS BELOW THE HEADER, over the lines it is about. Drawn at the top of the
    window it covered the client's name, the shoot and the start time, which is
@@ -537,6 +557,35 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
    inert rather than by refusing after the press: a control that does nothing
    and gives no reason leaves pressing it again as the only diagnosis (L109). */
 .newpanel .panelacts button.go.off { font-weight: 400; color: var(--faint); }
+
+/* ============================================================
+   THE DUE DATE, settled 2026-09-08.
+
+   THE DATE IN THE FOOT OPENS THE TERMS AN INVOICE IS WRITTEN
+   ON, each showing the date it lands on, with another date at
+   the end for anything else. Kept against typing the date in
+   the foot, and against nothing on the foot at all with the
+   action in the Edit menu.
+
+   IT MOVES THIS INVOICE ONLY. PRD 7 makes the due date
+   overridable per client as well, and Dan settled that the
+   client's standing terms live on the Clients screen and never
+   here (ovation#98), against offering the standing change in
+   this list and against offering it after the change.
+   ============================================================ */
+.duebtn { font: inherit; font-family: "IBM Plex Mono", ui-monospace, monospace;
+          font-size: 12.5px; color: var(--soft); background: var(--bg);
+          border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; }
+.duebtn:hover { color: var(--ink); }
+.duebtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* THE REFUSAL, when a typed date cannot be read. A field that does nothing on
+   Enter leaves pressing it again as the only diagnosis (L109, L148), so it says
+   what it could not read and shows the shape it wants. */
+.duepanel input.bad { border-color: #C08A7E; }
+.duebad { font-family: "Archivo", ui-sans-serif, sans-serif;
+          font-size: 12px; line-height: 1.35; color: var(--ink);
+          margin: 0 0 12px; }
 
 /* The amount, typed, and sized to the amount column so the figures keep the one
    right edge round 5 measured twice to protect. */
@@ -1917,6 +1966,140 @@ var TYPES = [
 
 var PANEL = false;     /* the new type panel is up */
 
+/* THE INVOICE IS DATED ITS SHOOT AND DUE A TERM LATER (PRD 7), so both dates
+   are DERIVED from those two facts rather than written down beside them. The
+   shoot's date is stated once, here, and the header and the foot both read it:
+   a screen stating a date twice can state it differently.
+
+   UTC throughout, because a date built in local time and read back in another
+   is off by one for half of every day (L39). */
+var ISSUED = Date.UTC(2026, 7, 29);          /* 29 Aug 2026, the shoot */
+var DUE = ISSUED + 14 * 86400000;            /* PRD 7's default term */
+var DUEOPEN = false;                         /* the terms are showing */
+var DUEPANEL = false;                        /* another date is being typed */
+
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function dateText(stamp) {
+  var d = new Date(stamp);
+  return d.getUTCDate() + " " + MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear();
+}
+
+/* A DATE IT CANNOT READ IS NOT A DATE, and nothing moves: a typed date that
+   does not parse must never land on the invoice as something else, because the
+   due date is what every chase and every overdue count is timed from. */
+function readDate(text) {
+  var parts = (text || "").trim().split(/\s+/);
+  if (parts.length !== 3) return null;
+  var day = parseInt(parts[0], 10);
+  var month = MONTHS.indexOf(parts[1].slice(0, 1).toUpperCase()
+                             + parts[1].slice(1, 3).toLowerCase());
+  var year = parseInt(parts[2], 10);
+  if (!isFinite(day) || day < 1 || day > 31) return null;
+  if (month < 0) return null;
+  if (!isFinite(year) || year < 2000 || year > 2100) return null;
+  var stamp = Date.UTC(year, month, day);
+  /* A day the month does not have rolls FORWARD in Date.UTC, so 31 Sep would be
+     silently accepted as 1 Oct: a date nobody typed. */
+  if (new Date(stamp).getUTCDate() !== day) return null;
+  return stamp;
+}
+
+/* The terms an invoice is actually written on. `On receipt` is a real term
+   rather than a zero. */
+var TERMS = [["On receipt", 0], ["7 days", 7], ["14 days", 14], ["30 days", 30]];
+
+function dueControl() {
+  var wrap = el("span", "popwrap");
+  var button = el("button", "duebtn", dateText(DUE));
+  button.type = "button";
+  button.setAttribute("aria-expanded", String(DUEOPEN));
+  button.addEventListener("click", function () { DUEOPEN = !DUEOPEN; redraw(); });
+  wrap.append(button);
+  if (!DUEOPEN) return wrap;
+
+  wrap.append(popList(TERMS.map(function (term) {
+    return {
+      label: term[0],
+      when: dateText(ISSUED + term[1] * 86400000),
+      pick: function () {
+        DUE = ISSUED + term[1] * 86400000;
+        DUEOPEN = false;
+        redraw();
+      }
+    };
+  }), {
+    label: "Another date...",
+    pick: function () {
+      DUEOPEN = false;
+      DUEPANEL = true;
+      redraw(function () {
+        var field = document.querySelector(".duepanel input");
+        if (field) { field.focus(); field.select(); }
+      });
+    }
+  }, true));
+  return wrap;
+}
+
+/* ANOTHER DATE, in the panel a new service type already uses. One panel doing
+   two jobs rather than two panels that have to be kept looking alike. */
+function duePanel() {
+  var holder = el("div");
+  var veil = el("div", "newveil");
+  veil.addEventListener("click", function () { DUEPANEL = false; redraw(); });
+
+  var panel = el("div", "newpanel duepanel");
+  panel.append(el("h6", null, "When this invoice is due"));
+  panel.append(el("label", null, "Due"));
+  var field = el("input");
+  field.type = "text";
+  field.value = dateText(DUE);
+  panel.append(field);
+
+  function save() {
+    var read = readDate(field.value);
+    if (read === null) {
+      field.classList.add("bad");
+      field.setAttribute("aria-invalid", "true");
+      if (!panel.querySelector(".duebad")) {
+        var says = el("div", "duebad",
+                      "Not a date Ovation can read. Write it like " + dateText(DUE) + ".");
+        says.id = "duebad";
+        field.setAttribute("aria-describedby", "duebad");
+        field.after(says);
+      }
+      return;
+    }
+    DUE = read;
+    DUEPANEL = false;
+    redraw();
+  }
+  field.addEventListener("input", function () {
+    field.classList.remove("bad");
+    field.removeAttribute("aria-invalid");
+    var says = panel.querySelector(".duebad");
+    if (says) says.remove();
+  });
+  field.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); save(); }
+    if (e.key === "Escape") { DUEPANEL = false; redraw(); }
+  });
+
+  var acts = el("div", "panelacts");
+  var cancel = el("button", null, "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", function () { DUEPANEL = false; redraw(); });
+  var go = el("button", "go", "Save");
+  go.type = "button";
+  go.addEventListener("click", save);
+  acts.append(cancel, go);
+  panel.append(acts);
+  holder.append(veil, panel);
+  return holder;
+}
+
 var EXTRA = [];        /* lines added and priced */
 var ADDING = null;     /* { name } while a line is being filled in */
 var TYPEOPEN = false;  /* the list of service types is showing */
@@ -1925,31 +2108,45 @@ function extrasTotal() {
   return EXTRA.reduce(function (a, x) { return a + x.amount; }, 0);
 }
 
-function typeList(choose) {
-  var list = el("div", "typelist");
-  TYPES.forEach(function (type) {
-    var b = el("button", null, type.name);
+/* THE ONE POPUP LIST. `rows` are { label, when, pick }; `last` is the trailing
+   entry that opens a panel, separated from the choices because it asks a
+   question rather than making one. `up` hangs it above its control. */
+function popList(rows, last, up) {
+  var list = el("div", "poplist" + (up ? " up" : ""));
+  rows.forEach(function (row) {
+    var b = el("button");
     b.type = "button";
-    b.addEventListener("click", function () { choose(type); });
+    b.append(el("span", null, row.label));
+    if (row.when) b.append(el("span", "when", row.when));
+    b.addEventListener("click", row.pick);
     list.append(b);
   });
-
-  /* THE LAST ENTRY, which opens the panel rather than doing anything in the
-     row. The three dots say a question is coming, which is the macOS
-     convention and is true here. */
-  list.append(el("div", "tsep"));
-  var entry = el("button", "makenew", "New type...");
-  entry.type = "button";
-  entry.addEventListener("click", function () {
-    TYPEOPEN = false;
-    PANEL = true;
-    redraw(function () {
-      var field = document.querySelector(".newpanel input");
-      if (field) field.focus();
-    });
-  });
-  list.append(entry);
+  if (last) {
+    list.append(el("div", "tsep"));
+    /* The three dots say a question is coming, which is the macOS convention
+       and is true here: both trailing entries open a panel. */
+    var entry = el("button", "plast", last.label);
+    entry.type = "button";
+    entry.addEventListener("click", last.pick);
+    list.append(entry);
+  }
   return list;
+}
+
+function typeList(choose) {
+  return popList(TYPES.map(function (type) {
+    return { label: type.name, pick: function () { choose(type); } };
+  }), {
+    label: "New type...",
+    pick: function () {
+      TYPEOPEN = false;
+      PANEL = true;
+      redraw(function () {
+        var field = document.querySelector(".newpanel input");
+        if (field) field.focus();
+      });
+    }
+  }, false);
 }
 
 /* THE PANEL. A new type is ORDINARY, and that is why it is not asked about:
@@ -2019,7 +2216,7 @@ function addingRow() {
   if (ADDING.name) {
     desc.textContent = ADDING.name;
   } else {
-    var wrap = el("span", "typewrap");
+    var wrap = el("span", "popwrap");
     var btn = el("button", "typebtn");
     btn.type = "button";
     btn.append(el("span", null, "Choose a type"), el("span", "tri"));
@@ -2097,7 +2294,7 @@ function buildInvoice() {
   var hd = el("div", "invhd");
   var who = el("div");
   who.append(el("h5", null, "Cedar Hill Youth Orchestra"),
-             el("div", "invshoot", "Side by Side concert, 29 Aug 2026"));
+             el("div", "invshoot", "Side by Side concert, " + dateText(ISSUED)));
   var ht = el("div", "hdrtimes");
   var pair = el("div", "hdrpair");
   if (isDraft) {
@@ -2256,7 +2453,9 @@ function buildInvoice() {
     wrap.append(act);
     acts.append(wrap);
   }
-  foot.append(el("div", "invwhen", "Dated 29 Aug 2026, due 12 Sep 2026"), acts);
+  var when = el("div", "invwhen");
+  when.append(el("span", null, "Dated " + dateText(ISSUED) + ", due "), dueControl());
+  foot.append(when, acts);
 
   inv.append(hd, lines, sumBox, foot);
 
@@ -2428,6 +2627,7 @@ function buildScreen() {
   win.append(app);
   screen.append(bar, win);
   if (PANEL) screen.append(newTypePanel());
+  if (DUEPANEL) screen.append(duePanel());
   return screen;
 }
 

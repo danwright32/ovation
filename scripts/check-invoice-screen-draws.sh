@@ -148,7 +148,7 @@ window.addEventListener("load", function () {
             chooser ? chooser.textContent : "no chooser in the new row");
       if (chooser) {
         chooser.click();
-        var list = document.querySelector(".typelist");
+        var list = document.querySelector(".poplist");
         var names = list ? Array.prototype.map.call(list.querySelectorAll("button"),
                                                    function (b) { return b.textContent; }) : [];
         claim("the service types are offered", names.length >= 2, names.join(", "));
@@ -210,7 +210,7 @@ window.addEventListener("load", function () {
       if (again) { again.click(); }
       var chooser2 = document.querySelector(".typebtn");
       if (chooser2) { chooser2.click(); }
-      var makenew = document.querySelector(".typelist .makenew");
+      var makenew = document.querySelector(".poplist .plast");
       if (!makenew) {
         claim("a type that does not exist yet can be made from here", false,
               "the list has no entry for making one");
@@ -273,6 +273,61 @@ window.addEventListener("load", function () {
               Math.abs(shown - hours * rate) < 0.005,
               hours + " x " + rate + " should be " + (hours * rate).toFixed(2)
                 + ", the row says " + shown.toFixed(2));
+      }
+    }
+
+    /* ---- the due date, in the foot ---- */
+    var foot = document.querySelector(".invwhen");
+    var duebtn = document.querySelector(".duebtn");
+    claim("the due date in the foot is a control", !!duebtn,
+          foot ? foot.textContent.trim().replace(/\s+/g, " ") : "no foot");
+    if (duebtn) {
+      var before = duebtn.textContent.trim();
+      duebtn.click();
+      var terms = document.querySelector(".poplist.up");
+      var rows = terms ? terms.querySelectorAll("button") : [];
+      /* EVERY TERM SAYS THE DATE IT LANDS ON. A term is only meaningful as the
+         date it produces, and the whole reason this option was kept over typing
+         a date is that it names the common answers. */
+      var withDates = 0;
+      Array.prototype.forEach.call(rows, function (r) { if (r.querySelector(".when")) withDates++; });
+      claim("every term says the date it lands on", rows.length >= 3 && withDates === rows.length - 1,
+            rows.length + " rows, " + withDates + " of them carrying a date");
+
+      if (terms && rows.length) {
+        var tb = rows[rows.length - 2].getBoundingClientRect();
+        if (tb.bottom > window.innerHeight || tb.top < 0) {
+          claim("the terms are painted where they sit", false,
+                "the list is outside the window, so nothing could be measured");
+        } else {
+          var on = document.elementFromPoint(tb.left + tb.width / 2, tb.top + tb.height / 2);
+          claim("the terms are painted where they sit", !!on && terms.contains(on),
+                on ? "what is drawn there: " + (on.className || on.tagName)
+                   : "nothing is drawn there");
+        }
+
+        /* A DATE THAT DOES NOT EXIST IS REFUSED, WITH A REASON. 31 Sep rolls
+           forward to 1 Oct in Date.UTC, so an unguarded reader accepts a date
+           nobody typed, and the due date is what every chase is timed from. */
+        rows[rows.length - 1].click();
+        var panel = document.querySelector(".duepanel");
+        var box = panel ? panel.querySelector("input") : null;
+        if (!box) {
+          claim("a date that does not exist is refused, and says why", false,
+                panel ? "the panel has no field" : "another date opened no panel");
+        } else {
+          box.value = "31 Sep 2026";
+          box.dispatchEvent(new KeyboardEvent("keydown",
+            { key: "Enter", bubbles: true, cancelable: true }));
+          var says = document.querySelector(".duebad");
+          var moved = document.querySelector(".invwhen").textContent.indexOf("1 Oct") !== -1;
+          claim("a date that does not exist is refused, and says why",
+                !!says && !moved,
+                (says ? "it says: " + says.textContent : "it said nothing")
+                  + (moved ? ", and the invoice took 1 Oct" : ", and the date did not move"));
+          var cancel = document.querySelector(".duepanel .panelacts button");
+          if (cancel) cancel.click();
+        }
       }
     }
 

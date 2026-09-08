@@ -518,14 +518,12 @@ belongs to is worse than one that says less.
 
 What the sidebar counts do about an invoice that cannot be sent (ovation#129).
 
-**Two controls this screen is supposed to carry were not drawn at all**, both quoted from
-ovation#111's own list of what the PRD had already decided must live here. This section claimed for
-a few hours that the sidebar counts were the whole remaining list, which was wrong, and it was wrong
-because the claim was written from the rounds that had just been run rather than checked against
-that list. **One of the two is settled** (see below); what is left is:
-
-1. **The due date can be overridden per invoice as well as per client** (PRD 7). The foot draws
-   `Dated 29 Aug 2026, due 12 Sep 2026` as static text with no way to change it.
+**Both controls this screen was supposed to carry and did not draw are now settled**, over three
+rounds on 2026-09-08: how a line is added, how a service type that does not exist yet is created,
+and how the due date is changed. They are recorded below. This section claimed for a few hours that
+the sidebar counts were the whole remaining list, which was wrong, and it was wrong because the
+claim was written from the rounds that had just been run rather than checked against ovation#111's
+own list of what the PRD had already decided must live here.
 
 ### A new service type, settled 2026-09-08
 
@@ -576,6 +574,48 @@ amount anywhere, so every added line has an amount to type whichever way it was 
 draws no placeholder reading `0.00`: a zero total is a legitimate comped invoice (PRD 5.1b), so a
 figure the screen has not been given is never drawn as one. An amount it cannot read leaves the row
 where it is rather than committing a line worth nothing.
+
+### The due date, settled 2026-09-08
+
+**The date in the foot opens the terms an invoice is written on**, each showing the date it lands
+on, with another date at the end for anything else. Kept against typing the date in the foot, and
+against nothing on the foot at all with the action in the Edit menu. A term is only meaningful as
+the date it produces, so every term names it: that is the whole of what this option was kept for
+over typing a date, and the check asserts it.
+
+**It moves THIS invoice only.** PRD 7 makes the due date overridable per client as well, and Dan
+settled where that lives rather than leaving it to be discovered: the client's standing terms are
+set on the Clients screen and never here, against offering the standing change in this list and
+against offering it after the change. **That is a decision the Clients screen now owes**
+(ovation#98), and it is written here because nothing on that screen exists yet to carry it.
+
+**Nothing measured how often a due date is moved, and that was said before the round rather than
+filled in with a plausible number.** The FreshBooks history has no due date column at all, so the
+130 invoices cannot answer it. This one is a judgement.
+
+**Another date opens the panel a new service type already uses**, rather than a second panel that
+would have to be kept looking like the first.
+
+**A date it cannot read is refused, and says why.** `31 Sep 2026` rolls forward to 1 Oct in
+JavaScript's own date arithmetic, so an unguarded reader accepts a date nobody typed, and the due
+date is what every chase and every overdue count is timed from. The field says what it could not
+read and shows the shape it wants, because a control that does nothing on Enter leaves pressing it
+again as the only diagnosis (L109, L148).
+
+**Both dates in this file are now derived from one fact.** The invoice is dated its shoot and due a
+term later, so the header's `29 Aug 2026` and the foot's two dates all come from one stamp rather
+than being typed in three places that can disagree. It is UTC throughout, since a date built in
+local time and read back in another is off by one for half of every day (L39).
+
+### One component came out of the three rounds
+
+**There is one popup list, used twice.** The service types hang off the row's description cell and
+the due date's terms hang off the foot, and they are the same object: a short list of choices with
+an optional trailing entry that asks a question, drawn upward when it opens from the foot. They were
+built as two and merged in the same change rather than left as a cleanup, because the second copy is
+what stops the first being the single site (L370, L613). Its face is set rather than inherited: both
+call sites sit inside something with its own face, the foot being monospace, so `font: inherit`
+silently drew the terms in the wrong one.
 
 ### Five things the two rounds found in the settled screen, none of them a design question
 

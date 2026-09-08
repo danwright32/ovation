@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 23
+harness_begin "invoice screen rendering checks" 29
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -142,6 +142,26 @@ check "the prefill is gone from the mutated copy" \
 check "a panel whose answer nothing reads is refused" "$(status_on "$DEAFPANEL")" "1"
 check "and the claim that fired names making a type" \
     "$(failed_claims "$DEAFPANEL")" "a type that does not exist yet can be made from here;"
+
+# 7. A DATE THAT DOES NOT EXIST. Taking out the check that a month has the day
+#    typed lets Date.UTC roll 31 Sep forward to 1 Oct, so the invoice takes a
+#    due date nobody typed, silently, and every chase is timed from it.
+ROLLED="$WORK/rolled.html"
+check "the day check is gone from the mutated copy" \
+    "$(mutate "$ROLLED" 's|^  if (new Date(stamp).getUTCDate() !== day) return null;$||' 'getUTCDate() !== day')" "0"
+check "a date that rolls forward is refused" "$(status_on "$ROLLED")" "1"
+check "and the claim that fired names the date that does not exist" \
+    "$(failed_claims "$ROLLED")" "a date that does not exist is refused, and says why;"
+
+# 8. TERMS WITHOUT THEIR DATES. Dropping what each term lands on leaves a list
+#    of intervals to count out by hand, which is the whole of what this option
+#    was kept over typing a date for.
+BARE="$WORK/bare-terms.html"
+check "the dates are gone from the mutated copy's terms" \
+    "$(mutate "$BARE" 's|^      when: dateText(ISSUED + term\[1\] \* 86400000),$||' 'when: dateText')" "0"
+check "terms that do not say what they land on are refused" "$(status_on "$BARE")" "1"
+check "and the claim that fired names the terms" \
+    "$(failed_claims "$BARE")" "every term says the date it lands on;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.
