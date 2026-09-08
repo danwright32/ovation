@@ -1,0 +1,24 @@
+{
+  "booking": {
+    "clientDisplayName": "Ashgrove Chamber Players",
+    "clientId": "2B496806-7E57-4051-ADA4-B6BD8B921D4A",
+    "endDate": "2026-09-06",
+    "endsAt": "2026-09-07T00:00:00Z",
+    "id": "5FEBD76A-2685-4967-8C39-8D40B7151D34",
+    "shootName": "A rehearsal shoot",
+    "startDate": "2026-09-06",
+    "startsAt": "2026-09-06T23:00:00Z",
+    "venueName": "A hall"
+  },
+  "client": {
+    "contractEmail": "accounts@ashgrove.example",
+    "displayName": "Ashgrove Chamber Players",
+    "email": "booking@ashgrove.example",
+    "hasLeftReview": false,
+    "hostingSite": "a-hosting-site.example",
+    "id": "2B496806-7E57-4051-ADA4-B6BD8B921D4A",
+    "specialBehaviors": []
+  },
+  "committedAt": "2026-09-06T17:28:16Z",
+  "version": 3
+}

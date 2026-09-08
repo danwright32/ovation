@@ -133,6 +133,20 @@ reading was right (L52).
 or mismatched is its own named outcome. Unlike them, nothing depends on it at runtime; losing it
 costs a throwaway booking, not a record of work that happened.
 
+**A SCRUBBED COPY IS NOW IN THE REPOSITORY** at
+`OvationTests/Fixtures/handoff-record-v3-2026-09-06.json`, as the consumer's fixture (ovation#29).
+This file stays here as the unscrubbed original, so the scrub can be re-checked against what
+Downbeat actually produced.
+
+**Seven readable values were replaced, not one.** ovation#29 expected only `client.hostingSite` to
+be real. The identity guard disagreed: `booking.clientDisplayName`, `booking.shootName`,
+`booking.venueName` and `client.displayName` all matched Dan's LIVE Downbeat export, because the
+client, shoot and venue fabricated for the throwaway booking became real rows in his data the
+moment the booking was committed. A guard cannot tell a fabricated row from a customer, and the
+repository is public. The two email addresses were replaced for the same reason without waiting to
+be told. Every identifier, date, instant, boolean and the empty list are untouched, and the SHAPE
+is identical: same paths, same types, `venue` still absent.
+
 ## Freshbooks Photography Invoices 2015-2024.csv
 
 Dan's own invoicing history from before QuickBooks, and the only record on this machine of how
