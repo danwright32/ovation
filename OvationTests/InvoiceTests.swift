@@ -55,13 +55,104 @@ struct InvoiceTests {
         #expect(invoice.subtotal == Money(dollars: 625))
     }
 
-    @Test("a flat line is its own amount, and a referral credit is a negative one")
+    @Test("a flat line is its own amount")
     func flatLinesCarryTheirAmount() throws {
         let context = try Self.store()
         let invoice = Self.invoice(context, for: Self.client(context))
         invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Rush turnaround"))
-        invoice.add(LineItem.flat(Money(dollars: -250), describedAs: "Referral credit"))
-        #expect(invoice.subtotal == Money(dollars: -150))
+        invoice.add(LineItem.flat(Money(dollars: 75), describedAs: "Preview images"))
+        #expect(invoice.subtotal == Money(dollars: 175))
+    }
+
+    // MARK: the referral credit, which is NOT a line (ovation#126)
+
+    @Test("a referral credit is not a line item, and the lines do not know about it")
+    func aCreditIsNotALine() throws {
+        // Round 6 of ovation#111, settled with Dan on 2026-09-07: the credit
+        // comes OUT of the line items and sits in its own block between the lines
+        // and the subtotal. He chose it having been shown that it contradicts
+        // PRD 5.8 and the shipped model.
+        let context = try Self.store()
+        let earnedFrom = Client(name: "Yarrow Street Collective", taxStatus: .notExempt)
+        context.insert(earnedFrom)
+        let invoice = Self.invoice(context, for: Self.client(context))
+        invoice.add(LineItem.hourly(hours: Hours(whole: 4), at: invoice.hourlyRate,
+                                    describedAs: "Photography"))
+        invoice.referralCredit = ReferralCredit(hours: Hours(whole: 1),
+                                                at: invoice.hourlyRate, earnedFrom: earnedFrom)
+
+        #expect(invoice.orderedLineItems.count == 1, "the credit added no line")
+        #expect(invoice.referralCreditAmount == Money(dollars: 250))
+    }
+
+    @Test("the credit still reduces the subtotal, which is the arithmetic that must not change")
+    func aCreditIsStillInsideTheSubtotal() throws {
+        // PRD 5.4b's conclusion survives round 6 and its reason does not: the
+        // credit is still INSIDE the subtotal, it is simply not a line. A
+        // discount is below the subtotal and the two net to the same tax, which
+        // is exactly why they are easy to merge and must not be.
+        let context = try Self.store()
+        let invoice = Self.invoice(context, for: Self.client(context))
+        invoice.add(LineItem.flat(Money(dollars: 1_000), describedAs: "Photography"))
+        invoice.referralCredit = ReferralCredit(hours: Hours(whole: 1),
+                                                at: invoice.hourlyRate, earnedFrom: nil)
+
+        #expect(invoice.subtotal == Money(dollars: 750), "$1,000 less the $250 credit")
+        #expect(invoice.taxableAmount == Money(dollars: 750), "and no discount below it")
+    }
+
+    @Test("a credit and a discount are kept apart, and the discount applies to what is LEFT")
+    func aCreditAndADiscountStayApart() throws {
+        // The case PRD 5.4b exists to protect. Merging the two nets to the same
+        // tax on this invoice and gives the export a different answer to "how
+        // much was given away in a year", which is the question it has to answer
+        // with credits and discounts kept apart.
+        let context = try Self.store()
+        let invoice = Self.invoice(context, for: Self.client(context))
+        invoice.add(LineItem.flat(Money(dollars: 1_000), describedAs: "Photography"))
+        invoice.referralCredit = ReferralCredit(hours: Hours(whole: 1),
+                                                at: invoice.hourlyRate, earnedFrom: nil)
+        invoice.discount = Discount(percentBasisPoints: 1_000)
+
+        #expect(invoice.subtotal == Money(dollars: 750))
+        #expect(invoice.referralCreditAmount == Money(dollars: 250))
+        #expect(invoice.discountAmount == Money(cents: 7_500), "10% of what is left, not of $1,000")
+        #expect(invoice.taxableAmount == Money(cents: 67_500))
+    }
+
+    @Test("a credit names the client it was earned on, frozen, because the invoice prints it")
+    func aCreditNamesWhereItCameFrom() throws {
+        // Frozen for the same reason the rate is: a client renamed in 2029 must
+        // not rewrite an invoice sent in 2026. The id keeps the link for the
+        // ledger and the export; the name is what was printed.
+        let context = try Self.store()
+        let earnedFrom = Client(name: "Yarrow Street Collective", taxStatus: .notExempt)
+        context.insert(earnedFrom)
+        let invoice = Self.invoice(context, for: Self.client(context))
+        invoice.referralCredit = ReferralCredit(hours: Hours(whole: 1),
+                                                at: invoice.hourlyRate, earnedFrom: earnedFrom)
+        try context.save()
+
+        earnedFrom.name = "Renamed since"
+        try context.save()
+
+        let read = try #require(try context.fetch(FetchDescriptor<Invoice>())
+            .first { $0.id == invoice.id })
+        #expect(read.referralCredit?.earnedFromClientName == "Yarrow Street Collective")
+        #expect(read.referralCredit?.earnedFromClientID == earnedFrom.id)
+        #expect(read.referralCredit?.hours == Hours(whole: 1))
+    }
+
+    @Test("a credit of nothing or less cannot be constructed, so no invoice can carry one")
+    func aCreditMustBeWorthSomething() throws {
+        // A credit of zero hours records no decision, and a negative one is a
+        // CHARGE written the wrong way round, which would read on the invoice as
+        // a credit while increasing what is owed.
+        #expect(ReferralCredit(hours: Hours.zero, at: Money(dollars: 250), earnedFrom: nil) == nil)
+        #expect(ReferralCredit(hours: Hours(tenths: -5), at: Money(dollars: 250),
+                               earnedFrom: nil) == nil)
+        #expect(ReferralCredit(hours: Hours(tenths: 5), at: Money(dollars: 250),
+                               earnedFrom: nil) != nil)
     }
 
     @Test("line items keep the order they were given, which is declared and not inherited")
@@ -180,9 +271,15 @@ struct InvoiceTests {
             invoice.add(LineItem.flat(Money(cents: amount), describedAs: "line \(index)"))
         }
         invoice.discount = Discount(percentBasisPoints: 1_000)
+        invoice.referralCredit = ReferralCredit(hours: Hours(whole: 1),
+                                                at: invoice.hourlyRate, earnedFrom: nil)
 
+        // THE PARTS NOW INCLUDE THE CREDIT, which is the whole of ovation#126:
+        // it left the line items and stayed inside the subtotal, so a sum over
+        // the lines alone is no longer the subtotal and PRD 5.42 is about the
+        // composed number rather than about the lines.
         let parts = Money.sum(of: invoice.orderedLineItems.map(\.amount))
-        #expect(invoice.subtotal == parts)
+        #expect(invoice.subtotal == parts - invoice.referralCreditAmount)
         #expect(invoice.total == invoice.taxableAmount + invoice.tax)
         #expect(invoice.taxableAmount == invoice.subtotal - invoice.discountAmount)
     }

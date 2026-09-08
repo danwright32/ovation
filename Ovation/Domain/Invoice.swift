@@ -90,6 +90,10 @@ final class Invoice {
     /// PRD 5.4a. Below the subtotal, never a line.
     var discount: Discount?
 
+    /// PRD 5.8 as corrected by round 6 of ovation#111. INSIDE the subtotal, and
+    /// also never a line (ovation#126).
+    var referralCredit: ReferralCredit?
+
     /// PRD 5.10a. Only ever observed.
     var sentStatus: SentStatus = SentStatus.notSent
 
@@ -159,9 +163,17 @@ final class Invoice {
 
     // MARK: what it comes to
 
-    /// The sum of the lines, referral credits included, because a credit is a
-    /// negative LINE and sits inside the subtotal (PRD 5.4b).
-    var subtotal: Money { Money.sum(of: lineItems.map(\.amount)) }
+    /// What the referral credit takes off. Zero where there is none.
+    var referralCreditAmount: Money { referralCredit?.amount ?? .zero }
+
+    /// The lines, LESS the referral credit, because the credit sits inside the
+    /// subtotal and the discount applies to what is left (PRD 5.4b).
+    ///
+    /// THE CREDIT IS NOT AMONG THE LINES (ovation#126). It used to be, as a
+    /// negative one, and round 6 of ovation#111 took it out. The conclusion 5.4b
+    /// draws is unchanged and its reason is not, so the subtotal composes two
+    /// things here rather than summing one.
+    var subtotal: Money { Money.sum(of: lineItems.map(\.amount)) - referralCreditAmount }
 
     /// What the discount takes off. Zero where there is none.
     var discountAmount: Money { discount?.amount(on: subtotal) ?? .zero }

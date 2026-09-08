@@ -41,9 +41,13 @@ struct ServiceTypeTests {
                 "keying behaviour off a name a person can rename is how a rename breaks it")
     }
 
-    @Test("the roles are the three code actually switches on")
-    func theRolesAreThree() {
-        #expect(Set(ServiceRole.allCases) == [.hourlyPhotography, .referralCredit, .ordinary])
+    @Test("the roles are the two code actually switches on")
+    func theRolesAreTwo() {
+        // `referralCredit` was removed by ovation#126. It existed so code could
+        // tell which LINE was the credit, and round 6 of ovation#111 took the
+        // credit out of the lines: there is nothing left for it to identify. A
+        // role nothing switches on is a value a picker would still offer.
+        #expect(Set(ServiceRole.allCases) == [.hourlyPhotography, .ordinary])
     }
 
     @Test("a type is retired rather than deleted, because sent invoices still refer to it")

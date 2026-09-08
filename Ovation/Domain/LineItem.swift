@@ -5,10 +5,11 @@
 // cheapest way to guarantee that is to have no second copy of the number: the
 // inputs are stored and the amount is arithmetic over them (L107).
 //
-// A REFERRAL CREDIT IS A NEGATIVE LINE, so an amount here can be below zero, and
-// a subtotal can be too. A DISCOUNT IS NOT A LINE and lives on the invoice: the
-// two net to the same tax, which is exactly why they are easy to merge and must
-// not be (PRD 5.4b).
+// NEITHER A DISCOUNT NOR A REFERRAL CREDIT IS A LINE. Both live on the invoice,
+// the credit inside the subtotal and the discount below it, and the two net to
+// the same tax, which is exactly why they are easy to merge and must not be
+// (PRD 5.4b). An amount here can still be below zero: a correction to an
+// overcharge is an ordinary negative line and nothing refuses one.
 import Foundation
 import SwiftData
 
@@ -49,7 +50,7 @@ final class LineItem {
         LineItem(summary: summary, hours: hours, unitAmount: rate)
     }
 
-    /// A line charged as one amount, which may be negative for a referral credit.
+    /// A line charged as one amount, which may be negative.
     static func flat(_ amount: Money, describedAs summary: String) -> LineItem {
         LineItem(summary: summary, hours: nil, unitAmount: amount)
     }
@@ -68,9 +69,14 @@ final class LineItem {
 /// which type is the hourly photography line and which is the referral credit,
 /// and keying that off a name a person can rename is how a rename silently
 /// changes behaviour (L15).
+/// THERE IS NO `referralCredit` ROLE, and its removal is ovation#126 rather than
+/// an omission. It existed so code could tell which LINE was the credit, and
+/// round 6 of ovation#111 took the credit out of the lines: nothing is left for
+/// it to identify. Kept, it would be a value a picker still offers and a branch
+/// nothing can reach, which a docstring would in time turn into a decision
+/// nobody revisits (L29, L346).
 enum ServiceRole: String, CaseIterable, Codable, Hashable, Sendable {
     case hourlyPhotography = "hourly-photography"
-    case referralCredit = "referral-credit"
     case ordinary = "ordinary"
 }
 
