@@ -78,7 +78,18 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
    ============================================================ */
 
 
-.win {
+/* THE PALETTE IS ON `.screen`, NOT ON `.win`, and that is load bearing rather
+   than tidiness. It lived on `.win` until 2026-09-08, so every rule OUTSIDE the
+   app window resolved `var(--anything)` to nothing: the Edit chip in the menu
+   bar and the highlighted row in its menu both declare `background:
+   var(--accent)` and both computed to `rgba(0, 0, 0, 0)`, so neither has ever
+   painted. A token that is referenced but never defined leaves no error and no
+   mark, and the declaration goes on reading as correct (L585, L437). Measured,
+   not spotted: the fault is that two things are NOT drawn.
+
+   Everything inside the window inherits these exactly as before, so this moves
+   no colour that was already working. */
+.screen {
   --bg: #FBF4EF; --chrome: #EFE8E3; --sunk: #F1EAE5;
   --rule: #E0D0C4; --rule-soft: #EEE2D8;
   --ink: #1F1812; --soft: #5F4D41; --quiet: #766254; --faint: #6E5F50;
@@ -103,6 +114,9 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
      digits; the amount column held 104px where "123,456.00" needs 76. An over
      reservation fails no test and breaks nothing, it simply stops the neighbour
      growing, which is why it survives unnoticed. */
+}
+
+.win {
   width: 1064px; margin: 22px auto 0; border-radius: 10px; overflow: hidden;
   box-shadow: 0 1px 1px rgba(0,0,0,.18), 0 20px 44px rgba(0,0,0,.28);
 }
@@ -451,6 +465,15 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 /* The row being filled in, sunk, which is what this screen already uses for a
    surface you are working on. */
 .lrow.newrow { background: var(--sunk); }
+
+/* AND IT DOES NOT CLIP ITS OWN CONTROL. `.ldesc` sets `overflow: hidden` so a
+   long description ellipsises, and an absolutely positioned element inside a
+   clipping box is clipped by it (L566). So on the day round A shipped, the type
+   list was in the DOM carrying all three types and NOTHING was painted where it
+   sat: the whole of what the round settled was invisible. It survived a check
+   that reads the DOM, because the list really was there, and it was caught by
+   asking the browser what is drawn at the list's own coordinates. */
+.lrow.newrow .ldesc { overflow: visible; }
 
 /* The type, chosen in the row's own description cell. It reads as a control at
    rest rather than on hover only (L49), and its triangle is drawn in CSS rather

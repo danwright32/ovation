@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 14
+harness_begin "invoice screen rendering checks" 20
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -104,6 +104,33 @@ check "the amount is where the mutation expects it" \
 check "a first line reporting the lines total is refused" "$(status_on "$SUMMED")" "1"
 check "and the claim that fired names the line's own amount" \
     "$(failed_claims "$SUMMED")" "the first line shows its own amount, not the lines total;"
+
+# 4. THE PALETTE'S SCOPE. Putting the tokens back on the app window takes them
+#    away from everything outside it, which is where the menu bar and its menu
+#    live: both declare `background: var(--accent)` and both stop painting, with
+#    no error anywhere and the declarations still reading as correct.
+UNPAINTED="$WORK/unpainted.html"
+check "the palette's block is where the mutation expects it" \
+    "$(mutate "$UNPAINTED" 's/^\.screen {$/.win {/' '^\.win {$')" "2"
+check "a palette that does not reach the menu bar is refused" "$(status_on "$UNPAINTED")" "1"
+check "and the claims that fired name the two things that stop being drawn" \
+    "$(failed_claims "$UNPAINTED")" \
+    "the menu's highlighted row is painted;the open menu's chip in the menu bar is painted;"
+
+# 5. THE ROW CLIPPING ITS OWN CONTROL. Taking the overflow rule off the row
+#    being added puts the type list back inside a clipping box, where it is
+#    present in the DOM and painted nowhere. This is the mutation that proves
+#    the check measures PAINT rather than presence: every other claim about the
+#    list still passes on this copy.
+CLIPPED="$WORK/clipped.html"
+# The needle here asserts the rule is GONE, since that is what this mutation
+# does. A needle that merely appears somewhere in the file would be satisfied by
+# the rule still standing.
+check "the overflow rule is gone from the mutated copy" \
+    "$(mutate "$CLIPPED" 's/^\.lrow\.newrow \.ldesc { overflow: visible; }$//' '^\.lrow\.newrow \.ldesc')" "0"
+check "a list clipped away by its own cell is refused" "$(status_on "$CLIPPED")" "1"
+check "and the claim that fired names the list not being painted" \
+    "$(failed_claims "$CLIPPED")" "the list of types is painted where it sits;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.

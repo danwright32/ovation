@@ -97,6 +97,28 @@ window.addEventListener("load", function () {
         claim("the Edit menu opens under Edit", Math.abs(offset) <= 12,
               "the menu's left edge is " + offset + "px from Edit's");
 
+        /* THE CHIP AND THE HIGHLIGHTED ROW ACTUALLY PAINT. Both declare
+           `background: var(--accent)` and both sit OUTSIDE the app window,
+           where the palette did not reach until 2026-09-08, so both computed to
+           rgba(0, 0, 0, 0) and neither had ever been drawn. A token referenced
+           and not defined leaves no error and no mark, and the declaration goes
+           on reading as correct (L585). This is the one claim here whose
+           failure is a thing NOT being drawn, so nothing but a measurement can
+           see it. */
+        var chip = document.querySelector(".menubar .openmenu");
+        var lit = document.querySelector(".menu div.on");
+        function painted(node) {
+          if (!node) return null;
+          var background = getComputedStyle(node).backgroundColor;
+          return /rgba\(0, 0, 0, 0\)|transparent/.test(background) ? null : background;
+        }
+        claim("the open menu's chip in the menu bar is painted", !!painted(chip),
+              chip ? "background " + getComputedStyle(chip).backgroundColor
+                   : "no chip on the menu bar");
+        claim("the menu's highlighted row is painted", !!painted(lit),
+              lit ? "background " + getComputedStyle(lit).backgroundColor
+                  : "no highlighted row in the menu");
+
         var wired = Array.prototype.filter.call(
           document.querySelectorAll(".menu div"),
           function (d) { return /^Add a discount$/.test(d.textContent); })[0];
@@ -130,6 +152,38 @@ window.addEventListener("load", function () {
         var names = list ? Array.prototype.map.call(list.querySelectorAll("button"),
                                                    function (b) { return b.textContent; }) : [];
         claim("the service types are offered", names.length >= 2, names.join(", "));
+
+        /* AND THE LIST IS ACTUALLY PAINTED WHERE IT SITS. Every other claim
+           here reads the DOM, and the DOM cannot tell a list that is drawn from
+           one that is clipped away: `.ldesc` sets overflow hidden so a long
+           description ellipsises, and an absolutely positioned box inside a
+           clipping one is clipped by it (L566). On the day round A shipped, the
+           list was in the DOM with all three types and the TOTALS BLOCK was
+           what got painted at its coordinates. So this asks the browser what is
+           drawn at the last type's own centre.
+
+           The window size matters and is set by the caller: elementFromPoint
+           answers null for anything below the viewport, so at the default
+           800x600 this claim would fail on a perfectly drawn list, which is a
+           measurement reporting on the measurer. */
+        var drawn = null;
+        if (list) {
+          var buttons = list.querySelectorAll("button");
+          var last = buttons[buttons.length - 1];
+          var lb = last.getBoundingClientRect();
+          var below = lb.bottom > window.innerHeight || lb.right > window.innerWidth;
+          if (below) {
+            claim("the list of types is painted where it sits", false,
+                  "the list is outside the " + window.innerWidth + "x" + window.innerHeight
+                    + " window, so nothing could be measured");
+          } else {
+            drawn = document.elementFromPoint(lb.left + lb.width / 2, lb.top + lb.height / 2);
+            claim("the list of types is painted where it sits",
+                  !!drawn && list.contains(drawn),
+                  drawn ? "what is drawn there: " + (drawn.className || drawn.tagName)
+                        : "nothing is drawn there");
+          }
+        }
         if (list) {
           list.querySelectorAll("button")[1].click();
           var field = document.querySelector(".lamt");
