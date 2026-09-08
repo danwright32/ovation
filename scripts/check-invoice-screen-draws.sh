@@ -163,10 +163,24 @@ window.addEventListener("load", function () {
       var hours = parseFloat(cells[1].textContent.replace(/,/g, ""));
       var rate = parseFloat(cells[2].textContent.replace(/,/g, ""));
       var shown = parseFloat(cells[3].textContent.replace(/,/g, ""));
-      claim("the first line shows its own amount, not the lines total",
-            Math.abs(shown - hours * rate) < 0.005,
-            hours + " x " + rate + " should be " + (hours * rate).toFixed(2)
-              + ", the row says " + shown.toFixed(2));
+      /* A FIGURE THAT COULD NOT BE READ IS ITS OWN ANSWER, never a comparison.
+         NaN compares false against every threshold, so without this the claim
+         would fail on the fail safe side while its message read "NaN x NaN
+         should be NaN": a row drawn with no figures at all and a row drawn with
+         the wrong figure are different faults and cannot share one sentence
+         (L50, L11). */
+      if (!isFinite(hours) || !isFinite(rate) || !isFinite(shown)) {
+        claim("the first line shows its own amount, not the lines total", false,
+              "the row's figures could not be read as numbers: hours "
+                + JSON.stringify(cells[1].textContent) + ", rate "
+                + JSON.stringify(cells[2].textContent) + ", amount "
+                + JSON.stringify(cells[3].textContent));
+      } else {
+        claim("the first line shows its own amount, not the lines total",
+              Math.abs(shown - hours * rate) < 0.005,
+              hours + " x " + rate + " should be " + (hours * rate).toFixed(2)
+                + ", the row says " + shown.toFixed(2));
+      }
     }
 
     /* EVERY FIGURE KEEPS ONE RIGHT EDGE, which is what the totals were measured
