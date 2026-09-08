@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 25
+harness_begin "output privacy tests" 27
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -275,6 +275,35 @@ check "and none when every model is registered" \
         ./scripts/check-schema-registered.sh 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------
+# The migration stage guard. It prints TYPE NAMES from the schema file and
+# nothing else, so a client name sitting in a comment in that file must not
+# reach the output, on the refusing path or the passing one.
+# ---------------------------------------------------------------------------
+STAGES_FILE="$WORK/stages.swift"
+cat > "$STAGES_FILE" <<SWIFT
+// A note about $CLIENT at $VENUE, which has no business in any output.
+enum OvationMigrationPlan: SchemaMigrationPlan {
+    static var schemas: [any VersionedSchema.Type] {
+        [OvationSchemaV1.self, OvationSchemaV2.self]
+    }
+    static var stages: [MigrationStage] { [] }
+}
+SWIFT
+check "the migration stage guard prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_SCHEMA_FILE="$STAGES_FILE" \
+        ./scripts/check-migration-stages.sh 2>&1)")" "clean"
+cat > "$STAGES_FILE" <<SWIFT
+// A note about $CLIENT at $VENUE, which has no business in any output.
+enum OvationMigrationPlan: SchemaMigrationPlan {
+    static var schemas: [any VersionedSchema.Type] { [OvationSchemaV1.self] }
+    static var stages: [MigrationStage] { [] }
+}
+SWIFT
+check "and none when the versions and stages are in step" \
+    "$(leaks_in "$(OVATION_SCHEMA_FILE="$STAGES_FILE" \
+        ./scripts/check-migration-stages.sh 2>&1)")" "clean"
+
+# ---------------------------------------------------------------------------
 # The live data bracket. It prints watched PATHS relative to Application
 # Support, which are Ovation's own filenames, never a client's.
 # ---------------------------------------------------------------------------
@@ -312,7 +341,7 @@ check "the launch wiring guard prints no identity when it refuses" \
 # for (L96, L247). So the list is asserted against what is actually on disk, and
 # a new check script fails HERE until somebody points it at the fixture.
 # ---------------------------------------------------------------------------
-COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-forbidden-constructs.sh check-identity-leaks.sh check-isolation-floor.sh check-launch-sequence-wired.sh check-live-data-untouched.sh check-ported-artifacts.sh check-preconditions.sh check-schema-registered.sh check-sibling-installs.sh"
+COVERED="check-booking-queue.sh check-custody-files.sh check-custody-not-staged.sh check-forbidden-constructs.sh check-identity-leaks.sh check-isolation-floor.sh check-launch-sequence-wired.sh check-live-data-untouched.sh check-migration-stages.sh check-ported-artifacts.sh check-preconditions.sh check-schema-registered.sh check-sibling-installs.sh"
 ON_DISK="$(cd scripts && ls -1 check-*.sh | sort | tr '\n' ' ')"
 check "every check script on disk is covered by this suite" \
     "$(printf '%s' "$ON_DISK" | tr -s ' ' | sed 's/ $//')" \

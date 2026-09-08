@@ -102,6 +102,19 @@ if [ -x "${REPO_ROOT}/scripts/check-schema-registered.sh" ]; then
     fi
 fi
 
+# ovation#119. `OvationMigrationPlan.stages` is empty and `schemas` names one
+# version. Both are correct today and exactly one of them is silently wrong the
+# moment a second version is added, because SwiftData does not refuse a missing
+# stage: it opens a store that looks fine and the data a renamed property or a
+# changed type held is gone. Nothing else in the repository can tell, since an
+# empty stages list is the correct value right up until it is not.
+if [ -x "${REPO_ROOT}/scripts/check-migration-stages.sh" ]; then
+    if ! "${REPO_ROOT}/scripts/check-migration-stages.sh"; then
+        echo "pre-push: the migration plan's versions and stages disagree. Push refused." >&2
+        exit 1
+    fi
+fi
+
 # The launch sequence must be WIRED into the entry point. ovation#88: the store
 # schema guard was written and fully tested and then called by nothing, because
 # the file carrying @main is the one file the pure test target cannot compile, so

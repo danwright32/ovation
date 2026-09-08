@@ -84,10 +84,18 @@ enum OvationSchemaV1: VersionedSchema {
 
 /// The plan that carries a store from one version to the next.
 ///
-/// IT HAS ONE STAGE TODAY AND THAT IS THE POINT. A plan naming only version 1 is
-/// what makes version 2 a migration rather than a fresh start, and it is here
-/// before there is a version 2 for the same reason the version identifier is:
-/// afterwards is too late for every store already written.
+/// IT HAS ONE VERSION AND NO STAGES TODAY, AND THAT IS THE POINT. A plan naming
+/// only version 1 is what makes version 2 a migration rather than a fresh start,
+/// and it is here before there is a version 2 for the same reason the version
+/// identifier is: afterwards is too late for every store already written.
+///
+/// WHAT HOLDS THE TWO LISTS IN STEP is `scripts/check-migration-stages.sh`
+/// (ovation#119), run by the push gate. Both lists are correct today and exactly
+/// one of them is silently wrong the moment a second version is added, and
+/// nothing in the sources can tell, because an empty `stages` is the right value
+/// right up until it is not (L65). The check refuses a version with no stage
+/// carrying a store into it, and separately refuses a stage naming a pair that
+/// is not a step, because those need opposite remedies.
 ///
 /// WHAT A LATER STAGE MUST NOT DO. A stage added for an additive change can be
 /// `.lightweight`, and one for anything else (a renamed property, a changed
