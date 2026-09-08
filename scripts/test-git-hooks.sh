@@ -106,8 +106,15 @@ check "a red suite refuses the push" \
 # counted two matching lines and failed on a hook that was working perfectly
 # (ovation#58). A pattern that matches a fragment of an unrelated word is
 # measuring the wrong thing in both directions (L156).
+# THE REFUSAL SENTENCE, not any line holding the word. This was
+# `refused|blocked|\bred\b` counted over the whole output, which was already
+# once too loose ("red" inside "registered") and became loose again the moment
+# the gate learned to SAY that a check went unmeasured: on a machine where one
+# cannot measure, "the push is not refused for it" is a second matching line and
+# this went red on a hook that was working perfectly. Found by CI, which is the
+# only machine that has ever been in that state (ovation#135, ovation#143, L156).
 check "and it says why, rather than failing silently" \
-    "$(printf '%s' "$OUT7" | grep -ciE 'refused|blocked|\bred\b')" "1"
+    "$(printf '%s' "$OUT7" | grep -c 'Push refused')" "1"
 
 # 8. The documented escape hatch works, and SAYS it was used. An override that
 #    can happen quietly is one that happens by accident.
