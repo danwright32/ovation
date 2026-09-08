@@ -29,7 +29,15 @@
    a mistake rather than a shoot: the longest Dan has ever billed is 6.25 hours
    and the median is 1.625. PRD 5.3b requires such a value to be refused BY NAME
    rather than priced, and naming it is a surface decision that is not made here.
-   What is guaranteed here is that it prices nothing. */
+   What is guaranteed here is that it prices nothing.
+
+   TWELVE IS DAN'S NUMBER, settled 2026-09-08 with that measurement in front of
+   him and against 8, 7 and no cap at all. He knowingly took the loosest of the
+   four that still refuses something: it is nearly double his longest ever, so
+   it will not refuse a real shoot, and the cost he accepted is that a mistyped
+   meridiem on an evening job, 7:00 PM read as 7:00 AM, comes to 10 hours and is
+   priced rather than caught. It was Claude's until that day and is recorded
+   here because a number nobody chose reads exactly like one somebody did. */
 
 var QUARTER = 0.25;
 var MINIMUM_HOURS = 1;
