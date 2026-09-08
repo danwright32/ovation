@@ -61,10 +61,10 @@ actor PaymentAllocator {
         on day: BusinessDate
     ) throws {
         guard amount > .zero else { throw AllocationRefusal.amountIsNotPositive(asked: amount) }
-        guard let payment = self[paymentID, as: Payment.self] else {
+        guard let payment = try find(paymentID, as: Payment.self) else {
             throw AllocationRefusal.noSuchPayment
         }
-        guard let invoice = self[invoiceID, as: Invoice.self] else {
+        guard let invoice = try find(invoiceID, as: Invoice.self) else {
             throw AllocationRefusal.noSuchInvoice
         }
 
@@ -104,12 +104,32 @@ actor PaymentAllocator {
     /// It runs on the same actor as `allocate`, so a release and an allocation
     /// cannot interleave and leave the sum wrong in the other direction.
     func releaseAllAllocations(of invoiceID: PersistentIdentifier, on day: BusinessDate) throws {
-        guard let invoice = self[invoiceID, as: Invoice.self] else {
+        guard let invoice = try find(invoiceID, as: Invoice.self) else {
             throw AllocationRefusal.noSuchInvoice
         }
         for allocation in invoice.allocations where allocation.releasedOn == nil {
             allocation.releasedOn = day
         }
         try modelContext.save()
+    }
+
+    /// The row behind an identifier, or nil where there is no longer one.
+    ///
+    /// NOT `self[id, as:]`, and the difference is the process staying alive.
+    /// Handed the identifier of a row DELETED since the caller read it, the
+    /// subscript returns a NON-NIL object that traps the moment any property is
+    /// read: "this model instance was invalidated because its backing data could
+    /// no longer be found in the store". Measured on all three paths here while
+    /// building ovation#37, each one crashing the test process rather than
+    /// refusing.
+    ///
+    /// A row deleted between a screen reading it and this running is an ordinary
+    /// race, not an exotic one, and the refusals for it were already written and
+    /// already tested. They simply could not be reached. A fetch does not return
+    /// a deleted row, so they can be.
+    private func find<T: PersistentModel>(
+        _ id: PersistentIdentifier, as type: T.Type
+    ) throws -> T? {
+        try modelContext.fetch(FetchDescriptor<T>()).first { $0.persistentModelID == id }
     }
 }

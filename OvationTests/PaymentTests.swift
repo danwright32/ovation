@@ -197,6 +197,67 @@ struct PaymentTests {
         #expect(read.allocated <= read.amount, "the sum never exceeded what arrived")
     }
 
+    @Test("an invoice deleted since the caller read it is REFUSED, not a crash")
+    func adeletedInvoiceIsRefusedRatherThanFatal() async throws {
+        // Measured while building ovation#37: `self[id, as:]` handed the
+        // identifier of a deleted row returns a NON-NIL object that traps the
+        // moment any property is read, "this model instance was invalidated
+        // because its backing data could no longer be found in the store". That
+        // is the process dying rather than a refusal, and a row deleted between a
+        // screen reading it and this running is an ordinary race.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 100))
+        let payment = Self.payment(context, for: client, Money(dollars: 100))
+        try context.save()
+        let invoiceID = invoice.persistentModelID
+        context.delete(invoice)
+        try context.save()
+
+        let allocator = PaymentAllocator(modelContainer: container)
+        await #expect(throws: AllocationRefusal.noSuchInvoice) {
+            try await allocator.allocate(Money(dollars: 10), from: payment.persistentModelID,
+                                         to: invoiceID, on: .stamping(Self.day))
+        }
+    }
+
+    @Test("a payment deleted since the caller read it is refused too, by its own name")
+    func adeletedPaymentIsRefusedRatherThanFatal() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 100))
+        let payment = Self.payment(context, for: client, Money(dollars: 100))
+        try context.save()
+        let paymentID = payment.persistentModelID
+        context.delete(payment)
+        try context.save()
+
+        let allocator = PaymentAllocator(modelContainer: container)
+        await #expect(throws: AllocationRefusal.noSuchPayment) {
+            try await allocator.allocate(Money(dollars: 10), from: paymentID,
+                                         to: invoice.persistentModelID, on: .stamping(Self.day))
+        }
+    }
+
+    @Test("releasing against an invoice that is gone is refused rather than fatal")
+    func areleaseOnADeletedInvoiceIsRefused() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 100))
+        try context.save()
+        let invoiceID = invoice.persistentModelID
+        context.delete(invoice)
+        try context.save()
+
+        let allocator = PaymentAllocator(modelContainer: container)
+        await #expect(throws: AllocationRefusal.noSuchInvoice) {
+            try await allocator.releaseAllAllocations(of: invoiceID, on: .stamping(Self.day))
+        }
+    }
+
     // MARK: the other ceiling, which is what the invoice actually owes
 
     @Test("an allocation past what the invoice OWES is refused by name, carrying what is left")

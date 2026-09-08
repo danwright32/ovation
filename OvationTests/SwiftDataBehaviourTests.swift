@@ -462,4 +462,40 @@ struct SwiftDataBehaviourTests {
         #expect(logBytes > 0, "the log exists but is empty, which is a different world")
         #expect(rows.isEmpty, "the store file alone now carries the row, which reverses the reasoning above")
     }
+
+    @Test("a second context that has not seen a write CLOBBERS it on its next save")
+    func astaleContextOverwritesAnotherContextsWrite() throws {
+        // MEASURED, because ovation#37 depends on knowing it. Two contexts over
+        // one container do not merge on their own. A context holding an object
+        // from before another context wrote to it still holds the OLD value, and
+        // its next save writes that old value back over the new one, with no
+        // error anywhere.
+        //
+        // It is recorded here rather than worked around at one call site, because
+        // it applies to every field any @ModelActor writes while a screen holds
+        // the same row.
+        let container = try OvationSchema.container(inMemory: true)
+        let screen = ModelContext(container)
+        let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        screen.insert(invoice)
+        try screen.save()
+        let id = invoice.id
+
+        // Another context writes the number, exactly as the allocator does.
+        let writer = ModelContext(container)
+        let there = try #require(try writer.fetch(FetchDescriptor<Invoice>()).first { $0.id == id })
+        there.number = 1_123
+        try writer.save()
+
+        // The screen, which never saw that, saves something unrelated.
+        invoice.noteToClient = "thank you"
+        try screen.save()
+
+        let reader = ModelContext(container)
+        let after = try #require(try reader.fetch(FetchDescriptor<Invoice>()).first { $0.id == id })
+        #expect(after.number == nil,
+                "the stale context wrote its own nil back over 1123, silently")
+        #expect(after.noteToClient == "thank you", "and its own edit did land")
+    }
 }
