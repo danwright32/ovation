@@ -262,5 +262,41 @@ check "a suite that dies is still refused when it used a temp dir" \
 check "and the temp directory was still removed" \
     "$([ -e "$DIR11" ] && echo left-behind || echo removed)" "removed"
 
+# ---------------------------------------------------------------------------
+# 12. NO SUITE MAY INHERIT A GIT ENVIRONMENT. Six suites build a throwaway git
+# repository with `git init` and `git commit`, and git's variables OVERRIDE the
+# directory a command is run in: with GIT_DIR set, a fixture's `git init` re-
+# initialises whatever GIT_DIR names and its `git commit` commits into it.
+#
+# Git EXPORTS those variables to its hooks, and the whole suite runs from the
+# pre-push hook. Measured on 2026-09-08, on the real repository: a fixture's
+# `git init -q -b main` set `core.bare = true` on Ovation's shared config and
+# wrote `user.email = t@t` into it, so every later commit in any checkout or
+# worktree would have been authored by `t`; and its `git commit -qm one` landed a
+# commit titled "one" adding `f.txt` on the branch that was being pushed.
+#
+# That is a test writing into live state, which the isolation floor exists to
+# make structurally impossible (L2), and no seam in any individual suite could
+# have stopped it: the variables arrive from outside every one of them. So the
+# harness every suite already sources clears them once, for all of them.
+#
+# The fixture below asks the running suite what it can see, rather than asserting
+# about the harness's source, so a future harness that stops clearing them fails
+# here rather than reading as correct.
+suite git_env <<SUITE
+#!/bin/bash
+cd "$PWD" || exit 1
+. "$PWD/$HARNESS"
+harness_begin "git env" 1
+printf '%s|%s|%s\n' "\${GIT_DIR:-unset}" "\${GIT_WORK_TREE:-unset}" "\${GIT_INDEX_FILE:-unset}" \
+    > "$WORK/seen-git-env"
+check "one" "a" "a"
+harness_end
+SUITE
+GIT_DIR=/nowhere/decoy.git GIT_WORK_TREE=/nowhere GIT_INDEX_FILE=/nowhere/index \
+    run git_env >/dev/null 2>&1
+check "a suite cannot see a GIT_DIR the environment handed it" \
+    "$(cat "$WORK/seen-git-env" 2>/dev/null)" "unset|unset|unset"
+
 echo "test harness tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

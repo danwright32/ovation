@@ -12,7 +12,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "build-install tests" 22
+harness_begin "build-install tests" 25
 
 TARGET="scripts/build-install.sh"
 require_target "$TARGET"
@@ -125,5 +125,30 @@ check "the record parses as JSON" \
     "$(python3 -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "$DATA/installed-build.json" 2>/dev/null)" "ok"
 check "and dirtyFiles is a NUMBER, not a string, so a reader cannot compare it to text" \
     "$(python3 -c 'import json,sys;print(type(json.load(open(sys.argv[1])).get("dirtyFiles")).__name__)' "$DATA/installed-build.json" 2>/dev/null)" "int"
+
+# ---------------------------------------------------------------------------
+# 9. THE RECORD MUST DESCRIBE THE REPOSITORY IT WAS HANDED, and `git -C <repo>`
+# is not enough to guarantee that: an inherited GIT_DIR BEATS the -C, so every
+# question is answered by whatever GIT_DIR names instead.
+#
+# This is the record that says which code an installed app came from, so getting
+# it from the wrong repository is not a cosmetic fault: the app reports a branch
+# it was not built from and a dirty count belonging to somewhere else, and both
+# look entirely plausible.
+#
+# Git EXPORTS GIT_DIR to its hooks, and this suite runs inside the pre-push hook.
+# Found on 2026-09-08: this suite passed run by hand and failed five assertions
+# inside the gate, reporting the pushing worktree's own branch and its 188 dirty
+# files against a throwaway fixture repo that had one file and was on main.
+#
+# The fixture points GIT_DIR at a DIFFERENT real repository, this one, so a
+# regression cannot pass by the two happening to agree.
+GITDIR_OUT="$(GIT_DIR="$PWD/.git" GIT_WORK_TREE="$PWD" run_install)"
+check "an inherited GIT_DIR does not change which repository is recorded" \
+    "$(field repoPath)" "$REPO"
+check "and the provenance is still the fixture's line of work" \
+    "$(field provenance)" "main"
+check "and the dirty count is still the fixture's own" \
+    "$(printf '%s' "$(record)" | sed -n 's/.*"dirtyFiles":\([0-9]*\).*/\1/p')" "0"
 
 harness_end

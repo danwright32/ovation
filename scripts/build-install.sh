@@ -70,6 +70,29 @@ ovation_pids_from_table() {
   return 0
 }
 
+# ASKING A REPOSITORY ABOUT ITSELF NEEDS MORE THAN `git -C`. An inherited GIT_DIR
+# BEATS the -C, so every question below is answered by whatever GIT_DIR names
+# rather than by the repository this was handed.
+#
+# That is not a hypothetical here. Git EXPORTS GIT_DIR to its hooks, and this
+# script's suite runs inside the pre-push hook. Found on 2026-09-08: the suite
+# passed run by hand and failed five assertions inside the gate, reporting the
+# pushing worktree's own branch and its 188 dirty files against a fixture repo
+# that held one file and was on main.
+#
+# THE STAKE IS HIGHER THAN A FAILING TEST. This record is the only thing that can
+# say which code the app in /Applications came from, because the app cannot run
+# git. A branch and a dirty count read off the wrong repository are not obviously
+# wrong to anybody: they are plausible values describing somewhere else, and the
+# record's whole purpose is to be believed later (L416).
+#
+# One helper, so a call site added later cannot quietly be the one that asks the
+# wrong repository (L70, L621).
+ovation_repo_git() {
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY \
+      -u GIT_COMMON_DIR -u GIT_NAMESPACE git "$@"
+}
+
 # How many tracked files differ, or NOTHING when git cannot be asked.
 #
 # Nothing rather than zero. A repository this cannot read is not a clean one
@@ -79,7 +102,7 @@ ovation_pids_from_table() {
 # captured on its own and the failure is caught by the substitution.
 ovation_dirty_file_count() {
   local repo="$1" out
-  out=$(git -C "${repo}" status --porcelain 2>/dev/null) || return 0
+  out=$(ovation_repo_git -C "${repo}" status --porcelain 2>/dev/null) || return 0
   # An empty answer from a repository that ANSWERED is a real zero, and has to
   # stay distinguishable from the silence above.
   if [ -z "${out}" ]; then printf '0'; return 0; fi
@@ -93,7 +116,7 @@ ovation_dirty_file_count() {
 # vocabulary free to drift from the one that reads it (L41).
 ovation_provenance() {
   local repo="$1" out
-  out="$(git -C "${repo}" rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 0
+  out="$(ovation_repo_git -C "${repo}" rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 0
   printf '%s' "${out}"
 }
 
@@ -197,8 +220,8 @@ if [ ! -d "${DEST}" ]; then
 fi
 rm -rf "${STAGING_DIR}"
 
-COMMIT="$(git -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null || true)"
-COMMIT_DATE="$(git -C "${REPO_ROOT}" log -1 --format=%cI 2>/dev/null || true)"
+COMMIT="$(ovation_repo_git -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null || true)"
+COMMIT_DATE="$(ovation_repo_git -C "${REPO_ROOT}" log -1 --format=%cI 2>/dev/null || true)"
 DIRTY="$(ovation_dirty_file_count "${REPO_ROOT}")"
 PROVENANCE="$(ovation_provenance "${REPO_ROOT}")"
 IDENTITY="$(ovation_signing_identity "${DEST}")"

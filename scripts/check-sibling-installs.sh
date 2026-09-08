@@ -97,14 +97,26 @@ PROVENANCE="$(plutil -extract provenance raw -o - "$RECORD" 2>/dev/null)" || PRO
 # ANCESTRY IS ASKED OF THE REPOSITORY, not inferred from dates or from the
 # commit strings looking different. Read only: nothing here checks anything out,
 # because the checkout may be shared with a session that is working in it.
-git -C "$REPO" cat-file -e "${INSTALLED}^{commit}" 2>/dev/null || cannot_measure \
+# AND IT IS ASKED WITH THE ENVIRONMENT CLEARED, because an inherited GIT_DIR
+# BEATS `git -C`, so every question below would be answered by whatever GIT_DIR
+# names rather than by Overture. This check exists to establish that the
+# INSTALLED Overture contains a particular fix, and an answer about Ovation
+# instead is not an error, it is a confident wrong verdict about another
+# repository. Same fault as ovation#138 in the push gate, found by sweeping for
+# the class rather than by hitting it here (L30, L387).
+sibling_git() {
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY \
+        -u GIT_COMMON_DIR -u GIT_NAMESPACE git "$@"
+}
+
+sibling_git -C "$REPO" cat-file -e "${INSTALLED}^{commit}" 2>/dev/null || cannot_measure \
     "the installed Overture commit ${INSTALLED:0:8} is not in that checkout" \
     "it was built from a clone this one has never fetched, so its contents cannot be established here"
-git -C "$REPO" cat-file -e "${GATE}^{commit}" 2>/dev/null || cannot_measure \
+sibling_git -C "$REPO" cat-file -e "${GATE}^{commit}" 2>/dev/null || cannot_measure \
     "the gate commit ${GATE:0:8} is not in that checkout" \
     "fetch Overture, or correct OVATION_OVERTURE_GATE_COMMIT"
 
-if ! git -C "$REPO" merge-base --is-ancestor "$GATE" "$INSTALLED" 2>/dev/null; then
+if ! sibling_git -C "$REPO" merge-base --is-ancestor "$GATE" "$INSTALLED" 2>/dev/null; then
     blocked "the installed Overture ${INSTALLED:0:8} does not contain the version gate fix ${GATE:0:8}" \
         "it will refuse a version ${WANT_VERSION} export outright and lose its roster; reinstall Overture from main first"
 fi
