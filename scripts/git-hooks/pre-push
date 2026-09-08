@@ -23,7 +23,34 @@
 #   the ported artifact ancestry check      added below
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# THE TREE BEING PUSHED, NOT THE TREE THIS FILE LIVES IN (ovation#138).
+#
+# This was derived from the hook file's own location. core.hooksPath had been
+# left as an absolute path into the primary checkout, so a push from a worktree
+# ran the primary checkout's hook against the primary checkout's tree and the
+# primary checkout's copy of every guard beside it. The branch being pushed was
+# never looked at: a gate reading its criteria from a revision it is not judging
+# (L398). It failed in both directions, and the one that bit was a green branch
+# refused for a fault that existed only in the primary checkout, whose fix was
+# already committed on the branch being refused.
+#
+# git runs a pre-push with its working directory at the top of the tree the push
+# comes from, which is what makes this the right question to ask, and
+# scripts/test-git-hooks.sh measures that with a real push rather than trusting
+# it (L82). The installer now also writes core.hooksPath in its relative form and
+# upgrades an absolute one, so the FILE that runs comes from the pushed tree too.
+#
+# REFUSED, NOT GUESSED, when the question cannot be answered: a hook always runs
+# inside a repository, so a failure here means something is wrong with the
+# invocation and falling back to this file's location is how the defect above got
+# in (L93, L173).
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "${REPO_ROOT}" ] || [ ! -d "${REPO_ROOT}" ]; then
+    echo "pre-push: could not work out which working tree is being pushed." >&2
+    echo "pre-push: 'git rev-parse --show-toplevel' answered nothing, so nothing" >&2
+    echo "pre-push: has been checked. Push refused." >&2
+    exit 1
+fi
 
 # The documented one push escape hatch. It ANNOUNCES itself, because an override
 # that can happen quietly is one that happens by accident, and it is good for
