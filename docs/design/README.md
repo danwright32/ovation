@@ -435,9 +435,15 @@ The page prints its own verdict line above the window, and it reports the same 1
 suites that `scripts/test-design-rules.sh` reports. Two numbers that must agree, from two places,
 which is the cheapest possible check that the copy is the copy.
 
-**Two of the numbers on this screen are Claude's, not Dan's**, and are marked as such on ovation#111:
-the 12 hour cap above which a duration prices nothing, and the history pane's own design, which Dan
-specified but never saw alternatives for.
+**The 12 hour cap above which a duration prices nothing is Dan's**, settled 2026-09-08 against 8, 7
+and no cap at all, with the measurement in front of him: his longest ever billed is 6.25 hours and
+his median is 1.625. He took the loosest of the four that still refuses something, accepting that a
+mistyped meridiem on an evening job comes to 10 hours and is priced rather than caught. It had been
+Claude's until then.
+
+**The history pane's own design is still Claude's, not Dan's**, and is marked as such on ovation#111:
+he specified that it exists, where it opens from and that it pushes, but never saw its 272px width,
+its button placement or its entry wording against any alternative.
 
 ### Three things the merge found, all of them the record disagreeing with itself
 
@@ -462,5 +468,13 @@ belongs to is worse than one that says less.
 ### What is deliberately still open
 
 Whether the hours stay separately typable for a shoot whose times were never noted. What the sidebar
-counts do about an invoice that cannot be sent (ovation#129). And the discount's edit line, which was
-chosen to solve a layout problem rather than designed.
+counts do about an invoice that cannot be sent (ovation#129). The discount's edit line, which was
+chosen to solve a layout problem rather than designed. The history pane's own width, button and
+wording. And what the screen SAYS when a duration is over the cap: the number is settled and the
+rule guarantees such a value prices nothing, but PRD 5.3b wants it refused BY NAME and no surface
+draws that refusal yet, so today it is indistinguishable from a shoot whose times are not in.
+
+The referral credit and the discount ARE drawn now, above and below the subtotal as PRD 5.4a and 5.8
+settle them, using treatments the screen already had. Nobody has approved how they look: Dan chose on
+2026-09-08 to leave them drawn and settle their treatment in the discount round rather than take them
+back out, so read them as the starting point for that round and not as agreed.
