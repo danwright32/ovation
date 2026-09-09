@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 53
+harness_begin "git hooks tests" 57
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -445,5 +445,48 @@ WF22="$( cd "$R22" && mkdir -p .github/workflows && printf 'name: x\n' > .github
 OUT22F="$(hook_with_range "$R22" "refs/heads/main $WF22 refs/heads/main $MIXED22")"
 check "a push touching only the workflow skips the xcode phase" \
     "$(printf '%s' "$OUT22F" | grep -c 'SKIP=1')" "1"
+
+# BUT scripts/ IS NOT SKIPPABLE, because the build command lives there
+# (ovation#154). scripts/lib/build-one-configuration.sh IS the xcodebuild
+# invocation and scripts/build-products.sh orchestrates it, so a change to
+# either is a change to how the app is compiled, and the old entry claimed
+# exactly the opposite: that no Xcode build or test could read it.
+#
+# THE ENTRY WAS DROPPED RATHER THAN NARROWED to the scripts that genuinely
+# cannot reach a build. A narrowed list is a hand maintained registry, and the
+# reason to avoid one here is not that its omissions are unsafe (an unlisted
+# script would run the full thing, which is the safe direction) but that it has
+# to be kept honest for ever by whoever adds the next script, which is a rule
+# living in a prompt (L27, L96). The cost is real and accepted: a push touching
+# only shell now pays the Xcode phase and the wait for the sibling locks.
+S22="$( cd "$R22" && mkdir -p scripts/lib \
+    && printf 'x\n' > scripts/lib/build-one-configuration.sh \
+    && git add scripts/lib/build-one-configuration.sh \
+    && git commit -qm build >/dev/null 2>&1 && git rev-parse HEAD )"
+OUT22G="$(hook_with_range "$R22" "refs/heads/main $S22 refs/heads/main $WF22")"
+check "a push touching the build command runs the xcode phase" \
+    "$(printf '%s' "$OUT22G" | grep -c 'SKIP=$')" "1"
+check "and it names the build command as the reason" \
+    "$(printf '%s' "$OUT22G" | grep -c 'build-one-configuration.sh')" "1"
+
+# AND THE RULE IS ABOUT scripts/, not about the one file named in the issue.
+# A fix written as an exception for the build command would leave every other
+# script claiming it cannot reach a build, which is the same unmeasured claim
+# one file smaller (L30, L362).
+S22B="$( cd "$R22" && printf 'x\n' > scripts/check-something.sh \
+    && git add scripts/check-something.sh \
+    && git commit -qm runner >/dev/null 2>&1 && git rev-parse HEAD )"
+OUT22H="$(hook_with_range "$R22" "refs/heads/main $S22B refs/heads/main $S22")"
+check "a push touching any other script also runs the xcode phase" \
+    "$(printf '%s' "$OUT22H" | grep -c 'SKIP=$')" "1"
+
+# DOCS AND WORKFLOWS STAY SKIPPABLE. The point of ovation#154 is that one entry
+# on that list was untrue, not that the list is a bad idea, and a change that
+# quietly took the whole optimisation away would pass every case above.
+D22="$( cd "$R22" && printf 'z\n' > docs/four.md && git add docs/four.md \
+    && git commit -qm docs >/dev/null 2>&1 && git rev-parse HEAD )"
+OUT22I="$(hook_with_range "$R22" "refs/heads/main $D22 refs/heads/main $S22B")"
+check "a docs only push still skips the xcode phase" \
+    "$(printf '%s' "$OUT22I" | grep -c 'SKIP=1')" "1"
 
 harness_end

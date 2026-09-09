@@ -291,9 +291,19 @@ done
 
 # The one list of what an Xcode build and test cannot read. Everything else is
 # relevant by default.
+#
+# scripts/ IS NOT ON IT (ovation#154). The build command itself lives there:
+# scripts/lib/build-one-configuration.sh is the xcodebuild invocation and
+# scripts/build-products.sh orchestrates it, so the old entry claimed that a
+# change to how the app is compiled could not affect the build. It was dropped
+# rather than narrowed to the scripts that genuinely cannot reach one, because
+# a narrowed list is a registry somebody has to keep honest for ever and its
+# accuracy would live only in whoever remembers the rule (L27, L96). The cost is
+# accepted and it is real: a push touching only shell now pays the Xcode phase
+# and the wait for the sibling locks.
 skippable_path() {
     case "$1" in
-        docs/*|scripts/*|.github/*|*.md|.gitignore|.gitattributes) return 0 ;;
+        docs/*|.github/*|*.md|.gitignore|.gitattributes) return 0 ;;
         *) return 1 ;;
     esac
 }
