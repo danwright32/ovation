@@ -107,9 +107,9 @@ actor PaymentAllocator {
         guard let invoice = try find(invoiceID, as: Invoice.self) else {
             throw AllocationRefusal.noSuchInvoice
         }
-        for allocation in invoice.allocations where allocation.releasedOn == nil {
-            allocation.releasedOn = day
-        }
+        // The rule itself lives on the invoice, because `InvoiceCloser` needs the
+        // same one and each writer saves in its own context (L370).
+        invoice.releaseActiveAllocations(on: day)
         try modelContext.save()
     }
 

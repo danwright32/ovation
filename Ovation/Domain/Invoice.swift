@@ -201,6 +201,24 @@ extension OvationSchemaV1 {
 
         var amountOutstanding: Money { total - amountPaid }
 
+        /// Releases every allocation that still stands against this invoice.
+        ///
+        /// RELEASED, NEVER DELETED (PRD 5.14d). An allocation is a statement about
+        /// money that actually arrived, so it outlives the invoice it was pointed
+        /// at, and the money returns to the client's unallocated balance rather
+        /// than disappearing.
+        ///
+        /// IT IS HERE RATHER THAN IN EACH WRITER because two writers need it,
+        /// `PaymentAllocator` and `InvoiceCloser`, and each one saves in its own
+        /// context. Sharing the DATA while copying the code that applies it is not
+        /// consolidation: the shared field reads as the single source of truth and
+        /// nobody then asks whether the logic beside it was duplicated (L370).
+        func releaseActiveAllocations(on day: BusinessDate) {
+            for allocation in allocations where allocation.releasedOn == nil {
+                allocation.releasedOn = day
+            }
+        }
+
         /// Where this invoice stands on money alone.
         ///
         /// IT SAYS NOTHING ABOUT SENDING OR CANCELLING, which are different facts on
