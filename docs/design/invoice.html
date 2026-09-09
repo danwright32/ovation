@@ -2209,6 +2209,10 @@ function buildInvoice() {
   }
 
   var sumBox = el("div", "invsum");
+  /* EVERY FIGURE IN HERE KEEPS ONE RIGHT EDGE, and it is said in the markup so
+     something can check it (ovation#141). The record has had to fix this twice:
+     the discount's figure landed 24px off the shared edge, twice. */
+  sumBox.setAttribute("data-one-edge", "");
   function line(label, fig, cls) {
     var ln = el("div", "sline" + (cls ? " " + cls : ""));
     ln.append(el("div", null, label), el("div", "fig", fig));

@@ -128,6 +128,39 @@ jobs:
       - name: Install Pillow
         run: python3 -m pip install --break-system-packages Pillow
 
+      # ovation#160. The rendered design checks were the only ones that open a
+      # design file in a browser and measure what it DRAWS, which is the class
+      # of fault no source reading can see, and they ran on exactly one machine:
+      # Dan's. Both CI jobs answered CANNOT MEASURE, which is honest and
+      # measures nothing, so a push from anywhere else was judged without them.
+      # A check that has never run where everyone else's pushes are judged is
+      # close to not existing (L400, L98).
+      #
+      # THE LINUX JOB IS THEIR HOME, because they need no Xcode and a browser
+      # here costs a download rather than macOS minutes, which bill at ten times
+      # the rate the day ovation#15 makes this repository private. The download
+      # is CACHED on the browser's own version, so an upgrade fetches and
+      # nothing else does; a cache that restores on every run and saves nothing
+      # is a log line rather than a saving (L303, L3).
+      - name: Cache the headless browser
+        id: browser-cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1.63.0-chromium-${{ runner.os }}
+
+      - name: Install the headless browser
+        run: npx --yes playwright@1.63.0 install --with-deps chromium
+
+      # PROVED, NOT ASSUMED. Without this the first sign of a browser that did
+      # not install is three suites quietly answering CANNOT MEASURE again,
+      # which is the state this step exists to end and reads as normal (L3, L98).
+      - name: Prove the design checks can now measure
+        run: |
+          python3 scripts/check-design-draws.sh
+          python3 scripts/check-invoice-screen-draws.sh
+          python3 scripts/check-design-tokens-resolve.sh
+
       - name: Run every shell suite
         run: |
           set +e

@@ -338,7 +338,12 @@ var FIXTURES = [
     client: "Westfield Choral Society", exempt: false, discount: { percent: 10 },
     lines: [
       photoLine("Winter Gala Concert", "St Bride's Hall", "December 5, 2026", 2.0),
-      { kind: "Rush turnaround", detail: "Gallery delivered within 24 hours", amount: 150 },
+      /* ONE OF THESE OMITS THE KEYS AND ONE CARRIES THEM EMPTY, on purpose
+         (ovation#170). They mean the same thing to anyone writing a fixture,
+         and until this line existed no fixture anywhere used the second
+         spelling, so the throw it caused could not be reached by any check. */
+      { kind: "Rush turnaround", detail: "Gallery delivered within 24 hours",
+        hours: null, rate: null, amount: 150 },
       { kind: "Preview images", detail: "Six images delivered the same night", amount: 75 },
       { kind: "Referral credit", detail: "Earned on Yarrow Street Collective, 1.0 hr", amount: -250 }
     ]
@@ -422,8 +427,18 @@ function itemsTable(inv) {
     var second = l.shoot ? l.venue + ", " + l.date : (l.detail || "");
     if (second) d.append(mk("span", "sub2", second));
     r.append(d);
-    r.append(mk("td", "r", l.hours !== undefined ? hours(l.hours) : ""));
-    r.append(mk("td", "r", l.rate !== undefined ? money(l.rate) : ""));
+    /* THE VALUE IS GUARDED, NOT THE KEY (ovation#170). `l.hours !== undefined`
+       admits `hours: null`, which reaches `hours(null)`, calls `.toFixed` on
+       nothing and throws. `buildPage` then never returns and the page renders
+       as a blank white sheet, which reads as a layout problem with the real
+       cause in the console. It cost about twenty minutes on 2026-09-09 while
+       building review-send.html, whose preview runs this function.
+       A line with no hours is the ORDINARY shape of a second line, not an
+       exotic one: PRD 51f settles that extras carry no hours and no rate
+       anywhere, and both spellings mean the same thing to anyone writing a
+       fixture or porting this to Swift. `== null` covers both. */
+    r.append(mk("td", "r", l.hours == null ? "" : hours(l.hours)));
+    r.append(mk("td", "r", l.rate == null ? "" : money(l.rate)));
     r.append(mk("td", "r", money(l.amount)));
     tb.append(r);
   });
@@ -434,6 +449,11 @@ function itemsTable(inv) {
 function moneyBlock(inv) {
   var t = totals(inv);
   var m = mk("div", "money");
+  /* EVERY FIGURE IN HERE KEEPS ONE RIGHT EDGE (ovation#141). The figures are
+     named because this file spells them `.num` and `.amt` where the invoice
+     screen spells them `.fig`, and a check that knew only one spelling would be
+     silently checking one file. */
+  m.setAttribute("data-one-edge", ".num, .amt");
   function row(k, v) {
     var r = mk("div", "row");
     r.append(mk("span", null, k));

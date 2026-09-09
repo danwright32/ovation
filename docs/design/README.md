@@ -127,6 +127,46 @@ they already agreed on, byte for byte, so the extraction moved no CSS and all fo
 pixel for pixel identically to how they rendered before it (checked, not assumed: each was rendered
 headless before and after and the images hashed).
 
+## Something measures what these files DRAW
+
+**`scripts/check-design-draws.sh` renders every file at 1440px and 1280px and asserts what is true
+of every one of them** (ovation#141). Until it existed the record was checked for source properties
+and no rendered ones: one check asserts a file reaches outside itself never, one asserts its copy of
+each rule matches `rules/`, one runs 150 executable cases. Every one reads TEXT, so the class of
+fault a design record exists to catch was the class nothing could see. Five were found by a person
+looking on 2026-09-08 alone.
+
+**Two widths, because a list judged at one size is half judged.** 1440 is the window these files
+were designed in and 1280 is the narrowest laptop they are opened on.
+
+What it claims, each seen to fail on a planted defect before it was believed:
+
+1. **The console is silent at rest**, with the catcher installed before the page's own scripts,
+   because a page that threw on the way up renders as a blank white sheet that reads as a layout
+   problem.
+2. **The page drew something.** Without this every claim below passes over an empty page.
+3. **Nothing is cut off with no way to reach it.** Measured in bounding rects rather than
+   `scrollWidth`, so a scaled preview is not accused and an ellipsis is not called clipping, and
+   against the NEAREST clipping ancestor only, so a pane parked flush with the window's edge is not
+   reported against the stage behind it.
+4. **The page does not scroll sideways.**
+5. **Every figure in a block that says its figures line up does**, within a pixel. The block is
+   MARKED with `data-one-edge`, carrying the selector for its own figures, because `invoice.html`
+   spells them `.fig` and `invoice-pdf.html` spells them `.num` and `.amt`.
+6. **The console is still silent after every control on the page has been pressed.** A design file
+   shows one state at rest and carries several, and the state it opens on is the only one every
+   other check has ever seen. This is what ovation#170 needed: the invoice PDF threw on any line
+   carrying an explicitly empty hours value, and the only fixture with one was three buttons away.
+
+**A claim that could never fail was written and then deleted rather than kept.** "The app window is
+drawn at its declared width" cannot be made from a rendering, because `getComputedStyle` returns the
+USED width: a squeezed window reports the squeezed number as its declaration and the two always
+agree. The fault it was aimed at is claim 3.
+
+**It runs on the Linux CI job as well as on Dan's Mac** (ovation#160). Before that, the rendered
+checks ran on exactly one machine and both CI jobs answered CANNOT MEASURE, so a push from anywhere
+else was judged without them.
+
 ## Nothing carries CSS for a screen it does not draw
 
 **`scripts/check-design-dead-rules.sh` refuses a rule the file that holds it can never apply.** Each

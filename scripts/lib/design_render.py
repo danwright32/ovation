@@ -33,12 +33,26 @@ import tempfile
 # Where playwright puts the headless shell. Named as a glob rather than a pinned
 # version, because the version moves with whatever last installed it and a check
 # that goes quiet after an upgrade is worse than one that is not there.
+# BOTH PLATFORMS, because the checks that use this run on Dan's Mac AND on the
+# Linux CI job (ovation#160). Playwright puts its browsers under a different
+# cache root and a different per platform directory on each, and a lookup that
+# knew only the Mac one would answer "no browser" on the runner: the check would
+# go on printing CANNOT MEASURE, which is honest, reads as normal, and is the
+# exact state ovation#160 exists to end.
 BROWSER_GLOBS = [
+    # macOS
     os.path.expanduser("~/Library/Caches/ms-playwright/chromium_headless_shell-*/"
                        "chrome-headless-shell-mac-arm64/chrome-headless-shell"),
     os.path.expanduser("~/Library/Caches/ms-playwright/chromium-*/"
                        "chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    # Linux
+    os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-*/"
+                       "chrome-linux/headless_shell"),
+    os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/usr/bin/google-chrome",
 ]
 
 NO_BROWSER = ("CANNOT MEASURE: no headless browser found. This check renders the design "
@@ -70,10 +84,22 @@ def find_browser():
     return None
 
 
-def render(browser, path, probe, window="1440,1200", budget=6000):
-    """Render `path` with `probe` appended and return the probe's JSON report."""
+def render(browser, path, probe, window="1440,1200", budget=6000, preamble=""):
+    """Render `path` and return the probe's JSON report.
+
+    `probe` is APPENDED, so it runs after the page has built itself, which is
+    what every claim about what was drawn needs. `preamble` is inserted at the
+    very top instead, before the page's own scripts, which is the only place a
+    catcher for an error thrown DURING load can be installed: a probe appended
+    to the file is not running yet when the page throws, and a page that threw
+    on the way up looks from the bottom exactly like a page with nothing on it
+    (ovation#141, L219).
+    """
     with open(path, encoding="utf-8", errors="replace") as handle:
         page = handle.read()
+    if preamble:
+        cut = page.find(">") + 1 if page.lstrip().lower().startswith("<!doctype") else 0
+        page = page[:cut] + "\n" + preamble + page[cut:]
     holder = tempfile.mkdtemp(prefix="ovation-render-")
     probed = os.path.join(holder, "probed.html")
     with open(probed, "w", encoding="utf-8") as handle:
