@@ -50,7 +50,7 @@ seen from a still, which is why the file behaves rather than only draws.
 | The recipients | The address and nothing else, unless it is not the person who booked the shoot, and then it names who was passed over. Silent on 30 of 31. |
 | The sending states | The sheet becomes the outcome. The document and the recipients are replaced by one statement and one way onward. Working carries the elapsed seconds. |
 | The warnings | A band across the sheet. The due date being past is information and carries no control; a shared address is a question and carries `That is right`, which stays answered. |
-| The message | Editable in place. |
+| The message | Editable in place, and an EMPTY one refuses the send: the reason is said under the message, the Send is greyed, and the greyed control carries what it is waiting for. |
 
 ### The preview is the attachment, and that is a requirement rather than a rendering detail
 
