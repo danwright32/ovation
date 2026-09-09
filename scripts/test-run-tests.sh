@@ -31,7 +31,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_UNLOCKED_COMMAND OVATION_SHELL_SUITE_DIR OVATION_SHELL_SUITE_FLOOR \
       OVATION_SKIP_XCODE_PHASE \
       OVATION_DIR_LOCK OVATION_FILE_LOCK OVATION_FLOCK_BIN \
-      OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL
+      OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL \
+      OVATION_XCODE_PROJECT OVATION_XCODEGEN
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -48,7 +49,7 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
 # there is one definition of where flock is.
 SUITE_FLOCK="${OVATION_SUITE_FLOCK_BIN:-/opt/homebrew/bin/flock}"
 
-harness_begin "test runner lock tests" 65
+harness_begin "test runner lock tests" 74
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -652,5 +653,73 @@ WAITED=$(( $(date +%s) - WAIT_FROM ))
 check "it waits for the time it announced, not for a number of polls" \
     "$([ "$WAITED" -ge 2 ] && echo waited || echo "gave-up-after-${WAITED}s")" "waited"
 rm -rf "$DIR_LOCK"
+
+
+# ---------------------------------------------------------------------------
+# THE PROJECT IS GENERATED WHEN IT IS ABSENT, AND ONLY THEN (ovation#151).
+#
+# `Ovation.xcodeproj` is gitignored and generated from project.yml, so a fresh
+# clone, Dan's second Mac and any CI runner start with none. What that gave was
+# xcodebuild's own "Ovation.xcodeproj does not exist", which names the symptom
+# rather than the missing step.
+PROJ="$WORK/proj"; rm -rf "$PROJ"; mkdir -p "$PROJ"
+GEN_LOG="$PROJ/generated.log"
+printf '#!/bin/bash\necho "GENERATOR-RAN" >> "%s"\nmkdir -p "%s/Ovation.xcodeproj"\n' \
+    "$GEN_LOG" "$PROJ" > "$PROJ/xcodegen"
+chmod +x "$PROJ/xcodegen"
+
+run_with_project() {
+    OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_TIMEOUT=2 OVATION_LOCK_POLL_INTERVAL=0.05 \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" \
+    OVATION_TEST_COMMAND="true" OVATION_UNLOCKED_COMMAND="true" \
+    OVATION_XCODE_PROJECT="$1" OVATION_XCODEGEN="$2" \
+        "./$TARGET" 2>&1
+}
+
+OUT151A="$(run_with_project "$PROJ/Ovation.xcodeproj" "$PROJ/xcodegen")"; ST151A=$?
+check "a run with no project generates one and succeeds" "$ST151A" "0"
+check "and it says it made one rather than doing it silently" \
+    "$(mentions "$OUT151A" "which was absent")" "yes"
+check "and the generator actually ran" \
+    "$([ -f "$GEN_LOG" ] && echo ran || echo no)" "ran"
+
+# AND IT IS NOT REGENERATED WHEN IT IS THERE. Rewriting the project file
+# underneath an open Xcode is the reason this is not simply run every time.
+rm -f "$GEN_LOG"
+OUT151B="$(run_with_project "$PROJ/Ovation.xcodeproj" "$PROJ/xcodegen")"; ST151B=$?
+check "a run with a project present leaves it alone" \
+    "$([ -f "$GEN_LOG" ] && echo regenerated || echo untouched)" "untouched"
+
+# NO GENERATOR AND NO PROJECT REFUSES, naming the step rather than the symptom.
+OUT151C="$(run_with_project "$PROJ/absent.xcodeproj" "$PROJ/no-such-xcodegen")"; ST151C=$?
+check "no project and no generator refuses" \
+    "$([ "$ST151C" -ne 0 ] && echo refused || echo allowed)" "refused"
+check "and it names how to install the generator" \
+    "$(mentions "$OUT151C" "brew install xcodegen")" "yes"
+
+# A GENERATOR THAT EXITS 0 AND WRITES NOTHING is caught here rather than one step
+# later as xcodebuild's own error about a missing project (L100).
+printf '#!/bin/bash\nexit 0\n' > "$PROJ/quiet-xcodegen"
+chmod +x "$PROJ/quiet-xcodegen"
+OUT151D="$(run_with_project "$PROJ/still-absent.xcodeproj" "$PROJ/quiet-xcodegen")"; ST151D=$?
+check "a generator that reports success and writes nothing is refused" \
+    "$([ "$ST151D" -ne 0 ] && echo refused || echo allowed)" "refused"
+
+
+# AND EVERY ROUTE TO xcodebuild GOES THROUGH THE SAME HELPER (ovation#151).
+#
+# A SCAN, and it is honest about what a scan can do: it cannot see whether the
+# helper is CALLED before the build, only that the script consults it at all
+# (L621). What it does catch is the case that actually happens, a new script
+# reaching xcodebuild by its own route with no idea a project has to exist first,
+# which is how build-install.sh was left out of the first version of this fix.
+uses_helper() {
+    grep -q "ensure-xcode-project.sh" "$1" && echo yes || echo no
+}
+for reaching in scripts/run-tests.sh scripts/build-install.sh; do
+    check "$(basename "$reaching") consults the shared project helper" \
+        "$(uses_helper "$reaching")" "yes"
+done
 
 harness_end

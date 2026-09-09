@@ -161,6 +161,15 @@ ovation_signing_identity() {
 
 if [ -z "${OVATION_SKIP_BUILD:-}" ]; then
   echo "==> Building Ovation (Release)"
+  # A FRESH CLONE HAS NO PROJECT (ovation#151). The same helper the test runner
+  # uses, so there is one rule about when a project is made rather than two.
+  # shellcheck source=lib/ensure-xcode-project.sh
+  . "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
+  ensure_xcode_project "${REPO_ROOT}" \
+      "${OVATION_XCODE_PROJECT:-${REPO_ROOT}/Ovation.xcodeproj}" \
+      "${OVATION_XCODEGEN:-$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)}" \
+      || exit 2
+
   xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme Ovation \
     -configuration Release -destination 'platform=macOS' build || exit 1
   BUILT_APP="${BUILT_APP:-$(xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" \

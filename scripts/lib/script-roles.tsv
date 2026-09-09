@@ -60,6 +60,7 @@ lib/build-one-configuration.sh	library	Sourced by build-products.sh and build-in
 lib/built-product.sh	library	Sourced by the bundle checks to find a built app.
 lib/bundle-icon-checks.sh	library	Sourced by test-built-bundle-icon.sh. test-bundle-icon-checks.sh covers its judgements directly.
 lib/bundle-identity-checks.sh	library	Sourced by test-built-bundle-identity.sh. test-bundle-identity-checks.sh covers its judgements directly.
+lib/ensure-xcode-project.sh	library	Sourced by run-tests.sh and build-install.sh. Its behaviour is covered by test-run-tests.sh, which drives it through the runner with an injected generator.
 lib/script-roles.sh	library	The one reader of this file, sourced by both completeness rules so neither parses it itself. It was missing from this list on its first run, which is the rule working before it had a single assertion behind it.
 lib/quit-pid.sh	library	Sourced by smoke-launch.sh to quit the copy it launched, by PID resolved from the executable path.
 lib/test-harness.sh	library	Sourced by every shell suite. test-test-harness.sh covers it directly.

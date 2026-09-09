@@ -62,6 +62,8 @@ TIMEOUT="${OVATION_LOCK_TIMEOUT:-1800}"
 # and exercises the same code instantly.
 POLL="${OVATION_LOCK_POLL_INTERVAL:-1}"
 FLOCK_BIN="${OVATION_FLOCK_BIN:-/opt/homebrew/bin/flock}"
+XCODE_PROJECT="${OVATION_XCODE_PROJECT:-${REPO_ROOT}/Ovation.xcodeproj}"
+XCODEGEN="${OVATION_XCODEGEN:-$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)}"
 TEST_COMMAND="${OVATION_TEST_COMMAND:-}"
 HOSTED_TEST_COMMAND="${OVATION_HOSTED_TEST_COMMAND:-}"
 UNLOCKED_COMMAND="${OVATION_UNLOCKED_COMMAND:-}"
@@ -224,6 +226,16 @@ else
   # ---------------------------------------------------------------------------
   # PHASE TWO, locked. Only xcodebuild needs to exclude the siblings.
   # ---------------------------------------------------------------------------
+  # THE PROJECT IS GENERATED WHEN IT IS ABSENT, AND ONLY THEN (ovation#151).
+  # The rule and the reasoning live in the shared helper, because build-install.sh
+  # reaches xcodebuild by its own route and needs the same thing (L613).
+  #
+  # It happens BEFORE the locks: generating touches only this repository's own
+  # file and needs to exclude nothing.
+  # shellcheck source=lib/ensure-xcode-project.sh
+  . "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
+  ensure_xcode_project "${REPO_ROOT}" "${XCODE_PROJECT}" "${XCODEGEN}" || exit 2
+
   if [ ! -x "${FLOCK_BIN}" ]; then
     echo "Error: flock was not found at ${FLOCK_BIN}." >&2
     echo "       Ovation's test runner takes Overture's lock, which uses it." >&2
@@ -340,7 +352,7 @@ else
   # one. PIPESTATUS[0] is the run's own status: the pipe's is tee's (L183, L184).
   PURE_OUTPUT="$(mktemp)"
   if [ -z "${TEST_COMMAND}" ]; then
-    xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme OvationCore \
+    xcodebuild -project "${XCODE_PROJECT}" -scheme OvationCore \
       -destination 'platform=macOS' test 2>&1 | tee "${PURE_OUTPUT}"
   else
     bash -c "${TEST_COMMAND}" 2>&1 | tee "${PURE_OUTPUT}"
@@ -412,7 +424,7 @@ else
       if [ -n "${HOSTED_TEST_COMMAND}" ]; then
         HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1)"
       else
-        HOSTED_OUTPUT="$(xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme Ovation \
+        HOSTED_OUTPUT="$(xcodebuild -project "${XCODE_PROJECT}" -scheme Ovation \
           -destination 'platform=macOS' -only-testing:OvationHostedTests test 2>&1)"
       fi
       HOSTED_STATUS=$?
