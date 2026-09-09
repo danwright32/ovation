@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#107, PRD 5.4. A fresh installation gets the starting service types,
 /// once, and never again.

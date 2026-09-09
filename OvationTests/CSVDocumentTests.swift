@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#61. The CSV writer, and the traps that all involve real client names.
 ///

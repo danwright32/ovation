@@ -2,7 +2,6 @@ import Foundation
 import SQLite3
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#88. The checkpoint that makes the store file self sufficient before a
 /// backup reads it.

@@ -2,7 +2,6 @@ import Foundation
 import SQLite3
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// Plan 1.2, ovation#52. What the file at the store path actually IS, before
 /// anything opens it for writing.

@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#47, PRD 5.13. Cancelling an invoice, and the two things that make it
 /// more than a status change.

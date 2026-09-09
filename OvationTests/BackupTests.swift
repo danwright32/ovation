@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.8, ovation#57. Dated backups, verified by enumerating every referenced
 /// document rather than by asking whether anything opens.

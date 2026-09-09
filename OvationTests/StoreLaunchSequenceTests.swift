@@ -2,7 +2,6 @@ import Foundation
 import SQLite3
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// Plan 1.2, ovation#88. The four steps in order: identify, checkpoint, back up,
 /// then open.

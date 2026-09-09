@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#60 step 3b. A payment is its own record, allocated across invoices,
 /// and the sum of what is allocated may never exceed what actually arrived.

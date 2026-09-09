@@ -16,7 +16,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "project configuration tests" 24
+harness_begin "project configuration tests" 27
 
 require_target "project.yml"
 
@@ -235,5 +235,50 @@ check "and the generated project carries none either" \
 
 check "Debug builds no separate debug dylib, which hardened runtime cannot load" \
     "$(setting Debug ENABLE_DEBUG_DYLIB)" "NO"
+
+# ---------------------------------------------------------------------------
+# ovation#164. THE PURE SUITE MAY NOT IMPORT THE APP MODULE.
+#
+# `OvationTests` reaches the app's code by COMPILING IT IN, deliberately: it
+# carries no TEST_HOST and no dependency on the `Ovation` target, so a launch
+# fault cannot take the whole suite the way overture#1967 did. A file in it
+# saying `@testable import Ovation` therefore names a module nothing in this
+# scheme builds, and it resolves only against one a PREVIOUS app build left in
+# DerivedData.
+#
+# So it works on every machine that has built the app once, and on no other.
+# Measured 2026-09-09 against an empty derived data directory: 45 files carried
+# that import and the run answered `unable to resolve module dependency:
+# 'Ovation'` followed by `Testing cancelled because the build failed`, which
+# names the symptom and not the missing step. A sequence only ever run forward
+# is never run from empty, so the rot surfaces the first time somebody needs a
+# fresh checkout, a worktree or a new machine (L570).
+#
+# `OvationHostedTests` is the opposite case and is excluded by name here: it
+# keeps TEST_HOST on purpose, so for it the import is correct.
+app_module_importers() {
+    local dir="$1" f found=""
+    for f in "$dir"/*.swift "$dir"/*/*.swift; do
+        [ -f "$f" ] || continue
+        if grep -qE '^@testable import Ovation$' "$f"; then
+            found="${found}$(basename "$f") "
+        fi
+    done
+    printf '%s' "${found% }"
+}
+
+# Seen to fail on a planted file before it is believed (L1).
+PLANTED="$(mktemp -d)"
+harness_on_exit "rm -rf '$PLANTED'"
+printf 'import Testing\n@testable import Ovation\n' > "$PLANTED/Offender.swift"
+printf 'import Testing\n' > "$PLANTED/Innocent.swift"
+check "a pure suite file importing the app module is found" \
+    "$(app_module_importers "$PLANTED")" "Offender.swift"
+
+check "no file in the pure suite imports the app module" \
+    "$(app_module_importers OvationTests)" ""
+
+check "and the hosted suite, which does keep a host, still does" \
+    "$(app_module_importers OvationHostedTests)" "RootViewTests.swift"
 
 harness_end

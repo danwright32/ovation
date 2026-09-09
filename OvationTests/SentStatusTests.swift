@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#60. Whether an invoice was sent is something Ovation OBSERVED, never
 /// something anybody asserted (PRD 5.10a), and there are three answers rather

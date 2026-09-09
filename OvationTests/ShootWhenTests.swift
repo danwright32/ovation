@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#60, PRD 5.3 and 5.3b. When a shoot happened, and the number Dan bills
 /// that comes out of it.

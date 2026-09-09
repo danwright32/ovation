@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#21. `venueName` is authoritative and `venues[]` is not, settled by the
 /// measurement rather than by preference.

@@ -2,7 +2,6 @@ import Foundation
 import SQLite3
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#105. Today's schema has a NAME to migrate from, and a store written by
 /// one version opens under the next with its rows intact.

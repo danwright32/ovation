@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.5, ovation#54. One calendar, pinned to America/New_York, and it is the
 /// only one anything uses.

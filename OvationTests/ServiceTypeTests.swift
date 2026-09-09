@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#60, PRD 5.4. The service types a line item picks from, which are DATA
 /// rather than a vocabulary in code, because Dan adds one from inside an invoice

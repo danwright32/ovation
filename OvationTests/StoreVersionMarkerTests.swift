@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#116. The schema version that last opened the store, written beside it
 /// so a raw read can answer the question before anything opens anything.

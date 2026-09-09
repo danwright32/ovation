@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#60. The three closed vocabularies an invoice and a payment store, and
 /// the rules each one carries.

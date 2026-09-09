@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#60, step 1. What SwiftData ACTUALLY does with the three things the
 /// domain model is about to be designed around.

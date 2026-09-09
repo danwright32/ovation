@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.13, ovation#59. ONE surface, holding the identity of what is showing.
 ///

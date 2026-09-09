@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#60. A discount is ONE value with two forms, and it is taken off the
 /// pre tax subtotal so the tax is charged on what is left (PRD 5.4a).

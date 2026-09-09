@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.9, ovation#58. The floor itself, asserted rather than described.
 struct LiveDataFloorTests {

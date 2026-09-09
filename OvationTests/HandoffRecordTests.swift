@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#33, PRD 6.34 and section 8 item 8. The decoder for one queued booking,
 /// and the version floor that decides which records it will read.

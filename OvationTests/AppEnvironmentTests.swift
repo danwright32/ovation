@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// One predicate answers "may this launch touch anything real", and these hold it
 /// to both directions of that question. A guard that can only ever answer "not

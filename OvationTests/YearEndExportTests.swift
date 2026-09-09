@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#158. The runner that joins the three parts of the export together and
 /// is the only one of them that touches a disk.

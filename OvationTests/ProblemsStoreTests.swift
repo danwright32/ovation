@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.13, ovation#59. Every failure path in the app lands here, loudly, with
 /// a distinct sentence per cause, and nothing here ever retracts on its own.

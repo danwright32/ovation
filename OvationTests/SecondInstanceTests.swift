@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.3, PRD 5.37, ovation#84. A second running copy stands aside and names
 /// the copy it stood aside for.

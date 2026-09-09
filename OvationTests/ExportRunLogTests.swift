@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#64. The durable record of every export run, and the two notices
 /// derived from it.

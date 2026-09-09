@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#60 step 3c. What Ovation spent, which is the other half of the export.
 struct ExpenseTests {

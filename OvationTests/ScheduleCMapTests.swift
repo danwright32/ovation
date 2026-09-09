@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#62, PRD 5.19a. Every expense category maps to a Schedule C line, and
 /// nothing may land on a default branch.

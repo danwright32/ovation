@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.4, ovation#53. Money is integer cents behind a type with no floating
 /// point constructor at all, and every rounding decision in the app goes through

@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.6, ovation#55. A money bearing date is stamped with the business day
 /// it belongs to at the moment it is written, and that answer never moves again.

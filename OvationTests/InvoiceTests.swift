@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#60. The invoice and what hangs off it, and the arithmetic that decides
 /// what a client is asked to pay.

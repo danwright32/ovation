@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.13, ovation#59. The half that makes a problem survive a relaunch.
 struct FileProblemsJournalTests {

@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// Plan 1.10, ovation#37. One continuous invoice sequence, starting at 1123,
 /// with its floor DERIVED from the store rather than asserted.

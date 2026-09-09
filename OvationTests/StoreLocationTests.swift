@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.1. Where Ovation's on-disk state lives, and the isolation that keeps a
 /// development run away from the resident copy's data.

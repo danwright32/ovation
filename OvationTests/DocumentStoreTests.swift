@@ -1,7 +1,6 @@
 import CryptoKit
 import Foundation
 import Testing
-@testable import Ovation
 
 /// Plan 1.7, ovation#56. Receipts and invoice PDFs are files on disk addressed by
 /// their content hash, never blobs inside the database.

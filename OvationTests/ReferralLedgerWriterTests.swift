@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// Plan 1.12, ovation#38. The one writer of the referral ledger, from both the
 /// earning and the spending side.

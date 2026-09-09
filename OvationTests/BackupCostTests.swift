@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#91. What a backup COSTS at a realistic number of documents, measured
 /// rather than estimated.

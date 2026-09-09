@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#60 step 3c, PRD 5.8 and plan 1.12. Referral credit is a SUM over an
 /// append only ledger, never a stored balance.

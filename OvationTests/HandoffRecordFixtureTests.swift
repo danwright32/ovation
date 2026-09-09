@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#29. The consumer's fixture is the REAL handoff record Downbeat wrote,
 /// scrubbed, rather than an object written from reading the producer's source.

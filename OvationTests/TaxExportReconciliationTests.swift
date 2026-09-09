@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#63. Not "did the export write without error" but "is everything that
 /// should be in it actually in it".

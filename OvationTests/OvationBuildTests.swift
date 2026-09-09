@@ -1,5 +1,4 @@
 import Testing
-@testable import Ovation
 
 /// These assert the property that makes the unhosted test target work at all:
 /// the app's own sources are COMPILED INTO this bundle rather than reached

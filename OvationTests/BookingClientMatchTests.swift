@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#34. Which of Ovation's clients a queued booking names, and a refusal
 /// rather than a guess when that cannot be answered.

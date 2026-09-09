@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#82, PRD 5.20 and 9.4. The two flags that are not categories.
 ///

@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#60 corrected, ovation#40. Where an invoice actually goes, and what is
 /// genuinely wrong with a client's contact details.

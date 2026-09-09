@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#61, PRD 23 to 25a. The two CSVs an accountant works from in January.
 ///

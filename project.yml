@@ -173,6 +173,16 @@ targets:
   # compile a second time.
   #
   # OvationApp.swift is the one file it cannot take, because it carries @main.
+  #
+  # AND IT MUST NOT IMPORT THE APP MODULE (ovation#164). Compiling the sources
+  # in is the whole mechanism, so `@testable import Ovation` in a file here names
+  # a module nothing in the OvationCore scheme builds: it resolves only against
+  # one a PREVIOUS app build left in DerivedData. Forty five files carried that
+  # import until 2026-09-09, so the pure suite worked on every machine that had
+  # built the app once and on no other, and the first run in a fresh checkout,
+  # worktree or new machine answered `unable to resolve module dependency` and
+  # `Testing cancelled because the build failed`. Held by
+  # scripts/test-project-configuration.sh, seen to fail on a planted file.
   OvationTests:
     type: bundle.unit-test
     platform: macOS
