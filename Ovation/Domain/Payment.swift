@@ -39,7 +39,14 @@ extension OvationSchemaV1 {
         /// PRD 5.15. CLEARED BELONGS TO THE PAYMENT AND NEVER TO AN ALLOCATION, so
         /// one check clears once however many invoices it settled, and an invoice can
         /// never be cleared on its own.
-        var clearedOn: BusinessDate?
+        ///
+        /// SETTABLE ONLY THROUGH `markCleared` (ovation#48). The rule that only a
+        /// check has a cleared step lived in that method, which every call site
+        /// had to choose to use; a rule each caller must opt into is not enforced
+        /// by anything and the first site that assigns the field directly gives a
+        /// Zelle payment a cleared date nothing can explain (L621, L27). A
+        /// `private(set)` makes the omission impossible rather than discouraged.
+        private(set) var clearedOn: BusinessDate?
 
         /// A check number, a Zelle reference, whatever identifies it on a statement.
         var reference: String?

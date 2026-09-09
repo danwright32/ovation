@@ -290,7 +290,8 @@ struct TaxExportTests {
         let world = try World()
         let invoice = world.invoice(dayKey: "2026-04-04", sent: true, total: Money(dollars: 600))
         let cleared = world.pay(invoice, Money(dollars: 100), on: "2026-05-01", method: .check)
-        cleared.payment?.clearedOn = .stamping(BusinessCalendar.startOfDay(forDayKey: "2026-05-08")!)
+        cleared.payment?.markCleared(
+            on: .stamping(BusinessCalendar.startOfDay(forDayKey: "2026-05-08")!))
         world.pay(invoice, Money(dollars: 100), on: "2026-05-02", method: .check)
 
         let export = TaxExport.income(from: [invoice], in: .calendarYear(2026))

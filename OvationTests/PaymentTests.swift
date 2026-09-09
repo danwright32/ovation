@@ -79,6 +79,25 @@ struct PaymentTests {
         #expect(zelle.clearedOn == nil)
     }
 
+    @Test("and the cleared date cannot be set any other way, so the rule cannot be skipped")
+    func clearedIsOnlyReachableThroughTheRefusal() throws {
+        // ovation#48. The check only rule lived in `markCleared`, which every
+        // call site had to choose to use, and a rule each caller must opt into is
+        // enforced by nothing: the first site to assign the field directly gives
+        // a Zelle payment a cleared date nothing can explain (L621, L27).
+        //
+        // ASSERTED ON THE SOURCE, because the compiler is the enforcement and a
+        // test cannot write the line that would fail. Making the setter private
+        // found one such assignment on the day it shipped, in ovation#61's own
+        // export test, which is what the rule predicts rather than a coincidence.
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appending(path: "Ovation/Domain/Payment.swift"),
+            encoding: .utf8)
+        #expect(source.contains("private(set) var clearedOn"))
+    }
+
     // MARK: allocation, and the ceiling it can never cross
 
     @Test("one payment can settle two invoices, split between them")
