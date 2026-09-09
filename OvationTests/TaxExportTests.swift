@@ -142,6 +142,42 @@ struct TaxExportTests {
         #expect(export.notIncluded[.noInvoiceDate] == 1)
     }
 
+    @Test("an invoice whose stored day key cannot be READ is counted, never silently dropped")
+    func anunreadableDayKeyIsCounted() throws {
+        // `BusinessDate` deliberately loads a row whose stored key is malformed
+        // rather than throwing and taking the store with it, so such a row
+        // reaches the export. `contains(dayKey:)` correctly answers false for it,
+        // and without a bucket of its own the invoice would then be in no file,
+        // in no count, and reported by nothing: a value parsed from storage that
+        // feeds a comparison lands on the quiet side unless the parse failure is
+        // given somewhere to go (L50).
+        let world = try World()
+        let invoice = world.invoice(dayKey: "2026-06-01", sent: true, total: Money(dollars: 100))
+        invoice.invoiceDate = BusinessDate(storedInstant: Date(timeIntervalSince1970: 1_780_000_000),
+                                           storedDayKey: "not-a-day")
+
+        let export = TaxExport.income(from: [invoice], in: .calendarYear(2026))
+
+        #expect(export.rowsIncluded == 0)
+        #expect(export.notIncluded[.invoiceDateUnreadable] == 1)
+        #expect(export.notIncluded[.noInvoiceDate] == nil, "it HAS a date, and it cannot be read")
+    }
+
+    @Test("an expense whose stored day key cannot be read is counted for the same reason")
+    func anunreadableExpenseDayKeyIsCounted() throws {
+        let world = try World()
+        let expense = world.expense(dayKey: "2026-03-15", amount: Money(dollars: 10),
+                                    category: .gear, vendor: nil)
+        expense.incurredOn = BusinessDate(storedInstant: Date(timeIntervalSince1970: 1_780_000_000),
+                                          storedDayKey: "")
+
+        let export = TaxExport.expenses(from: [expense], in: .calendarYear(2026))
+
+        #expect(export.rowsIncluded == 0)
+        #expect(export.withAnUnreadableDate == 1)
+        #expect(export.summary.contains("unreadable date 1"))
+    }
+
     @Test("an invoice outside the range is not counted as a problem, because it is not one")
     func anOutOfRangeInvoiceIsNotAnOmission() throws {
         // The counts exist to name what is MISSING from a year it should have

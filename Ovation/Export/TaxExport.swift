@@ -79,6 +79,17 @@ enum IncomeOmission: String, CaseIterable, Hashable, Sendable {
     case sentCouldNotBeDetermined
     /// It has no invoice date, so it cannot be placed in any year.
     case noInvoiceDate
+    /// It HAS a stamped day key and that key cannot be read as a day, so it
+    /// cannot be placed either.
+    ///
+    /// SEPARATE FROM `noInvoiceDate` AND FROM SILENCE. `BusinessDate` loads a row
+    /// whose stored key is malformed rather than throwing and taking the store
+    /// with it, so such a row reaches here; `contains(dayKey:)` correctly answers
+    /// false for it, and without this bucket the invoice would then be in no
+    /// file, in no count, and reported by nothing. A value parsed from storage
+    /// that feeds a comparison lands on the quiet side unless the parse failure
+    /// is given somewhere to go (L50).
+    case invoiceDateUnreadable
 }
 
 /// What one file's worth of export came to. The document, and the numbers that
@@ -113,11 +124,17 @@ struct ExpenseExport: Sendable {
     /// Exported and countable rather than excluded: money that was spent is a
     /// deduction whether or not anybody has said what kind it was (L67).
     let needingACategory: Int
+    /// Expenses whose stamped day key cannot be read as a day, so they are in no
+    /// range and in no file. Counted for the same reason as
+    /// `IncomeOmission.invoiceDateUnreadable`: otherwise the comparison quietly
+    /// excludes them and nothing anywhere says so (L50).
+    let withAnUnreadableDate: Int
 
     var summary: String {
         "expenses \(range.firstDayKey) to \(range.lastDayKey): "
             + "\(rowsIncluded) row(s), total \(total.exportAmount), "
-            + "needing a category \(needingACategory)"
+            + "needing a category \(needingACategory), "
+            + "unreadable date \(withAnUnreadableDate)"
     }
 }
 
@@ -166,6 +183,10 @@ enum TaxExport {
         for invoice in invoices {
             guard let key = invoice.invoiceDate?.dayKey else {
                 counts[.noInvoiceDate, default: 0] += 1
+                continue
+            }
+            guard BusinessCalendar.year(forDayKey: key) != nil else {
+                counts[.invoiceDateUnreadable, default: 0] += 1
                 continue
             }
             guard range.contains(dayKey: key) else { continue }
@@ -285,7 +306,10 @@ enum TaxExport {
             document: document,
             rowsIncluded: rows.count,
             total: Money.sum(of: rows.map(\.amount)),
-            needingACategory: rows.filter(\.needsACategory).count)
+            needingACategory: rows.filter(\.needsACategory).count,
+            withAnUnreadableDate: expenses.filter {
+                BusinessCalendar.year(forDayKey: $0.incurredOn.dayKey) == nil
+            }.count)
     }
 
     private static func expenseRow(_ expense: Expense) -> [CSVDocument.Field] {
