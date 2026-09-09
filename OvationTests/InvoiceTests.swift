@@ -227,21 +227,53 @@ struct InvoiceTests {
         #expect(invoice.total == Money(dollars: 1_000))
     }
 
-    @Test("a client whose status was never recorded IS taxed, and the invoice says so")
-    func anUnrecordedStatusIsTaxedAndFlagged() throws {
+    @Test("a client whose status was never recorded IS taxed, and the send is REFUSED")
+    func anUnrecordedStatusIsTaxedAndRefused() throws {
+        // ovation#128, and it is a reversal rather than a rename. PRD 5 said the
+        // tax was applied "with a visible warning", and this test said so too, so
+        // a guard written from either would have shown the warning and sent the
+        // invoice anyway. Dan settled it on 2026-09-07 in round 7 of ovation#111:
+        // the send is refused until the status is answered. A test defending the
+        // superseded behaviour is the guard for it (L252, L430).
         let context = try Self.store()
         let invoice = Self.invoice(context, for: Self.client(context, tax: .neverRecorded))
         invoice.add(LineItem.flat(Money(dollars: 1_000), describedAs: "Photography"))
         #expect(invoice.tax == Money(cents: 8_875), "a missing status is not the same as exempt")
-        #expect(invoice.warnings.contains(.taxStatusNeverRecorded))
+        #expect(invoice.refusals.contains(.taxStatusNeverRecorded))
+        #expect(!invoice.maySend)
     }
 
-    @Test("a client known not to be exempt is taxed with nothing to warn about")
-    func aKnownStatusWarnsAboutNothing() throws {
+    @Test("a client known not to be exempt is taxed and may be sent")
+    func aKnownStatusRefusesNothing() throws {
         let context = try Self.store()
         let invoice = Self.invoice(context, for: Self.client(context, tax: .notExempt))
         invoice.add(LineItem.flat(Money(dollars: 1_000), describedAs: "Photography"))
-        #expect(invoice.warnings.isEmpty)
+        #expect(invoice.refusals.isEmpty)
+        #expect(invoice.maySend)
+    }
+
+    @Test("an exempt client may be sent too, so the refusal is about the MISSING answer")
+    func anexemptClientMaySend() throws {
+        // The positive control that matters: a rule written as "not notExempt"
+        // would refuse every exempt client, and exempt is an answer (L159).
+        let context = try Self.store()
+        let invoice = Self.invoice(context, for: Self.client(context, tax: .exempt))
+        invoice.add(LineItem.flat(Money(dollars: 1_000), describedAs: "Photography"))
+        #expect(invoice.maySend)
+    }
+
+    @Test("two reasons not to send are BOTH in the one list, rather than one hiding the other")
+    func refusalsCompose() throws {
+        // A send control asking two independent questions is one that can be
+        // enabled by whichever it asks last (L53). ovation#117's unpriced draft
+        // joins this same set.
+        let context = try Self.store()
+        let invoice = Self.invoice(context, for: Self.client(context, tax: .neverRecorded))
+        invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
+        invoice.discount = Discount(dollars: Money(dollars: 500))
+
+        #expect(invoice.refusals == [.taxStatusNeverRecorded, .discountExceedsSubtotal])
+        #expect(!invoice.maySend)
     }
 
     // MARK: the rates the invoice carries rather than reads

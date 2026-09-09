@@ -45,16 +45,25 @@ enum InvoiceClosure: Equatable, Hashable, Codable, Sendable {
 }
 
 /// Something wrong enough that the invoice must not go out as it stands.
+///
+/// THE SECOND REFUSAL IS NOT HERE YET. An unpriced draft cannot be sent either
+/// (PRD 5.3c), and ovation#117 owns that state; when it lands it joins this
+/// vocabulary rather than becoming a second one, because a surface asking "can
+/// this be sent" must get one answer with every reason in it (L118, L53).
 enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
     /// PRD 5.4a. Reported rather than clamped, because clamping destroys the
     /// evidence that somebody typed the wrong number (L340).
     case discountExceedsSubtotal
-}
 
-/// Something Dan should see before sending, which does not stop the send.
-enum InvoiceWarning: String, CaseIterable, Codable, Hashable, Sendable {
-    /// PRD 5. A missing status is not the same as not exempt, and the invoice
-    /// says so rather than quietly charging as though the answer were known.
+    /// PRD 5, corrected 2026-09-07 (ovation#128). A missing status is not the
+    /// same as not exempt: the tax IS charged and the send is REFUSED until the
+    /// status is answered.
+    ///
+    /// IT WAS A WARNING UNTIL THAT DATE, and the difference is the whole of
+    /// ovation#128. Dan chose the refusal over stating the warning and letting
+    /// the invoice go, and over asking at the moment of sending (round 7 of
+    /// ovation#111). A guard written from the old wording would have shown the
+    /// warning and sent anyway, while passing a reading of the requirement.
     case taxStatusNeverRecorded
 }
 
@@ -238,17 +247,22 @@ extension OvationSchemaV1 {
 
         // MARK: what it says about itself
 
+        /// Every reason this invoice must not go out as it stands, in one place.
+        ///
+        /// ONE ANSWER RATHER THAN TWO LISTS. A send control asking two independent
+        /// questions is one that can be enabled by whichever it asks last, and
+        /// two vocabularies for one decision drift (L53, L118). ovation#117's
+        /// unpriced draft joins this set rather than standing beside it.
         var refusals: Set<InvoiceRefusal> {
             var found: Set<InvoiceRefusal> = []
             if discount?.exceeds(subtotal) == true { found.insert(.discountExceedsSubtotal) }
-            return found
-        }
-
-        var warnings: Set<InvoiceWarning> {
-            var found: Set<InvoiceWarning> = []
             if client?.taxStatus == .neverRecorded { found.insert(.taxStatusNeverRecorded) }
             return found
         }
+
+        /// Whether it may be sent at all. Derived from the one list above, so a
+        /// caller cannot ask a narrower question by accident.
+        var maySend: Bool { refusals.isEmpty }
     }
 }
 
