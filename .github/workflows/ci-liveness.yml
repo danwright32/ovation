@@ -92,6 +92,12 @@ jobs:
       # ONE ISSUE, COMMENTED ON RATHER THAN REOPENED OR DUPLICATED (L393). The
       # title is the marker, because a label can be removed by hand and the title
       # is what a person searches for.
+      #
+      # THE BODY IS BUILT IN A FILE rather than inline. The first version put the
+      # verdict into a `--body "..."` inside this block, and the unindented lines
+      # of that string ENDED the YAML block scalar: the workflow failed to parse,
+      # ran no jobs at all, and reported a failure with no log to read. A run with
+      # zero jobs is what an invalid workflow file looks like.
       - name: Say so, once
         if: steps.judge.outputs.status == '1'
         env:
@@ -99,35 +105,38 @@ jobs:
           TITLE: CI has stopped judging what lands on main
         run: |
           set -uo pipefail
+          {
+            echo "Opened automatically by the CI liveness workflow (ovation#155)."
+            echo
+            sed 's/^/    /' verdict.txt
+            echo
+            echo "Work has landed on main that no successful CI run has followed."
+            echo "Either the workflow has stopped triggering, or it is failing on"
+            echo "every run. Both are silent from the outside, which is why this is"
+            echo "an issue rather than an absence."
+            echo
+            echo "The push gate on Dan's machine goes on passing throughout: it does"
+            echo "not build both configurations, and it can skip the Swift suites"
+            echo "entirely for a push it judges irrelevant (ovation#22)."
+            echo
+            echo "This issue is commented on rather than duplicated while it is open."
+          } > issue-body.md
+
           existing="$(gh issue list --state open --search "in:title \"${TITLE}\"" \
             --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -1)"
-          body="$(cat verdict.txt)
-          "
-          if [ -n "${existing}" ]; then
-            gh issue comment "${existing}" --body "Still true on $(date -u +%Y-%m-%d):
 
-\`\`\`
-${body}
-\`\`\`"
+          if [ -n "${existing}" ]; then
+            {
+              echo "Still true on $(date -u +%Y-%m-%d):"
+              echo
+              sed 's/^/    /' verdict.txt
+            } > comment-body.md
+            gh issue comment "${existing}" --body-file comment-body.md
           else
             gh issue create --title "${TITLE}" \
               --milestone Ungrouped \
               --label priority-p1 --label ci-hygiene --label monitoring \
-              --body "Opened automatically by the CI liveness workflow (ovation#155).
-
-\`\`\`
-${body}
-\`\`\`
-
-Work has landed on main that no successful CI run has followed. Either the
-workflow has stopped triggering, or it is failing on every run. Both are silent
-from the outside, which is why this issue exists rather than an absence.
-
-The push gate on Dan's machine goes on passing throughout: it does not build both
-configurations, and it can skip the Swift suites entirely for a push it judges
-irrelevant (ovation#22).
-
-This issue is commented on rather than duplicated while it stays open."
+              --body-file issue-body.md
           fi
 
       # A FAILURE TO MEASURE FAILS THE JOB, so it is visible in the checks of the

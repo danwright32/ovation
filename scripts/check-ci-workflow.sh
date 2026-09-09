@@ -124,6 +124,53 @@ if [ "$saw_wanted_command" -eq 0 ]; then
   problems=$((problems+1))
 fi
 
+# DOES IT PARSE AT ALL (ovation#155). Everything above reads lines, which is the
+# right shape for the questions it asks and is blind to the one failure that
+# costs the most: a workflow file GitHub cannot parse runs no jobs, reports a
+# failure with no log, and looks from `gh run list` exactly like a job that ran
+# and failed. That is how the liveness workflow shipped broken: an unindented
+# line inside a `run: |` block ended the block scalar.
+#
+# THE PARSER IS WHATEVER THIS MACHINE HAS. Ruby ships with macOS and with every
+# ubuntu runner; python's yaml module is not in the standard library and is only
+# used if it is there. A machine with NEITHER answers CANNOT MEASURE rather than
+# passing, because a check that examined nothing must never read as one that
+# found nothing wrong (L98).
+parse_with_ruby() { ruby -ryaml -e 'YAML.load_file(ARGV[0])' "$1" 2>&1; }
+parse_with_python() { python3 -c 'import sys,yaml; yaml.safe_load(open(sys.argv[1]))' "$1" 2>&1; }
+
+PARSER=""
+if command -v ruby >/dev/null 2>&1 && ruby -ryaml -e 'exit 0' >/dev/null 2>&1; then
+  PARSER="ruby"
+elif python3 -c 'import yaml' >/dev/null 2>&1; then
+  PARSER="python"
+fi
+
+if [ -z "$PARSER" ]; then
+  echo "CANNOT MEASURE: no YAML parser on this machine, so whether the workflow"
+  echo "    files PARSE was not checked. Everything else above was."
+  echo "    A workflow GitHub cannot parse runs no jobs and reports a failure with"
+  echo "    no log, which is the one failure the line checks above cannot see."
+  [ "$problems" -eq 0 ] || exit 1
+  exit 2
+fi
+
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  case "$PARSER" in
+    ruby) error="$(parse_with_ruby "$file")" ;;
+    python) error="$(parse_with_python "$file")" ;;
+  esac
+  if [ -n "$error" ]; then
+    echo "DOES NOT PARSE: $(basename "$file")"
+    printf '%s\n' "$error" | sed 's/^/    /' | head -5
+    echo "    A workflow file GitHub cannot parse runs NO jobs at all, and reports"
+    echo "    a failure with no log to read."
+    problems=$((problems+1))
+  fi
+done <<< "$FILES"
+
 echo "examined $FILE_COUNT workflow file(s) and $job_count job(s) under $DIR"
+echo "    parsed with: $PARSER"
 [ "$problems" -eq 0 ] || exit 1
 exit 0

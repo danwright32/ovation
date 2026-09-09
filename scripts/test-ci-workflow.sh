@@ -18,7 +18,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ci workflow tests" 13
+harness_begin "ci workflow tests" 17
 
 TARGET="scripts/check-ci-workflow.sh"
 require_target "$TARGET"
@@ -98,5 +98,30 @@ check "and how many workflow files" "$(printf '%s' "$OUT" | grep -cE '[0-9]+ wor
 #    not a pass over zero files.
 E="$WORK/empty"; mkdir -p "$E"
 check "a workflow directory holding no workflow is refused" "$(status_of "$E")" "1"
+
+
+# ---------------------------------------------------------------------------
+# DOES IT PARSE (ovation#155). Every check above reads lines, which is blind to
+# the one failure that costs most: a file GitHub cannot parse runs NO jobs and
+# reports a failure with no log, which from `gh run list` is indistinguishable
+# from a job that ran and failed. That is exactly how the liveness workflow first
+# shipped: an unindented line inside a `run: |` block ended the block scalar.
+BAD="$WORK/badyaml"; good_workflow "$BAD"
+cat >> "$BAD/ci.yml" <<'YML'
+      - name: A step whose script ends the block early
+        run: |
+          echo "inside the block"
+this line is not indented and is not a key
+YML
+check "a workflow file that does not parse is refused" "$(status_of "$BAD")" "1"
+check "and it says so in those words, rather than as a missing job or timeout" \
+    "$(run_check "$BAD" | grep -ci 'does not parse')" "1"
+check "and it says what an unparseable workflow actually does" \
+    "$(run_check "$BAD" | grep -ci 'runs NO jobs')" "1"
+
+# AND THE PASSING CASE NAMES THE PARSER IT USED, so a run where no parser existed
+# cannot read like one that parsed and found nothing wrong (L98).
+check "a good workflow says which parser judged it" \
+    "$(run_check "$G" | grep -ci 'parsed with:')" "1"
 
 harness_end
