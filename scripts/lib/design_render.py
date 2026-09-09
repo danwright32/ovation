@@ -28,6 +28,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 
 # Where playwright puts the headless shell. Named as a glob rather than a pinned
@@ -115,18 +116,34 @@ def render(browser, path, probe, window="1440,1200", budget=6000, preamble=""):
     probed = os.path.join(holder, "probed.html")
     with open(probed, "w", encoding="utf-8") as handle:
         handle.write(page + probe)
-    try:
-        done = subprocess.run(
-            [browser, "--headless", "--disable-gpu",
+    # WHAT A CI RUNNER NEEDS, and it is not optional there. On a GitHub hosted
+    # ubuntu runner chromium aborts on startup under its own sandbox, because
+    # the runner has no user namespaces to build one in, and it aborts with
+    # SIGABRT and no page: the first run of ovation#160's CI step reported
+    # `browser exit -6`, which named the signal and not the cause. Both flags
+    # are scoped to Linux rather than passed everywhere, because on Dan's Mac
+    # the sandbox works and turning it off would be measuring something other
+    # than the browser he renders in (L376).
+    flags = [browser, "--headless", "--disable-gpu",
              "--virtual-time-budget=%d" % budget,
-             "--window-size=" + window, "--dump-dom", "file://" + probed],
-            capture_output=True, text=True, timeout=120)
+             "--window-size=" + window]
+    if sys.platform.startswith("linux"):
+        flags += ["--no-sandbox", "--disable-dev-shm-usage"]
+    flags += ["--dump-dom", "file://" + probed]
+    try:
+        done = subprocess.run(flags, capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as err:
         raise CannotMeasure("the browser could not render the page: %s" % err)
     found = re.search(r'<pre id="ovation-probe">(.*?)</pre>', done.stdout, re.S)
     if not found:
+        # THE BROWSER'S OWN COMPLAINT IS THE DIAGNOSIS, and without it the
+        # message names the exit signal and leaves whoever reads it with the
+        # same command and no way to learn why (L148). It is truncated and it is
+        # stderr rather than the page, so nothing the page DREW can reach a log.
+        said = " ".join((done.stderr or "").split())[:300] or "and said nothing"
         raise CannotMeasure("the page rendered but the probe wrote nothing, so nothing "
-                            "was measured (browser exit %d)" % done.returncode)
+                            "was measured (browser exit %d). The browser said: %s"
+                            % (done.returncode, said))
     body = found.group(1).replace("&quot;", '"').replace("&lt;", "<")
     body = body.replace("&gt;", ">").replace("&amp;", "&")
     try:

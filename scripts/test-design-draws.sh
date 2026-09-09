@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 35
+harness_begin "design rendering checks" 42
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -191,6 +191,34 @@ check "a NAMED browser that is not there is refused, never fallen back from" \
     "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" found_under "$LINUX_HOME" 2>&1 \
         | grep -c 'which is not there')" "2"
 
+# A BROWSER THAT COULD NOT RENDER SAYS WHY (ovation#160). The first CI run of
+# these checks reported `browser exit -6`, which is the signal and not the
+# cause: chromium aborts under its own sandbox on a hosted ubuntu runner. A
+# refusal whose message does not say what happened leaves whoever reads it with
+# the same command and no way to learn why (L148).
+BAD_BROWSER="$WORK/refuses.sh"
+printf '#!/bin/sh\necho "the browser is unhappy about something" >&2\nexit 6\n' > "$BAD_BROWSER"
+chmod +x "$BAD_BROWSER"
+check "a browser that renders nothing cannot measure" \
+    "$(OVATION_HEADLESS_BROWSER="$BAD_BROWSER" python3 "$TARGET" \
+        docs/design/invoice-pdf.html >/dev/null 2>&1; printf '%s' "$?")" "3"
+check "and the browser's own complaint is in the message" \
+    "$(OVATION_HEADLESS_BROWSER="$BAD_BROWSER" python3 "$TARGET" \
+        docs/design/invoice-pdf.html 2>&1 | grep -c 'the browser is unhappy about something')" "1"
+check "and so is the exit code it left" \
+    "$(OVATION_HEADLESS_BROWSER="$BAD_BROWSER" python3 "$TARGET" \
+        docs/design/invoice-pdf.html 2>&1 | grep -c 'browser exit 6')" "1"
+
+SILENT_BROWSER="$WORK/silent.sh"
+printf '#!/bin/sh\nexit 0\n' > "$SILENT_BROWSER"
+chmod +x "$SILENT_BROWSER"
+check "a browser that says nothing at all still cannot measure" \
+    "$(OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
+        docs/design/invoice-pdf.html >/dev/null 2>&1; printf '%s' "$?")" "3"
+check "and the message says it said nothing rather than leaving a blank" \
+    "$(OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
+        docs/design/invoice-pdf.html 2>&1 | grep -c 'and said nothing')" "1"
+
 # ---------------------------------------------------------------------------
 # AND THE LINUX JOB ACTUALLY RUNS THEM (ovation#160). A workflow that installs a
 # browser and never uses it, or uses it and never proves it is there, is the
@@ -206,5 +234,12 @@ check "and the browser download is cached on that version" \
 check "and every rendered check is named as running there" \
     "$(grep -cE '^ *python3 scripts/check-(design-draws|invoice-screen-draws|design-tokens-resolve)\.sh$' \
         "$WORKFLOW")" "3"
+# THE FLAGS THAT MAKE IT RUN THERE AT ALL, asserted in the library rather than
+# in the workflow, because that is where they live and a workflow that installs
+# a browser it cannot start is the same silence in a different place.
+check "and the renderer turns off the sandbox chromium cannot build on a runner" \
+    "$(grep -c 'no-sandbox' scripts/lib/design_render.py)" "1"
+check "only on Linux, so the Mac still renders in the browser Dan uses" \
+    "$(grep -c 'sys.platform.startswith("linux")' scripts/lib/design_render.py)" "1"
 
 harness_end
