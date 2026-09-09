@@ -242,8 +242,20 @@ struct StoreLaunchSequenceTests {
         _ = world.sequence.run(now: world.instant)
 
         let steps = world.recorder.steps
-        #expect(steps.firstIndex(of: "version")! > steps.firstIndex(of: "open")!)
-        #expect(steps.firstIndex(of: "version")! < steps.firstIndex(of: "seed")!)
+        // REQUIRED RATHER THAN FORCE UNWRAPPED. A `!` here does not fail the
+        // test, it TRAPS: the whole test process dies, the run reports exit 65
+        // with no failing test named, and the steps that did run are lost with
+        // it. That happened on CI on 2026-09-09, and the diagnosis cost a push
+        // because the one thing that would have said which step was missing was
+        // the thing the trap destroyed.
+        let versionAt = try #require(steps.firstIndex(of: "version"),
+                                     Comment(rawValue: "steps were \(steps)"))
+        let openAt = try #require(steps.firstIndex(of: "open"),
+                                  Comment(rawValue: "steps were \(steps)"))
+        let seedAt = try #require(steps.firstIndex(of: "seed"),
+                                  Comment(rawValue: "steps were \(steps)"))
+        #expect(versionAt > openAt)
+        #expect(versionAt < seedAt)
     }
 
     @Test("a store refused at IDENTIFY has no version recorded")
@@ -293,8 +305,14 @@ struct StoreLaunchSequenceTests {
         // after it that writes nothing, and the proxy went red for a reason that
         // has nothing to do with what this test defends (L430).
         let steps = world.recorder.steps
-        #expect(steps.firstIndex(of: "seed")! > steps.firstIndex(of: "open")!)
-        #expect(steps.firstIndex(of: "seed")! > steps.firstIndex(of: "backup")!)
+        let seedAt = try #require(steps.firstIndex(of: "seed"),
+                                  Comment(rawValue: "steps were \(steps)"))
+        let openAt = try #require(steps.firstIndex(of: "open"),
+                                  Comment(rawValue: "steps were \(steps)"))
+        let backupAt = try #require(steps.firstIndex(of: "backup"),
+                                    Comment(rawValue: "steps were \(steps)"))
+        #expect(seedAt > openAt)
+        #expect(seedAt > backupAt)
     }
 
     @Test("a store that refuses at IDENTIFY is never seeded")
