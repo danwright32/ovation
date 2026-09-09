@@ -1,0 +1,9 @@
+/* PART OF THE SHELL, ovation#120. Its own part, and not folded into another,
+   because this is the rule that actually went missing once: see below. */
+/* BOX SIZING, WHICH LIVED IN THE PAGE CHROME OF THE COMMITTED DESIGN FILES AND
+   SO DID NOT SURVIVE BEING LIFTED OUT OF THEM. Without it every padded or
+   bordered box is WIDER than the width it is given, so a field sized to its
+   column overhangs into the next one. That is what put the hours field on top
+   of the rate. Third instance of L437 in one day, and the reason the settled
+   rules now live in one shared file rather than being copied per round. */
+* { box-sizing: border-box; }

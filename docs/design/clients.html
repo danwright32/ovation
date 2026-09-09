@@ -111,7 +111,18 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
    ============================================================ */
 
 
-.win {
+/* THE PALETTE IS ON `.screen`, NOT ON `.win`, and that is load bearing rather
+   than tidiness. It lived on `.win` until 2026-09-08, so every rule OUTSIDE the
+   app window resolved `var(--anything)` to nothing: the Edit chip in the menu
+   bar and the highlighted row in its menu both declare `background:
+   var(--accent)` and both computed to `rgba(0, 0, 0, 0)`, so neither has ever
+   painted. A token that is referenced but never defined leaves no error and no
+   mark, and the declaration goes on reading as correct (L585, L437). Measured,
+   not spotted: the fault is that two things are NOT drawn.
+
+   Everything inside the window inherits these exactly as before, so this moves
+   no colour that was already working. */
+.screen {
   --bg: #FBF4EF; --chrome: #EFE8E3; --sunk: #F1EAE5;
   --rule: #E0D0C4; --rule-soft: #EEE2D8;
   --ink: #1F1812; --soft: #5F4D41; --quiet: #766254; --faint: #6E5F50;
@@ -136,6 +147,10 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
      digits; the amount column held 104px where "123,456.00" needs 76. An over
      reservation fails no test and breaks nothing, it simply stops the neighbour
      growing, which is why it survives unnoticed. */
+}
+
+
+.win {
   width: 1064px; margin: 22px auto 0; border-radius: 10px; overflow: hidden;
   box-shadow: 0 1px 1px rgba(0,0,0,.18), 0 20px 44px rgba(0,0,0,.28);
 }

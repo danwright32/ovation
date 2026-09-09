@@ -33,6 +33,44 @@ three things in it are web idioms that must be translated rather than copied:
 | Idle invoices | Disclosures at the foot, with Sent awaiting payment open by default. No "Nothing to do" label above them: the group names already say it. |
 | Colour | Espresso `#3B2B21`. Light mode only, deliberately (PRD 43). No red anywhere (PRD 45). |
 
+## The shell every file carries
+
+**`shell/` holds the five parts that are the same in every file that draws the app**, and
+`scripts/check-design-shell-inline.sh` refuses any file whose copy has drifted from them. It runs
+in the ordinary suite and on every push. The parts are `fonts.css` (the four embedded faces),
+`reset.css` (box sizing), `chrome.css` (the desktop and the menu bar), `palette.css` (the twenty
+seven colour tokens and the column widths) and `window.css` (the window, the espresso sidebar with
+its card and status, the title bar, the toolbar and the list row).
+
+**Each file carries its own VERBATIM copy rather than a `<link>`**, because a design file may reach
+outside itself never, which the check above enforces. Two copies of one thing with nothing comparing
+them is what this is for.
+
+**Nothing was harmonised to build it.** The parts were measured out of the three files as the runs
+they already agreed on, byte for byte, so the extraction moved no CSS and all four files render
+pixel for pixel identically to how they rendered before it (checked, not assumed: each was rendered
+headless before and after and the images hashed).
+
+**One thing was fixed, and it is the whole reason ovation#120 existed.** The palette was moved off
+`.win` and onto `.screen` in `invoice.html` on 2026-09-08, because every rule OUTSIDE the app window
+resolved `var(--anything)` to nothing. `invoice-list.html` and `clients.html` never received that
+fix and went on carrying the palette on `.win` for as long as nothing compared them. They have it
+now. It changed no colour that was already working, which is why the images are identical.
+
+**`invoice-pdf.html` carries none of the shell and says so in its own words**, one line per part
+with the reason: it is an A4 page a stranger receives, set in Merriweather and Lato, with no
+desktop, no menu bar and no window. The escape is a sentence in that file rather than a list of
+exempt filenames inside the guard, because a guard naming its exceptions stops covering the moment
+a second file satisfies the same reason. A file that declares it carries no shell and then carries
+it anyway is refused, so the exemption cannot outlive its reason.
+
+**What is not done yet is ovation#132**, the other half: nothing stops a screen redefining a shell
+class, which is how `.nrow` (already the Clients names column) came to be reused by the narrowed
+invoice list and reached rows it was never written for. Measured on 2026-09-09, against the shell's
+55 class names: `invoice-list.html` reuses none, `clients.html` reuses 9 and `invoice.html` reuses
+14. Some of those are deliberate inheritance and some are the `.nrow` fault again, and telling them
+apart is what that issue is.
+
 ## It needs nothing external
 
 **Zero network requests, and `scripts/check-design-self-contained.sh` is what keeps that true.**

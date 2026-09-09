@@ -51,6 +51,7 @@ check-custody-not-staged.sh	gated	A repo wide guard.
 check-design-collisions.py	tool-untested	Takes a settled stylesheet and one design round's stylesheet and refuses a class name collision the round did not declare. It is a DESIGN ROUND tool taking two file arguments, not a repo wide guard, so nothing can run it on a schedule. ovation#132 gives it a sibling.
 check-design-rules-inline.sh	gated	A repo wide guard.
 check-design-self-contained.sh	gated	A repo wide guard.
+check-design-shell-inline.sh	gated	A repo wide guard.
 check-forbidden-constructs.sh	gated	A repo wide guard.
 check-invoice-screen-draws.sh	tool	Renders docs/design/invoice.html in a headless browser and reads back what it DREW, which is the gap ovation#141 names: every other check on these files reads their source, and all three faults it was written for were invisible there. It is a TOOL rather than a gate because it needs a browser, and a push gate that refuses on every machine without one is a gate people learn to skip (L376). Its sibling test-invoice-screen-draws.sh runs it against the committed file on every test run, and answers CANNOT MEASURE rather than passing when there is no browser.
 check-identity-leaks.sh	gated	A repo wide guard.
@@ -70,6 +71,7 @@ lib/bundle-icon-checks.sh	library	Sourced by test-built-bundle-icon.sh. test-bun
 lib/bundle-identity-checks.sh	library	Sourced by test-built-bundle-identity.sh. test-bundle-identity-checks.sh covers its judgements directly.
 lib/ensure-xcode-project.sh	library	Sourced by run-tests.sh and build-install.sh. Its behaviour is covered by test-run-tests.sh, which drives it through the runner with an injected generator.
 lib/json-field.sh	library	Sourced by check-booking-queue.sh and check-sibling-installs.sh. One JSON reader for both, after plutil made every record read as unreadable on Linux (ovation#152); their own suites cover its behaviour.
+lib/design_inline.py	library	Imported by check-design-rules-inline.sh and check-design-shell-inline.sh. One comparison of a design file's inlined copy against its source, rather than a second longest_run beside the second checker (L370). Both their suites drive it.
 lib/script-roles.sh	library	The one reader of this file, sourced by both completeness rules so neither parses it itself. It was missing from this list on its first run, which is the rule working before it had a single assertion behind it.
 lib/quit-pid.sh	library	Sourced by smoke-launch.sh to quit the copy it launched, by PID resolved from the executable path.
 lib/test-harness.sh	library	Sourced by every shell suite. test-test-harness.sh covers it directly.
@@ -94,6 +96,7 @@ test-custody-not-staged.sh	suite
 test-design-rules-inline.sh	suite	
 test-design-rules.sh	suite	
 test-design-self-contained.sh	suite	
+test-design-shell-inline.sh	suite	
 test-embed-web-fonts.sh	suite	
 test-forbidden-constructs.sh	suite	
 test-git-hooks.sh	suite	

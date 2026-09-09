@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 37
+harness_begin "output privacy tests" 40
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -354,6 +354,38 @@ check "the rule inlining guard prints no identity when a copy has drifted" \
 check "and none when it cannot compare anything at all" \
     "$(leaks_in "$(OVATION_DESIGN_ROOT="$RULES_ROOT/nowhere" \
         ./scripts/check-design-rules-inline.sh 2>&1)")" "clean"
+
+# The shell inlining guard (ovation#120) has the same three ways of speaking
+# about a file it disagrees with, and one more the rules guard does not have: it
+# repeats the file's OWN SENTENCE back when the file declares it carries no
+# shell. A design file's prose is where a client name would sit, so the fixture
+# puts one in the declaration as well as in the CSS and in the page.
+SHELL_ROOT="$WORK/design-with-shell"
+mkdir -p "$SHELL_ROOT/shell"
+cat > "$SHELL_ROOT/shell/window.css" <<CSS
+.win { content: "$CLIENT at $VENUE"; }
+CSS
+cat > "$SHELL_ROOT/invoice-list.html" <<HTML
+<h1>$CLIENT at $VENUE</h1>
+<style>
+.win { content: "somebody else entirely"; }
+</style>
+HTML
+check "the shell inlining guard prints no identity when a copy has drifted" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$SHELL_ROOT" \
+        ./scripts/check-design-shell-inline.sh 2>&1)")" "clean"
+cat > "$SHELL_ROOT/invoice-list.html" <<HTML
+<style>
+/* NOT SHELLED: window.css, this page is for $CLIENT at $VENUE and draws no window. */
+.unrelated { color: red; }
+</style>
+HTML
+check "and none when it repeats a file's own reason for carrying no shell" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$SHELL_ROOT" \
+        ./scripts/check-design-shell-inline.sh 2>&1)")" "clean"
+check "and none when it cannot compare anything at all either" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$SHELL_ROOT/nowhere" \
+        ./scripts/check-design-shell-inline.sh 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------
 # The live data bracket. It prints watched PATHS relative to Application

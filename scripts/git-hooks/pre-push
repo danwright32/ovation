@@ -187,6 +187,14 @@ gate_check check-design-self-contained.sh "a design file reaches outside itself.
 # the design record IS went on holding the defect, and nothing could say so.
 gate_check check-design-rules-inline.sh "a design file's copy of a rule disagrees with docs/design/rules/."
 
+# ovation#120. The same shape, for the shell every design file draws its window
+# with: the typefaces, the reset, the desktop, the palette and the window. Each
+# file got that shell by copying the last one, and it had already drifted. The
+# palette was moved off `.win` and onto `.screen` in invoice.html on 2026-09-08,
+# because everything outside the window resolved `var(--anything)` to nothing,
+# and the two older files never received the fix. Every file went on rendering.
+gate_check check-design-shell-inline.sh "a design file's copy of the shell disagrees with docs/design/shell/."
+
 # ovation#102. The AppIcon catalog is DERIVED from icon/ovation-app-icon.png and
 # both are committed. Nothing asserted they were still in step, and both ways it
 # goes wrong are silent: the artwork replaced without the script being re-run, so

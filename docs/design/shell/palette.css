@@ -1,0 +1,45 @@
+/* PART OF THE SHELL, ovation#120: the settled colour, and the column widths
+   the list is drawn on. Twenty seven tokens, identical in every file that
+   draws the app.
+
+   IT IS ITS OWN PART BECAUSE IT IS THE ONE THAT DRIFTED. The fix recorded
+   below landed in invoice.html on 2026-09-08 and in neither of the two older
+   files, which went on carrying the palette on `.win` for as long as nothing
+   compared them. That is the whole of ovation#120 in one rule. */
+/* THE PALETTE IS ON `.screen`, NOT ON `.win`, and that is load bearing rather
+   than tidiness. It lived on `.win` until 2026-09-08, so every rule OUTSIDE the
+   app window resolved `var(--anything)` to nothing: the Edit chip in the menu
+   bar and the highlighted row in its menu both declare `background:
+   var(--accent)` and both computed to `rgba(0, 0, 0, 0)`, so neither has ever
+   painted. A token that is referenced but never defined leaves no error and no
+   mark, and the declaration goes on reading as correct (L585, L437). Measured,
+   not spotted: the fault is that two things are NOT drawn.
+
+   Everything inside the window inherits these exactly as before, so this moves
+   no colour that was already working. */
+.screen {
+  --bg: #FBF4EF; --chrome: #EFE8E3; --sunk: #F1EAE5;
+  --rule: #E0D0C4; --rule-soft: #EEE2D8;
+  --ink: #1F1812; --soft: #5F4D41; --quiet: #766254; --faint: #6E5F50;
+  --accent: #3B2B21; --on-ink: #F8F7F5; --selbg: #E4DCD6;
+  --rail: #3B2B21; --rail-bd: #2A1F18; --rail-item: #BCB7B4; --rail-on-bg: #5A4D45; --rail-on-tx: #F3F2F2;
+  --rail-card-bg: #4D3E35; --rail-card-bd: #62554D; --rail-card-hd: #D4D0CE;
+  --rail-card-ln: #DCD9D7; --rail-card-b: #F7F7F6;
+  --rail-st-bd: #5A4D45; --rail-fault: #F3F2F2; --rail-read: #E2BC82; --rail-dim: #C4BFBC;
+  /* The date column is 152px, up from 104px, because a combined invoice shows
+     a SPAN and a span does not fit in 104. Measured in the browser, not
+     guessed: "2 to 6 Sep 2026" needs 113px and "28 Sep to 3 Oct 2026" needs
+     150px, against 75px for a single date. It must be a FIXED width: each row
+     is its own grid, so an auto column is sized per row and the dates and
+     amounts stop lining up down the list, which was tried and measured at four
+     different left edges. The year is printed once, at the end, which is what
+     keeps the worst case at 150 rather than the 188 a range carrying both
+     years would need. */
+  --cols: minmax(0,1fr) 152px 44px 88px 132px;
+  /* The 48px the date column gained is taken back from the two columns that
+     were over reserving, not from the names. Measured: the invoice number
+     column held 58px for content needing 38px, and still needs only 38 at five
+     digits; the amount column held 104px where "123,456.00" needs 76. An over
+     reservation fails no test and breaks nothing, it simply stops the neighbour
+     growing, which is why it survives unnoticed. */
+}
