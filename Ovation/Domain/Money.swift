@@ -106,13 +106,18 @@ struct Money: Equatable, Hashable, Comparable, Codable, Sendable {
     }
 }
 
-/// A length of time billed for, in whole tenths of an hour.
+/// A length of time billed for, in whole HUNDREDTHS of an hour.
 ///
-/// Tenths because PRD 3 prices from the booking's real start and end instants
-/// "exact to one decimal". A separate type from `Money` with no conversion
-/// between them, so an hourly rate and a duration cannot be swapped at a call
-/// site: the compiler refuses rather than the invoice being wrong by a factor of
-/// the rate.
+/// Hundredths because ovation#127 corrected the unit, and the reason is set out
+/// in full on `hundredths` below. This summary states the unit the type actually
+/// carries rather than the tenths PRD 5.3 asked for and round 4 of ovation#111
+/// made impossible: it is a value that decides money, and a header arguing for a
+/// rejected unit reads as a considered decision rather than as something nobody
+/// updated (L346).
+///
+/// A separate type from `Money` with no conversion between them, so an hourly
+/// rate and a duration cannot be swapped at a call site: the compiler refuses
+/// rather than the invoice being wrong by a factor of the rate.
 struct Hours: Equatable, Hashable, Comparable, Codable, Sendable {
 
     /// HUNDREDTHS OF AN HOUR, and the unit is the whole of ovation#127.
