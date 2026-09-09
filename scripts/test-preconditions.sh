@@ -210,9 +210,16 @@ check "and every workflow script is covered by a suite" \
          [ -n "$(covering_suite "$w")" ] || printf '%s ' "$w"
        done | sed 's/ $//')" ""
 
+# THE MODULE NAME, NOT THE FILE NAME, for a Python library. A shell library is
+# reached by `. lib/thing.sh`, which carries its extension, and a Python one by
+# `from thing import x`, which does not. Matching only the file name reported
+# lib/design_render.py as sourced by nothing while both of its importers named it
+# on their import line, which is a rule blind to the very thing it checks. The
+# `.py` is stripped, and nothing under lib/ can match itself here because this
+# only ever reads *.sh.
 check "and every library really is sourced by something rather than run" \
     "$(for l in $(roles_with library); do
-         grep -rlq "$(basename "$l")" scripts --include='*.sh' || printf '%s ' "$l"
+         grep -rlq "$(basename "$l" .py)" scripts --include='*.sh' || printf '%s ' "$l"
        done | sed 's/ $//')" ""
 
 harness_end
