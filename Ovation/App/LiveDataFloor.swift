@@ -58,6 +58,10 @@ enum LiveDataFloor {
               reaches: "the record of when the export last ran. A test written success "
                 + "makes the staleness report permanently unraisable",
               resolve: { ExportRunLog.liveExportRunRecord() }, issue: nil),
+        .init(name: "liveExportDirectory",
+              reaches: "the folder the CSVs are written to. A test naming it writes "
+                + "over whatever is there",
+              resolve: { YearEndExport.liveExportDirectory() }, issue: nil),
 
         // NOT BUILT. Named now so the floor is extended by this list rather than
         // by whoever notices, and so a later milestone inherits the requirement
@@ -77,10 +81,6 @@ enum LiveDataFloor {
               reaches: "the record of which messages were filed. A test write "
                 + "permanently suppresses that message's receipt",
               resolve: nil, issue: "ovation#79"),
-        .init(name: "liveExportDirectory",
-              reaches: "the folder the CSVs are written to. A test naming it writes "
-                + "over whatever is there",
-              resolve: nil, issue: "ovation#61"),
         .init(name: "liveBackupsDirectory",
               reaches: "the folder Dan chooses for backups, which on this Mac may sync "
                 + "to a Synology",
