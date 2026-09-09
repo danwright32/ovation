@@ -33,6 +33,62 @@ three things in it are web idioms that must be translated rather than copied:
 | Idle invoices | Disclosures at the foot, with Sent awaiting payment open by default. No "Nothing to do" label above them: the group names already say it. |
 | Colour | Espresso `#3B2B21`. Light mode only, deliberately (PRD 43). No red anywhere (PRD 45). |
 
+## The review and send screen
+
+`review-send.html` is the agreed design for what Dan sees before an invoice leaves under his name,
+settled with him over six rounds on 2026-09-09 (ovation#101). **Open it in any browser.** One self
+contained file, no build step, nothing fetched.
+
+**Press Send.** It runs, counts the seconds, and the sheet becomes the outcome. Three switches under
+the record change what the invoice is and whether the send is refused: none of these states can be
+seen from a still, which is why the file behaves rather than only draws.
+
+| | |
+| --- | --- |
+| Where it lives | A sheet dropping from under the window's title bar, over the invoice screen, which stays behind it. Nothing to navigate back from. Rejected: the document as a full screen with the recipients in a rail, and a third place in the invoice screen's own language. |
+| The document | The settled invoice page at 47% of actual size, 380px of 816, in an 800px sheet, opening to 81% when pressed. |
+| The recipients | The address and nothing else, unless it is not the person who booked the shoot, and then it names who was passed over. Silent on 30 of 31. |
+| The sending states | The sheet becomes the outcome. The document and the recipients are replaced by one statement and one way onward. Working carries the elapsed seconds. |
+| The warnings | A band across the sheet. The due date being past is information and carries no control; a shared address is a question and carries `That is right`, which stays answered. |
+| The message | Editable in place. |
+
+### The preview is the attachment, and that is a requirement rather than a rendering detail
+
+PRD 10c, settled by Dan during round 2: **in the built app there is ONE render.** The PDF is made
+once, those bytes are shown, and the same bytes are attached. Requirement 10 already said "the exact
+PDF", and an implementer can satisfy a reading of that with a faithful redrawing of the invoice on
+screen beside a separately generated file. That is what this forbids. Two renderers agree on the day
+they are written and then drift, and the drift is silent in the worst direction: the preview goes on
+looking correct while the client receives something else, and the only person who could notice is
+the one who never sees the file. It is tracked as ovation#167, and the guard it needs is a test
+that the bytes displayed and the bytes sent are the same bytes, driven from ONE render, because a
+test that renders twice and compares two outputs would pass while proving nothing.
+
+**Round 2 was run twice because of it.** The first preview was a redrawing that re-typeset itself at
+every size, so one option appeared to stop the line descriptions wrapping. A real page does not
+re-wrap when you zoom it, so the choice had been offered on a picture that lied about what changes.
+The preview in this file is the settled `invoice-pdf.html`, carried whole and handed to a frame, and
+every size is that same page scaled.
+
+### Two corrections this design makes to things already settled
+
+**The invoice screen's foot says Review, not Send.** It opens this sheet, and a control that says
+Send should send. `invoice.html` still says `Send` and has to change with this, or the two files
+disagree (ovation#111).
+
+**A rule that came out of it:** every figure on a surface keeps ONE right edge. The totals block was
+a fixed width sitting in a narrower column, so it hung 16px past the line amounts. Capped at the
+content width the two share an edge by construction rather than by two numbers happening to agree.
+`check-invoice-screen-draws.sh` already claims this for the invoice screen; it is now a rule for
+every surface that draws money.
+
+### What it does not answer
+
+Every outbound sentence on it owes its cold read, rendered, in the state that produces it (PRD 41a):
+the subject, the composed message, and all three sending sentences. None has had it. The wording was
+held identical across every option in every round precisely so that no sentence could be chosen for
+how it read, which means none of them has been chosen at all.
+
 ## The shell every file carries
 
 **`shell/` holds the five parts that are the same in every file that draws the app**, and
@@ -129,9 +185,9 @@ is pure ASCII**, so no pipe between here and a browser can mangle it.
 
 ## What is still open
 
-`ovation#95` where the venue and shoot times live. The receipts queue (`ovation#100`), the
-review and send screen (`ovation#101`) and the invoice screen inside the app (`ovation#111`)
-are not designed yet.
+`ovation#95` where the venue and shoot times live. The receipts queue (`ovation#100`) is the only
+screen not designed yet. The invoice screen (`ovation#111`) and the review and send screen
+(`ovation#101`) are both settled and committed here.
 
 **`ovation#18`, the app icon, is settled and shipped (2026-09-07).** It was listed here as
 waiting on the palette, and the palette is what it waited for: the artwork is a cream paper

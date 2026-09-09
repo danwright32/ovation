@@ -111,6 +111,26 @@ So the tax line is present on every invoice. Where the client is exempt it names
 8. A referral credit appears in **its own block between the line items and the subtotal**, not as a line. **Corrected 2026-09-07** by Dan in round 6 of the invoice screen rounds (ovation#111, ovation#126), having been shown that it contradicted this requirement as first written, which said "its own line". It is still inside the subtotal, so the arithmetic and 4b's conclusion are unaffected. One hour is earned per hour of the referred client's first booking, once only, credited when that first invoice is marked paid. Ovation keeps the balance per client and warns when a booking is flagged as spending credit the client does not have.
 9. The PDF carries Dan Wright Photography's identity, the client name alone in the Bill to block, the line items, tax, total, the payment instructions and the note to customer, all from settings.
 10. Sending goes through Gmail from a review screen showing the exact PDF and **every** recipient, prefilled from where the client's invoices go (37a: the override where there is a genuine one, otherwise the address of whoever booked), with a CC available. **Where that value carries several addresses (38a) the review lists them all**, because what Dan approves must include who it goes to (L64). Ovation records what it sent, to whom, and when.
+10c. **The preview IS the attachment. One render, shown and sent, never two** (Dan, 2026-09-09,
+during the review screen rounds: "when this is actually built and I view this page in the app, the
+preview I see before sending needs to be identical to what's actually sent"). Requirement 10 said
+"the exact PDF", and an implementer can satisfy a reading of that with a faithful redrawing of the
+invoice on screen beside a separately generated file. That is the thing this forbids. Ovation
+renders the PDF once, to bytes; the review screen displays THOSE BYTES; the send attaches the SAME
+BYTES, the same object, not a second render from the same data. **Two renderers agree on the day
+they are written and then drift**, and the drift is silent in the worst direction: the preview goes
+on looking correct while the client receives something else, and the only person who could notice
+is the one who never sees the file. It is the same shape as L58, two systems that must agree cannot
+be checked against records one of them wrote, and as 41a's reason for a cold read: outbound work is
+the only thing here with no reader on our side.
+
+Three consequences, written here rather than left to be rediscovered. **The preview inherits the
+page**, so it is a US Letter page at the proportions 5.9 settled and it can be scaled but never
+restyled, and a review screen may not re-typeset it to fit a column. **The bytes are what gets
+recorded** under 11, which keeps every version sent, so the artifact stored is the artifact
+displayed and the artifact received, all one. And **it is testable rather than a principle**: the
+guard is that what the screen renders and what the message carries are the same bytes, by hash, and
+a test that renders twice and compares two outputs would pass while proving nothing (L70).
 10b. **The message Ovation builds strips line breaks from every value that reaches a header.** Overture's message builder, which the shared package is extracted from, writes the subject, the recipient and the sender name straight into the headers with no such stripping, and encodes the subject only when it contains non ASCII. So a plain ASCII subject carrying a line break passes through and becomes an additional header, for instance a second recipient. It is harmless in Overture today, and it would not be in Ovation, whose subjects carry the client name and shoot name. The fix belongs in the shared package so both apps get it, and what a person approves must include who it goes to.
 
 10a. Dan cannot mark an invoice Sent by hand. Sent is only ever observed, by one of two routes: Ovation sent it, or Ovation found a message carrying that invoice number in the Gmail Sent folder and derived it. The second route exists because Ovation already reads that mailbox, and because a flag written only by actions inside the product is permanently wrong for work done in the mail client instead (L162, and the same defect already shipped in Overture as `replyHandledAt`). An invoice sent from Spark stops claiming to be a draft; the invoice records which route established it.
@@ -252,6 +272,64 @@ So the tax line is present on every invoice. Where the client is exempt it names
 51h. **The due date in the invoice's foot opens the terms an invoice is written on, each showing the date it lands on, with another date at the end** (Dan, 2026-09-08), which settles the per invoice half of 7. Kept against typing the date in the foot and against nothing on the foot at all with the action in the Edit menu. Every term NAMES the date it produces, which is what it was kept for over typing one. **It moves this invoice only**: asked where the per client override lives, Dan settled that a client's standing terms are set on the Clients screen and never on an invoice, against offering the standing change in this list and against offering it after the change, so ovation#98 now owes that control. **Another date opens the same panel 51g uses**, rather than a second panel to keep looking like the first. **A date that cannot be read is refused with a reason and nothing moves**: `31 Sep` rolls forward to 1 Oct in JavaScript's date arithmetic, so an unguarded reader takes a date nobody typed, and the due date is what every chase and every overdue count is timed from. Both dates on the screen are derived from the shoot's one stamp rather than written in three places, in UTC (L39).
 
 51i. **A rare, consequential action is asked about in the panel this screen already has** (Dan, 2026-09-08), kept against asking in the foot with nothing covered, against a macOS sheet from the window's title bar, and against not asking at all and offering an undo afterwards. It was rendered on dismissing a draft, which 1c moved into this screen, and **it is the treatment combining (1a) and cancelling both inherit**, so the question is settled once rather than three times. **The sentence names the shoot and says what happens in the domain**: dismissing is not a delete, so it says the invoice stays in the list recorded as not billed on that date (1b), never that it will be removed, and it names THIS shoot because a warning that reads the same on every dismissal carries no information. **Afterwards the invoice is drawn as what it now is**, its lines and totals quiet, the foot stating the recorded decision in place of the dated line and the Send, and its history still beside it. **There is no way back from a dismissal yet, and that is deliberate.** A `Bill it after all` was drawn in the Edit menu on the reasoning that a recorded decision nothing can revisit is a dead end, and Dan removed it the same day because it was a control he had never been shown: everything else on this screen was chosen from renderings and one arrived at by argument does not get to sit beside them. So the dead end is real and visible rather than papered over by a guess, and undoing a dismissal is ovation#150. What the invoice LIST does on the way back is ovation#125 rather than part of this.
+
+52. **The agreed rendering of the review and send screen is committed at `docs/design/review-send.html`**,
+with the same discipline as 49, 50f and 51: one self contained file, no build step, the decision
+record inside it, and the chooser it came from stripped out. Settled with Dan over six rounds on
+2026-09-09 (ovation#101). It carries the shell from `docs/design/shell/` verbatim (ovation#120) and
+it BEHAVES: Send runs, the seconds count, and three switches change the invoice and whether the send
+is refused, because none of those states can be seen from a still.
+
+52a. **Review is a SHEET over the invoice, dropping from under the window's title bar** (Dan,
+2026-09-09). The invoice screen stays behind it and there is nothing to navigate back from. Kept
+against the document as a full screen with the recipients in a rail, and against a third place in
+the invoice screen's own language. **Two consequences are requirements rather than drawing.** The
+sheet belongs to the WINDOW, not to the desktop: positioned against the screen it starts above the
+window's own top edge and is centred on a box wider than it. And **the invoice screen's foot says
+`Review`, not `Send`**, because it opens this sheet and a control that says Send should send, which
+corrects 51 and the file committed under it.
+
+52b. **The document is the settled invoice page at 47% of actual size, opening to 81% when pressed**
+(Dan, 2026-09-09). 380px of an 816px page, in an 800px sheet, and the approval column gives up the
+room. It is SCALED and never restyled, which is 10c's consequence for this screen: a review screen
+may not re-typeset the page to fit a column, because then the preview is a different document from
+the one that is sent. The way to open it is visible at rest and sits ABOVE the page, since the page
+is taller than the sheet's visible area and anything beneath it is below the fold.
+
+52c. **The recipients are stated, and WHY only when it is surprising** (Dan, 2026-09-09). The screen
+shows the address and nothing else, because going to whoever booked the shoot is the default and
+saying so is saying nothing. Where the address is NOT that person it says so and names who was
+passed over. Measured on the 2026-09-05 export, which is what decided it: all 31 clients have a main
+address, 30 carry a second that is an exact copy of it and 1 carries an empty one, so **not one
+client has a genuine override today**, while 1 of 31 genuinely carries two addresses in one field.
+An option that reads well on the override and adds a line to the ordinary invoice charges all 31
+sends for a case that does not occur. Where several addresses share one reason, the reason is said
+ONCE for the group, or it is the same sentence printed twice.
+
+52d. **On send, the sheet BECOMES the outcome** (Dan, 2026-09-09). The document and the recipients
+are replaced by one statement of what happened and one way onward, so there is nothing left to read
+and nothing to press by mistake. Kept against replacing only the buttons, against a band with the
+buttons greyed in place, and against dismissing the sheet so the outcome lands on the invoice
+screen. Requirement 33 is met inside it and was the floor in every option: working, still alive and
+failed are three visibly different things, the elapsed seconds are drawn so it can never look
+stalled, and there is no spinner.
+
+52e. **A warning is a band across the sheet, under the title** (Dan, 2026-09-09), and the two kinds
+are drawn differently because they are different things. **The due date already past is information**
+(7): nothing can answer it except changing the date, so it carries no control. **A shared address is
+a QUESTION** (38c): it carries `That is right`, it stays answered, and the acknowledgement is
+recorded against the ADDRESS so changing the address asks again. Kept against grouping both above
+the recipients, against putting each beside its cause, and against holding them until Send is
+pressed, which asks after the decision has been made.
+
+52f. **The message is editable in place** (Dan, 2026-09-09), which is the most freedom and the most
+ways to go wrong, and it is why 41a is not discharged by this screen existing. Whatever is in the
+box is what ships. **Every outbound sentence on this screen still owes its cold read**, rendered, in
+the state that produces it: the subject, the composed message, and all three sending sentences. The
+wording was held identical across every option in every round precisely so no sentence could be
+chosen for how it read, which means none of them has been chosen at all. In the app the editing
+surface is the design system's own control, never the platform's default; the committed rendering
+uses a styled textarea and says so as a web idiom.
 
 ---
 
