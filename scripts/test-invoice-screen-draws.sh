@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 35
+harness_begin "invoice screen rendering checks" 38
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -120,6 +120,18 @@ check "the amount is where the mutation expects it" \
 check "a first line reporting the lines total is refused" "$(status_on "$SUMMED")" "1"
 check "and the claim that fired names the line's own amount" \
     "$(failed_claims "$SUMMED")" "the first line shows its own amount, not the lines total;"
+
+# 3b. THE DRAFT'S MAIN ACTION. Putting `Send` back on it reproduces the state
+#     the two committed design records were in until 2026-09-09: this file said
+#     Send on the control that opens the review sheet, review-send.html said
+#     Review, and each read as settled on its own (ovation#169, PRD 52a).
+SAYSSEND="$WORK/sayssend.html"
+check "the foot's word is where the mutation expects it" \
+    "$(mutate "$SAYSSEND" 's/return { main: "Review", second: null, said: null };/return { main: "Send", second: null, said: null };/' 'main: "Send", second: null')" "1"
+check "a draft whose main action says Send is refused" "$(status_on "$SAYSSEND")" "1"
+check "and the claim that fired names what the action does" \
+    "$(failed_claims "$SAYSSEND")" \
+    "the draft's main action names what it does, and it is not Send;"
 
 # 4. THE PALETTE'S SCOPE. Putting the tokens back on the app window takes them
 #    away from everything outside it, which is where the menu bar and its menu
