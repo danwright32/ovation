@@ -140,7 +140,7 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
      different left edges. The year is printed once, at the end, which is what
      keeps the worst case at 150 rather than the 188 a range carrying both
      years would need. */
-  --cols: minmax(0,1fr) 152px 44px 88px 132px;
+  --cols: minmax(0,1fr) 152px 44px 88px 84px;
   /* The 48px the date column gained is taken back from the two columns that
      were over reserving, not from the names. Measured: the invoice number
      column held 58px for content needing 38px, and still needs only 38 at five
@@ -191,16 +191,20 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 
 .main { background: var(--bg); display: flex; flex-direction: column; min-width: 0; overflow: visible; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px 12px; border-bottom: 1px solid var(--rule); flex: none; }
+.colhead { display: grid; grid-template-columns: var(--cols); gap: 14px; padding: 10px 24px 7px; border-bottom: 1px solid var(--rule); flex: none; }
+.colhead > div { font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
+.colhead .amt-h, .colhead .end-h { text-align: right; }
 .toolbar h4 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 29px; font-weight: 400; color: var(--ink); line-height: 1; }
 .toolbar .meta { font-size: 12px; color: var(--faint); font-weight: 500; }
 .scroll { flex: 1; min-height: 0; }
 
 .row { display: grid; grid-template-columns: var(--cols); gap: 14px; align-items: baseline; padding: 8px 24px; border-bottom: 1px solid var(--rule-soft); font-size: 15px; color: var(--ink); }
 .row .who { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
-.row .client { font-weight: 600; letter-spacing: -.005em; white-space: nowrap; }
-.row .sub { font-size: 12.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row .client { font-weight: 400; color: var(--faint); letter-spacing: -.005em; white-space: nowrap; }
+.row .sub { font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .row .when, .row .num, .row .amt { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--soft); white-space: nowrap; }
 .row .amt { text-align: right; color: var(--ink); font-weight: 500; font-size: 13.5px; }
+.row .amt.word { color: var(--quiet); font-weight: 400; }
 .row .end { display: flex; justify-content: flex-end; align-items: baseline; gap: 11px; }
 .age { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; font-weight: 500; color: var(--soft); font-variant-numeric: tabular-nums; }
 .act { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; white-space: nowrap; }

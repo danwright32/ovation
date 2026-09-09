@@ -35,7 +35,7 @@
      different left edges. The year is printed once, at the end, which is what
      keeps the worst case at 150 rather than the 188 a range carrying both
      years would need. */
-  --cols: minmax(0,1fr) 152px 44px 88px 132px;
+  --cols: minmax(0,1fr) 152px 44px 88px 84px;
   /* The 48px the date column gained is taken back from the two columns that
      were over reserving, not from the names. Measured: the invoice number
      column held 58px for content needing 38px, and still needs only 38 at five

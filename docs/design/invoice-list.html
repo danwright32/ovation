@@ -140,7 +140,23 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
      different left edges. The year is printed once, at the end, which is what
      keeps the worst case at 150 rather than the 188 a range carrying both
      years would need. */
-  --cols: minmax(0,1fr) 152px 44px 88px 132px;
+  /* THE ACTION COLUMN IS AT ITS FLOOR, 132px to 84px, settled 2026-09-09.
+     The shoot carrying the weight (see .row .sub) stopped the first column
+     fitting: Harbor Light Opera's row filled its 336px exactly, to one pixel,
+     and a 26 character title ran 16px over on a thirteen row fixture.
+     84px IS MEASURED, NOT CHOSEN. The widest thing this cell ever holds is
+     "Mark cleared" at 80px; the next widest are "34d Remind" at 79 and
+     "sent 15d ago" at 76. Every row was checked for overflow at 84px and none
+     has any. A first attempt at 100px was rejected on a measurement: it left
+     the first column at 368px and the longest title still 25px over, so it
+     would have shipped the cost without the fix.
+     WHAT IT DOES NOT DO, and Dan chose this knowing it. 48px takes the first
+     column to 384px, and the worst row needs 393px to show both names in
+     full, so the longest shoot titles still shorten. He was shown two ways to
+     close the last 9px, the client giving way instead and the window widening
+     to 1216px, and took neither: "the action column gives everything it has
+     and that is the end of it." So a long title ellipsises, deliberately. */
+  --cols: minmax(0,1fr) 152px 44px 88px 84px;
   /* The 48px the date column gained is taken back from the two columns that
      were over reserving, not from the names. Measured: the invoice number
      column held 58px for content needing 38px, and still needs only 38 at five
@@ -191,16 +207,62 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 
 .main { background: var(--bg); display: flex; flex-direction: column; min-width: 0; overflow: visible; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px 12px; border-bottom: 1px solid var(--rule); flex: none; }
+ /* THE COLUMN HEADERS, settled 2026-09-09. Dan asked for them, then chose
+    every column against three lighter options: the four data columns only,
+    the two ambiguous ones only, and the amount alone. He named the first
+    column SHOOT rather than "client and shoot".
+    IT REUSES `.card .hd`, the label treatment already in this window, rather
+    than inventing a second one for the same job.
+    ITS GRID IS `--cols`, the same variable the rows use, so a label cannot
+    drift from the column it names: measured, every label's left and right
+    edge equals its column's cells, to the pixel.
+    AMOUNT AND ACTION ARE RIGHT ALIGNED because their cells are. A column's
+    header alignment and its cells' alignment are one fact declared at two
+    sites and they diverge silently, each site reading as correct alone
+    (L553).
+    IT SITS ABOVE THE SCROLL REGION, not inside it, so it stays put while the
+    list moves under it. */
+ .colhead { display: grid; grid-template-columns: var(--cols); gap: 14px; padding: 10px 24px 7px; border-bottom: 1px solid var(--rule); flex: none; }
+ .colhead > div { font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
+ .colhead .amt-h, .colhead .end-h { text-align: right; }
 .toolbar h4 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 29px; font-weight: 400; color: var(--ink); line-height: 1; }
 .toolbar .meta { font-size: 12px; color: var(--faint); font-weight: 500; }
 .scroll { flex: 1; min-height: 0; }
 
 .row { display: grid; grid-template-columns: var(--cols); gap: 14px; align-items: baseline; padding: 8px 24px; border-bottom: 1px solid var(--rule-soft); font-size: 15px; color: var(--ink); }
 .row .who { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
-.row .client { font-weight: 600; letter-spacing: -.005em; white-space: nowrap; }
-.row .sub { font-size: 12.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* THE SHOOT CARRIES THE WEIGHT, NOT THE CLIENT. Settled 2026-09-09 by Dan,
+    against three alternatives (the client as it was, both at one weight, and
+    the client named once at the head of a run of shoots). Shown to him on a
+    client holding three separate invoices for three shoots, beside a single
+    invoice covering two, because those two cases look alike and are not the
+    same thing.
+    HIS RULE, NOT THE CASE HE WAS SHOWN: "this is always, not just when they
+    have several shoots." So it is not a run treatment, it is the row.
+    The client keeps its place at the head of the line and goes quiet. */
+ .row .client { font-weight: 400; color: var(--faint); letter-spacing: -.005em; white-space: nowrap; }
+.row .sub { font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .row .when, .row .num, .row .amt { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--soft); white-space: nowrap; }
 .row .amt { text-align: right; color: var(--ink); font-weight: 500; font-size: 13.5px; }
+ /* A WORD WHERE A FIGURE WOULD BE, settled 2026-09-09 (ovation#117).
+   Two rows can hold no money and they mean opposite things: a draft nobody has
+   priced yet, which cannot be sent until the hours are supplied, and a shoot
+   comped on purpose, which is finished. Both drew 0.00, which PRD 5.1b makes a
+   legitimate comped invoice, so the two read as one row while needing opposite
+   actions. Dan chose, against three alternatives (nothing against zero, the
+   word on only the unpriced, the word on only the comped), that BOTH say what
+   they are rather than either being left to be inferred from a figure.
+   It keeps the column's mono face and its right edge and drops only the weight
+   and the colour, so nothing else moves: measured at one right edge across all
+   thirteen rows, before and after.
+   NOT WRITTEN AS `.said`, this file's existing quiet treatment for a word
+   sitting where a figure would sit. `.said` is one class of specificity and
+   `.row .amt` is two, so it loses every declaration it makes and paints
+   nothing at all. That was tried first and caught by reading the computed
+   colour back out of the browser, not by looking: the words were there and
+   the row looked finished. */
+.row .amt.word { color: var(--quiet); font-weight: 400; }
+
 .row .end { display: flex; justify-content: flex-end; align-items: baseline; gap: 11px; }
 .age { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; font-weight: 500; color: var(--soft); font-variant-numeric: tabular-nums; }
 .act { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; white-space: nowrap; }
@@ -355,7 +417,9 @@ var GROUPS = [
   { sum: "2,180.00", rows: [
     { c: "Cedar Hill Youth Orchestra", s: "Side by Side concert", d: "29 Aug 2026", n: "draft", a: "1,400.00", act: "Send" },
     { c: "Riverside Wind Ensemble", s: "Autumn Winds", d: "5 Sep 2026", n: "draft", a: "780.00", act: "Send" },
-    { c: "Kestrel Quartet", s: "Quartet in E minor", d: "no date", n: "draft", a: "0.00", act: "Add date" }]},
+    { c: "Kestrel Quartet", s: "Quartet in E minor", d: "no date", n: "draft", a: "1,650.00", act: "Add date" },
+    { c: "Bellwether Chorale", s: "Nocturne for Two Choirs", d: "1 Sep 2026", n: "draft", unpriced: true, act: "Add hours" },
+    { c: "Thornbury Youth Theatre", s: "Benefit matinee", d: "3 Sep 2026", n: "draft", comped: true, act: "Send" }]},
   { sum: "1,100.00", rows: [
     { c: "Saint Anne's Chamber Series", s: "Advent Vespers", d: "11 Aug 2026", n: "1033", a: "1,100.00", act: "Mark cleared" }]},
   { sum: "1,320.00", rows: [
@@ -363,7 +427,7 @@ var GROUPS = [
 ];
 var SENT = [
   { c: "Marlowe Dance Collective", s: "Spring Program B", d: "22 Aug 2026", n: "1038", a: "2,150.00", said: "sent 15d ago" },
-  { c: "Blackwater Theatre Company", s: "Uncle Vanya, opening", d: "30 Aug 2026", n: "1039", a: "1,675.00", said: "sent 7d ago" },
+  { c: "Blackwater Theatre Company", s: "Uncle Vanya, opening night", d: "30 Aug 2026", n: "1039", a: "1,675.00", said: "sent 7d ago" },
   { c: "Fairmont Chorale", s: "Messiah, part one", d: "14 Aug 2026", n: "1040", a: "1,480.00", said: "sent 21d ago" }
 ];
 var IDLE = [
@@ -402,7 +466,9 @@ function rowEl(r, first) {
   if (r.age) end.append(el("span", "age", r.age));
   if (r.act) end.append(el("span", "act", r.act));
   if (r.said) end.append(el("span", "said", r.said));
-  n.append(who, el("div", "when", when), el("div", "num", r.n), el("div", "amt", r.a), end);
+  var amt = el("div", "amt" + (r.unpriced || r.comped ? " word" : ""),
+                r.unpriced ? "no price" : r.comped ? "comped" : r.a);
+  n.append(who, el("div", "when", when), el("div", "num", r.n), amt, end);
   return n;
 }
 
@@ -443,6 +509,12 @@ function windowFor(layout) {
   var tbar = el("div", "toolbar");
   tbar.append(el("h4", null, "Invoices"), el("div", "meta", "Last looked 2 minutes ago"));
   main.append(tbar);
+
+  var head = el("div", "colhead");
+  head.append(el("div", null, "Shoot"), el("div", null, "Shoot date"),
+              el("div", null, "Invoice"), el("div", "amt-h", "Amount"),
+              el("div", "end-h", "Action"));
+  main.append(head);
 
   var scroll = el("div", "scroll");
   GROUPS.forEach(function (g) {

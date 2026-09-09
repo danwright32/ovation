@@ -26,6 +26,9 @@ three things in it are web idioms that must be translated rather than copied:
 | Shell | One window. Invoices, Expenses, Clients. Export and Import are File menu commands, Settings is in the app menu. Single window is a hard rule (PRD 41b), asserted by a test. |
 | Sidebar | A full height panel in espresso running to the top of the window with the traffic lights on it, which is the macOS pattern when a sidebar carries colour. The title bar exists only over the content. |
 | The list | No group headings and no per row chips. Both said what the action word on the right already says. The groups still decide ORDER, they are simply not drawn (see ovation#49). |
+| Column headers | Five, one per column: Shoot, Shoot date, Invoice, Amount, Action. Added 2026-09-09 at Dan's request, then chosen against three lighter sets. They reuse the sidebar card's label treatment and share the rows' own `--cols` grid, so a label cannot drift from its column. |
+| A row's first column | The SHOOT carries the weight and the client goes quiet, always, not only where a client has several shoots (Dan, 2026-09-09). |
+| An amount that is not a figure | An unpriced draft says `no price` and a comped invoice says `comped`, both quiet, in the amount column. Before this both drew `0.00` and read as one row while needing opposite actions (ovation#117). |
 | A row | One line at 29px: client and shoot name, shoot date, invoice number or draft, amount, action. Venue and shoot times are deliberately absent and need a home (ovation#95). Where one invoice covers several shoots it names the LAST one, counts the rest, and shows a date span. |
 | Actions | A word, not a button. "Mark cleared" and "Mark sent", never "Cleared" or "It was sent": a control says what it does. |
 | Selection | A tint only, no left bar. A bar flush against the espresso sidebar is invisible, and a tint is what macOS uses anyway. |
@@ -143,6 +146,37 @@ invoice list and reached rows it was never written for. Measured on 2026-09-09, 
 55 class names: `invoice-list.html` reuses none, `clients.html` reuses 9 and `invoice.html` reuses
 14. Some of those are deliberate inheritance and some are the `.nrow` fault again, and telling them
 apart is what that issue is.
+## Four rounds on 2026-09-09
+
+Run with the `design-rounds` skill and its `make-switcher.py`, each option measured in a
+real browser before it was shown and again after it was applied.
+
+1. **What the amount column says when there is no amount.** Two rows can hold no money and
+   mean opposite things. Dan took `no price` and `comped` over three lighter options,
+   including leaving either to be inferred from a figure.
+2. **Which columns carry a label.** He asked for headers, then chose every column over the
+   four data columns, the two ambiguous ones, and the amount alone. He named the first
+   column `Shoot`.
+3. **What carries the weight in the first column.** Shown on a client holding three separate
+   invoices for three shoots, beside a single invoice covering two, because those two look
+   alike and are not the same thing. He chose the shoot, and stated the rule rather than the
+   case: "this is always, not just when they have several shoots."
+4. **Where the space for the shoot title comes from.** The bold shoot stopped fitting.
+   He chose the action column, which was then measured to its true floor of 84px rather
+   than the 100px first offered, because the widest thing it ever holds is `Mark cleared`
+   at 80px. That takes the first column to 384px, and the worst row needs 393px, so the
+   longest titles still shorten. He was shown two ways to close the last 9px, the client
+   giving way and a wider window, and took neither.
+
+**What that costs, deliberately.** `Uncle Vanya, opening night` ellipsises in the committed
+file. It is left visible in the record rather than shortened out of the fixture, because a
+design record that hides the cost it accepted is not a record.
+
+**Three faults were caught by reading the browser back rather than by looking**, and each
+would have shipped: a rule at `.said` that loses on specificity to `.row .amt` and paints
+nothing; an option that widened the screen while `.win` kept its own fixed width, so three
+options drew at one size under a readout naming three; and a date column narrowed to 96px
+where the span did not shorten but overflowed 17px into the invoice number.
 
 ## It needs nothing external
 
