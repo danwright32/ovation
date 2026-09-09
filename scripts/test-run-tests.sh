@@ -662,6 +662,10 @@ rm -rf "$DIR_LOCK"
 # clone, Dan's second Mac and any CI runner start with none. What that gave was
 # xcodebuild's own "Ovation.xcodeproj does not exist", which names the symptom
 # rather than the missing step.
+# The recursive delete below is under $WORK, checked rather than trusted: an
+# empty $WORK makes it a delete at the root, and `set -u` does not catch it
+# because an empty parameter is set (L5).
+[ -n "${WORK:-}" ] || { echo "REFUSED: no temp directory"; exit 1; }
 PROJ="$WORK/proj"; rm -rf "$PROJ"; mkdir -p "$PROJ"
 GEN_LOG="$PROJ/generated.log"
 printf '#!/bin/bash\necho "GENERATOR-RAN" >> "%s"\nmkdir -p "%s/Ovation.xcodeproj"\n' \
