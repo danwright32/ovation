@@ -77,6 +77,17 @@ harness_temp_dir WORK
 DIR_LOCK="$WORK/dir.lock"
 FILE_LOCK="$WORK/file.lock"
 
+# A PROJECT THAT EXISTS, SO NO CASE HERE DEPENDS ON THE DEVELOPER HAVING ONE.
+#
+# ovation#151 made the runner generate `Ovation.xcodeproj` when it is absent and
+# REFUSE when it cannot. Every case below that drives the real runner through the
+# Xcode phase then quietly depended on this machine already having a generated
+# project, which is true on Dan's Mac and false on a fresh clone and on the Linux
+# job, where the whole suite failed with exit 2 (ovation#152). The cases that are
+# ABOUT that behaviour point at their own paths and are unaffected.
+STANDIN_PROJECT="$WORK/present.xcodeproj"
+mkdir -p "$STANDIN_PROJECT"
+
 # The runner is driven with a trivial command instead of xcodebuild, so these
 # cases measure the LOCKING and not a three minute build (L2, L291).
 run_runner() {
@@ -87,6 +98,7 @@ run_runner() {
     OVATION_FLOCK_BIN="${FLOCK_OVERRIDE:-$SUITE_FLOCK}" \
     OVATION_TEST_COMMAND="${1:-true}" \
     OVATION_UNLOCKED_COMMAND="${2:-true}" \
+    OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "./$TARGET" 2>&1
 }
 
@@ -337,6 +349,7 @@ pure_run() {
     OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
     OVATION_TEST_FLOOR="${2:-100}" \
     OVATION_TEST_COMMAND="${1}" OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+    OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
     "$TARGET" 2>&1
 }
 pure_status() { pure_run "$1" "${2:-100}" >/dev/null 2>&1; printf '%s' "$?"; }
@@ -764,6 +777,7 @@ counted_run() {
     OVATION_TEST_FLOOR="$2" \
     OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
     OVATION_TEST_COMMAND="echo 'Test run with $1 tests in 1 suite passed'" \
+    OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "./$TARGET" 2>&1
 }
 counted_status() { counted_run "$@" >/dev/null 2>&1; printf '%s' "$?"; }
@@ -794,6 +808,7 @@ lister_run() {
     OVATION_FLOCK_BIN="$SUITE_FLOCK" \
     OVATION_TEST_COMMAND="true" OVATION_UNLOCKED_COMMAND="true" \
     OVATION_XCODEBUILD_LISTER="$1" \
+    OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "./$TARGET" 2>&1
 }
 
