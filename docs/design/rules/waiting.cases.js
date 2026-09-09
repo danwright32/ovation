@@ -9,14 +9,14 @@
    EVERY DRAFT, not an edge case. Measured on the committed screen before this
    rule existed: that state was drawn identically to a draft with nothing in it
    at all, saying "Needs the times" while one of them was plainly on screen, and
-   the greyed Send read "Waiting on the shoot's start and end times" while
+   the greyed main action read "Waiting on the shoot's start and end times" while
    waiting on one. The everyday case was being drawn as the empty case, which no
    fixture had ever reached because every fixture had both times or neither
    (L101).
 
    ONE VOCABULARY, COMPLETE OVER ITS STATES. The reason and the two sentences
    that carry it come from here together, so the screen cannot say one thing
-   where the figure is drawn and a different thing under the Send (L113, L611).
+   where the figure is drawn and a different thing under the main action (L113, L611).
 
    start and end are minutes since midnight or null. status is null,
    "exempt" or "not-exempt". */
@@ -55,10 +55,10 @@ function runWaitingTests() {
     }
     if (got === null) return;
     /* A REASON THE SEND CANNOT EXPLAIN IS A DEAD CONTROL. Every reason carries a
-       tip, always, because the greyed Send is the one place the person is
+       tip, always, because the greyed main action is the one place the person is
        looking when they cannot send (L109, L148). */
     if (!got.tip) {
-      failures.push(c[4] + ": reason " + reason + " leaves the Send with nothing to say");
+      failures.push(c[4] + ": reason " + reason + " leaves the main action with nothing to say");
     }
     if (got.tip && got.tip.slice(-1) !== ".") {
       failures.push(c[4] + ": the tip is a sentence and needs its full stop");

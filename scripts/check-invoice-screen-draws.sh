@@ -319,6 +319,17 @@ window.addEventListener("load", function () {
       }
     }
 
+    /* THE DRAFT'S MAIN ACTION NAMES WHAT IT DOES (PRD 52a, ovation#169). It
+       opens the review sheet and sends nothing, so it may not say Send. The
+       word is read off what the foot DREW rather than off footFor, because a
+       rule returning the right string and a foot drawing a different one are
+       two situations a source reading cannot tell apart. */
+    var mainAct = document.querySelector(".invfoot .acts .invact");
+    var mainWord = mainAct ? mainAct.textContent.trim() : null;
+    claim("the draft's main action names what it does, and it is not Send",
+          mainWord === "Review",
+          "the foot's main action says " + JSON.stringify(mainWord));
+
     /* ---- asking before a rare, consequential action ---- */
     var edit2 = Array.prototype.filter.call(
       document.querySelectorAll(".menubar [role=button]"),

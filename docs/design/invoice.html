@@ -1634,7 +1634,7 @@ function checkSuitesAreIsolated() {
 
    That makes a start time with no end time THE ORDINARY STATE OF EVERY DRAFT,
    and the screen was drawing it as the empty state: "Needs the times" with one
-   of them plainly on screen, and a greyed Send reading "Waiting on the shoot's
+   of them plainly on screen, and a greyed main action reading "Waiting on the shoot's
    start and end times" while waiting on one of them.
 
    ONE THING AT A TIME, IN A FIXED ORDER, which is round 4's settled rule and the
@@ -1650,7 +1650,7 @@ function checkSuitesAreIsolated() {
    wants such a value refused BY NAME and this is that name.
 
    THE SENTENCES LIVE HERE, WITH THE REASON. They are drawn in two places, where
-   the figure would be and under the greyed Send, and a screen that says one
+   the figure would be and under the greyed main action, and a screen that says one
    thing in one place and something else in the other is two vocabularies for one
    fact (L113, L611).
 
@@ -1704,14 +1704,14 @@ function waitingOnFor(start, end, status) {
    EVERY DRAFT, not an edge case. Measured on the committed screen before this
    rule existed: that state was drawn identically to a draft with nothing in it
    at all, saying "Needs the times" while one of them was plainly on screen, and
-   the greyed Send read "Waiting on the shoot's start and end times" while
+   the greyed main action read "Waiting on the shoot's start and end times" while
    waiting on one. The everyday case was being drawn as the empty case, which no
    fixture had ever reached because every fixture had both times or neither
    (L101).
 
    ONE VOCABULARY, COMPLETE OVER ITS STATES. The reason and the two sentences
    that carry it come from here together, so the screen cannot say one thing
-   where the figure is drawn and a different thing under the Send (L113, L611).
+   where the figure is drawn and a different thing under the main action (L113, L611).
 
    start and end are minutes since midnight or null. status is null,
    "exempt" or "not-exempt". */
@@ -1750,10 +1750,10 @@ function runWaitingTests() {
     }
     if (got === null) return;
     /* A REASON THE SEND CANNOT EXPLAIN IS A DEAD CONTROL. Every reason carries a
-       tip, always, because the greyed Send is the one place the person is
+       tip, always, because the greyed main action is the one place the person is
        looking when they cannot send (L109, L148). */
     if (!got.tip) {
-      failures.push(c[4] + ": reason " + reason + " leaves the Send with nothing to say");
+      failures.push(c[4] + ": reason " + reason + " leaves the main action with nothing to say");
     }
     if (got.tip && got.tip.slice(-1) !== ".") {
       failures.push(c[4] + ": the tip is a sentence and needs its full stop");
@@ -1959,9 +1959,21 @@ function focusSeg(key, name) {
 }
 
 /* THE FOOT, settled in round 9: the main action plus the next most likely
-   beside it. */
+   beside it.
+
+   THE DRAFT'S MAIN ACTION SAYS REVIEW, NOT SEND (PRD 52a, ovation#169). It
+   opens the review sheet committed at docs/design/review-send.html and sends
+   nothing, and a control that says Send should send. Dan, during round 1 of
+   ovation#101: "the page before it says send, it should say review or
+   something". It read Send here until 2026-09-09, so the two committed design
+   files disagreed about what the same control said and each read as settled on
+   its own.
+
+   "Send a copy" on a paid invoice is NOT touched by that correction and is
+   left as it stands: it is a different control on a different state, and
+   whether it too goes through the review sheet has not been settled. */
 function footFor(state) {
-  if (state === "draft") return { main: "Send", second: null, said: null };
+  if (state === "draft") return { main: "Review", second: null, said: null };
   if (state === "sent") return { main: "Record a payment", second: "Remind", said: null };
   return { main: null, second: "Send a copy", said: "Paid in full" };
 }

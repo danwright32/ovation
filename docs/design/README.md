@@ -867,7 +867,7 @@ would be a second source of truth for one number.
 
 **What his answer did produce is `rules/waiting.js`,** because the state he described is the ordinary
 state of every draft and the screen was drawing it as the empty one. A draft carrying a start time
-and no end time said `Needs the times`, with one of them plainly on screen, and its greyed Send read
+and no end time said `Needs the times`, with one of them plainly on screen, and its greyed main action read
 `Waiting on the shoot's start and end times` while waiting on one. No fixture had ever reached it,
 because every fixture had both times or neither (L101). The screen now asks the rule what it is
 waiting on and gets a reason with the two sentences that carry it, so what is drawn beside the times

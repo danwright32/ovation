@@ -6,7 +6,7 @@
 
    That makes a start time with no end time THE ORDINARY STATE OF EVERY DRAFT,
    and the screen was drawing it as the empty state: "Needs the times" with one
-   of them plainly on screen, and a greyed Send reading "Waiting on the shoot's
+   of them plainly on screen, and a greyed main action reading "Waiting on the shoot's
    start and end times" while waiting on one of them.
 
    ONE THING AT A TIME, IN A FIXED ORDER, which is round 4's settled rule and the
@@ -22,7 +22,7 @@
    wants such a value refused BY NAME and this is that name.
 
    THE SENTENCES LIVE HERE, WITH THE REASON. They are drawn in two places, where
-   the figure would be and under the greyed Send, and a screen that says one
+   the figure would be and under the greyed main action, and a screen that says one
    thing in one place and something else in the other is two vocabularies for one
    fact (L113, L611).
 
