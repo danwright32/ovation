@@ -30,12 +30,17 @@ half a name is not the name.
 import json
 import os
 import re
+import sqlite3
 import sys
 
 EXPORT = os.environ.get("OVATION_GUARD_EXPORT",
                         os.path.expanduser("~/Library/Application Support/Overture/downbeat-export.json"))
 CUSTODY = os.environ.get("OVATION_GUARD_CUSTODY_DIR",
                          os.path.expanduser("~/Library/Application Support/Ovation/custody"))
+STORE = os.environ.get("OVATION_GUARD_STORE",
+                       os.path.expanduser("~/Library/Application Support/Ovation/Ovation.store"))
+QUEUE = os.environ.get("OVATION_GUARD_QUEUE_DIR",
+                       os.path.expanduser("~/Library/Application Support/Ovation/booking-queue"))
 SCAN_ROOT = os.environ.get("OVATION_GUARD_SCAN_ROOT",
                            os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -67,6 +72,54 @@ PLACEHOLDERS = {
 }
 
 
+def add_address(out, value):
+    """An address, and the business name inside its domain."""
+    value = (value or "").strip()
+    if "@" not in value:
+        return
+    out.add(value)
+    domain = value.split("@", 1)[1].strip()
+    # The domain without its public suffix is the business name, and it is what
+    # turns up in prose and in test fixtures.
+    if domain:
+        out.add(domain)
+
+
+def add_client(out, client):
+    """The identities one client object carries, wherever it came from.
+
+    ONE FUNCTION FOR BOTH SHAPES. The export carries arrays of these and a
+    handoff record carries one, and the FIELDS are the same because they are the
+    same wire types (Downbeat's CONTRACT.md). Two readers picking their own
+    fields would be one rule applied twice, and the copy that fell behind would
+    be the one nobody was looking at (L370).
+    """
+    if not isinstance(client, dict):
+        return
+    name = (client.get("displayName") or "").strip()
+    if name:
+        out.add(name)
+    for key in ("contractEmail", "email"):
+        add_address(out, client.get(key))
+
+
+def add_venue(out, venue):
+    if not isinstance(venue, dict):
+        return
+    name = (venue.get("name") or "").strip()
+    if name:
+        out.add(name)
+
+
+def add_booking(out, booking):
+    if not isinstance(booking, dict):
+        return
+    for key in ("clientDisplayName", "venueName", "shootName"):
+        value = (booking.get(key) or "").strip()
+        if value:
+            out.add(value)
+
+
 def needles_from_export(path, source_name, problems):
     """Client, venue and booking identities out of one export shaped file."""
     out = set()
@@ -81,29 +134,122 @@ def needles_from_export(path, source_name, problems):
         # being readable look like a source with nothing in it (L98, L11).
         problems.append("%s could not be read (%s)" % (source_name, type(exc).__name__))
         return out
-    for c in data.get("clients", []) or []:
-        for key in ("displayName",):
-            v = (c.get(key) or "").strip()
-            if v:
-                out.add(v)
-        for key in ("contractEmail", "email"):
-            v = (c.get(key) or "").strip()
-            if "@" in v:
-                out.add(v)
-                domain = v.split("@", 1)[1].strip()
-                # The domain without its public suffix is the business name, and
-                # it is what turns up in prose and in test fixtures.
-                if domain:
-                    out.add(domain)
-    for v_ in data.get("venues", []) or []:
-        n = (v_.get("name") or "").strip()
-        if n:
-            out.add(n)
-    for b in data.get("bookings", []) or []:
-        for key in ("clientDisplayName", "venueName", "shootName"):
-            v = (b.get(key) or "").strip()
-            if v:
-                out.add(v)
+    for client in data.get("clients", []) or []:
+        add_client(out, client)
+    for venue in data.get("venues", []) or []:
+        add_venue(out, venue)
+    for booking in data.get("bookings", []) or []:
+        add_booking(out, booking)
+    return out
+
+
+def needles_from_queue(directory, source_name, problems):
+    """Every queued booking handoff record (ovation#23, arrives with phase 6).
+
+    Each file is ONE record rather than arrays, and it carries the client and
+    venue as they were at commit, so it is a needle source in its own right: a
+    client edited or removed in Downbeat since is still named here.
+
+    A RECORD THAT CANNOT BE READ IS A PROBLEM, never a skipped file. A queue
+    whose records stopped parsing would otherwise derive nothing while reading
+    exactly like a queue that is empty (L98).
+    """
+    out = set()
+    for name in sorted(os.listdir(directory)):
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(directory, name), encoding="utf-8") as fh:
+                record = json.load(fh)
+        except Exception as exc:
+            problems.append("%s: a queued record could not be read (%s)"
+                            % (source_name, type(exc).__name__))
+            continue
+        if not isinstance(record, dict):
+            problems.append("%s: a queued record is not an object" % source_name)
+            continue
+        add_booking(out, record.get("booking"))
+        add_client(out, record.get("client"))
+        add_venue(out, record.get("venue"))
+    return out
+
+
+# The tables Core Data writes for Ovation's own entities, and the columns on them
+# that hold an identity. Named rather than discovered, because taking every TEXT
+# column would sweep up enum raw values and turn ordinary words into needles
+# (L104). A schema that MOVES makes this wrong, so a store with none of these
+# tables is a refusal rather than an empty derivation (L217).
+STORE_COLUMNS = {
+    "ZCLIENT": ("ZNAME",),
+    "ZEXPENSE": ("ZVENDOR",),
+}
+STORE_ADDRESS_COLUMNS = {
+    "ZCLIENT": ("ZEMAIL", "ZCONTRACTEMAIL"),
+}
+
+
+def needles_from_store(path, source_name, problems):
+    """Client and vendor identities out of Ovation's own store (ovation#23).
+
+    OPENED READ ONLY. This is Dan's live database and a guard must not be the
+    thing that writes to it, nor leave a journal beside it.
+    """
+    out = set()
+    try:
+        connection = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
+    except Exception as exc:
+        problems.append("%s could not be opened (%s)" % (source_name, type(exc).__name__))
+        return out
+    try:
+        tables = {row[0].upper() for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+    except Exception as exc:
+        problems.append("%s is present and is not a readable database (%s)"
+                        % (source_name, type(exc).__name__))
+        return out
+    finally_tables = tables & set(STORE_COLUMNS)
+    if not finally_tables:
+        # The store exists and holds none of the tables this knows how to read.
+        # Either the schema moved or this is not Ovation's store; both mean the
+        # guard is blind to a population that exists, which is the failure this
+        # issue was written about.
+        problems.append("%s holds none of the tables this reads (%s)"
+                        % (source_name, ", ".join(sorted(STORE_COLUMNS))))
+        connection.close()
+        return out
+
+    for table in sorted(finally_tables):
+        try:
+            present = {row[1].upper() for row in connection.execute(
+                "PRAGMA table_info(%s)" % table)}
+        except Exception as exc:
+            problems.append("%s: %s could not be read (%s)"
+                            % (source_name, table, type(exc).__name__))
+            continue
+        wanted = [c for c in STORE_COLUMNS.get(table, ()) if c in present]
+        addresses = [c for c in STORE_ADDRESS_COLUMNS.get(table, ()) if c in present]
+        if not wanted and not addresses:
+            problems.append("%s: %s holds none of the columns this reads"
+                            % (source_name, table))
+            continue
+        columns = wanted + addresses
+        try:
+            rows = connection.execute("SELECT %s FROM %s" % (", ".join(columns), table))
+        except Exception as exc:
+            problems.append("%s: %s could not be queried (%s)"
+                            % (source_name, table, type(exc).__name__))
+            continue
+        for row in rows:
+            for column, value in zip(columns, row):
+                if not isinstance(value, str):
+                    continue
+                if column in addresses:
+                    add_address(out, value)
+                else:
+                    value = value.strip()
+                    if value:
+                        out.add(value)
+    connection.close()
     return out
 
 
@@ -144,18 +290,75 @@ def build_matcher(needles):
     return matchers
 
 
+def read_custody(path, source_name, problems):
+    out = set()
+    for name in sorted(os.listdir(path)):
+        if name.endswith(".json"):
+            out |= needles_from_export(os.path.join(path, name), source_name, problems)
+    return out
+
+
+# EVERY POPULATION OF REAL NAMES, NAMED, WITH THE PHASE IT ARRIVES AT
+# (ovation#23).
+#
+# The guard used to report "derived 110 needles, examined 37 files, nothing
+# found", which reads as thorough while saying nothing about WHICH populations it
+# consulted. Three more arrive after the two it started with, and a guard that
+# never started consulting one produces an identical looking pass while
+# protecting a shrinking share of the real names (L98, L389). So the list is
+# here, the output says the state of each, and coverage is stated rather than
+# inferred.
+#
+# A SOURCE THAT IS PRESENT AND UNREADABLE REFUSES. A source that is not on this
+# machine is reported as such and refuses nothing: a fresh clone and a CI runner
+# have none of them, and neither ever could (L11).
+#
+# `arrives` is the issue that makes the source exist, so the gap is visible
+# rather than absent from a list nobody maintains. Vendor names have no entry of
+# their own: they live in the same store as the clients, on the expense rows, and
+# a second entry reading the same file would be two answers about one population.
+POPULATIONS = [
+    {"key": "downbeat-export",
+     "what": "Downbeat's live export: clients, venues, bookings",
+     "arrives": None,
+     "path": lambda: EXPORT,
+     "present": lambda p: os.path.exists(p),
+     "read": needles_from_export},
+    {"key": "custody",
+     "what": "the custody snapshots, which hold real records deliberately",
+     "arrives": None,
+     "path": lambda: CUSTODY,
+     "present": lambda p: os.path.isdir(p),
+     "read": read_custody},
+    {"key": "ovation-store",
+     "what": "Ovation's own store: client names, contract emails, vendor names",
+     "arrives": "ovation#68 imports the clients, ovation#82 the vendors",
+     "path": lambda: STORE,
+     "present": lambda p: os.path.exists(p),
+     "read": needles_from_store},
+    {"key": "booking-queue",
+     "what": "the Downbeat handoff queue: client and venue names per booking",
+     "arrives": "ovation#32 drains it",
+     "path": lambda: QUEUE,
+     "present": lambda p: os.path.isdir(p),
+     "read": needles_from_queue},
+]
+
+
 def main():
     problems = []
     needles = set()
-    needles |= needles_from_export(EXPORT, "the live export", problems)
+    coverage = []
 
-    if os.path.isdir(CUSTODY):
-        for name in sorted(os.listdir(CUSTODY)):
-            if name.endswith(".json"):
-                needles |= needles_from_export(os.path.join(CUSTODY, name),
-                                               "a custody snapshot", problems)
-    elif os.environ.get("OVATION_GUARD_CUSTODY_DIR"):
-        pass  # a deliberately absent custody dir in a test is not a problem
+    for population in POPULATIONS:
+        path = population["path"]()
+        if not population["present"](path):
+            coverage.append((population["key"], "not present here", 0))
+            continue
+        before = len(needles)
+        needles |= population["read"](path, population["key"], problems)
+        coverage.append((population["key"], "consulted", len(needles) - before))
+
 
     # TWO KINDS OF CANNOT MEASURE, AND THEY ARE NOT THE SAME EVENT (ovation#135).
     #
@@ -199,6 +402,28 @@ def main():
         print("    This is not a pass.")
         return 4
 
+    # WHAT WAS ACTUALLY CONSULTED, said before any verdict, so a pass can never
+    # read as more thorough than the populations behind it (ovation#23).
+    #
+    # It prints AFTER the two cannot measure branches above deliberately: those
+    # refusals have to be readable as themselves, and a coverage block above them
+    # would put the words "on this machine" into every run whether or not that was
+    # what happened. So the wording here is "not present here" and the refusals
+    # keep their own sentences (L11, L260).
+    print("Populations:")
+    for key, state, count in coverage:
+        if state == "consulted":
+            print("    %s: consulted, %d new needle(s)" % (key, count))
+        else:
+            # NAMING WHAT WILL FILL IT is what makes the gap visible rather than
+            # absent from a list nobody maintains. The issue that ships the
+            # population is the issue that has to add its source here.
+            arrives = next((p["arrives"] for p in POPULATIONS if p["key"] == key), None)
+            if arrives:
+                print("    %s: not present here (%s)" % (key, arrives))
+            else:
+                print("    %s: not present here" % key)
+
     dropped = sorted(n for n in needles if n.strip().lower() in PLACEHOLDERS)
     needles = {n for n in needles if n.strip().lower() not in PLACEHOLDERS}
     if dropped:
@@ -206,7 +431,8 @@ def main():
 
     if not needles:
         print("REFUSED: no needles could be derived, so nothing was searched for.")
-        print("    Sources consulted: the live export, the custody snapshots.")
+        print("    Populations consulted: "
+              + ", ".join(k for k, state, _c in coverage if state == "consulted"))
         print("    A guard with nothing to look for examines everything and finds")
         print("    nothing, which is indistinguishable from a clean tree.")
         return 3
@@ -235,7 +461,8 @@ def main():
             if count:
                 hits[rel] = count
 
-    print("Derived %d needle(s) from the export and custody snapshots." % len(needles))
+    print("Derived %d needle(s) from %d population(s) present here."
+          % (len(needles), sum(1 for _k, state, _c in coverage if state == "consulted")))
     print("Examined %d file(s) under %s." % (files, SCAN_ROOT))
 
     if hits:

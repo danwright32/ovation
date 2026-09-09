@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 31
+harness_begin "identity guard tests" 48
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -44,13 +44,33 @@ make_export() {
 JSON
 }
 tree() { [ -n "$WORK" ] || exit 1; local d="$WORK/$1"; rm -rf "$d"; mkdir -p "$d"; printf '%s\n' "$d"; }
+# Whether the output said a thing, as yes or no, so a check reads as a sentence.
+says() { if printf '%s' "$1" | grep -qiF "$2"; then echo yes; else echo no; fi; }
 
 EXPORT="$WORK/export.json"; make_export "$EXPORT"
 run_guard() {
     OVATION_GUARD_EXPORT="${2-$EXPORT}" \
     OVATION_GUARD_CUSTODY_DIR="${3-$WORK/nocustody}" \
+    OVATION_GUARD_STORE="${4-$WORK/nostore/Ovation.store}" \
+    OVATION_GUARD_QUEUE_DIR="${5-$WORK/noqueue}" \
     OVATION_GUARD_SCAN_ROOT="$1" \
         "./$TARGET" 2>&1
+}
+
+# A store shaped the way Core Data writes one: table per entity, prefixed and
+# uppercased. Built through python's own sqlite3 so the suite needs no CLI, and
+# so it runs wherever the guard itself runs.
+make_store() {
+    python3 - "$1" <<'PYSTORE'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute("CREATE TABLE ZCLIENT (Z_PK INTEGER PRIMARY KEY, ZNAME TEXT, ZEMAIL TEXT, ZCONTRACTEMAIL TEXT)")
+db.execute("INSERT INTO ZCLIENT VALUES (1, 'Wwfixture Players', 'box@wwfixture-players.invalid', '')")
+db.execute("CREATE TABLE ZEXPENSE (Z_PK INTEGER PRIMARY KEY, ZVENDOR TEXT)")
+db.execute("INSERT INTO ZEXPENSE VALUES (1, 'Vvfixture Camera Supply')")
+db.commit()
+db.close()
+PYSTORE
 }
 
 # 1. A clean tree passes, and says how many needles it actually used, so a run
@@ -264,5 +284,75 @@ check "and it names the export as the source that was missing" \
 check "the two cannot measure sentences are not the same words" \
     "$([ "$(printf '%s' "$OUT135A" | head -1)" = "$(printf '%s' "$OUT135B" | head -1)" ] \
         && echo same || echo different)" "different"
+
+
+# ---------------------------------------------------------------------------
+# THE GUARD SAYS WHICH POPULATIONS IT CONSULTED (ovation#23).
+#
+# It reported "Derived 110 needles, examined 37 files, no derived identity
+# appears anywhere", which reads as thorough while saying nothing about WHICH
+# populations it looked at. Three more arrive later (Ovation's own store, vendor
+# names off receipts, the Downbeat handoff queue), and a guard that never started
+# consulting one produces an identical looking pass over a shrinking share of the
+# real names (L98, L389). So coverage is STATED rather than inferred.
+T23="$(tree populations)"; printf 'nothing here\n' > "$T23/a.txt"
+OUT23A="$(run_guard "$T23")"; ST23A=$?
+check "a clean run still passes" "$ST23A" "0"
+check "and it names the export population" "$(says "$OUT23A" "downbeat-export")" "yes"
+check "and the custody population" "$(says "$OUT23A" "custody")" "yes"
+check "and Ovation's own store" "$(says "$OUT23A" "ovation-store")" "yes"
+check "and the booking handoff queue" "$(says "$OUT23A" "booking-queue")" "yes"
+check "a population with nothing here says so rather than reading as consulted" \
+    "$(says "$OUT23A" "not present here")" "yes"
+
+# THE STORE IS A NEEDLE SOURCE the moment one exists.
+STORE23="$WORK/store23"; rm -rf "$STORE23"; mkdir -p "$STORE23"
+make_store "$STORE23/Ovation.store"
+T23B="$(tree storeleak)"; printf 'a note about Wwfixture Players\n' > "$T23B/a.txt"
+OUT23B="$(run_guard "$T23B" "$EXPORT" "" "$STORE23/Ovation.store")"; ST23B=$?
+check "a client name in Ovation's own store is a needle" "$ST23B" "1"
+check "and the file that carries it is named" "$(says "$OUT23B" "a.txt")" "yes"
+check "and the name itself is NOT printed" "$(says "$OUT23B" "Wwfixture")" "no"
+
+T23C="$(tree vendorleak)"; printf 'bought from Vvfixture Camera Supply\n' > "$T23C/a.txt"
+OUT23C="$(run_guard "$T23C" "$EXPORT" "" "$STORE23/Ovation.store")"; ST23C=$?
+check "a VENDOR name out of the store is a needle too" "$ST23C" "1"
+
+T23D="$(tree storeclean)"; printf 'nothing to see\n' > "$T23D/a.txt"
+OUT23D="$(run_guard "$T23D" "$EXPORT" "" "$STORE23/Ovation.store")"; ST23D=$?
+check "a store with no leak still passes" "$ST23D" "0"
+check "and the store is reported as consulted" "$(says "$OUT23D" "ovation-store: consulted")" "yes"
+
+# A STORE THAT IS THERE AND CANNOT BE READ IS CANNOT MEASURE, NEVER ZERO. This is
+# the whole shape the issue exists for: the sources it does read are real, so it
+# never refuses, and it simply covers less than its output suggests.
+BAD23="$WORK/badstore"; rm -rf "$BAD23"; mkdir -p "$BAD23"
+printf 'not a database\n' > "$BAD23/Ovation.store"
+OUT23E="$(run_guard "$T23D" "$EXPORT" "" "$BAD23/Ovation.store")"; ST23E=$?
+check "a store present and unreadable REFUSES rather than scoring zero" "$ST23E" "4"
+check "and it says which population it could not read" "$(says "$OUT23E" "ovation-store")" "yes"
+
+# A STORE WITH NO RECOGNISABLE TABLE is the same answer, and it is the likeliest
+# way this breaks: the guard reads Core Data's own table naming, and a schema
+# that moves would otherwise silently derive nothing (L217).
+EMPTY23="$WORK/emptystore"; rm -rf "$EMPTY23"; mkdir -p "$EMPTY23"
+python3 -c "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute('CREATE TABLE ZSOMETHINGELSE (Z_PK INTEGER)'); db.commit()" "$EMPTY23/Ovation.store"
+OUT23F="$(run_guard "$T23D" "$EXPORT" "" "$EMPTY23/Ovation.store")"; ST23F=$?
+check "a store with no client table REFUSES rather than deriving nothing" "$ST23F" "4"
+
+# THE HANDOFF QUEUE, which is present on this machine already.
+QUEUE23="$WORK/queue23"; rm -rf "$QUEUE23"; mkdir -p "$QUEUE23"
+cat > "$QUEUE23/B1D4F0E2-8C3A-4F1B-9E77-0A2C6D5E4F31.json" <<'QJSON'
+{"version":3,"committedAt":"2026-09-06T15:00:00Z",
+ "booking":{"id":"B1D4F0E2-8C3A-4F1B-9E77-0A2C6D5E4F31","clientDisplayName":"Yyfixture Sinfonia","venueName":"Yyfixture Hall","shootName":"A concert"},
+ "client":{"id":"c1","displayName":"Yyfixture Sinfonia","email":"box@yyfixture.invalid"}}
+QJSON
+T23G="$(tree queueleak)"; printf 'about Yyfixture Sinfonia\n' > "$T23G/a.txt"
+OUT23G="$(run_guard "$T23G" "$EXPORT" "" "" "$QUEUE23")"; ST23G=$?
+check "a client name in a queued booking is a needle" "$ST23G" "1"
+
+printf 'not json at all\n' > "$QUEUE23/C2E5A1F3-9D4B-4A22-B5E6-1F2A3B4C5D6E.json"
+OUT23H="$(run_guard "$T23D" "$EXPORT" "" "" "$QUEUE23")"; ST23H=$?
+check "a queued record that cannot be read REFUSES rather than being skipped" "$ST23H" "4"
 
 harness_end
