@@ -81,6 +81,7 @@ lib/script-roles.sh	library	The one reader of this file, sourced by both complet
 lib/quit-pid.sh	library	Sourced by smoke-launch.sh to quit the copy it launched, by PID resolved from the executable path.
 lib/test-harness.sh	library	Sourced by every shell suite. test-test-harness.sh covers it directly.
 lib/window-count.sh	library	Sourced by smoke-launch.sh to count the windows the launched copy opened.
+measure-booking-export.py	reads-real-data	Opens Dan's Downbeat custody export, which carries client, shoot, venue and hosting site names in plain text, and prints counts and shares only. It re-derives the booking, address and venue figures the design record and the PRD argue from, and says every run which cited figures it CANNOT produce, so a number with no committed source is visible rather than looking as reproducible as the rest (ovation#121).
 measure-invoice-history.py	reads-real-data	Reads the real FreshBooks export and prints the counts the design record and the PRD cite (ovation#121). It opens Dan's actual invoice history, so it is the one tool here that could print a client name.
 run-tests.sh	tool	The suite's entry point, run by a person and by the push gate. test-run-tests.sh covers its locking.
 setup-signing.sh	tool	Configures code signing on a machine. Run once per machine by a person. test-setup-signing.sh covers it.
@@ -114,6 +115,7 @@ test-invoice-screen-draws.sh	suite
 test-isolation-floor.sh	suite	
 test-launch-sequence-wired.sh	suite	
 test-live-data-untouched.sh	suite	
+test-measure-booking-export.sh	suite	
 test-measure-invoice-history.sh	suite	
 test-migration-stages.sh	suite	
 test-output-privacy.sh	suite	

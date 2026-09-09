@@ -396,7 +396,8 @@ stays the single alignment document.
 
 ### Three things worth knowing before changing it
 
-**The ordinary invoice is ONE line.** 16 of 19 real bookings are a single one hour shoot, so
+**The ordinary invoice is ONE line.** 16 of 19 real bookings are a single one hour shoot
+(`scripts/measure-booking-export.py`), so
 its content stops around 550px down a 1056px page. Every shape was judged on that rather than
 on a full one. A change judged on the busy fixture is judged on a case that does not occur.
 
@@ -426,6 +427,7 @@ The wording `Sales tax (exempt)` is Claude's rather than Dan's, and along with t
 customer and the payment line it still owes the cold read PRD 41a requires of every outbound
 sentence. Nothing has been checked on a real printer. And `ovation#112` bears on the line
 directly: Downbeat derives a booking's end time from its start, so on 16 of 19 real bookings
+(`scripts/measure-booking-export.py`)
 the duration that prices the invoice is a default rather than a measurement.
 
 ## The Clients screen
@@ -436,7 +438,7 @@ shell, type and palette byte for byte, so a round moves one variable and nothing
 
 ### Round 1, settled 2026-09-07: names on the left, one client on the right
 
-Three shapes were built at the real count of 31 clients, carrying the distribution measured
+Three shapes were built at the real count of 31 clients (`scripts/measure-booking-export.py`), carrying the distribution measured
 against the live export on 2026-08-28: six with a tax status, one with no contract email, two
 sharing one address.
 

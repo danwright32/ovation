@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 48
+harness_begin "output privacy tests" 51
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -534,6 +534,32 @@ printf 'Invoice #,Invoice Status,Client Name,Item Name,Quantity,Line Subtotal,Di
     "$CLIENT" "$VENUE" > "$HISTORY"
 check "and none when it refuses because nothing was issued" \
     "$(leaks_in "$(./scripts/measure-invoice-history.py "$HISTORY" 2>&1)")" "clean"
+
+# The Downbeat export measurement, ovation#121. It opens the file that carries
+# every real client, shoot, venue and hosting site name in plain text, and
+# prints counts and shares only. The fixture puts a name in every field it
+# reads, including the ones it groups by.
+BOOKINGS="$WORK/bookings.json"
+cat > "$BOOKINGS" <<JSON
+{ "version": 3, "exportedAt": "2026-08-29T15:07:27Z", "blockedDates": [],
+  "venues": [{"id": "v1", "name": "$VENUE"}],
+  "bookings": [{"id": "b1", "clientDisplayName": "$CLIENT",
+                "shootName": "$VENUE", "venueName": "$VENUE",
+                "startsAt": "2026-10-25T19:00:00Z", "endsAt": "2026-10-25T20:00:00Z"}],
+  "clients": [{"id": "c1", "displayName": "$CLIENT", "hostingSite": "$VENUE",
+               "email": "$CLIENT", "contractEmail": "$VENUE",
+               "specialBehaviors": ["$CLIENT"]}] }
+JSON
+BOOKINGS_SHA="$(shasum -a 256 "$BOOKINGS" | cut -d' ' -f1)"
+check "the booking export measurement prints no identity when it measures" \
+    "$(leaks_in "$(./scripts/measure-booking-export.py "$BOOKINGS" "$BOOKINGS_SHA" 2>&1)")" "clean"
+check "and none when the hash does not match" \
+    "$(leaks_in "$(./scripts/measure-booking-export.py "$BOOKINGS" \
+        0000000000000000000000000000000000000000000000000000000000000000 2>&1)")" "clean"
+printf 'not json at all, it is about %s\n' "$CLIENT" > "$BOOKINGS"
+check "and none when the file cannot be read at all" \
+    "$(leaks_in "$(./scripts/measure-booking-export.py "$BOOKINGS" \
+        "$(shasum -a 256 "$BOOKINGS" | cut -d' ' -f1)" 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------
 # COMPLETENESS, derived from the script inventory rather than from a hand
