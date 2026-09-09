@@ -82,8 +82,26 @@ enum TaxExportFinding: Equatable, Hashable, Sendable {
     /// by sum rather than by identity, and that is stated rather than implied.
     case expenseRowsDisagree(expected: Int, found: Int)
     case expenseTotalDisagrees(expected: String, found: String)
-    /// Money that arrived and belongs to no invoice at all.
+    /// Money that arrived and belongs to no invoice at all. Either nobody
+    /// allocated it or its allocation was released and nobody redid it; both are
+    /// money correctly sitting on a client until somebody decides where it goes.
     case paymentAttachedToNothing(dayKey: String)
+    /// An allocation that still STANDS and whose invoice is gone (ovation#176).
+    ///
+    /// A DIFFERENT SITUATION FROM THE ONE ABOVE, and it used to report as it.
+    /// `Invoice.allocations` is nullify, so deleting an invoice sets
+    /// `PaymentAllocation.invoice` to nil and leaves the allocation active, with
+    /// `releasedOn` still nil. Reading a payment's invoices through
+    /// `compactMap(\.invoice)` then makes that allocation vanish, and the payment
+    /// reported exactly as one nobody had ever allocated. One is money sitting on
+    /// a client; this one is an allocation whose invoice was destroyed underneath
+    /// it, which is a real corruption and needs a different fix, so the wrong
+    /// diagnosis was being given for it (L11).
+    ///
+    /// IT CARRIES THE AMOUNT, which the case above cannot: how much money is
+    /// standing against nothing is the first thing anybody will ask, and the
+    /// payment's own total says nothing about which part of it is orphaned.
+    case allocationOutlivedItsInvoice(dayKey: String, amount: String)
     case refundAttachedToNothing(dayKey: String)
     /// A source could not be read in full. A short read is a refusal, not a
     /// smaller export.
@@ -181,10 +199,26 @@ struct TaxExportReconciliation: Sendable {
         // finding. Nothing is allowed to be merely absent.
         var paymentsOutside = 0
         for payment in everyPayment {
-            let invoices = payment.allocations.filter { $0.releasedOn == nil }
-                .compactMap(\.invoice)
+            let standing = payment.allocations.filter { $0.releasedOn == nil }
+
+            // AN ALLOCATION THAT OUTLIVED ITS INVOICE IS ITS OWN FINDING
+            // (ovation#176). It is reported per allocation rather than per
+            // payment, because a payment can carry more than one and each is its
+            // own destroyed invoice.
+            for orphan in standing where orphan.invoice == nil {
+                findings.append(.allocationOutlivedItsInvoice(
+                    dayKey: orphan.allocatedOn.dayKey,
+                    amount: orphan.amount.exportAmount))
+            }
+
+            let invoices = standing.compactMap(\.invoice)
             if invoices.isEmpty {
-                findings.append(.paymentAttachedToNothing(dayKey: payment.receivedOn.dayKey))
+                // ONLY WHERE THERE IS NOTHING ORPHANED EITHER. Both firing would
+                // double the count of things to look at and give two names to one
+                // problem, which is the opposite of what separating them is for.
+                if standing.isEmpty {
+                    findings.append(.paymentAttachedToNothing(dayKey: payment.receivedOn.dayKey))
+                }
                 continue
             }
             if !invoices.contains(where: { belongs($0, to: income.range) }) {

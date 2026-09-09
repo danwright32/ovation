@@ -210,6 +210,82 @@ struct TaxExportReconciliationTests {
         #expect(reconciliation.findings.contains(.paymentAttachedToNothing(dayKey: "2026-06-06")))
     }
 
+    @Test("an allocation whose invoice was destroyed is its own finding, not an unattached payment")
+    func anorphanedAllocationIsItsOwnFinding() throws {
+        // ovation#176. `Invoice.allocations` is nullify, so deleting an invoice
+        // sets `PaymentAllocation.invoice` to nil and leaves the allocation
+        // ACTIVE, with `releasedOn` still nil. Reading a payment's invoices as
+        // `active.compactMap(\.invoice)` then makes that allocation VANISH, and
+        // the payment reports exactly as one nobody ever allocated.
+        //
+        // The two are opposite situations: one is money correctly sitting on a
+        // client, the other is an allocation whose invoice was destroyed
+        // underneath it, which is a real corruption needing a different fix. One
+        // message for both is the shape L11 exists for.
+        let world = try World()
+        let payment = world.paymentWithAnOrphanedAllocation(Money(dollars: 75), on: "2026-06-06")
+
+        let reconciliation = TaxExportReconciliation.check(
+            income: TaxExport.income(from: [], in: .calendarYear(2026)),
+            expenses: TaxExport.expenses(from: [], in: .calendarYear(2026)),
+            everyInvoice: [], everyExpense: [],
+            everyPayment: [payment], everyRefund: [])
+
+        #expect(!reconciliation.isComplete)
+        #expect(reconciliation.findings.contains(
+            .allocationOutlivedItsInvoice(dayKey: "2026-06-06", amount: "75.00")))
+        #expect(!reconciliation.findings.contains(.paymentAttachedToNothing(dayKey: "2026-06-06")),
+                "the two must not both fire, or the count of things to look at doubles")
+    }
+
+    @Test("the orphaned finding carries the amount at stake, which the other one cannot")
+    func theorphanedFindingCarriesItsAmount() throws {
+        // The two findings need different work, so they carry different facts. A
+        // payment attached to nothing is answered by allocating it; an
+        // allocation that outlived its invoice is answered by finding out what
+        // that invoice was, and how much money is standing against nothing is
+        // the first thing anybody will ask.
+        let world = try World()
+        let payment = world.paymentWithAnOrphanedAllocation(Money(dollars: 75), on: "2026-06-06")
+
+        let reconciliation = TaxExportReconciliation.check(
+            income: TaxExport.income(from: [], in: .calendarYear(2026)),
+            expenses: TaxExport.expenses(from: [], in: .calendarYear(2026)),
+            everyInvoice: [], everyExpense: [],
+            everyPayment: [payment], everyRefund: [])
+
+        let orphaned = try #require(reconciliation.findings.first {
+            if case .allocationOutlivedItsInvoice = $0 { return true }
+            return false
+        })
+        guard case .allocationOutlivedItsInvoice(_, let amount) = orphaned else {
+            Issue.record("the finding changed shape")
+            return
+        }
+        #expect(amount == "75.00")
+    }
+
+    @Test("a payment with a RELEASED allocation is still just an unattached payment")
+    func areleasedAllocationIsNotACorruption() throws {
+        // The case that proves the new finding is not simply always firing. A
+        // released allocation is the ordinary end of a cancellation: the row is
+        // kept, the invoice is still there, and the money is back on the client.
+        let world = try World()
+        let payment = world.paymentWithAReleasedAllocation(Money(dollars: 75), on: "2026-06-06")
+
+        let reconciliation = TaxExportReconciliation.check(
+            income: TaxExport.income(from: [], in: .calendarYear(2026)),
+            expenses: TaxExport.expenses(from: [], in: .calendarYear(2026)),
+            everyInvoice: [], everyExpense: [],
+            everyPayment: [payment], everyRefund: [])
+
+        #expect(reconciliation.findings.contains(.paymentAttachedToNothing(dayKey: "2026-06-06")))
+        #expect(!reconciliation.findings.contains(where: {
+            if case .allocationOutlivedItsInvoice = $0 { return true }
+            return false
+        }))
+    }
+
     @Test("a refund against an exported invoice is accounted for by that row")
     func arefundOnAnExportedInvoiceIsAccountedFor() throws {
         let world = try World()
@@ -359,6 +435,35 @@ struct TaxExportReconciliationTests {
             context.insert(allocation)
             payment.allocations.append(allocation)
             invoice.allocations.append(allocation)
+            return payment
+        }
+
+        /// A payment whose allocation still STANDS and whose invoice is gone,
+        /// which is what the nullify rule leaves behind when an invoice is
+        /// deleted. Built directly rather than by deleting an invoice, because
+        /// what is under test is how the reconciliation READS that state.
+        func paymentWithAnOrphanedAllocation(_ amount: Money, on dayKey: String) -> Payment {
+            let payment = unallocatedPayment(amount, on: dayKey)
+            let instant = BusinessCalendar.startOfDay(forDayKey: dayKey)!
+            let allocation = PaymentAllocation(payment: payment, invoice: nil,
+                                               amount: amount,
+                                               allocatedOn: .stamping(instant))
+            context.insert(allocation)
+            payment.allocations.append(allocation)
+            return payment
+        }
+
+        /// The ordinary end of a cancellation: the row is kept, it no longer
+        /// stands, and the money is back on the client.
+        func paymentWithAReleasedAllocation(_ amount: Money, on dayKey: String) -> Payment {
+            let payment = unallocatedPayment(amount, on: dayKey)
+            let instant = BusinessCalendar.startOfDay(forDayKey: dayKey)!
+            let allocation = PaymentAllocation(payment: payment, invoice: nil,
+                                               amount: amount,
+                                               allocatedOn: .stamping(instant))
+            allocation.releasedOn = .stamping(instant)
+            context.insert(allocation)
+            payment.allocations.append(allocation)
             return payment
         }
 
