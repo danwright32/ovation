@@ -96,6 +96,12 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
+      # ONE SUITE NEEDS Pillow AND NOTHING ELSE DOES. Without it the app icon
+      # currency check answers CANNOT MEASURE, which is honest and measures
+      # nothing; it is pure Python and runs here as well as anywhere.
+      - name: Install Pillow
+        run: python3 -m pip install --break-system-packages Pillow
+
       - name: Run every shell suite
         run: |
           set +e

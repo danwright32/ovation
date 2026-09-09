@@ -47,7 +47,21 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
 # code for it. Two cases below still ask the same question because they STAGE a
 # held lock rather than merely needing the tool, and they read it from here so
 # there is one definition of where flock is.
-SUITE_FLOCK="${OVATION_SUITE_FLOCK_BIN:-/opt/homebrew/bin/flock}"
+# WHERE flock IS DIFFERS BY MACHINE (ovation#152). Homebrew puts it at
+# /opt/homebrew/bin on this Mac; every Linux distribution ships it at /usr/bin as
+# part of util-linux. Hardcoding the Homebrew path made this whole suite answer
+# CANNOT MEASURE on the Linux runner, which is honest and measures nothing: the
+# runner's own locking is exactly the kind of shell logic that job exists to run.
+#
+# The Homebrew path is tried FIRST rather than PATH, so on this Mac the tool the
+# runner itself uses is the tool this measures (L380).
+SUITE_FLOCK="${OVATION_SUITE_FLOCK_BIN:-}"
+if [ -z "$SUITE_FLOCK" ]; then
+    for candidate in /opt/homebrew/bin/flock /usr/local/bin/flock /usr/bin/flock; do
+        [ -x "$candidate" ] && { SUITE_FLOCK="$candidate"; break; }
+    done
+    SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
+fi
 
 harness_begin "test runner lock tests" 85
 
