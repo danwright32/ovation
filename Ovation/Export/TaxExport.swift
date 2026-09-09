@@ -295,7 +295,7 @@ enum TaxExport {
     }
 
     static let expenseColumns = [
-        "Date", "Vendor", "Category", "Schedule C line", "Amount", "Receipt", "Note"
+        "Date", "Vendor", "Category", "Schedule C line", "Asset", "Amount", "Receipt", "Note"
     ]
 
     static func expenses(from expenses: [Expense], in range: TaxExportRange) -> ExpenseExport {
@@ -318,10 +318,18 @@ enum TaxExport {
             // From outside Ovation: a vendor is whatever the receipt said.
             .text(expense.vendor ?? ""),
             .formatted(expense.category?.exportLabel ?? "Not categorised"),
+            // THE EXPENSE'S line, not its category's (ovation#82). An asset is
+            // reported on line 13 whatever its category would have said, and
+            // reading the category here would leave that flag changing nothing
+            // anybody sees (L46).
+            //
             // Blank rather than a guess when nobody has said what it is: a
             // Schedule C line asserted for an uncategorised expense would put
             // money on a line of a return on no evidence (L192).
-            .formatted(expense.category?.scheduleC.line.exportLabel ?? ""),
+            .formatted(expense.scheduleCLine?.exportLabel ?? ""),
+            // Its own column, because the LINE alone does not say why a row is on
+            // it, and the accountant's question is about the flag.
+            .formatted(expense.isAsset ? "Yes" : ""),
             .formatted(expense.amount.exportAmount),
             // The expense's own vocabulary, not a second one here: "no receipt"
             // and "imported without one" are different facts (L118).

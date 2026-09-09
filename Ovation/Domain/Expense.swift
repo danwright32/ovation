@@ -25,6 +25,43 @@ import Foundation
 import SwiftData
 
 /// Whether there is a receipt behind this expense, and where there is not, why.
+/// Whether an expense is an asset, as Dan answered it (ovation#82, PRD 5.20).
+///
+/// THREE CASES RATHER THAN A BOOLEAN. "Nobody has said" is a real state and is
+/// not the same as "no": while it stands, Ovation's suggestion applies, and the
+/// moment Dan answers, his answer applies for ever. A boolean would make the
+/// suggestion and the decision the same field, and every later edit to the amount
+/// would silently rewrite an answer (L544, L432).
+enum AssetJudgement: String, CaseIterable, Codable, Hashable, Sendable {
+    case notDecided = "not-decided"
+    case treatAsAsset = "treat-as-asset"
+    case notAnAsset = "not-an-asset"
+}
+
+/// The amount at or above which Ovation SUGGESTS an expense is an asset.
+///
+/// PROVISIONAL, AND IT SAYS SO. $2,500 is the IRS de minimis safe harbour, but
+/// PRD 9.4 records that it is an ELECTION made on the return, that Section 179
+/// may make it moot, and that whether it applies per item or per receipt total is
+/// unanswered. All three are questions for Dan's accountant (ovation#65).
+///
+/// A threshold that reads as settled is one nobody re-examines, so the pending
+/// question travels with the number rather than living in a document beside it
+/// (L316, L407).
+struct AssetThreshold: Equatable, Sendable {
+    let amount: Money
+    let isProvisional: Bool
+    let pendingQuestion: String
+
+    static let inForce = AssetThreshold(
+        amount: Money(dollars: 2_500),
+        isProvisional: true,
+        pendingQuestion: "PRD 9.4: whether the de minimis threshold applies per item or per "
+            + "receipt total, whether Dan's return makes the safe harbour election, and "
+            + "whether Section 179 makes the question moot. All three are for the accountant "
+            + "(ovation#65).")
+}
+
 enum ReceiptEvidence: Equatable, Hashable, Codable, Sendable {
     /// A file Ovation manages, addressed by content hash so the backup can
     /// enumerate it and check it (PRD 42b, 5.29).
@@ -52,6 +89,23 @@ extension OvationSchemaV1 {
         /// PRD 5.19. Absent until it is filed, which is why the export has to be able
         /// to report an expense that has not been categorised rather than dropping it.
         var category: ExpenseCategory?
+
+        /// Whether this is an asset rather than an ordinary expense (ovation#82,
+        /// PRD 5.20). Dan's answer, or that he has not given one.
+        ///
+        /// STORED SEPARATELY FROM THE AMOUNT, so the suggestion can never
+        /// overwrite the answer. A field re-derived from a sibling whenever that
+        /// sibling changes hides itself, because the values it produces vary and
+        /// read as entered (L432).
+        var assetJudgement: AssetJudgement = AssetJudgement.notDecided
+
+        /// When Dan said this expense and its lookalikes are all genuine
+        /// (ovation#82). Nil while nobody has said so.
+        ///
+        /// The suspicion consults it, which is the whole point: a rule that goes
+        /// on asking a question after it has been answered leaves nothing that
+        /// could ever satisfy it (L330, L269).
+        var bothAreRealAcknowledgedOn: BusinessDate?
 
         var receipt: ReceiptEvidence = ReceiptEvidence.noneRecorded
 
@@ -105,6 +159,39 @@ extension OvationSchemaV1 {
         /// PRD 5.19: every expense carries a category, so one without it is work
         /// waiting rather than a settled row.
         var needsACategory: Bool { category == nil }
+
+        /// What Ovation would say if nobody had answered: the amount is at or
+        /// above the provisional threshold.
+        ///
+        /// A SUGGESTION AND NOT A DETERMINATION (PRD 5.20). It stays visible
+        /// beside the answer rather than being replaced by it, so a surface can
+        /// show both.
+        var suggestsAsset: Bool { amount >= AssetThreshold.inForce.amount }
+
+        /// Whether it IS one. Dan's answer wins in both directions; the
+        /// suggestion stands only while he has not given one.
+        var isAsset: Bool {
+            switch assetJudgement {
+            case .treatAsAsset: return true
+            case .notAnAsset: return false
+            case .notDecided: return suggestsAsset
+            }
+        }
+
+        /// Where this expense is reported, which is the flag's whole consequence.
+        ///
+        /// AN ASSET GOES TO LINE 13 whatever its category would have said.
+        /// `ScheduleCMap` records that gear maps provisionally to Supplies and
+        /// that this flag is what moves an individual expense to depreciation, so
+        /// reading the category alone would leave the flag changing nothing
+        /// anybody sees (L46).
+        ///
+        /// Nil for an expense with no category and no flag: a line asserted on no
+        /// evidence puts money on a line of a return nobody chose (L192).
+        var scheduleCLine: ScheduleCLine? {
+            if isAsset { return .depreciation }
+            return category?.scheduleC.line
+        }
 
         /// The key that stops the same attachment being filed twice, recomputable
         /// from the message and the file itself. Nil where this expense came from no
