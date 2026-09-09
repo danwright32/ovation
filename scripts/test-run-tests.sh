@@ -32,7 +32,7 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_SKIP_XCODE_PHASE \
       OVATION_DIR_LOCK OVATION_FILE_LOCK OVATION_FLOCK_BIN \
       OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL \
-      OVATION_XCODE_PROJECT OVATION_XCODEGEN
+      OVATION_XCODE_PROJECT OVATION_XCODEGEN OVATION_XCODEBUILD_LISTER
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -49,7 +49,7 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
 # there is one definition of where flock is.
 SUITE_FLOCK="${OVATION_SUITE_FLOCK_BIN:-/opt/homebrew/bin/flock}"
 
-harness_begin "test runner lock tests" 79
+harness_begin "test runner lock tests" 85
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -764,5 +764,38 @@ check "and it says the tests were ADDED rather than reporting a loss" \
     "$(mentions "$OUT157" "being ADDED")" "yes"
 check "and it gives the exact command, with the real number in it" \
     "$(mentions "$OUT157" "140 > ")" "yes"
+
+
+# ---------------------------------------------------------------------------
+# A BUILD RUNNING OUTSIDE THE LOCK IS SAID OUT LOUD (ovation#156).
+#
+# The lock is voluntary and lives in this script, so any route to xcodebuild that
+# is not this one goes around it, and neither run can tell. This does not prevent
+# that; it removes the part where nothing notices. The question is asked at the
+# one moment it is unambiguous: both locks are held and this run has not started
+# building, so anything already building belongs to nobody's lock.
+lister_run() {
+    OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_TIMEOUT=2 OVATION_LOCK_POLL_INTERVAL=0.05 \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" \
+    OVATION_TEST_COMMAND="true" OVATION_UNLOCKED_COMMAND="true" \
+    OVATION_XCODEBUILD_LISTER="$1" \
+        "./$TARGET" 2>&1
+}
+
+OUT156A="$(lister_run 'printf "4321\n8765\n"')"
+check "an xcodebuild running while both locks are held is reported" \
+    "$(mentions "$OUT156A" "started outside them")" "yes"
+check "and it names how many" "$(mentions "$OUT156A" "2 xcodebuild")" "yes"
+check "and it names the pids, so the other run can actually be found" \
+    "$(mentions "$OUT156A" "pid 4321")" "yes"
+check "and it does NOT refuse, because a false positive must not block a push" \
+    "$(lister_run 'printf "4321\n" ' >/dev/null 2>&1; printf '%s' "$?")" "0"
+
+OUT156B="$(lister_run 'true')"
+check "a quiet machine says nothing about other builds" \
+    "$(mentions "$OUT156B" "started outside them")" "no"
+check "and it still ran, so the quiet case is not a skipped run" \
+    "$(mentions "$OUT156B" "Holding both locks")" "yes"
 
 harness_end

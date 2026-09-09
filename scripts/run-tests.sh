@@ -327,6 +327,38 @@ else
 
   echo "==> Holding both locks. Running Ovation's tests."
 
+  # AND IF SOMETHING IS ALREADY BUILDING, IT IS BUILDING OUTSIDE THE LOCK
+  # (ovation#156). The lock is voluntary: it lives in this script and in
+  # build-products.sh, so any invocation that reaches xcodebuild another way goes
+  # around it and neither run can tell. A rule that lives only in a comment plus
+  # whoever remembers is a hope (L27).
+  #
+  # THIS IS THE ONE MOMENT THE QUESTION IS CHEAP AND UNAMBIGUOUS. Both locks are
+  # held right now and this run has not started building yet, so any xcodebuild
+  # already running belongs to nobody's lock by definition. No polling, no
+  # background watcher, and no window in which a legitimate run looks guilty.
+  #
+  # IT REPORTS AND DOES NOT REFUSE. A false positive that blocked a push would be
+  # a gate people learn to skip, and the honest remedy is Dan's: stop the other
+  # build, or let both run and distrust the result. What it removes is the part
+  # that made this invisible.
+  #
+  # Xcode.app itself does NOT show up here: it builds through XCBBuildService
+  # rather than the xcodebuild binary, so a person working in the IDE is not
+  # accused. The lister is injectable so the suite can stage the finding without
+  # starting a real build (L196).
+  BUILDER_LISTER="${OVATION_XCODEBUILD_LISTER:-pgrep -x xcodebuild}"
+  OTHER_BUILDERS="$(bash -c "${BUILDER_LISTER}" 2>/dev/null | grep -v "^$$\$" || true)"
+  OTHER_BUILDER_COUNT="$(printf '%s' "${OTHER_BUILDERS}" | grep -c . || true)"
+  if [ "${OTHER_BUILDER_COUNT}" -gt 0 ]; then
+    echo "==> WARNING: ${OTHER_BUILDER_COUNT} xcodebuild process(es) are running while"
+    echo "    this run holds BOTH test locks, so they were started outside them:"
+    printf '%s\n' "${OTHER_BUILDERS}" | sed 's/^/        pid /'
+    echo "    Two xcodebuild runs on this Mac corrupt each other, which is what the"
+    echo "    locks exist to prevent (ovation#12). This run continues; the result"
+    echo "    it reports is worth less than usual."
+  fi
+
   # ---------------------------------------------------------------------------
   # BRACKET THE RUN AGAINST LIVE DATA (ovation#58, plan 1.9).
   #
