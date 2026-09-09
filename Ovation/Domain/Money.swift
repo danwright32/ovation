@@ -70,6 +70,19 @@ struct Money: Equatable, Hashable, Comparable, Codable, Sendable {
 
     /// The sum of no amounts is zero, never a missing value: an empty invoice has
     /// a subtotal, and it is nothing (L215).
+    /// How an amount is written into an export file: a plain decimal, no
+    /// currency symbol and no thousands separator, so a spreadsheet reads it as
+    /// a number in any locale (ovation#61).
+    ///
+    /// A NEGATIVE AMOUNT KEEPS ITS MINUS SIGN, which is the reason the CSV writer
+    /// has two kinds of field: neutralising a leading minus as a formula would
+    /// turn every credit into text nothing will total.
+    var exportAmount: String {
+        let sign = cents < 0 ? "-" : ""
+        let magnitude = cents.magnitude
+        return "\(sign)\(magnitude / 100).\(String(format: "%02d", magnitude % 100))"
+    }
+
     static func sum(of amounts: [Money]) -> Money {
         amounts.reduce(Money.zero, +)
     }
