@@ -96,6 +96,49 @@ struct StoreLaunchSequenceTests {
         #expect(world.store.open.isEmpty)
     }
 
+    @Test("a first launch with no store yet does not attempt a backup at all")
+    func aFirstLaunchDoesNotBackUp() throws {
+        // ovation#137. `Ovation.store` is a REQUIRED member, so a backup taken
+        // before the store exists throws `requiredMemberMissing` and the sequence
+        // raises "the backup was refused because Ovation.store is missing" about
+        // a database that has simply never been created. That fires on the one
+        // launch where a person is most likely to conclude the app is broken.
+        //
+        // A first launch has nothing to back up, which is a state rather than a
+        // failure, so the step does not run. The distinction comes from the
+        // CHECKPOINT's own `noStoreFile`, the measurement the sequence has
+        // already taken, rather than from a second existence check that could
+        // disagree with it (L70).
+        //
+        // The backup here throws the real error, so a sequence that still called
+        // it would fail this rather than pass on a lenient seam.
+        let world = try World(withStore: false,
+                              backup: { _ in throw BackupError.requiredMemberMissing("Ovation.store") })
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        #expect(!world.recorder.steps.contains("backup"))
+        #expect(world.recorder.steps == ["identify", "checkpoint", "open", "version", "seed"])
+        #expect(world.store.open.isEmpty)
+    }
+
+    @Test("a store that IS there and cannot be backed up still says so")
+    func aMissingMemberBesideAStoreIsStillRaised() throws {
+        // The positive control for the test above, and the case it must not
+        // swallow. A required member missing while the store is present is the
+        // genuinely alarming one: something was deleted from the data folder.
+        // Without this, a change that simply stopped backing up would pass
+        // (L159, L98).
+        let world = try World(backup: { _ in throw BackupError.requiredMemberMissing("documents") })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(world.recorder.steps.contains("backup"))
+        let problem = try #require(world.store.open.first { $0.kind == .backupFailed })
+        #expect(problem.sentence.contains("documents"))
+    }
+
     // MARK: a failed backup is reported, and does not lock Dan out
 
     @Test("a backup that fails is RAISED but the app still opens")

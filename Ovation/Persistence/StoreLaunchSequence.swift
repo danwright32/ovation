@@ -79,9 +79,18 @@ struct StoreLaunchSequence {
         // 2. CHECKPOINT. `noStoreFile` is the ordinary first launch and is not a
         // failure: raising one here would fire on every fresh install, which is
         // a guard speaking on the commonest case rather than the dangerous one.
+        //
+        // WHAT IT ANSWERS IS ALSO WHAT STEP 3 NEEDS. `noStoreFile` is the one
+        // measurement that says this installation has never had a database, and
+        // the backup step below reads it rather than asking the filesystem a
+        // second time: two lookups can disagree, and a check whose two sides come
+        // from one lookup is the only kind that cannot (L70).
+        var thereIsAStoreFile = true
         switch checkpoint(storeURL) {
-        case .checkpointed, .noStoreFile:
+        case .checkpointed:
             break
+        case .noStoreFile:
+            thereIsAStoreFile = false
         case .failed(let detail):
             let sentence = "The store could not be consolidated before backing up, "
                 + "so the backup was not taken: \(detail). Nothing has been opened or changed."
@@ -101,11 +110,33 @@ struct StoreLaunchSequence {
         // backup can lose data rather than merely leave it unprotected. Until
         // then this comment is the record that the coupling is missing, not an
         // argument that it is unnecessary.
-        do {
-            _ = try takeBackup(now)
-        } catch {
-            _ = problems.raise(kind: .backupFailed, subject: storeURL.path,
-                               sentence: Self.backupSentence(for: error), now: now)
+        //
+        // A FIRST LAUNCH DOES NOT BACK UP AT ALL (ovation#137). `Ovation.store`
+        // and `Ovation.store.version` are required members, so a backup taken
+        // before the store exists throws `requiredMemberMissing` and this step
+        // raises "the backup was refused because Ovation.store is missing" about
+        // a database that has simply never been created. That would fire on the
+        // one launch where a person is most likely to conclude the app is broken,
+        // and "there was nothing here yet" and "the database is missing" must not
+        // be the same sentence (L11).
+        //
+        // The skip is deliberately narrow: it is the absence of the STORE, not
+        // the absence of any member. A required member missing while the store is
+        // present is the genuinely alarming case, something removed from the data
+        // folder, and it is still taken, still fails, and is still said out loud.
+        //
+        // Nothing reports the skip, and that is not the absence being swallowed:
+        // an installation with no archives at all is a standing condition rather
+        // than an event, and ovation#87 raises it from the backup folder, where it
+        // stays true on every later launch. Saying it here would say it once, on
+        // the launch where it is least informative.
+        if thereIsAStoreFile {
+            do {
+                _ = try takeBackup(now)
+            } catch {
+                _ = problems.raise(kind: .backupFailed, subject: storeURL.path,
+                                   sentence: Self.backupSentence(for: error), now: now)
+            }
         }
 
         // 4. OPEN.
