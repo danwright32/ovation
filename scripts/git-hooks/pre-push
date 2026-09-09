@@ -195,6 +195,17 @@ gate_check check-design-rules-inline.sh "a design file's copy of a rule disagree
 # and the two older files never received the fix. Every file went on rendering.
 gate_check check-design-shell-inline.sh "a design file's copy of the shell disagrees with docs/design/shell/."
 
+# ovation#166 and ovation#148. Each design file was built by copying the last
+# one, so roughly half the largest file's stylesheet described OTHER SCREENS:
+# the Clients rows and panels, the invoice list's row treatments, the switcher
+# chrome left behind when the chooser was stripped out, and the CSS of an option
+# round 1 rejected. Every one of them carried a docstring, so a leftover read as
+# a considered decision (L346), and one of them, `.nrow`, is the class name
+# collision ovation#120 was filed for. Deleting them once converts the file in
+# front of whoever did the deleting and leaves the next copy standing (L613), so
+# the deletion and the guard ship together.
+gate_check check-design-dead-rules.sh "a design file carries CSS for a screen it does not draw."
+
 # ovation#102. The AppIcon catalog is DERIVED from icon/ovation-app-icon.png and
 # both are committed. Nothing asserted they were still in step, and both ways it
 # goes wrong are silent: the artwork replaced without the script being re-run, so

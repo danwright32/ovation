@@ -48,6 +48,7 @@ check-ci-workflow.sh	gated	A repo wide guard.
 check-ci-liveness.sh	workflow	Run by .github/workflows/ci-liveness.yml on a schedule and on every push to main. It judges whether a commit has landed that no successful CI run has followed; test-ci-liveness.sh drives it with dates rather than by pushing and waiting (ovation#155).
 check-custody-files.sh	gated	A repo wide guard.
 check-custody-not-staged.sh	gated	A repo wide guard.
+check-design-dead-rules.sh	gated	A repo wide guard.
 check-design-collisions.py	tool-untested	Takes a settled stylesheet and one design round's stylesheet and refuses a class name collision the round did not declare. It is a DESIGN ROUND tool taking two file arguments, not a repo wide guard, so nothing can run it on a schedule. ovation#132 gives it a sibling.
 check-design-rules-inline.sh	gated	A repo wide guard.
 check-design-self-contained.sh	gated	A repo wide guard.
@@ -98,6 +99,7 @@ test-custody-not-staged.sh	suite
 test-design-rules-inline.sh	suite	
 test-design-rules.sh	suite	
 test-design-self-contained.sh	suite	
+test-design-dead-rules.sh	suite
 test-design-shell-inline.sh	suite	
 test-design-tokens-resolve.sh	suite	
 test-embed-web-fonts.sh	suite	

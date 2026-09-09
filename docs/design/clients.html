@@ -59,10 +59,6 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .tab[aria-pressed="true"] .k { color: var(--page-tag-ink); opacity: .7; }
 .tab:focus-visible { outline: 2px solid var(--page-ink); outline-offset: 2px; }
 
-.readout { display: flex; flex-direction: column; gap: 5px; max-width: 82ch; min-height: 96px; }
-.readout h2 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.015em; }
-.readout p { margin: 0; color: var(--page-ink-soft); font-size: 14.5px; }
-.readout .ratio { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--page-ink-faint); }
 
 /* NO overflow declared here. It used to say overflow-x: auto, and setting
    overflow on one axis makes the other compute to auto too, so this element
@@ -82,11 +78,6 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .closing ol { margin: 0; padding-left: 20px; color: var(--page-ink-soft); font-size: 15px; }
 .closing li { margin-bottom: 7px; }
 .closing b { color: var(--page-ink); font-weight: 600; }
-.verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px,1fr)); border: 1px solid var(--page-rule); background: var(--page-panel); }
-.verdict > div { padding: 13px 16px; border-right: 1px solid var(--page-rule-soft); }
-.verdict > div:last-child { border-right: 0; }
-.verdict h3 { margin: 0 0 7px; font-size: 10.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--page-ink-faint); }
-.verdict p { margin: 0; font-size: 13.5px; color: var(--page-ink-soft); line-height: 1.5; }
 
 /* ============================================================
    THE MENU BAR BELONGS TO THE SCREEN. Full width, square, hard
@@ -274,31 +265,11 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
    ============================================================ */
 .win { --ccols: minmax(0,1fr) 210px 88px 104px 84px; }
 
-.crow { display: grid; grid-template-columns: var(--ccols); gap: 14px; align-items: baseline; padding: 8px 24px; border-bottom: 1px solid var(--rule-soft); font-size: 15px; color: var(--ink); }
-.crow.sel { background: var(--selbg); }
-.cname { font-weight: 600; letter-spacing: -.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.cmail { font-size: 12.5px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ctax { font-size: 12.5px; color: var(--soft); white-space: nowrap; }
-.cheld, .ccred { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 13px; text-align: right; color: var(--ink); font-weight: 500; white-space: nowrap; }
 
 /* A value nobody has recorded. Quiet, and NOT red: red would say something is
    wrong, and a client whose tax status has never been asked for is not a
    fault, it is a question outstanding (PRD 45). */
 .absent { color: var(--faint); }
-/* TWO CLIENTS ON ONE ADDRESS ARE NOT MARKED HERE, and that is deliberate after
-   looking at it. The first version tinted the address one shade quieter, which
-   rendered as no difference at all: measured against the ordinary address
-   colour it was invisible on screen, so the page would have been claiming a
-   distinction it does not draw. Whether it is marked, and how, is round 4 with
-   the rest of the roster clean up. The fixture keeps both clients on the one
-   address so that round has something real to work on. */
-
-.cdisc { display: flex; align-items: center; gap: 10px; padding: 9px 24px; margin-top: 16px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule-soft); background: var(--sunk); font-size: 13.5px; color: var(--quiet); }
-.cdisc .lead { display: flex; align-items: center; gap: 10px; }
-.cdisc b { font-weight: 600; }
-.cdisc .n { font-size: 12px; color: var(--faint); font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-.cdisc .tri { flex: none; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid var(--faint); }
-
 /* Shape C. Names on the left, one client on the right. */
 /* THE WINDOW IS A REAL HEIGHT HERE, and that is a departure from the invoice
    list file, which grows to fit its whole list so that nothing is hidden below
@@ -323,18 +294,11 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .nname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nheld { flex: none; font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--soft); }
 
-/* R4. One sentence above the list. It reserves its own space rather than
-   floating over the split, so the first name is never underneath it. */
-.strip { display: flex; align-items: baseline; gap: 10px; padding: 11px 24px; border-bottom: 1px solid var(--rule); background: var(--sunk); font-size: 13.5px; color: var(--soft); }
-.strip b { color: var(--ink); font-weight: 600; }
-.strip .act { margin-left: auto; }
-
 /* Z3's one remaining line. Same weight as a count's label, because it is the
    card saying the same kind of thing. */
 .card .quiet { font-size: 12.5px; color: var(--rail-card-ln); }
 /* The day switch sits under the position buttons and is deliberately not one of
    them: it changes the DATA, not the design. */
-.daywrap { margin-top: -14px; }
 .tab.day { border-style: dashed; }
 
 .detail { padding: 18px 24px 24px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
@@ -395,27 +359,11 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .passfoot { padding: 12px 24px; border-top: 1px solid var(--rule); display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; color: var(--faint); }
 .passfoot b { color: var(--ink); font-weight: 600; }
 
-/* C. A banner over a filtered list. */
-.filterbar { display: flex; align-items: baseline; gap: 10px; padding: 10px 24px; border-bottom: 1px solid var(--rule); background: var(--sunk); font-size: 13px; color: var(--soft); }
-.filterbar b { color: var(--ink); font-weight: 600; }
-.filterbar .act { margin-left: auto; }
-
-/* D. A value edited where it already sits. */
-.fval.editable { border-bottom: 1px dashed var(--rule); }
-.inlinechoice { display: inline-flex; gap: 6px; }
-
 /* Round 5, rebuilt. The queue, and the shared address warning. */
 .queue { padding: 40px 24px 32px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; max-width: 520px; }
-.qcount { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--faint); }
 .queue h5 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 30px; font-weight: 400; color: var(--ink); line-height: 1.1; }
 .qask { font-size: 15px; color: var(--soft); }
-.choice.big { justify-content: flex-start; gap: 8px; }
-.choice.big .chip { font-size: 14px; padding: 7px 18px; }
 .qnote { font-size: 12.5px; color: var(--faint); line-height: 1.5; }
-.qstrip { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
-.qdot { width: 7px; height: 7px; border-radius: 50%; background: var(--rule); }
-.qdot.on { background: var(--accent); }
-.qrest { font-size: 11.5px; color: var(--faint); margin-left: 4px; }
 
 /* A shared address is a question, not a fault, so it is a quiet line with a way
    to answer it rather than anything alarming. No red: nothing is wrong. */

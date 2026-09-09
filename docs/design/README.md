@@ -110,6 +110,33 @@ they already agreed on, byte for byte, so the extraction moved no CSS and all fo
 pixel for pixel identically to how they rendered before it (checked, not assumed: each was rendered
 headless before and after and the images hashed).
 
+## Nothing carries CSS for a screen it does not draw
+
+**`scripts/check-design-dead-rules.sh` refuses a rule the file that holds it can never apply.** Each
+design file was built by copying the last one, so the largest of them carried 109 rules for other
+screens: the Clients rows and panels, the invoice list's row treatments, the switcher chrome left
+behind when the chooser was stripped out, and the CSS of an option round 1 rejected. Every one had a
+docstring, which is what made them read as considered choices rather than leftovers. One of them,
+`.nrow`, is the class name collision ovation#120 exists for.
+
+**The predicate is source level and deliberately narrower than "matches no element".** A rule is
+dead when the classes in its selector are named nowhere in the file outside its own stylesheets, and
+the only two places that count are a `class` attribute and a STRING LITERAL in the script that
+builds the markup. That is where a class name has to be written to reach an element, so a rule for a
+state nothing has pressed yet is still alive, while the record's prose and the script's own comments
+cannot rescue anything. `check-design-tokens-resolve.sh` reports a much larger set, DRAWN BY
+NOTHING, which includes every `:hover`, every `:focus-visible` and every menu that is only in the
+DOM while it is open; deleting on that reading would delete live rules.
+
+**A rule the file carries verbatim from `shell/` is not judged here**, because a shell part is one
+unit and the check above requires it whole. Whether the shell is cut into the right parts is
+ovation#179.
+
+**208 rules and 24 orphaned comments were deleted on 2026-09-09 and nothing moved.** Proved rather
+than assumed: every element of all four files was rendered before and after and compared on its box,
+its colour, its background, its type, its weight and its borders. 142, 183, 269 and 181 elements,
+every one identical.
+
 **One thing was fixed, and it is the whole reason ovation#120 existed.** The palette was moved off
 `.win` and onto `.screen` in `invoice.html` on 2026-09-08, because every rule OUTSIDE the app window
 resolved `var(--anything)` to nothing. `invoice-list.html` and `clients.html` never received that

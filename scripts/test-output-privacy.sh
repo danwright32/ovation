@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 40
+harness_begin "output privacy tests" 43
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -386,6 +386,38 @@ check "and none when it repeats a file's own reason for carrying no shell" \
 check "and none when it cannot compare anything at all either" \
     "$(leaks_in "$(OVATION_DESIGN_ROOT="$SHELL_ROOT/nowhere" \
         ./scripts/check-design-shell-inline.sh 2>&1)")" "clean"
+
+# The dead rule guard, ovation#166. It names a SELECTOR and the classes in it,
+# both of which are things we wrote in a stylesheet, and never the element's
+# text, which is where a client name would sit. The fixture puts a name in the
+# page's prose, in a class attribute and in a declaration, because the check
+# reads all three and prints from none of them.
+DEAD_ROOT="$WORK/design-dead"
+mkdir -p "$DEAD_ROOT"
+cat > "$DEAD_ROOT/invoice-list.html" <<HTML
+<h1>$CLIENT at $VENUE</h1>
+<style>
+.gone { content: "$CLIENT at $VENUE"; }
+.here { color: #111; }
+</style>
+<div class="here">$CLIENT at $VENUE</div>
+HTML
+check "the dead rule guard prints no identity when it refuses a rule" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$DEAD_ROOT" \
+        python3 ./scripts/check-design-dead-rules.sh 2>&1)")" "clean"
+cat > "$DEAD_ROOT/invoice-list.html" <<HTML
+<h1>$CLIENT at $VENUE</h1>
+<style>
+.here { color: #111; }
+</style>
+<div class="here">x</div>
+HTML
+check "and none on the clean run either" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$DEAD_ROOT" \
+        python3 ./scripts/check-design-dead-rules.sh 2>&1)")" "clean"
+check "and none when it cannot measure at all" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$DEAD_ROOT/nowhere" \
+        python3 ./scripts/check-design-dead-rules.sh 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------
 # The live data bracket. It prints watched PATHS relative to Application
