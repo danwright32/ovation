@@ -53,13 +53,36 @@ enum AllocationRefusal: Error, Equatable {
 @ModelActor
 actor PaymentAllocator {
 
+    /// Run after this actor has decided and before it writes, and used by
+    /// nothing but the suite (ovation#175).
+    ///
+    /// THE RACE IS PROVED BY HOLDING BOTH CALLERS THERE AT ONCE, not by hoping
+    /// an interleaving reproduces (L157). Two writers of the same rows cannot be
+    /// raced by starting them and looking, because the window is microseconds
+    /// and a green run would mean nothing. This is the seam that opens it on
+    /// purpose, and it is here from the day the gate is, rather than retrofitted
+    /// (L524, L284).
+    var beforeWriting: (@Sendable () async -> Void)?
+
+    func setBeforeWriting(_ hook: (@Sendable () async -> Void)?) {
+        beforeWriting = hook
+    }
+
     /// Puts a share of one payment against one invoice.
     func allocate(
         _ amount: Money,
         from paymentID: PersistentIdentifier,
         to invoiceID: PersistentIdentifier,
         on day: BusinessDate
-    ) throws {
+    ) async throws {
+        // EVERY WRITER OF MONEY AGAINST AN INVOICE TAKES THE SAME GATE
+        // (ovation#175). This actor's own executor excludes a second allocation
+        // and nothing else: `InvoiceCloser` releases the same rows from a
+        // different actor with its own context.
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+
         guard amount > .zero else { throw AllocationRefusal.amountIsNotPositive(asked: amount) }
         guard let payment = try find(paymentID, as: Payment.self) else {
             throw AllocationRefusal.noSuchPayment
@@ -91,6 +114,8 @@ actor PaymentAllocator {
             throw AllocationRefusal.wouldExceedWhatIsOwed(outstanding: owed, asked: amount)
         }
 
+        if let beforeWriting { await beforeWriting() }
+
         let allocation = PaymentAllocation(payment: payment, invoice: invoice,
                                            amount: amount, allocatedOn: day)
         modelContext.insert(allocation)
@@ -101,9 +126,22 @@ actor PaymentAllocator {
     /// it does to the money on it (PRD 5.14d). The rows are marked, never
     /// deleted, so what was decided and when is still readable afterwards.
     ///
-    /// It runs on the same actor as `allocate`, so a release and an allocation
-    /// cannot interleave and leave the sum wrong in the other direction.
-    func releaseAllAllocations(of invoiceID: PersistentIdentifier, on day: BusinessDate) throws {
+    /// It takes the store's `MoneyWriteGate`, which is what actually excludes an
+    /// allocation from interleaving with it.
+    ///
+    /// THIS DOCSTRING USED TO SAY SOMETHING THAT WAS NOT TRUE (ovation#175). It
+    /// said "it runs on the same actor as `allocate`, so a release and an
+    /// allocation cannot interleave", and that was true of THIS release and
+    /// false of the other one: `InvoiceCloser.cancel` releases the same rows
+    /// from a different actor with its own context. A recorded guarantee is the
+    /// whole record of an exclusion, so every later reader took it as
+    /// established (L407).
+    func releaseAllAllocations(of invoiceID: PersistentIdentifier,
+                               on day: BusinessDate) async throws {
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+
         guard let invoice = try find(invoiceID, as: Invoice.self) else {
             throw AllocationRefusal.noSuchInvoice
         }

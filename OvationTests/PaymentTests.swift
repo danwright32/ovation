@@ -316,6 +316,64 @@ struct PaymentTests {
                 "and the surplus is still visible on the client, which is where 5.14a puts it")
     }
 
+    /// ovation#175. The OTHER writer of these rows, and the one the allocator's
+    /// own docstring claimed could not interleave with it.
+    @Test("an allocation cannot slip past a cancellation that is already in flight")
+    func acancellationAndAnAllocationCannotInterleave() async throws {
+        // `InvoiceCloser.cancel` releases the very rows `PaymentAllocator`
+        // writes, from a DIFFERENT actor with its own context, and
+        // `releaseActiveAllocations` iterates only what that context can see. So
+        // an allocation written while a cancellation was in flight survived it:
+        // the cancelled invoice kept a live allocation, the money was neither
+        // released nor refunded, and the export could not see it because the
+        // payment did have an active allocation.
+        //
+        // HELD THERE ON PURPOSE, not raced and hoped for (L157). The allocator
+        // carries a seam that runs after it has decided and before it writes;
+        // the cancellation is STARTED from inside it and awaited outside, so the
+        // two are genuinely both in flight. Whichever order the gate hands them,
+        // the invoice must not end with a standing allocation on it.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context)
+        let invoice = Self.invoice(context, for: client, owing: Money(dollars: 100))
+        let payment = Self.payment(context, for: client, Money(dollars: 500))
+        invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.day)
+        invoice.number = 41
+        try context.save()
+
+        let allocator = PaymentAllocator(modelContainer: container)
+        let closer = InvoiceCloser(modelContainer: container)
+        let invoiceID = invoice.persistentModelID
+        let paymentID = payment.persistentModelID
+        let day = BusinessDate.stamping(Self.day)
+        let now = Self.day
+
+        let cancelled = Cancellation()
+        await allocator.setBeforeWriting { @Sendable in
+            await cancelled.start {
+                try await closer.cancel(invoiceID, reason: "called off",
+                                        money: .heldForTheClient, on: day, now: now)
+            }
+        }
+
+        try await allocator.allocate(Money(dollars: 50), from: paymentID,
+                                     to: invoiceID, on: day)
+        await cancelled.finish()
+
+        let reader = ModelContext(container)
+        let read = try #require(try reader.fetch(FetchDescriptor<Invoice>())
+            .first { $0.persistentModelID == invoiceID })
+        #expect(read.closure != nil, "the cancellation happened")
+        #expect(read.allocations.allSatisfy { $0.releasedOn != nil },
+                "and nothing was left standing against a cancelled invoice")
+        #expect(read.amountPaid == .zero)
+        let readPayment = try #require(try reader.fetch(FetchDescriptor<Payment>())
+            .first { $0.persistentModelID == paymentID })
+        #expect(readPayment.unallocated == Money(dollars: 500),
+                "so every penny is back on the client rather than owed by nobody")
+    }
+
     @Test("allocating EXACTLY what is owed is accepted, so the refusal is not off by one")
     func payingAnInvoiceInFullIsAccepted() async throws {
         // The boundary in the other direction. A refusal at `>=` would make a
@@ -568,5 +626,21 @@ struct PaymentTests {
         #expect(read.amount == Money(dollars: 500))
         #expect(read.refundedOn.dayKey == BusinessCalendar.dayKey(for: Self.day))
         #expect(read.invoice?.id == invoice.id)
+    }
+
+    /// Starts a second writer from inside the first one's critical section and
+    /// lets the test wait for it afterwards. It is a type rather than a bare
+    /// `Task` so the hook can be `@Sendable` without capturing a mutable
+    /// variable from the test.
+    private actor Cancellation {
+        private var work: Task<Void, Error>?
+
+        func start(_ body: @escaping @Sendable () async throws -> Void) {
+            work = Task { try await body() }
+        }
+
+        func finish() async {
+            do { try await work?.value } catch { Issue.record("the cancellation failed: \(error)") }
+        }
     }
 }

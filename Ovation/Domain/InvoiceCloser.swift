@@ -103,7 +103,21 @@ actor InvoiceCloser {
     ///     than read from the clock, so the prior year rule can be tested at a
     ///     chosen moment instead of only in whatever year the suite runs (L130).
     func cancel(_ invoiceID: PersistentIdentifier, reason: String,
-                money: CancelledInvoiceMoney?, on day: BusinessDate, now: Date) throws {
+                money: CancelledInvoiceMoney?, on day: BusinessDate, now: Date) async throws {
+        // THE SAME GATE `PaymentAllocator` TAKES (ovation#175). Being a
+        // serialized writer excludes a second cancellation and nothing else:
+        // this releases the very rows the allocator writes, from a different
+        // actor with its own context, so an allocation written while a
+        // cancellation was in flight survived it and the cancelled invoice kept
+        // a live allocation with the money neither released nor refunded.
+        //
+        // TAKEN BEFORE THE FETCH, not just around the writes, because the
+        // refusals below are read, decide, write like every other rule here: an
+        // allocation landing between the fetch and the save is exactly the case.
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+
         // FETCHED RATHER THAN SUBSCRIPTED, and this is measured rather than
         // stylistic: `self[id, as:]` on a model deleted since the caller read it
         // TRAPS with "this model instance was invalidated", which takes the whole
