@@ -198,9 +198,16 @@ struct InvoiceCancellationTests {
         #expect(read.allocations.count == 1, "the record of the decision is kept")
         #expect(read.allocations.first?.releasedOn != nil)
         #expect(read.amountPaid == .zero, "and it no longer counts against the invoice")
+        // CORRECTED 2026-09-09 (ovation#174). This asserted that the payment read
+        // as fully unallocated after a FULL REFUND, on the reasoning that the
+        // allocation had been released. The release is right and the conclusion
+        // was not: the money went back out, so none of it is still held, and
+        // reading it as held was the defect. The release is what this test is
+        // about, and it is still asserted above; where the money went is
+        // `arefundIsNotMoneyHeld`.
         let readPayment = try world.reread(payment)
-        #expect(readPayment.unallocated == Money(dollars: 100),
-                "so the money is back on the client rather than gone")
+        #expect(readPayment.unallocated == .zero,
+                "the allocation is released AND the money left, so nothing is held")
     }
 
     @Test("keeping the money on the client releases it without inventing a refund")
@@ -221,6 +228,126 @@ struct InvoiceCancellationTests {
         #expect(read.refunds.isEmpty)
         #expect(read.amountPaid == .zero)
         #expect(read.closure != nil)
+    }
+
+    // MARK: a refund is money that LEFT
+
+    @Test("a refunded deposit stops being money held on the client")
+    func arefundIsNotMoneyHeld() async throws {
+        // ovation#174. PRD section 6 makes this the ORDINARY ending for a
+        // deposit: a refund happens only when a client paid one and then
+        // cancelled before the shoot. Releasing the allocation without
+        // recording where the money went left `Payment.unallocated` and
+        // `Client.moneyHeld` reporting the full refunded amount as still held,
+        // permanently, on every refund. It cannot be netted afterwards from a
+        // refund that records no payment to net against.
+        let world = try World()
+        let invoice = world.invoice(dayKey: "2026-06-01", sent: true, number: 20)
+        let payment = world.pay(invoice, Money(dollars: 100))
+        let client = try #require(invoice.client)
+        try world.save()
+
+        try await world.closer().cancel(
+            invoice.persistentModelID, reason: "called off",
+            money: .refunded(amount: Money(dollars: 100),
+                             on: .stamping(World.now), method: .zelle),
+            on: .stamping(World.now), now: World.now)
+
+        #expect(try world.reread(payment).unallocated == .zero,
+                "the money went back out, so none of it is still held")
+        #expect(try world.reread(client).moneyHeld == .zero,
+                "and the Clients screen agrees with the payment")
+    }
+
+    @Test("the refund names the payment it came out of, so the two can be netted")
+    func arefundNamesItsPayment() async throws {
+        // A refund recording no payment cannot be reconciled against anything
+        // later: the amount is truthful and belongs to nobody (L66, L529).
+        let world = try World()
+        let invoice = world.invoice(dayKey: "2026-06-01", sent: true, number: 21)
+        let payment = world.pay(invoice, Money(dollars: 100))
+        try world.save()
+
+        try await world.closer().cancel(
+            invoice.persistentModelID, reason: "called off",
+            money: .refunded(amount: Money(dollars: 100),
+                             on: .stamping(World.now), method: .zelle),
+            on: .stamping(World.now), now: World.now)
+
+        let read = try world.reread(invoice)
+        #expect(read.refunds.count == 1)
+        #expect(read.refunds.first?.payment?.persistentModelID == payment.persistentModelID)
+    }
+
+    @Test("a PARTIAL refund leaves exactly the rest held, which is where the two figures differ")
+    func apartialRefundLeavesTheRest() async throws {
+        // The case that decides whether the two numbers are genuinely netted
+        // rather than both driven to zero together (ovation#174).
+        let world = try World()
+        let invoice = world.invoice(dayKey: "2026-06-01", sent: true, number: 22)
+        let payment = world.pay(invoice, Money(dollars: 100))
+        let client = try #require(invoice.client)
+        try world.save()
+
+        try await world.closer().cancel(
+            invoice.persistentModelID, reason: "called off",
+            money: .refunded(amount: Money(dollars: 40),
+                             on: .stamping(World.now), method: .zelle),
+            on: .stamping(World.now), now: World.now)
+
+        #expect(try world.reread(payment).unallocated == Money(dollars: 60),
+                "$40 went back, $60 stayed on the client")
+        #expect(try world.reread(client).moneyHeld == Money(dollars: 60))
+        #expect(try world.reread(invoice).refunds.first?.amount == Money(dollars: 40))
+    }
+
+    @Test("a refund spanning two payments takes from each, and names each")
+    func arefundSpanningTwoPayments() async throws {
+        // An invoice settled by two payments is ordinary, and a refund that
+        // recorded one row for the total would name a payment it did not all
+        // come out of.
+        let world = try World()
+        let invoice = world.invoice(dayKey: "2026-06-01", sent: true, number: 23)
+        let first = world.pay(invoice, Money(dollars: 60))
+        let second = world.pay(invoice, Money(dollars: 40))
+        try world.save()
+
+        try await world.closer().cancel(
+            invoice.persistentModelID, reason: "called off",
+            money: .refunded(amount: Money(dollars: 80),
+                             on: .stamping(World.now), method: .zelle),
+            on: .stamping(World.now), now: World.now)
+
+        let read = try world.reread(invoice)
+        #expect(read.refunds.count == 2, "one row per payment it actually left")
+        #expect(Money.sum(of: read.refunds.map(\.amount)) == Money(dollars: 80))
+        #expect(read.refunds.allSatisfy { $0.payment != nil },
+                "and every row names the payment it came out of")
+        // ASSERTED ON THE PAIR, not on which one was taken from first. The two
+        // allocations are made on the same day, so the order is settled by the
+        // id tiebreak in `InvoiceCloser`, and a test asserting which one goes
+        // first would be asserting about a UUID (L419).
+        let leftHeld = try Money.sum(of: [world.reread(first), world.reread(second)]
+            .map(\.unallocated))
+        #expect(leftHeld == Money(dollars: 20), "$80 of the $100 went back")
+    }
+
+    @Test("keeping the money on the client still leaves every penny of it held")
+    func keepingTheMoneyLeavesItHeld() async throws {
+        // The other half of ovation#174, and the reason a refund cannot simply
+        // be inferred from a released allocation: this cancellation releases
+        // exactly as much and the money really is still there.
+        let world = try World()
+        let invoice = world.invoice(dayKey: "2026-06-01", sent: true, number: 24)
+        let payment = world.pay(invoice, Money(dollars: 100))
+        try world.save()
+
+        try await world.closer().cancel(invoice.persistentModelID, reason: "called off",
+                                        money: .heldForTheClient,
+                                        on: .stamping(World.now), now: World.now)
+
+        #expect(try world.reread(payment).unallocated == Money(dollars: 100))
+        #expect(try world.reread(invoice).refunds.isEmpty)
     }
 
     @Test("a refund for more than was paid is refused, carrying both numbers")

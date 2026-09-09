@@ -65,6 +65,15 @@ extension OvationSchemaV1 {
             self.receivedOn = receivedOn
         }
 
+        /// What went back out of THIS payment (ovation#174, PRD 5.13).
+        ///
+        /// The inverse exists so held money can be netted against refunds. Without
+        /// it a refund recorded no payment, so nothing could reduce what this
+        /// payment still holds and no later reconciliation could tell which money
+        /// had left (L66).
+        @Relationship(deleteRule: .nullify, inverse: \Refund.payment)
+        var refunds: [Refund] = []
+
         /// The allocations that still stand. A released one is kept for the record
         /// and counts towards nothing.
         var activeAllocations: [PaymentAllocation] { allocations.filter { $0.releasedOn == nil } }
@@ -74,8 +83,24 @@ extension OvationSchemaV1 {
         /// (L16).
         var allocated: Money { Money.sum(of: activeAllocations.map(\.amount)) }
 
+        /// What has gone back out of it.
+        var refunded: Money { Money.sum(of: refunds.map(\.amount)) }
+
         /// What is still being held on the client's behalf.
-        var unallocated: Money { amount - allocated }
+        ///
+        /// REFUNDS COUNT AGAINST IT, and this is ovation#174. Cancelling an invoice
+        /// releases its allocations, which is right: the allocation is a statement
+        /// about money that arrived and it stops standing. But where the money was
+        /// REFUNDED it did not go back to being held, it left, and until this read
+        /// through the refunds both this figure and `Client.moneyHeld` rose by the
+        /// full refunded amount and stayed there. PRD section 6 makes that the
+        /// ORDINARY ending for a deposit, so it was every refund, permanently.
+        ///
+        /// A RELEASE AND A REFUND ARE NOT THE SAME EVENT and neither can be inferred
+        /// from the other: `.heldForTheClient` releases exactly as much and the money
+        /// really is still there. That is why the refund is recorded rather than
+        /// derived from the released allocation.
+        var unallocated: Money { amount - allocated - refunded }
 
         var canBeCleared: Bool { method.gainsAClearedStep }
 

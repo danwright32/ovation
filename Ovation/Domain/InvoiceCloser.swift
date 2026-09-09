@@ -147,11 +147,61 @@ actor InvoiceCloser {
         }
 
         // From here everything is one context and one save.
+        //
+        // ONE REFUND ROW PER PAYMENT IT ACTUALLY LEFT (ovation#174). It used to be
+        // one row carrying `payment: nil`, and the consequence was not the missing
+        // link, it was the money: nothing reduced what the payment still held, so
+        // `Payment.unallocated` and `Client.moneyHeld` both rose by the full
+        // refunded amount and stayed there. PRD section 6 makes a refund the
+        // ORDINARY ending for a deposit, so that was every refund, permanently,
+        // and it could not be netted afterwards because the row named no payment
+        // to net against (L66).
+        //
+        // TAKEN IN ALLOCATION ORDER, oldest first, until the refund is used up. An
+        // invoice settled by two payments is ordinary, and a single row for the
+        // total would name a payment the money did not all come out of. A partial
+        // refund is the case that decides whether the figures are genuinely netted
+        // rather than both driven to zero together, and it leaves exactly the rest
+        // held.
         if paid > .zero, case .refunded(let amount, let refundedOn, let method) = money {
-            let refund = Refund(invoice: invoice, payment: nil, amount: amount,
-                                refundedOn: refundedOn, method: method)
-            modelContext.insert(refund)
-            invoice.refunds.append(refund)
+            // ORDERED EXPLICITLY, because a collection read from a store carries
+            // no order at all unless the read declares one (L343), and which
+            // payment a refund came out of would otherwise be whatever order the
+            // store happened to return. Oldest allocation first, and the id
+            // breaks a tie so two allocations made on one day still produce the
+            // same answer on every run.
+            let standing: [PaymentAllocation] = invoice.allocations
+                .filter { $0.releasedOn == nil }
+            let inOrder = standing.sorted { (left: PaymentAllocation,
+                                             right: PaymentAllocation) -> Bool in
+                if left.allocatedOn != right.allocatedOn {
+                    return left.allocatedOn < right.allocatedOn
+                }
+                return left.id.uuidString < right.id.uuidString
+            }
+            var left = amount
+            for allocation in inOrder where left > .zero {
+                guard let payment = allocation.payment else { continue }
+                let fromThisOne = min(left, allocation.amount)
+                let refund = Refund(invoice: invoice, payment: payment, amount: fromThisOne,
+                                    refundedOn: refundedOn, method: method)
+                modelContext.insert(refund)
+                invoice.refunds.append(refund)
+                payment.refunds.append(refund)
+                left = left - fromThisOne
+            }
+            // A REFUND THAT COULD NOT BE PLACED IS NEVER SILENTLY DROPPED. The
+            // guard above proves `amount <= paid` and `paid` is the sum of exactly
+            // these allocations, so this cannot happen unless an allocation lost
+            // its payment underneath us (ovation#176). Recording it against the
+            // invoice alone keeps the money on the return; leaving it out would
+            // make the refund smaller than the one Dan actually made.
+            if left > .zero {
+                let refund = Refund(invoice: invoice, payment: nil, amount: left,
+                                    refundedOn: refundedOn, method: method)
+                modelContext.insert(refund)
+                invoice.refunds.append(refund)
+            }
         }
 
         invoice.releaseActiveAllocations(on: day)
