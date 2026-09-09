@@ -56,7 +56,12 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCAN_ROOT="${OVATION_PORT_SCAN_ROOT:-$REPO_ROOT}"
-DEFAULT_ROOTS="$HOME/Non-icloudDocuments/Apps:$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketing/Outreach:$HOME/Documents"
+# The Outreach root that sat between these two was dropped on 2026-09-09
+# (ovation#16): Overture moved under `Apps/` and nothing is there any more. It
+# cost nothing while it stood, because the search finds Overture under the first
+# root either way, which is exactly why a dead entry in a list like this survives
+# unnoticed.
+DEFAULT_ROOTS="$HOME/Non-icloudDocuments/Apps:$HOME/Documents"
 SEARCH_ROOTS="${OVATION_SIBLING_SEARCH_ROOTS:-$DEFAULT_ROOTS}"
 
 # Assembled from pieces so this file contains no literal instance of the marker

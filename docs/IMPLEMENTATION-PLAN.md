@@ -25,7 +25,7 @@
 
 Ovation is a seven year tax record, not a feature set. Its primary success measure (PRD 4) is a single event in January that cannot be retried, with no dry run (9.10). So the build spends its earliest work on the substrate that cannot be retrofitted, then runs Dan's settled build order (5b) on top of it unchanged.
 
-Everything asserted below was measured on this Mac on 2026-08-27. Where a claim is unverified it says so. Repository paths are written relative to each repository's own root: Downbeat's root is `/Users/danielhankins-wright/Non-icloudDocuments/Apps/Downbeat`, and its app sources sit one level further down at `Downbeat/`, so the app file paths read `Downbeat/App/...` from that root. Overture's root is `/Users/danielhankins-wright/Photography Assets/.../Overture` with its app under `mac/`.
+Everything asserted below was measured on this Mac on 2026-08-27. Where a claim is unverified it says so. Repository paths are written relative to each repository's own root: Downbeat's root is `/Users/danielhankins-wright/Non-icloudDocuments/Apps/Downbeat`, and its app sources sit one level further down at `Downbeat/`, so the app file paths read `Downbeat/App/...` from that root. Overture's root is `/Users/danielhankins-wright/Non-icloudDocuments/Apps/Overture` with its app under `mac/`. **Corrected 2026-09-09 (ovation#16): it read `/Users/danielhankins-wright/Photography Assets/.../Overture` and that directory no longer exists.** Overture sits beside its siblings under `Apps/` now, and the stale path had also reached `scripts/check-sibling-installs.sh`, which had been answering CANNOT MEASURE about both Overture facts since the move rather than checking them (L153, L175).
 
 ### Verified before writing this
 
@@ -134,7 +134,7 @@ So the agent **measures first and reports**, and Dan chooses.
 1. Run this and read the output. It changes nothing:
 
 ```
-cd "$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketing/Outreach/Overture" && printf 'branch: %s\nhead:   %s\non main: %s\n' "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-parse --short HEAD)" "$(git merge-base --is-ancestor HEAD main && echo yes || echo no)" && printf 'uncommitted files: %s\n' "$(git status --porcelain | wc -l | tr -d ' ')" && git status --porcelain
+cd "$HOME/Non-icloudDocuments/Apps/Overture" && printf 'branch: %s\nhead:   %s\non main: %s\n' "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-parse --short HEAD)" "$(git merge-base --is-ancestor HEAD main && echo yes || echo no)" && printf 'uncommitted files: %s\n' "$(git status --porcelain | wc -l | tr -d ' ')" && git status --porcelain
 ```
 
 2. The agent routes on that output, and only one of these happens:
@@ -163,7 +163,7 @@ cd "$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketin
 1. Capture the tree state **before** installing, because that is the tree the bundle is built from, then install:
 
 ```
-cd "$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketing/Outreach/Overture" && git checkout main && git pull && git status --porcelain > /tmp/overture-pre-install-tree.txt && test ! -s /tmp/overture-pre-install-tree.txt && ./mac/build-install.sh
+cd "$HOME/Non-icloudDocuments/Apps/Overture" && git checkout main && git pull && git status --porcelain > /tmp/overture-pre-install-tree.txt && test ! -s /tmp/overture-pre-install-tree.txt && ./mac/build-install.sh
 ```
 
 If that stops before installing, the tree was dirty beforehand. Read `/tmp/overture-pre-install-tree.txt`, resolve it through 0.2.0a, and start this step again.
@@ -171,7 +171,7 @@ If that stops before installing, the tree was dirty beforehand. Read `/tmp/overt
 2. Judge the **installed bundle**, with three outcomes and three exit codes, so nothing downstream can read a refusal as a pass:
 
 ```
-cd "$HOME/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketing/Outreach/Overture" && python3 - <<'PY'
+cd "$HOME/Non-icloudDocuments/Apps/Overture" && python3 - <<'PY'
 import json, os, subprocess, sys
 GATE_FIX = "bdd85404"
 rec = os.path.expanduser("~/Library/Application Support/Overture/installed-build.json")

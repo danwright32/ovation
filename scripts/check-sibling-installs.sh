@@ -42,7 +42,13 @@ set -uo pipefail
 SUPPORT="${HOME}/Library/Application Support"
 RECORD="${OVATION_OVERTURE_BUILD_RECORD:-${SUPPORT}/Overture/installed-build.json}"
 EXPORT_FILE="${OVATION_DOWNBEAT_EXPORT:-${SUPPORT}/Overture/downbeat-export.json}"
-REPO="${OVATION_OVERTURE_REPO:-${HOME}/Non-icloudDocuments/Photography Assets/Dan Wright Photography/Marketing/Outreach/Overture}"
+# CORRECTED 2026-09-09 (ovation#16). It pointed at
+# `Photography Assets/Dan Wright Photography/Marketing/Outreach/Overture`, which
+# no longer exists: Overture sits beside its siblings under `Apps/` now. The
+# check did not lie about it, it answered CANNOT MEASURE and said to correct this
+# line, which is the design working. What it could not do is notice that nobody
+# had, so it had been blind to both Overture facts since the move (L153, L175).
+REPO="${OVATION_OVERTURE_REPO:-${HOME}/Non-icloudDocuments/Apps/Overture}"
 # The commit that widened Overture's version gate from an equality to a minimum.
 GATE="${OVATION_OVERTURE_GATE_COMMIT:-bdd85404}"
 # The export version Ovation needs. Downbeat's OvertureExportBuilder.formatVersion.
