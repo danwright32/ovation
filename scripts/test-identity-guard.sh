@@ -295,6 +295,12 @@ check "the two cannot measure sentences are not the same words" \
 # names off receipts, the Downbeat handoff queue), and a guard that never started
 # consulting one produces an identical looking pass over a shrinking share of the
 # real names (L98, L389). So coverage is STATED rather than inferred.
+# EVERY RECURSIVE DELETE BELOW IS UNDER $WORK, and that is checked once here
+# rather than trusted four times: an empty $WORK turns `rm -rf "$WORK/store23"`
+# into a delete at the root, and `set -u` does not catch it because an empty
+# parameter is set (L5). `tree()` above guards itself for the same reason.
+[ -n "${WORK:-}" ] || { echo "REFUSED: no temp directory"; exit 1; }
+
 T23="$(tree populations)"; printf 'nothing here\n' > "$T23/a.txt"
 OUT23A="$(run_guard "$T23")"; ST23A=$?
 check "a clean run still passes" "$ST23A" "0"
