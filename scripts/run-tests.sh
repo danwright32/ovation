@@ -396,6 +396,27 @@ else
       echo "       still reported success. Nothing about the missing tests was judged." >&2
       echo "       If tests were deliberately removed, lower ${FLOOR_FILE}." >&2
       STATUS=7
+    elif [ "${PURE_COUNT}" -gt "${PURE_FLOOR}" ]; then
+      # AND A FLOOR THAT DOES NOT MOVE STOPS BEING A FLOOR (ovation#157).
+      #
+      # It was committed at 294 and was still 294 with the suite executing 422:
+      # a floor 128 below the real count cannot see a run that loses a quarter of
+      # itself, which is precisely the partial run it exists to refuse, and it
+      # passes the whole time (L63, L354). Nothing made it move, so it was a rule
+      # living in whoever remembered it (L27).
+      #
+      # REFUSED RATHER THAN PRINTED. A notice on a green run is one nobody reads,
+      # and this is the only moment both numbers are in front of anybody. The cost
+      # is one command per change that adds tests, and the message is that command
+      # rather than a description of it (L399).
+      echo "Error: the suite executed ${PURE_COUNT} tests and the floor says ${PURE_FLOOR}." >&2
+      echo "       That is tests being ADDED, which is good, and the floor has to" >&2
+      echo "       move with them or it stops being able to see a run that loses" >&2
+      echo "       some. Run this, then push:" >&2
+      echo "" >&2
+      echo "       printf '%s\\n' ${PURE_COUNT} > ${FLOOR_FILE}" >&2
+      echo "" >&2
+      STATUS=7
     fi
   fi
   rm -f "${PURE_OUTPUT}"

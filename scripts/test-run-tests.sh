@@ -49,7 +49,7 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
 # there is one definition of where flock is.
 SUITE_FLOCK="${OVATION_SUITE_FLOCK_BIN:-/opt/homebrew/bin/flock}"
 
-harness_begin "test runner lock tests" 74
+harness_begin "test runner lock tests" 79
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -329,8 +329,15 @@ pure_status() { pure_run "$1" "${2:-100}" >/dev/null 2>&1; printf '%s' "$?"; }
 
 check "a pure run at the floor passes" \
     "$(pure_status 'echo "Test run with 100 tests in 9 suites passed"' 100)" "0"
-check "a pure run above the floor passes" \
-    "$(pure_status 'echo "Test run with 294 tests in 29 suites passed"' 100)" "0"
+# THIS CASE IS THE REVERSE OF WHAT IT ASSERTED, and the reversal is the whole of
+# ovation#157 rather than an adjustment. It used to say a run ABOVE its floor
+# passes, which is what let the floor sit at 294 while the suite executed 422:
+# 128 tests could vanish and the check would still be green (L63). A test
+# defending a decision that has been reversed is the guard for the rejected
+# behaviour, so it is rewritten to say the new rule rather than tweaked (L252,
+# L430).
+check "a pure run above the floor is refused, so the floor cannot stand still" \
+    "$(pure_status 'echo "Test run with 294 tests in 29 suites passed"' 100)" "7"
 check "a pure run BELOW the floor is refused even though it exited 0" \
     "$(pure_status 'echo "Test run with 40 tests in 3 suites passed"' 100)" "7"
 check "and it names both numbers, so the drop is readable" \
@@ -725,5 +732,37 @@ for reaching in scripts/run-tests.sh scripts/build-install.sh; do
     check "$(basename "$reaching") consults the shared project helper" \
         "$(uses_helper "$reaching")" "yes"
 done
+
+
+# ---------------------------------------------------------------------------
+# THE FLOOR HAS TO MOVE WITH THE SUITE (ovation#157).
+#
+# It was committed at 294 and was still 294 with the suite executing 422, so it
+# could not see a run that lost a quarter of itself, which is the partial run it
+# exists to refuse (L63, L354). Nothing made it move; that is what these cases
+# are for. The count is injected, so none of this runs a real suite.
+counted_run() {
+    # counted_run <count-the-command-prints> <floor>
+    OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_TIMEOUT=2 OVATION_LOCK_POLL_INTERVAL=0.05 \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" \
+    OVATION_UNLOCKED_COMMAND="true" \
+    OVATION_TEST_FLOOR="$2" \
+    OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+    OVATION_TEST_COMMAND="echo 'Test run with $1 tests in 1 suite passed'" \
+        "./$TARGET" 2>&1
+}
+counted_status() { counted_run "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+
+check "a run that matches its floor exactly passes" "$(counted_status 100 100)" "0"
+check "a run BELOW its floor is refused" "$(counted_status 60 100)" "7"
+
+OUT157="$(counted_run 140 100)"
+check "a run ABOVE its floor is refused too, because a floor that never moves stops being one" \
+    "$(counted_status 140 100)" "7"
+check "and it says the tests were ADDED rather than reporting a loss" \
+    "$(mentions "$OUT157" "being ADDED")" "yes"
+check "and it gives the exact command, with the real number in it" \
+    "$(mentions "$OUT157" "140 > ")" "yes"
 
 harness_end
