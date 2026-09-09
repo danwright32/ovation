@@ -75,6 +75,39 @@ jobs:
             *) exit $status ;;
           esac
 
+  # THE SAME SUITES ON LINUX, MEASURED RATHER THAN ASSUMED (ovation#152).
+  #
+  # The premise of every other job here is that this repository is PUBLIC, where
+  # macOS runners are free and unlimited. The day ovation#15 makes it private the
+  # ten times multiplier starts, and the shell suites need no Xcode: they would
+  # run on ubuntu for nothing, permanently, public or private. Whether they
+  # actually PASS there had never been measured, and ovation#15 rests on it.
+  #
+  # IT IS A REAL JOB RATHER THAN AN INFORMATIONAL ONE. A report-only check still
+  # gates in practice, because the merge flow waits for every check, and a job
+  # that is allowed to be red teaches everyone to skip reading it (L304, L538).
+  # A suite that genuinely cannot answer on Linux says CANNOT MEASURE, which the
+  # runner already exits 2 for, and that is a warning here exactly as it is on
+  # macOS: allowed, and NAMED, never called green.
+  shell-suites-linux:
+    name: Shell suites on Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Run every shell suite
+        run: |
+          set +e
+          OVATION_SKIP_XCODE_PHASE=1 bash scripts/run-tests.sh
+          status=$?
+          set -e
+          case "$status" in
+            0) ;;
+            2) echo "::warning::Some shell suites could not measure on Linux. See the log for which." ;;
+            *) exit $status ;;
+          esac
+
   # The half Dan's decision is about.
   build-and-test:
     name: Build both configurations and run everything

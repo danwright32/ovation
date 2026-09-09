@@ -62,10 +62,26 @@ check "with more than one claim in it" "$([ "$HEALTHY_CLAIMS" -ge 10 ] && echo m
 # every claim that failed, so an assertion can require both that the right one
 # fired and that nothing else did.
 # ---------------------------------------------------------------------------
+# EDIT IN PLACE, PORTABLY. `sed -i ''` is the BSD form and GNU sed reads the
+# empty string as a FILE to edit, so on Linux it fails with "can't read : No such
+# file or directory" while the intended edit never happens. Neither errors on the
+# other's form in a way a reader would predict, which is why this is one helper
+# rather than a flag choice repeated at each call site (L434, ovation#152).
+#
+# It writes to a temp file and moves it, which is both dialects' behaviour and
+# needs no flag at all.
+sed_in_place() {
+    # sed_in_place <file> <expression>
+    local file="$1" expression="$2" tmp
+    tmp="$(mktemp)" || return 1
+    sed "$expression" "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
+    mv "$tmp" "$file"
+}
+
 mutate() {
     # $1 the copy, $2 sed expression
     cp "$DESIGN" "$1" || return 1
-    sed -i '' "$2" "$1"
+    sed_in_place "$1" "$2"
     grep -c "$3" "$1"
 }
 

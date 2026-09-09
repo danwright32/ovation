@@ -27,6 +27,22 @@ harness_temp_dir WORK
 run_check() { OVATION_WORKFLOW_DIR="$1" "./$TARGET" 2>&1; }
 status_of() { run_check "$1" >/dev/null 2>&1; printf '%s' "$?"; }
 
+# EDIT IN PLACE, PORTABLY. `sed -i ''` is the BSD form and GNU sed reads the
+# empty string as a FILE to edit, so on Linux it fails with "can't read : No such
+# file or directory" while the intended edit never happens. Neither errors on the
+# other's form in a way a reader would predict, which is why this is one helper
+# rather than a flag choice repeated at each call site (L434, ovation#152).
+#
+# It writes to a temp file and moves it, which is both dialects' behaviour and
+# needs no flag at all.
+sed_in_place() {
+    # sed_in_place <file> <expression>
+    local file="$1" expression="$2" tmp
+    tmp="$(mktemp)" || return 1
+    sed "$expression" "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
+    mv "$tmp" "$file"
+}
+
 good_workflow() {
     mkdir -p "$1"
     cat > "$1/ci.yml" <<'YML'
@@ -62,14 +78,14 @@ check "and it says there is no CI rather than naming a file" \
 # 3. A job with no timeout. The platform default is six hours, and a hung job
 #    holds a runner slot for all of it.
 B1="$WORK/notimeout"; good_workflow "$B1"
-sed -i '' '/timeout-minutes: 20/d' "$B1/ci.yml"
+sed_in_place "$B1/ci.yml" '/timeout-minutes: 20/d' 
 check "a job with no timeout is refused" "$(status_of "$B1")" "1"
 check "and it names the job that has none" \
     "$(run_check "$B1" | grep -c 'shell-suites')" "1"
 
 # 4. An action on a moving tag rather than a commit.
 B2="$WORK/unpinned"; good_workflow "$B2"
-sed -i '' 's|actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683|actions/checkout@v4|' "$B2/ci.yml"
+sed_in_place "$B2/ci.yml" 's|actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683|actions/checkout@v4|' 
 check "an action pinned to a tag rather than a commit is refused" "$(status_of "$B2")" "1"
 # BOTH uses, not the first one. A guard that reports the first instance teaches
 # whoever fixes it that there was one (L30).
@@ -79,7 +95,7 @@ check "and it names every unpinned use, not just the first" \
 # 5. The documented command gone. This is the decision itself going missing, and
 #    it is the one failure that leaves a green tick on the board (L400).
 B3="$WORK/nobuild"; good_workflow "$B3"
-sed -i '' 's|bash scripts/build-products.sh && bash scripts/run-tests.sh|bash scripts/run-tests.sh|' "$B3/ci.yml"
+sed_in_place "$B3/ci.yml" 's|bash scripts/build-products.sh && bash scripts/run-tests.sh|bash scripts/run-tests.sh|' 
 check "a workflow that never builds both configurations is refused" "$(status_of "$B3")" "1"
 check "and it quotes the command it expected to find" \
     "$(run_check "$B3" | grep -c 'build-products.sh')" "1"
