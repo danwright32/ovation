@@ -213,6 +213,32 @@ struct YearEndExportTests {
         #expect(runs.last?.outcome == .failed)
     }
 
+    @Test("files written and a record that could not be written is its OWN answer")
+    func awriteThatCouldNotBeRecordedSaysSo() throws {
+        // The staleness notice reads the record, so an export that ran and was
+        // not recorded leaves that notice standing for ever with nothing saying
+        // why, and running it again does not clear it. Reported as a plain
+        // success it would be the one thing Dan could act on, invisible (L11).
+        let world = try World()
+        try Data("x".utf8).write(to: world.directory.appending(path: "blocked"))
+        let export = YearEndExport(
+            directory: world.exportDirectory,
+            log: ExportRunLog(url: world.directory.appending(path: "blocked/runs.jsonl")))
+
+        let outcome = export.run(range: .calendarYear(2026), now: Self.now) {
+            YearEndExport.StoreContents(invoices: [], expenses: [], payments: [], refunds: [])
+        }
+
+        guard case .wroteButTheRunWasNotRecorded(let files, let reason) = outcome else {
+            Issue.record("an unwritable run record returned \(outcome)")
+            return
+        }
+        #expect(files == ["income.csv", "expenses.csv", "manifest.json"])
+        #expect(reason.contains("run record"))
+        // And the files really are there: this is not a failure dressed up.
+        #expect(FileManager.default.fileExists(atPath: world.file("income.csv").path))
+    }
+
     // MARK: an export with nothing in it is still an export
 
     @Test("an empty range writes both files, with their headers and no rows")

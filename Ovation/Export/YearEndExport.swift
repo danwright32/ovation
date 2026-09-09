@@ -39,10 +39,20 @@ struct YearEndExport {
         case refused(findings: [TaxExportFinding])
         /// Something failed. Never a client name.
         case failed(String)
+        /// The files ARE on disk and the run could not be recorded.
+        ///
+        /// ITS OWN CASE, because the consequence outlives the run: the staleness
+        /// notice reads the record, so an export that ran and was not recorded
+        /// leaves that notice standing for ever with nothing saying why, and
+        /// running the export again does not clear it (L11, L98). Reporting it as
+        /// a plain success would make the one thing Dan could act on invisible.
+        case wroteButTheRunWasNotRecorded(files: [String], reason: String)
 
         var filesWritten: [String] {
-            if case .wrote(let files) = self { return files }
-            return []
+            switch self {
+            case .wrote(let files), .wroteButTheRunWasNotRecorded(let files, _): return files
+            case .refused, .failed: return []
+            }
         }
     }
 
@@ -90,27 +100,37 @@ struct YearEndExport {
                                 outcome: .started, manifest: nil, failure: nil,
                                 filesWritten: [])
         // A failure to write the OPENING record is not a reason to skip the
-        // export: the closing one is what the staleness notice reads, and it is
-        // written below whatever happens here.
+        // export. The closing one is what the staleness notice reads, and a
+        // failure to write THAT is reported below rather than swallowed.
         try? log.append(started)
 
-        var outcome = Outcome.failed("the run ended without saying how")
         var manifest: TaxExportManifest?
-        // ON EVERY EXIT PATH, including a `return` from any branch below.
-        defer {
-            let closing = ExportRun(
-                id: started.id, startedAt: started.startedAt, finishedAt: now,
-                outcome: { if case .wrote = outcome { return .finished } else { return .failed } }(),
-                manifest: manifest,
-                failure: { switch outcome {
-                    case .wrote: return nil
-                    case .refused(let findings): return "refused: \(findings.count) finding(s)"
-                    case .failed(let reason): return reason
-                } }(),
-                filesWritten: outcome.filesWritten)
-            try? log.append(closing)
-        }
+        let outcome = perform(range: range, now: now, fetch: fetch, manifest: &manifest)
 
+        // THE CLOSING RECORD IS WRITTEN ON EVERY PATH, and there is exactly one
+        // place it is written from, because `perform` returns rather than throws
+        // (L514, L515). It is here rather than in a `defer` so that a failure to
+        // write it can change what this answers: a `defer` runs after the return
+        // value is settled and could only swallow it.
+        do {
+            try log.append(closing(after: started, outcome: outcome,
+                                   manifest: manifest, now: now))
+        } catch {
+            if case .wrote(let files) = outcome {
+                return .wroteButTheRunWasNotRecorded(
+                    files: files,
+                    reason: "the run record could not be written: "
+                        + "\(error.localizedDescription)")
+            }
+        }
+        return outcome
+    }
+
+    /// The export itself. Returns on every path and never throws, which is what
+    /// makes the single closing write above cover all of them.
+    private func perform(range: TaxExportRange, now: Date,
+                         fetch: () throws -> StoreContents,
+                         manifest: inout TaxExportManifest?) -> Outcome {
         let contents: StoreContents
         do {
             contents = try fetch()
@@ -118,8 +138,7 @@ struct YearEndExport {
             // A source that could not be read at all. Exporting what could be
             // reached would produce a file that is short for a reason nothing
             // records, and it would total against itself perfectly.
-            outcome = .failed("the store could not be read: \(error.localizedDescription)")
-            return outcome
+            return .failed("the store could not be read: \(error.localizedDescription)")
         }
 
         let income = TaxExport.income(from: contents.invoices, in: range)
@@ -132,18 +151,35 @@ struct YearEndExport {
         manifest = reconciliation.manifest
 
         guard reconciliation.isComplete else {
-            outcome = .refused(findings: reconciliation.findings)
-            return outcome
+            return .refused(findings: reconciliation.findings)
         }
 
         do {
-            let written = try write(income: income, expenses: expenses,
-                                    manifest: reconciliation.manifest)
-            outcome = .wrote(files: written)
+            return .wrote(files: try write(income: income, expenses: expenses,
+                                           manifest: reconciliation.manifest))
         } catch {
-            outcome = .failed("the files could not be written: \(error.localizedDescription)")
+            return .failed("the files could not be written: \(error.localizedDescription)")
         }
-        return outcome
+    }
+
+    private func closing(after started: ExportRun, outcome: Outcome,
+                         manifest: TaxExportManifest?, now: Date) -> ExportRun {
+        let finished: ExportRun.Outcome
+        let failure: String?
+        switch outcome {
+        case .wrote, .wroteButTheRunWasNotRecorded:
+            finished = .finished
+            failure = nil
+        case .refused(let findings):
+            finished = .failed
+            failure = "refused: \(findings.count) finding(s)"
+        case .failed(let reason):
+            finished = .failed
+            failure = reason
+        }
+        return ExportRun(id: started.id, startedAt: started.startedAt, finishedAt: now,
+                         outcome: finished, manifest: manifest, failure: failure,
+                         filesWritten: outcome.filesWritten)
     }
 
     /// Everything the export and its reconciliation read, from ONE read of the
