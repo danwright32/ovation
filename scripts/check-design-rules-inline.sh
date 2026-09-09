@@ -21,14 +21,12 @@ so the guard that resets an illegal value never fired. That fix landed in
 passing, because the suite reads `rules/`. The screen the design record IS still
 held the defect, and nothing anywhere could have said so.
 
-HOW IT COMPARES. Each rule file is normalized to its lines with comments removed
-and whitespace collapsed, and that sequence must appear inside a design file as a
-CONTIGUOUS RUN. Not as lines that all occur somewhere: a check written as several
-conditions over one body of text is satisfied by several unrelated places in it
-(L178), and a rule whose lines are present but interleaved with others is a rule
-the design file does not actually run. Comments are stripped because the design
-file rewraps them when the rule is pasted into its script, and a comparison that
-broke on that could only ever match by luck.
+HOW IT COMPARES is in scripts/lib/design_inline.py, which this and
+scripts/check-design-shell-inline.sh (ovation#120) both read. It normalizes a
+source to its code lines and requires them inside a design file as a CONTIGUOUS
+RUN. That reasoning was written here first and moved when the shell became the
+second subject, because sharing the data while copying the code that applies it
+is not consolidation (L370).
 
 Outcomes, one per rule file, each with its own wording because distinct causes
 need distinct messages (L11):
@@ -72,51 +70,11 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+
+from design_inline import html_files, longest_run, significant_lines  # noqa: E402
+
 DECLARES_UNRENDERED = "NOT RENDERED:"
-
-
-def strip_comments(text):
-    """Block and line comments out, so rewrapping prose cannot fail a match.
-
-    String literals are left alone rather than parsed: a rule file is code we
-    wrote, and the alternative is a JavaScript tokenizer whose own bugs would be
-    reported as design drift.
-    """
-    text = re.sub(r"/\*.*?\*/", "\n", text, flags=re.S)
-    return re.sub(r"(^|\s)//[^\n]*", r"\1", text)
-
-
-def significant_lines(text):
-    """The comparable shape of a file: its code lines, whitespace collapsed."""
-    lines = []
-    for raw in strip_comments(text).splitlines():
-        collapsed = " ".join(raw.split())
-        if collapsed:
-            lines.append(collapsed)
-    return lines
-
-
-def longest_run(rule_lines, file_lines):
-    """How many of the rule's lines appear contiguously, at best, in the file.
-
-    Returns the length of the longest prefix of `rule_lines` that occurs as a
-    contiguous run anywhere in `file_lines`. len(rule_lines) means the whole rule
-    is carried verbatim; zero means none of it is there at all.
-    """
-    best = 0
-    for start in range(len(file_lines)):
-        if file_lines[start] != rule_lines[0]:
-            continue
-        run = 0
-        while (run < len(rule_lines)
-               and start + run < len(file_lines)
-               and file_lines[start + run] == rule_lines[run]):
-            run += 1
-        if run > best:
-            best = run
-        if best == len(rule_lines):
-            break
-    return best
 
 
 def unrendered_reason(text):
@@ -147,11 +105,10 @@ def main():
         return 2
 
     designs = {}
-    for filename in sorted(os.listdir(root)):
-        if filename.lower().endswith((".html", ".htm")):
-            path = os.path.join(root, filename)
-            with open(path, "r", encoding="utf-8", errors="replace") as handle:
-                designs[filename] = significant_lines(handle.read())
+    for filename in html_files(os.listdir(root)):
+        path = os.path.join(root, filename)
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            designs[filename] = significant_lines(handle.read())
     if not designs:
         print(f"CANNOT SCAN: no design files under {root} to compare the rules against.")
         print("             That is not a pass either, and it is a different cause from")
@@ -193,8 +150,12 @@ def main():
 
     for name, design in inlined:
         print(f"  {name}: inlined verbatim in {design}")
-    for name, reason in unrendered:
-        print(f"  {name}: NOT RENDERED, {reason}")
+    # THE REASON IS NOT ECHOED, for the reason given in the shell guard beside
+    # this one (ovation#120): it is prose from a file we wrote, and this prints
+    # to a terminal, so it is content rather than a filename. Required, never
+    # repeated.
+    for name, _reason in unrendered:
+        print(f"  {name}: NOT RENDERED, with its reason given in the rule file")
     for name, kind, why, _detail in faults:
         print(f"  {name}: {kind}, {why}")
 
