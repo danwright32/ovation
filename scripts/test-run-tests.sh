@@ -63,7 +63,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 85
+harness_begin "test runner lock tests" 86
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -333,6 +333,7 @@ hosted_run() {
     OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
     OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
     OVATION_TEST_COMMAND="true" OVATION_HOSTED_TEST_COMMAND="${1}" \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
     "$TARGET" 2>&1
 }
 hosted_status() { hosted_run "$1" >/dev/null 2>&1; printf '%s' "$?"; }
@@ -349,7 +350,7 @@ pure_run() {
     OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
     OVATION_TEST_FLOOR="${2:-100}" \
     OVATION_TEST_COMMAND="${1}" OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
-    OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
     "$TARGET" 2>&1
 }
 pure_status() { pure_run "$1" "${2:-100}" >/dev/null 2>&1; printf '%s' "$?"; }
@@ -380,6 +381,7 @@ check "an injected command with no floor announces the skip rather than passing 
     "$(OVATION_UNLOCKED_COMMAND=true \
        OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
        OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+       OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
        OVATION_TEST_COMMAND="true" "$TARGET" 2>&1 | grep -c 'Pure count check skipped')" "1"
 
 # THE FLOOR IS A REAL NUMBER ON DISK, not only a seam. A committed floor that
@@ -403,6 +405,7 @@ check "with no hosted command injected, the skip is announced rather than silent
     "$(OVATION_UNLOCKED_COMMAND=true \
        OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
        OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+       OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
        OVATION_TEST_COMMAND="true" "$TARGET" 2>&1 | grep -c 'Hosted suite skipped')" "1"
 
 check "a suite reading its own \$1 is caught" \
@@ -478,6 +481,7 @@ shell_run() {
     OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
     OVATION_TEST_COMMAND="true" \
     OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "$TARGET" 2>&1
 }
 shell_status() { shell_run "${1:-}" >/dev/null 2>&1; printf '%s' "$?"; }
@@ -624,6 +628,7 @@ skip_run() {
     OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
     OVATION_TEST_COMMAND="echo THE-XCODE-PHASE-RAN" \
     OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "$TARGET" 2>&1
 }
 clear_suites
@@ -826,5 +831,41 @@ check "a quiet machine says nothing about other builds" \
     "$(mentions "$OUT156B" "started outside them")" "no"
 check "and it still ran, so the quiet case is not a skipped run" \
     "$(mentions "$OUT156B" "Holding both locks")" "yes"
+
+
+# EVERY INVOCATION OF THE REAL RUNNER SETS BOTH MACHINE SEAMS (ovation#152).
+#
+# An invocation that leaves `OVATION_FLOCK_BIN` or `OVATION_XCODE_PROJECT` unset
+# runs the real ones, and the real ones are whatever this machine happens to have:
+# Homebrew's flock, and a project that exists here and on no fresh clone. The
+# Linux job found both, in two separate rounds, because the failure moves to the
+# next unset seam as each is fixed. This is the seam clearing assertion above, one
+# level in (L284).
+#
+# READ BY LOOKING BACK FROM THE INVOCATION, in python rather than awk: the first
+# version parsed shell functions with awk, mangled its own regex, and reported
+# every helper plus several fragments of syntax as offenders. A guard whose output
+# is unreadable is one nobody can act on (L148).
+TARGET_SUITE="scripts/test-run-tests.sh"
+check "every invocation of the real runner sets flock and the project" \
+    "$(python3 - "$TARGET_SUITE" <<'PYSEAMS'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+# ASSEMBLED FROM PIECES so this program contains no literal instance of what it
+# looks for. Written whole, it matched its own source and reported itself as an
+# offender, which is the same trap `check-ported-artifacts.sh` records (L245).
+needle = "$TARGET" + '" 2>&1'
+missing = []
+for index, line in enumerate(lines):
+    if needle not in line:
+        continue
+    window = "\n".join(lines[max(0, index - 15):index + 1])
+    for seam in ("OVATION_FLOCK_BIN", "OVATION_XCODE_PROJECT"):
+        if seam not in window:
+            missing.append("line %d:%s" % (index + 1, seam))
+print(" ".join(missing))
+PYSEAMS
+)" ""
+
 
 harness_end
