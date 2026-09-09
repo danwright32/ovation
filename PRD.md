@@ -331,6 +331,18 @@ chosen for how it read, which means none of them has been chosen at all. In the 
 surface is the design system's own control, never the platform's default; the committed rendering
 uses a styled textarea and says so as a web idiom.
 
+52g. **An EMPTY message refuses the send, and the screen says what it is waiting on** (Dan,
+2026-09-09, asked the moment 52f settled). Editing in place is what makes an empty message
+reachable, so the freedom and the refusal arrived together: what ships is whatever is in the box,
+and a blank note under an attachment is not a thing Ovation sends on Dan's behalf. It follows 51b
+rather than inventing a second convention: the reason is stated at its cause, under the message,
+the Send is GREYED rather than removed, and the greyed control carries what it is waiting for, so
+it is never a dead end with no reason on it (L109). **Both halves move together**, which is a
+requirement rather than a detail: the first implementation greyed the Send and left the sentence to
+appear only on a later redraw, so the control was disabled with nothing anywhere saying why, and it
+was caught by driving the control rather than by reading it. One sentence, held in one place, so
+what is drawn beside the message and what the Send is waiting on cannot disagree.
+
 ---
 
 ## 6. How it works

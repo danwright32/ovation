@@ -441,6 +441,10 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
                                          color: var(--page-panel);
                                          border-color: var(--page-ink); }
 
+/* The one thing the send is waiting on, and the greyed control it belongs to. */
+.rs-needs { margin-top: 8px; font-size: 12.5px; color: #7A2E20; }
+.rs-send.off { opacity: .45; cursor: default; }
+
 </style>
 </head>
 <body>
@@ -703,9 +707,21 @@ function recipients() {
 }
 
 /* The composed message, editable in place. Whatever is in the box is what
-   ships, which is why every sentence here still owes its cold read (PRD 41a). */
+   ships, which is why every sentence here still owes its cold read (PRD 41a).
+
+   AN EMPTY MESSAGE REFUSES THE SEND (Dan, 2026-09-09). Editing in place is what
+   makes an empty one reachable, so the freedom and the refusal arrived together.
+   It follows 51b rather than inventing a second convention: the screen names the
+   one thing it is waiting on, and the Send is greyed rather than absent. */
 var FULL = "Hello,\n\nThe invoice for the Side by Side concert on 29 August is "
   + "attached. It comes to $762.13 and is due on 12 September.\n\nThank you,\nDan";
+var MESSAGE = FULL;
+
+function messageIsEmpty() { return MESSAGE.trim() === ""; }
+
+/* ONE SENTENCE, said in one place, so what is drawn beside the message and what
+   the Send is waiting on cannot disagree about the same invoice (51b). */
+var WAITING = "The message is empty. Nothing is sent without one.";
 
 function approvals() {
   var wrap = rsEl("rs-fields");
@@ -728,9 +744,25 @@ function approvals() {
   /* A styled textarea is a WEB IDIOM. In the app this is the design system's own
      editing control, never the platform's default (L607). */
   var box = rsEl("rs-msgedit", null, "textarea");
-  box.value = FULL;
+  box.value = MESSAGE;
   box.rows = 8;
+  /* The refusal is live: emptying the box greys the Send while you are looking
+     at it, rather than telling you afterwards. */
+  box.addEventListener("input", function () {
+    var was = messageIsEmpty();
+    MESSAGE = box.value;
+    if (was === messageIsEmpty()) { return; }
+    /* BOTH HALVES MOVE TOGETHER. Greying the Send without saying why leaves a
+       dead control with no reason on it (L109), and it was measured doing
+       exactly that: the sentence only appeared on a full redraw. */
+    var f = document.querySelector(".rs-foot");
+    if (f) { f.replaceChildren.apply(f, Array.prototype.slice.call(sendFoot().children)); }
+    var said = note.querySelector(".rs-needs");
+    if (messageIsEmpty() && !said) { note.append(rsEl("rs-needs", WAITING)); }
+    if (!messageIsEmpty() && said) { said.remove(); }
+  });
   note.append(box);
+  if (messageIsEmpty()) { note.append(rsEl("rs-needs", WAITING)); }
   wrap.append(note);
   return wrap;
 }
@@ -764,6 +796,7 @@ function resetSend() {
   SENDING = null;
   TICK = 0;
   OPENED = false;
+  MESSAGE = FULL;
   redraw();
 }
 
@@ -882,16 +915,30 @@ function buildScreen() {
   inner.append(stage, rail);
   sheet.append(inner);
 
+  sheet.append(sendFoot());
+
+  return finish(main, scrim, sheet);
+}
+
+/* The foot, and the ONE thing it is waiting on. 51b's shape: the reason is
+   stated at its cause, the Send is greyed rather than removed, and the tip on
+   the Send names what it is waiting for, so a disabled control is never a dead
+   end with no reason (L109). */
+function sendFoot() {
   var f = rsEl("rs-foot");
   var cancel = rsEl("rs-cancel", "Cancel", "button");
   cancel.type = "button";
   var send = rsEl("rs-send", "Send", "button");
   send.type = "button";
-  send.addEventListener("click", startSend);
+  if (messageIsEmpty()) {
+    send.disabled = true;
+    send.classList.add("off");
+    send.title = "Waiting on a message.";
+  } else {
+    send.addEventListener("click", startSend);
+  }
   f.append(cancel, send);
-  sheet.append(f);
-
-  return finish(main, scrim, sheet);
+  return f;
 }
 
 function finish(main, scrim, sheet) {
