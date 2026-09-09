@@ -75,6 +75,32 @@ jobs:
             *) exit $status ;;
           esac
 
+      # ovation#172. The design record has one section carrying STATUS, and it
+      # went on calling two settled screens "not designed yet" for as long as
+      # nothing compared it with the tracker. This is the only check that asks
+      # GitHub, so it cannot be a push gate: a gate that refuses on every
+      # machine without a network is one people learn to skip (L376, L571). Here
+      # the token is already present, which is why it runs here and nowhere
+      # else.
+      #
+      # CANNOT MEASURE IS A WARNING, NOT A PASS AND NOT A FAILURE, the same
+      # policy every other suite on this runner gets: a rate limit or a lookup
+      # that failed proves nothing about the record, and calling it green would
+      # be a tick over an unrun check (L98).
+      - name: The design record's open list agrees with the tracker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 scripts/check-design-record-open.sh
+          status=$?
+          set -e
+          case "$status" in
+            0) ;;
+            2) echo "::warning::The design record's open list could not be checked against the tracker. See the log for which issues." ;;
+            *) exit $status ;;
+          esac
+
   # THE SAME SUITES ON LINUX, MEASURED RATHER THAN ASSUMED (ovation#152).
   #
   # The premise of every other job here is that this repository is PUBLIC, where

@@ -50,6 +50,7 @@ check-custody-files.sh	gated	A repo wide guard.
 check-custody-not-staged.sh	gated	A repo wide guard.
 check-design-dead-rules.sh	gated	A repo wide guard.
 check-design-collisions.py	tool-untested	Takes a settled stylesheet and one design round's stylesheet and refuses a class name collision the round did not declare. It is a DESIGN ROUND tool taking two file arguments, not a repo wide guard, so nothing can run it on a schedule. ovation#132 gives it a sibling.
+check-design-record-open.sh	workflow	Run by .github/workflows/ci.yml, and by nothing else, because it is the one check that asks GitHub: a push gate needing a network refuses on every machine without one, which is a gate people learn to skip (L376, L571). test-design-record-open.sh drives it through an injected state reader rather than the real tracker, so a case names the states it is about and closing an issue cannot turn the suite red (ovation#172).
 check-design-rules-inline.sh	gated	A repo wide guard.
 check-design-self-contained.sh	gated	A repo wide guard.
 check-design-shell-inline.sh	gated	A repo wide guard.
@@ -96,6 +97,7 @@ test-ci-workflow.sh	suite
 test-ci-liveness.sh	suite
 test-custody-files.sh	suite	
 test-custody-not-staged.sh	suite	
+test-design-record-open.sh	suite	
 test-design-rules-inline.sh	suite	
 test-design-rules.sh	suite	
 test-design-self-contained.sh	suite	

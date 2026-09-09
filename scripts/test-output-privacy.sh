@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 43
+harness_begin "output privacy tests" 48
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -419,6 +419,50 @@ check "and none when it cannot measure at all" \
     "$(leaks_in "$(OVATION_DESIGN_ROOT="$DEAD_ROOT/nowhere" \
         python3 ./scripts/check-design-dead-rules.sh 2>&1)")" "clean"
 
+# The design record's open list, ovation#172. It prints issue numbers and line
+# numbers, and never the sentence, which is prose and is where a client or a
+# venue would be named. The fixture puts one in the section it reads.
+OPENLIST="$WORK/design-openlist"
+mkdir -p "$OPENLIST"
+cat > "$OPENLIST/README.md" <<MD
+# The design record
+
+## What is still open
+
+The screen for $CLIENT at $VENUE is ovation#100 and ovation#101.
+MD
+cat > "$WORK/openlist-reader.sh" <<'SH'
+#!/bin/bash
+  [ "$1" = "100" ] && { printf 'OPEN'; exit 0; }
+  printf 'CLOSED'
+SH
+chmod +x "$WORK/openlist-reader.sh"
+check "the design record status check prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$OPENLIST" \
+        OVATION_ISSUE_STATE_COMMAND="bash $WORK/openlist-reader.sh {n}" \
+        python3 ./scripts/check-design-record-open.sh 2>&1)")" "clean"
+check "and none when it cannot measure" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$OPENLIST/nowhere" \
+        python3 ./scripts/check-design-record-open.sh 2>&1)")" "clean"
+
+# The CI liveness watcher, ovation#155. It prints two instants, a grace period
+# and a verdict, and it is in the set for the reason above rather than because
+# anybody thought a date could name a client. The dates are fed in, so all three
+# of its outcomes are reachable here.
+check "the CI liveness watcher prints no identity when it passes" \
+    "$(leaks_in "$(OVATION_CI_NOW=2026-09-09T12:00:00Z \
+        OVATION_CI_LAST_SUCCESS=2026-09-09T11:00:00Z \
+        OVATION_CI_LAST_COMMIT=2026-09-09T10:00:00Z \
+        ./scripts/check-ci-liveness.sh 2>&1)")" "clean"
+check "and none when it refuses" \
+    "$(leaks_in "$(OVATION_CI_NOW=2026-09-09T12:00:00Z \
+        OVATION_CI_LAST_SUCCESS=2026-09-01T11:00:00Z \
+        OVATION_CI_LAST_COMMIT=2026-09-08T10:00:00Z \
+        ./scripts/check-ci-liveness.sh 2>&1)")" "clean"
+check "and none when it cannot measure" \
+    "$(leaks_in "$(OVATION_CI_NOW=2026-09-09T12:00:00Z \
+        ./scripts/check-ci-liveness.sh 2>&1)")" "clean"
+
 # ---------------------------------------------------------------------------
 # The live data bracket. It prints watched PATHS relative to Application
 # Support, which are Ovation's own filenames, never a client's.
@@ -501,7 +545,12 @@ check "and none when it refuses because nothing was issued" \
 # pointed at a fixture above.
 # ---------------------------------------------------------------------------
 . scripts/lib/script-roles.sh
-MUST_BE_COVERED="$( { roles_with gated; roles_with reads-real-data; } | sort -u | tr '\n' ' ' | sed 's/ $//')"
+# WORKFLOW SCRIPTS ARE IN THE SET TOO (ovation#172). This repository is
+# PUBLIC on purpose, so a CI log is a published document and a script that
+# only ever runs in a workflow prints somewhere MORE public than a gated one,
+# not less. Leaving them out was a habit rather than a decision, and a
+# category exempted for no recorded reason has no reviewer at all (L129).
+MUST_BE_COVERED="$( { roles_with gated; roles_with reads-real-data; roles_with workflow; } | sort -u | tr '\n' ' ' | sed 's/ $//')"
 # What this suite actually exercises, read from its own text rather than
 # declared beside it, so the two cannot drift (L70).
 EXERCISED="$(grep -oE './scripts/(check|measure)-[a-z-]+\.(sh|py)' "$0" \

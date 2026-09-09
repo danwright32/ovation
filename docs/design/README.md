@@ -261,11 +261,27 @@ not define, and a disclosure triangle that arrived as broken characters because 
 typed glyph rather than a drawn one. **The triangle is now drawn in CSS and the whole file
 is pure ASCII**, so no pipe between here and a browser can mangle it.
 
+**The section below is the one place in this record that carries STATUS rather than decisions, and
+it is checked rather than trusted.** `scripts/check-design-record-open.sh` reads every `ovation#`
+the section names and asks the tracker whether that issue is still open; one that is closed is a
+refusal naming the line it is on. It exists because the section went on calling the invoice screen
+and the review and send screen "not designed yet" after both were settled, closed and recorded
+further down this same file, and the same drift put a false claim into an issue body: see
+ovation#172, which is why this paragraph sits ABOVE the heading rather than inside it. The check
+runs in CI rather than on every push, because it asks GitHub and a gate that refuses on every
+machine without a network is one people learn to skip.
+
 ## What is still open
 
-`ovation#95` where the venue and shoot times live. The receipts queue (`ovation#100`) is the only
-screen not designed yet. The invoice screen (`ovation#111`) and the review and send screen
-(`ovation#101`) are both settled and committed here.
+Where the venue and the real shoot times live, `ovation#95`. The receipts queue, `ovation#100`, is
+the only screen not designed at all. How money held on a client appears is `ovation#98`, which
+`clients.html` deliberately leaves until the Clients screen is settled as a whole.
+
+## What was open here and is now settled
+
+**Everything below was in the section above and is not any more.** It is kept rather than deleted,
+because what a decision REPLACED is part of the decision, and moved rather than left, because the
+heading above is read as a list of what is outstanding.
 
 **`ovation#18`, the app icon, is settled and shipped (2026-09-07).** It was listed here as
 waiting on the palette, and the palette is what it waited for: the artwork is a cream paper
