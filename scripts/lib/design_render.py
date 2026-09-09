@@ -39,21 +39,32 @@ import tempfile
 # knew only the Mac one would answer "no browser" on the runner: the check would
 # go on printing CANNOT MEASURE, which is honest, reads as normal, and is the
 # exact state ovation#160 exists to end.
-BROWSER_GLOBS = [
-    # macOS
-    os.path.expanduser("~/Library/Caches/ms-playwright/chromium_headless_shell-*/"
-                       "chrome-headless-shell-mac-arm64/chrome-headless-shell"),
-    os.path.expanduser("~/Library/Caches/ms-playwright/chromium-*/"
-                       "chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    # Linux
-    os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-*/"
-                       "chrome-linux/headless_shell"),
-    os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
-    "/usr/bin/chromium-browser",
-    "/usr/bin/chromium",
-    "/usr/bin/google-chrome",
-]
+#
+# COMPUTED WHEN IT IS ASKED, not once at import. `expanduser` bound at module
+# level takes the HOME of whoever imported this and keeps it for the life of the
+# process, which is the parameter without the replaceability (L394): nothing
+# could then point the lookup at a planted browser to test it.
+def browser_globs():
+    home = os.path.expanduser("~")
+    return [
+        # What playwright installed, on either platform, and FIRST: it is the
+        # browser the checks were calibrated against, and a machine that has
+        # both should not be judged by whichever one happens to be listed
+        # earlier.
+        os.path.join(home, "Library/Caches/ms-playwright/chromium_headless_shell-*/"
+                           "chrome-headless-shell-mac-arm64/chrome-headless-shell"),
+        os.path.join(home, "Library/Caches/ms-playwright/chromium-*/"
+                           "chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
+        os.path.join(home, ".cache/ms-playwright/chromium_headless_shell-*/"
+                           "chrome-linux/headless_shell"),
+        os.path.join(home, ".cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+        # Then whatever the machine itself has.
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/usr/bin/google-chrome",
+    ]
+
 
 NO_BROWSER = ("CANNOT MEASURE: no headless browser found. This check renders the design "
               "file and reads back what it drew, so with nothing to render it in there "
@@ -77,7 +88,7 @@ def find_browser():
             raise CannotMeasure("OVATION_HEADLESS_BROWSER names %s, which is not there"
                                 % named)
         return named
-    for pattern in BROWSER_GLOBS:
+    for pattern in browser_globs():
         found = sorted(glob.glob(pattern))
         if found:
             return found[-1]

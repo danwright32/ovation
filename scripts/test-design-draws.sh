@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 28
+harness_begin "design rendering checks" 35
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -143,5 +143,68 @@ check "a browser that is not there cannot measure, and is not a pass" \
 check "and says so rather than reporting health" \
     "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" \
         docs/design/invoice-pdf.html 2>&1 | grep -c 'CANNOT MEASURE')" "1"
+
+# ---------------------------------------------------------------------------
+# THE BROWSER LOOKUP KNOWS BOTH PLATFORMS (ovation#160).
+#
+# These checks now run on the Linux CI job as well as on Dan's Mac, and
+# playwright puts its browsers under a different cache root and a different per
+# platform directory on each. A lookup that knew only the Mac paths would answer
+# "no browser" on the runner, so all three checks would go on printing CANNOT
+# MEASURE while the workflow looked correct: honest, reading as normal, and the
+# exact state ovation#160 exists to end (L400, L98).
+#
+# THE PLANTED BROWSER IS NEVER RUN. What is under test is where the lookup
+# LOOKS, so each case plants an executable file at a real playwright path and
+# asserts the lookup returns it.
+found_under() {
+    # $1 a HOME to search from. Prints the path found, or "nothing".
+    HOME="$1" python3 - <<'PYEOF'
+import os, sys
+sys.path.insert(0, os.path.join(os.getcwd(), "scripts/lib"))
+from design_render import find_browser
+print(find_browser() or "nothing")
+PYEOF
+}
+
+LINUX_HOME="$WORK/linux-home"
+LINUX_AT="$LINUX_HOME/.cache/ms-playwright/chromium_headless_shell-1200/chrome-linux"
+mkdir -p "$LINUX_AT"
+printf '#!/bin/sh\nexit 9\n' > "$LINUX_AT/headless_shell"
+chmod +x "$LINUX_AT/headless_shell"
+check "the lookup finds a browser where playwright puts it on Linux" \
+    "$(found_under "$LINUX_HOME")" "$LINUX_AT/headless_shell"
+
+MAC_HOME="$WORK/mac-home"
+MAC_AT="$MAC_HOME/Library/Caches/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-mac-arm64"
+mkdir -p "$MAC_AT"
+printf '#!/bin/sh\nexit 9\n' > "$MAC_AT/chrome-headless-shell"
+chmod +x "$MAC_AT/chrome-headless-shell"
+check "and where it puts one on macOS" \
+    "$(found_under "$MAC_HOME")" "$MAC_AT/chrome-headless-shell"
+
+# The refusal is a raised CannotMeasure, so python prints the message twice: once
+# in the traceback's source line and once as the exception. Both lines are the
+# refusal; what matters is that a browser IS on this machine and was not
+# returned (L320).
+check "a NAMED browser that is not there is refused, never fallen back from" \
+    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" found_under "$LINUX_HOME" 2>&1 \
+        | grep -c 'which is not there')" "2"
+
+# ---------------------------------------------------------------------------
+# AND THE LINUX JOB ACTUALLY RUNS THEM (ovation#160). A workflow that installs a
+# browser and never uses it, or uses it and never proves it is there, is the
+# same silence in a different place.
+# ---------------------------------------------------------------------------
+WORKFLOW=".github/workflows/ci.yml"
+check "the Linux job installs a headless browser" \
+    "$(grep -c 'playwright@[0-9.]* install' "$WORKFLOW")" "1"
+check "on a pinned version, so an upgrade is a change somebody made" \
+    "$(grep -c 'playwright@1\.63\.0 install' "$WORKFLOW")" "1"
+check "and the browser download is cached on that version" \
+    "$(grep -c 'key: playwright-1\.63\.0-chromium' "$WORKFLOW")" "1"
+check "and every rendered check is named as running there" \
+    "$(grep -cE '^ *python3 scripts/check-(design-draws|invoice-screen-draws|design-tokens-resolve)\.sh$' \
+        "$WORKFLOW")" "3"
 
 harness_end
