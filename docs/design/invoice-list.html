@@ -107,15 +107,6 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
   --rail-card-bg: #4D3E35; --rail-card-bd: #62554D; --rail-card-hd: #D4D0CE;
   --rail-card-ln: #DCD9D7; --rail-card-b: #F7F7F6;
   --rail-st-bd: #5A4D45; --rail-fault: #F3F2F2; --rail-read: #E2BC82; --rail-dim: #C4BFBC;
-  /* The date column is 152px, up from 104px, because a combined invoice shows
-     a SPAN and a span does not fit in 104. Measured in the browser, not
-     guessed: "2 to 6 Sep 2026" needs 113px and "28 Sep to 3 Oct 2026" needs
-     150px, against 75px for a single date. It must be a FIXED width: each row
-     is its own grid, so an auto column is sized per row and the dates and
-     amounts stop lining up down the list, which was tried and measured at four
-     different left edges. The year is printed once, at the end, which is what
-     keeps the worst case at 150 rather than the 188 a range carrying both
-     years would need. */
   /* THE ACTION COLUMN IS AT ITS FLOOR, 132px to 84px, settled 2026-09-09.
      The shoot carrying the weight (see .row .sub) stopped the first column
      fitting: Harbor Light Opera's row filled its 336px exactly, to one pixel,
@@ -132,13 +123,6 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
      close the last 9px, the client giving way instead and the window widening
      to 1216px, and took neither: "the action column gives everything it has
      and that is the end of it." So a long title ellipsises, deliberately. */
-  --cols: minmax(0,1fr) 152px 44px 88px 84px;
-  /* The 48px the date column gained is taken back from the two columns that
-     were over reserving, not from the names. Measured: the invoice number
-     column held 58px for content needing 38px, and still needs only 38 at five
-     digits; the amount column held 104px where "123,456.00" needs 76. An over
-     reservation fails no test and breaks nothing, it simply stops the neighbour
-     growing, which is why it survives unnoticed. */
 }
 
 
@@ -183,6 +167,72 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 
 .main { background: var(--bg); display: flex; flex-direction: column; min-width: 0; overflow: visible; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px 12px; border-bottom: 1px solid var(--rule); flex: none; }
+.toolbar h4 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 29px; font-weight: 400; color: var(--ink); line-height: 1; }
+.toolbar .meta { font-size: 12px; color: var(--faint); font-weight: 500; }
+.scroll { flex: 1; min-height: 0; }
+
+
+.act { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; white-space: nowrap; }
+
+
+
+/* ============================================================
+   C1 AND C2 TOGETHER. The colour lives permanently in the rail,
+   and the row you are on picks it up from there, so the list
+   itself stays bare until you touch it.
+
+   A dark rail has a dozen interior colours a light one does not,
+   so all six below are generated and every one of them audited:
+   72 contrast checks, all clearing 4.5 to 1, worst 4.83.
+   ============================================================ */
+.side { background: var(--rail); border-right-color: var(--rail-bd); }
+.side .item { color: var(--rail-item); }
+.side .item.on { background: var(--rail-on-bg); color: var(--rail-on-tx); }
+.card { background: var(--rail-card-bg); border-color: var(--rail-card-bd); }
+.card .hd { color: var(--rail-card-hd); }
+.card .ln { color: var(--rail-card-ln); }
+.card .ln b { color: var(--rail-card-b); }
+.status { border-top-color: var(--rail-st-bd); }
+.status .fault { color: var(--rail-fault); }
+.status .fault .read { color: var(--rail-read); }
+.status .also, .status .looked { color: var(--rail-dim); }
+
+/* ============================================================
+   THE INVOICE LIST ITSELF, and it is NOT part of the shell
+   (ovation#179). The column headers, the row, the run marks and
+   the idle disclosures used to live in shell/window.css, and
+   `--cols` in shell/palette.css, so every screen carried them and
+   only this one drew them: measured 2026-09-09, `.row` matched 13
+   elements here and none at all in clients.html, invoice.html or
+   review-send.html. Four rounds on this screen the same day
+   changed two shell parts and had to be pasted into three files
+   the change could not affect.
+
+   THE SHELL IS THE WINDOW CHROME. A screen's own furniture lives
+   with the screen. `.toolbar`, `.scroll` and `.act` stayed in the
+   shell because Clients draws them too.
+
+   `--cols` is redeclared on `.screen`, where the palette it left
+   is declared, so the rules below resolve it exactly as before.
+   ============================================================ */
+.screen {
+  /* The date column is 152px, up from 104px, because a combined invoice shows
+     a SPAN and a span does not fit in 104. Measured in the browser, not
+     guessed: "2 to 6 Sep 2026" needs 113px and "28 Sep to 3 Oct 2026" needs
+     150px, against 75px for a single date. It must be a FIXED width: each row
+     is its own grid, so an auto column is sized per row and the dates and
+     amounts stop lining up down the list, which was tried and measured at four
+     different left edges. The year is printed once, at the end, which is what
+     keeps the worst case at 150 rather than the 188 a range carrying both
+     years would need. */
+  /* The 48px the date column gained is taken back from the two columns that
+     were over reserving, not from the names. Measured: the invoice number
+     column held 58px for content needing 38px, and still needs only 38 at five
+     digits; the amount column held 104px where "123,456.00" needs 76. An over
+     reservation fails no test and breaks nothing, it simply stops the neighbour
+     growing, which is why it survives unnoticed. */
+  --cols: minmax(0,1fr) 152px 44px 88px 84px;
+}
  /* THE COLUMN HEADERS, settled 2026-09-09. Dan asked for them, then chose
     every column against three lighter options: the four data columns only,
     the two ambiguous ones only, and the amount alone. He named the first
@@ -201,10 +251,6 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
  .colhead { display: grid; grid-template-columns: var(--cols); gap: 14px; padding: 10px 24px 7px; border-bottom: 1px solid var(--rule); flex: none; }
  .colhead > div { font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
  .colhead .amt-h, .colhead .end-h { text-align: right; }
-.toolbar h4 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 29px; font-weight: 400; color: var(--ink); line-height: 1; }
-.toolbar .meta { font-size: 12px; color: var(--faint); font-weight: 500; }
-.scroll { flex: 1; min-height: 0; }
-
 .row { display: grid; grid-template-columns: var(--cols); gap: 14px; align-items: baseline; padding: 8px 24px; border-bottom: 1px solid var(--rule-soft); font-size: 15px; color: var(--ink); }
 .row .who { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
 /* THE SHOOT CARRIES THE WEIGHT, NOT THE CLIENT. Settled 2026-09-09 by Dan,
@@ -238,10 +284,8 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
    colour back out of the browser, not by looking: the words were there and
    the row looked finished. */
 .row .amt.word { color: var(--quiet); font-weight: 400; }
-
 .row .end { display: flex; justify-content: flex-end; align-items: baseline; gap: 11px; }
 .age { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; font-weight: 500; color: var(--soft); font-variant-numeric: tabular-nums; }
-.act { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; white-space: nowrap; }
 .said { font-size: 12.5px; color: var(--faint); white-space: nowrap; }
 /* A combined invoice names its LAST shoot, because that is the shoot the
    invoice is dated by, and says how many others it covers. Same mono face as
@@ -250,16 +294,10 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .row.idle { color: var(--quiet); }
 .row.idle .client { font-weight: 500; color: var(--quiet); }
 .row.idle .amt { color: var(--quiet); font-weight: 400; }
-
-/* N2. A hairline where the run changes. Rhythm, no words. */
-.N2 .row.runstart { border-top: 1px solid var(--rule); }
-.N2 .row.runstart:first-child { border-top: 0; }
-
 /* N3. The run's total and nothing else: keeps the money, drops the words. */
 .N3 .brk { display: grid; grid-template-columns: var(--cols); gap: 14px; padding: 14px 24px 5px; border-top: 1px solid var(--rule); }
 .N3 .brk:first-child { border-top: 0; padding-top: 6px; }
 .N3 .brk .sum { grid-column: 4; text-align: right; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
-
 /* the idle groups get air rather than a label: "Paid or cleared" and
    "Cancelled" already say they need nothing. */
 .disc.firstidle { margin-top: 16px; border-top: 1px solid var(--rule); }
@@ -270,30 +308,11 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .disc .sum { grid-column: 4; text-align: right; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .disc .tri { flex: none; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid var(--faint); }
 .disc.open .tri { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid var(--faint); border-bottom: 0; }
-/* ============================================================
-   C1 AND C2 TOGETHER. The colour lives permanently in the rail,
-   and the row you are on picks it up from there, so the list
-   itself stays bare until you touch it.
-
-   A dark rail has a dozen interior colours a light one does not,
-   so all six below are generated and every one of them audited:
-   72 contrast checks, all clearing 4.5 to 1, worst 4.83.
-   ============================================================ */
-.side { background: var(--rail); border-right-color: var(--rail-bd); }
-.side .item { color: var(--rail-item); }
-.side .item.on { background: var(--rail-on-bg); color: var(--rail-on-tx); }
-.card { background: var(--rail-card-bg); border-color: var(--rail-card-bd); }
-.card .hd { color: var(--rail-card-hd); }
-.card .ln { color: var(--rail-card-ln); }
-.card .ln b { color: var(--rail-card-b); }
-.status { border-top-color: var(--rail-st-bd); }
-.status .fault { color: var(--rail-fault); }
-.status .fault .read { color: var(--rail-read); }
-.status .also, .status .looked { color: var(--rail-dim); }
 /* C2: the row you are on takes the rail's colour */
 /* tint only: a left bar flush against a dark rail is invisible, and a tint
    is what macOS uses for selection regardless */
 .row.sel { background: var(--selbg); }
+
 
 </style>
 

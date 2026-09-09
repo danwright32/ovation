@@ -98,8 +98,25 @@ how it read, which means none of them has been chosen at all.
 `scripts/check-design-shell-inline.sh` refuses any file whose copy has drifted from them. It runs
 in the ordinary suite and on every push. The parts are `fonts.css` (the four embedded faces),
 `reset.css` (box sizing), `chrome.css` (the desktop and the menu bar), `palette.css` (the twenty
-seven colour tokens and the column widths) and `window.css` (the window, the espresso sidebar with
-its card and status, the title bar, the toolbar and the list row).
+seven colour tokens) and `window.css` (the window, the espresso sidebar with its card and status,
+the title bar, and the content area's toolbar and scroll region).
+
+**THE SHELL IS THE WINDOW CHROME, AND NOT ANY SCREEN'S CONTENT** (ovation#179, settled 2026-09-09).
+`window.css` used to hold the invoice list's column headers, rows, run marks and disclosures, and
+`palette.css` held `--cols`, the column widths they are laid out on. So settling a question about
+ONE screen was an edit to a file every screen copies: four rounds on the invoice list on 2026-09-09
+changed two shell parts and had to be pasted into three files the change could not affect.
+
+Measured rather than argued, by rendering each file and asking the browser which of those rules
+matched anything: `.row` drew 13 rows in `invoice-list.html` and nothing at all in `clients.html`,
+`invoice.html` or `review-send.html`. Those 29 rules and `--cols` now live in the one file that
+draws them, with the rounds' own reasoning beside them. `.toolbar`, `.scroll` and `.act` stayed in
+the shell, because Clients draws all three.
+
+Nothing moved: every element of all five files was rendered before and after and compared on box,
+colour, background, type, weight, borders and grid columns. The rejected run mark option `.N2` went
+with the move, because outside the shell's exemption `check-design-dead-rules.sh` could see it, and
+only `N3` is ever applied.
 
 **Each file carries its own VERBATIM copy rather than a `<link>`**, because a design file may reach
 outside itself never, which the check above enforces. Two copies of one thing with nothing comparing
