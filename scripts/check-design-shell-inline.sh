@@ -190,8 +190,17 @@ def main():
         print("A design file cannot load shell/, so it carries its own copy. A")
         print("correction made to one copy and not the others is invisible: every")
         print("file goes on rendering, and the fault is found by looking at a")
-        print("screen and wondering why something is the wrong width. Paste the")
-        print("part back into the file, or say in the file why it carries none.")
+        print("screen and wondering why something is the wrong width.")
+        print("")
+        print("    scripts/write-design-shell.sh")
+        print("")
+        print("writes each part into every file that declares it, patching the")
+        print("code lines and leaving the file's own comments where they are. It")
+        print("is a real remedy rather than a sentence: this used to end with")
+        print("\"paste the part back into the file\", nothing pasted, and keeping")
+        print("five files in step was careful copying by whoever was on it")
+        print("(ovation#177, L406). A file that should carry none of a part says")
+        print("so in its own words instead, with the reason.")
         return 1
 
     print(f"OK: {len(parts)} shell part(s) checked against {len(designs)} design "

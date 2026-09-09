@@ -122,6 +122,14 @@ only `N3` is ever applied.
 outside itself never, which the check above enforces. Two copies of one thing with nothing comparing
 them is what this is for.
 
+**And something WRITES it.** `scripts/write-design-shell.sh` puts each part into every file that
+declares it, so keeping five copies in step is a command rather than careful copying. It patches the
+CODE lines by diff and leaves everything else where it is, because these copies are not plain
+copies: `invoice-list.html` interleaves its rounds' own decision records among the shell's rules,
+and a wholesale replacement would delete the most expensive thing in the file. A copy it cannot
+locate is a refusal rather than an insertion at a guessed place. The check above names it in its
+refusal; it used to end with "paste the part back into the file", and nothing pasted (ovation#177).
+
 **Nothing was harmonised to build it.** The parts were measured out of the three files as the runs
 they already agreed on, byte for byte, so the extraction moved no CSS and all four files render
 pixel for pixel identically to how they rendered before it (checked, not assumed: each was rendered
