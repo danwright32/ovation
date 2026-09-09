@@ -60,7 +60,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          last_success="$(gh run list --workflow CI --branch main --status success \
+          # BY FILE NAME, NEVER BY DISPLAY NAME. This workflow is called "CI
+          # liveness" and the one it watches is called "CI", so a name lookup is
+          # one rename away from this reading its OWN runs: a watchdog judged by
+          # the instrument it applies to the work marks itself unhealthy with its
+          # own correct alarm and can never clear it (L71). `ci.yml` cannot become
+          # ambiguous.
+          last_success="$(gh run list --workflow ci.yml --branch main --status success \
             --limit 1 --json updatedAt --jq '.[0].updatedAt // empty')"
           last_commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" \
             --jq '.commit.committer.date')"

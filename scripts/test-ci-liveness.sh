@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ci liveness tests" 18
+harness_begin "ci liveness tests" 21
 
 TARGET="scripts/check-ci-liveness.sh"
 require_target "$TARGET"
@@ -104,5 +104,23 @@ check "an unparseable run date does not become a BLOCKED verdict" \
 # ---------------------------------------------------------------------------
 check "an offset date is understood rather than refused" \
     "$(status_of "2026-09-09T07:00:00-04:00" "2026-09-09T06:00:00-04:00")" "0"
+
+
+# ---------------------------------------------------------------------------
+# 7. THE WATCHDOG MUST NOT READ ITS OWN RUNS (L71). This workflow is called
+#    "CI liveness" and the one it watches is called "CI", so a lookup by DISPLAY
+#    name is one rename away from watching itself, and a watchdog judged by the
+#    instrument it applies to the work marks itself unhealthy with its own
+#    correct alarm and can never clear it. The file name cannot become ambiguous.
+#
+#    Asserted on the workflow file because that is where the query lives, and the
+#    query is the whole of the coupling.
+WORKFLOW=".github/workflows/ci-liveness.yml"
+check "the liveness workflow exists to be read" \
+    "$([ -f "$WORKFLOW" ] && echo yes || echo no)" "yes"
+check "and it asks for the watched workflow by FILE name" \
+    "$(grep -c -- '--workflow ci.yml' "$WORKFLOW")" "1"
+check "and never by display name, which two workflows can share a prefix of" \
+    "$(grep -c -- '--workflow CI' "$WORKFLOW")" "0"
 
 harness_end
