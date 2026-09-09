@@ -64,6 +64,23 @@ exempt filenames inside the guard, because a guard naming its exceptions stops c
 a second file satisfies the same reason. A file that declares it carries no shell and then carries
 it anyway is refused, so the exemption cannot outlive its reason.
 
+**A second guard came out of that fix**, `scripts/check-design-tokens-resolve.sh`. It renders every
+design file and asks each element what the colour tokens its rules NAME actually resolved to, because
+a token that is referenced but never defined leaves no error and no mark: the declaration goes on
+reading as correct and the fault is that something is not drawn. **It would not have caught the
+original fault, and that was measured rather than assumed.** Both files were rebuilt with the palette
+put back on `.win` and both passed: `invoice-list.html` because nothing outside the window names a
+token at all, and `invoice.html` because the Edit chip that named `var(--accent)` is only in the page
+while the menu is OPEN, and a file rendered at rest does not draw it. What it does hold is every
+token named by a rule that is drawing right now, which is the same fault on the surface a person is
+actually looking at. Closing the rest means driving each file into the states it can be in before
+measuring, which belongs to ovation#141.
+
+**It also counts the rules that match nothing**, and the count is large: 154 in `invoice.html` and 16
+in `invoice-list.html` on 2026-09-09. Some are states the file is not currently in, and some are the
+switcher's own chrome (`.tab`, `.notice`, `.readout`, `.verdict`) left behind when the chooser was
+stripped out, which is ovation#148.
+
 **What is not done yet is ovation#132**, the other half: nothing stops a screen redefining a shell
 class, which is how `.nrow` (already the Clients names column) came to be reused by the narrowed
 invoice list and reached rows it was never written for. Measured on 2026-09-09, against the shell's

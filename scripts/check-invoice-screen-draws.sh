@@ -31,27 +31,15 @@ checked" must never be the same answer (L98).
 Exit codes: 0 every claim held, 1 a claim failed, 2 used wrongly, 3 cannot
 measure. Set OVATION_HEADLESS_BROWSER to name the browser binary.
 """
-import glob
-import json
 import os
-import re
-import subprocess
 import sys
-import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+
+from design_render import CannotMeasure, NO_BROWSER, find_browser, render  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_FILE = os.path.join(REPO, "docs/design/invoice.html")
-
-# Where playwright puts the headless shell. Named as a glob rather than a pinned
-# version, because the version moves with whatever last installed it and a check
-# that goes quiet after an upgrade is worse than one that is not there.
-BROWSER_GLOBS = [
-    os.path.expanduser("~/Library/Caches/ms-playwright/chromium_headless_shell-*/"
-                       "chrome-headless-shell-mac-arm64/chrome-headless-shell"),
-    os.path.expanduser("~/Library/Caches/ms-playwright/chromium-*/"
-                       "chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-]
 
 # The probe. It runs INSIDE the rendered page and reports what the page drew.
 #
@@ -448,45 +436,6 @@ def fail(message, code=2):
     sys.exit(code)
 
 
-def find_browser():
-    named = os.environ.get("OVATION_HEADLESS_BROWSER", "").strip()
-    if named:
-        if not os.path.isfile(named):
-            fail("OVATION_HEADLESS_BROWSER names %s, which is not there" % named, 3)
-        return named
-    for pattern in BROWSER_GLOBS:
-        found = sorted(glob.glob(pattern))
-        if found:
-            return found[-1]
-    return None
-
-
-def render(browser, path):
-    with open(path, encoding="utf-8") as handle:
-        page = handle.read()
-    holder = tempfile.mkdtemp(prefix="ovation-draws-")
-    probed = os.path.join(holder, "probed.html")
-    with open(probed, "w", encoding="utf-8") as handle:
-        handle.write(page + PROBE)
-    try:
-        done = subprocess.run(
-            [browser, "--headless", "--disable-gpu", "--virtual-time-budget=6000",
-             "--window-size=1440,1200", "--dump-dom", "file://" + probed],
-            capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.TimeoutExpired) as err:
-        fail("the browser could not render the page: %s" % err, 3)
-    found = re.search(r'<pre id="ovation-probe">(.*?)</pre>', done.stdout, re.S)
-    if not found:
-        fail("the page rendered but the probe wrote nothing, so nothing was measured "
-             "(browser exit %d)" % done.returncode, 3)
-    body = found.group(1).replace("&quot;", '"').replace("&lt;", "<")
-    body = body.replace("&gt;", ">").replace("&amp;", "&")
-    try:
-        return json.loads(body)
-    except ValueError as err:
-        fail("the probe's report could not be read: %s" % err, 3)
-
-
 def main(argv):
     if len(argv) > 2:
         fail(__doc__.strip().splitlines()[2].strip())
@@ -494,17 +443,18 @@ def main(argv):
     if not os.path.isfile(path):
         fail("the design file is not there: %s" % path)
 
-    browser = find_browser()
+    try:
+        browser = find_browser()
+    except CannotMeasure as err:
+        fail(str(err), 3)
     if browser is None:
-        print("CANNOT MEASURE: no headless browser found. This check renders the design "
-              "file and reads back what it drew, so with nothing to render it in there "
-              "is no answer to give, and reporting one would be a green tick over an "
-              "unrun check.")
-        print("  Install one with: npx playwright install chromium")
-        print("  Or name one:      OVATION_HEADLESS_BROWSER=/path/to/chrome")
+        print(NO_BROWSER)
         return 3
 
-    report = render(browser, path)
+    try:
+        report = render(browser, path, PROBE)
+    except CannotMeasure as err:
+        fail(str(err), 3)
     claims = report.get("claims", {})
     if not claims:
         fail("the probe reported no claims at all, so nothing was measured", 3)
