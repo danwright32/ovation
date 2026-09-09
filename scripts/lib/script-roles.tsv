@@ -31,6 +31,13 @@
 #                  declared away.
 #   reads-real-data  A tool that opens Dan's real records. Must have a sibling
 #                  AND privacy coverage, because it prints to a terminal.
+#   workflow       Run by a GitHub workflow rather than by the push gate, a
+#                  person, or run-tests.sh. Must be NAMED by some workflow file
+#                  and covered by a suite. It is its own role rather than `tool`
+#                  because the obligation differs: nothing on this Mac runs it,
+#                  so a suite is the only thing that ever will, and a role that
+#                  misdescribed who runs it is the exact habit this file exists
+#                  to replace (ovation#155).
 #
 build-app-icon.sh	tool	Regenerates the committed icon catalog from icon/ovation-app-icon.png. Run by hand when the artwork changes, and never by the build, so a machine without Pillow can still build the app. test-app-icon-current.sh drives it against throwaway artwork, and check-app-icon-current.sh holds the committed catalog to it (ovation#102).
 build-install.sh	tool	Builds and installs the app. Dan runs the installs himself (2026-08-28), so nothing automated may call it. test-build-install.sh drives it against stubs.
@@ -38,6 +45,7 @@ build-products.sh	tool	Takes minutes to build both configurations, so no push ma
 check-app-icon-current.sh	gated	A repo wide guard.
 check-booking-queue.sh	gated	A repo wide guard.
 check-ci-workflow.sh	gated	A repo wide guard.
+check-ci-liveness.sh	workflow	Run by .github/workflows/ci-liveness.yml on a schedule and on every push to main. It judges whether a commit has landed that no successful CI run has followed; test-ci-liveness.sh drives it with dates rather than by pushing and waiting (ovation#155).
 check-custody-files.sh	gated	A repo wide guard.
 check-custody-not-staged.sh	gated	A repo wide guard.
 check-design-collisions.py	tool-untested	Takes a settled stylesheet and one design round's stylesheet and refuses a class name collision the round did not declare. It is a DESIGN ROUND tool taking two file arguments, not a repo wide guard, so nothing can run it on a schedule. ovation#132 gives it a sibling.
@@ -79,6 +87,7 @@ test-bundle-icon-checks.sh	suite
 test-bundle-identity-checks.sh	suite	
 test-check-ported-artifacts.sh	suite	
 test-ci-workflow.sh	suite	
+test-ci-liveness.sh	suite
 test-custody-files.sh	suite	
 test-custody-not-staged.sh	suite	
 test-design-rules-inline.sh	suite	

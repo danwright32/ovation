@@ -1,0 +1,141 @@
+name: CI liveness
+
+# ovation#155. CI that has stopped is the slowest test suite there is, and it
+# stops quietly: no red build, no notification, just an absence that looks exactly
+# like a repository nobody is pushing to (L314, L98).
+#
+# WHAT IT ACTUALLY ASKS is whether a COMMIT has landed that no successful run has
+# followed. "No run for N days" would fire on every quiet fortnight, and an alarm
+# that fires on the normal case is one nobody reads (L36). The judgement lives in
+# scripts/check-ci-liveness.sh so it can be tested with dates rather than by
+# pushing and waiting; this file only gathers the two dates and acts on the
+# verdict.
+#
+# THE RECURSION IS REAL AND IS NOT SOLVED HERE. A scheduled workflow that watches
+# the workflows is itself a workflow that can stop, and GitHub disables scheduled
+# workflows in a repository with no activity for 60 days. That is why this also
+# runs on every push to main: while work is happening it is exercised constantly,
+# and its own failure shows up in the checks of the push that ran it. If nothing
+# is pushed for 60 days, this stops too, and nothing here can report that. Said
+# out loud rather than left for somebody to discover.
+#
+# IT OPENS ONE ISSUE AND ONLY ONE. An automated job that creates a named outside
+# thing collides with its own previous output for as long as that output sits
+# unconsumed (L393), so it comments on the open issue rather than filing a second.
+
+on:
+  schedule:
+    # Daily, which is far more often than the condition can change and cheap
+    # enough not to matter. The GRACE PERIOD rather than this cadence is what
+    # stops it firing on a run in flight.
+    - cron: '17 13 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: ci-liveness
+  cancel-in-progress: false
+
+jobs:
+  liveness:
+    name: Has CI run since the newest commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # THE TWO DATES, each read from the system that owns it. The last
+      # successful run comes from the Actions API rather than from a file this
+      # repository writes, because two systems that must agree cannot be verified
+      # against a record one of them wrote into the other (L58).
+      - name: Gather the dates
+        id: dates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          last_success="$(gh run list --workflow CI --branch main --status success \
+            --limit 1 --json updatedAt --jq '.[0].updatedAt // empty')"
+          last_commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" \
+            --jq '.commit.committer.date')"
+          echo "last_success=${last_success}" >> "$GITHUB_OUTPUT"
+          echo "last_commit=${last_commit}" >> "$GITHUB_OUTPUT"
+          echo "Last successful CI run: ${last_success:-none}"
+          echo "Newest commit on main:  ${last_commit:-unknown}"
+
+      # The verdict, and it is allowed to be any of the three. A CANNOT MEASURE
+      # is neither a pass nor a finding: it means a date could not be got, and
+      # saying so is the whole point of having three outcomes (L11).
+      - name: Judge
+        id: judge
+        run: |
+          set +e
+          OVATION_CI_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          OVATION_CI_LAST_SUCCESS="${{ steps.dates.outputs.last_success }}" \
+          OVATION_CI_LAST_COMMIT="${{ steps.dates.outputs.last_commit }}" \
+            bash scripts/check-ci-liveness.sh | tee verdict.txt
+          status="${PIPESTATUS[0]}"
+          set -e
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'verdict<<VERDICT'
+            cat verdict.txt
+            echo 'VERDICT'
+          } >> "$GITHUB_OUTPUT"
+
+      # ONE ISSUE, COMMENTED ON RATHER THAN REOPENED OR DUPLICATED (L393). The
+      # title is the marker, because a label can be removed by hand and the title
+      # is what a person searches for.
+      - name: Say so, once
+        if: steps.judge.outputs.status == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: CI has stopped judging what lands on main
+        run: |
+          set -uo pipefail
+          existing="$(gh issue list --state open --search "in:title \"${TITLE}\"" \
+            --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -1)"
+          body="$(cat verdict.txt)
+          "
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body "Still true on $(date -u +%Y-%m-%d):
+
+\`\`\`
+${body}
+\`\`\`"
+          else
+            gh issue create --title "${TITLE}" \
+              --milestone Ungrouped \
+              --label priority-p1 --label ci-hygiene --label monitoring \
+              --body "Opened automatically by the CI liveness workflow (ovation#155).
+
+\`\`\`
+${body}
+\`\`\`
+
+Work has landed on main that no successful CI run has followed. Either the
+workflow has stopped triggering, or it is failing on every run. Both are silent
+from the outside, which is why this issue exists rather than an absence.
+
+The push gate on Dan's machine goes on passing throughout: it does not build both
+configurations, and it can skip the Swift suites entirely for a push it judges
+irrelevant (ovation#22).
+
+This issue is commented on rather than duplicated while it stays open."
+          fi
+
+      # A FAILURE TO MEASURE FAILS THE JOB, so it is visible in the checks of the
+      # push that ran it rather than passing quietly. It does not open an issue:
+      # nobody can act on "a date could not be read" from an issue days later, and
+      # the run's own log says which date it was.
+      - name: Refuse a run that could not measure
+        if: steps.judge.outputs.status == '2'
+        run: |
+          echo "::error::The CI liveness check could not measure. See the log above."
+          exit 1

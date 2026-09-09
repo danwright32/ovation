@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "preconditions tests" 26
+harness_begin "preconditions tests" 29
 
 TARGET="scripts/check-preconditions.sh"
 require_target "$TARGET"
@@ -128,9 +128,24 @@ check "every entry that needs a reason carries one" \
     "$(roles_entries | awk -F'\t' '$2 != "suite" && ($3 == "" || $3 ~ /^[[:space:]]*$/) { print $1 }' \
         | tr '\n' ' ' | sed 's/ $//')" ""
 
-check "every role used is one this file defines" \
+# THE VOCABULARY IS READ FROM THE FILE THAT DEFINES IT, not repeated here. It was
+# a second copy of the list, and a list that must mirror another source is derived
+# from it or the two drift, with the copy that fell behind refusing a role the
+# header plainly documents (L41). Adding `workflow` for ovation#155 is what made
+# that concrete: the header gained it and this line refused it.
+roles_defined() {
+    sed -n 's/^#   \([a-z][a-z-]\{2,\}\)  *[A-Z].*/\1/p' scripts/lib/script-roles.tsv | sort -u
+}
+# A DERIVATION THAT MATCHED NOTHING WOULD PASS EVERYTHING, since every role would
+# then be undefined and the grep below would have nothing to exclude... in fact it
+# would refuse everything, which is the loud direction. This asserts the reading
+# worked anyway, because a check whose input is silently empty is a check nobody
+# can trust in either direction (L100, L98).
+check "the role vocabulary was actually read out of the inventory" \
+    "$([ "$(roles_defined | grep -c .)" -ge 6 ] && echo read || echo empty)" "read"
+check "every role used is one that file defines" \
     "$(roles_entries | awk -F'\t' '{ print $2 }' | sort -u \
-        | grep -vxE 'gated|suite|library|tool|tool-untested|reads-real-data' \
+        | grep -vxF -f <(roles_defined) \
         | tr '\n' ' ' | sed 's/ $//')" ""
 
 # THE PARTITION ITSELF, now over the roles rather than over a filename pattern.
@@ -183,6 +198,18 @@ check "every real data tool is run by some suite too" \
     "$(for t in $(roles_with reads-real-data); do
          [ -n "$(covering_suite "$t")" ] || printf '%s ' "$t"
        done | sed 's/ $//')" ""
+# A WORKFLOW SCRIPT IS RUN BY NOTHING ON THIS MACHINE, which is what makes both
+# halves necessary: the workflow is the only thing that runs it, and a suite is
+# the only thing that can judge it before it is pushed (ovation#155).
+check "every workflow script is actually named by a workflow file" \
+    "$(for w in $(roles_with workflow); do
+         grep -rlq "$(basename "$w")" .github/workflows 2>/dev/null || printf '%s ' "$w"
+       done | sed 's/ $//')" ""
+check "and every workflow script is covered by a suite" \
+    "$(for w in $(roles_with workflow); do
+         [ -n "$(covering_suite "$w")" ] || printf '%s ' "$w"
+       done | sed 's/ $//')" ""
+
 check "and every library really is sourced by something rather than run" \
     "$(for l in $(roles_with library); do
          grep -rlq "$(basename "$l")" scripts --include='*.sh' || printf '%s ' "$l"
