@@ -23,61 +23,63 @@
 import Foundation
 import SwiftData
 
-@Model
-final class Payment {
-    var id: UUID = UUID()
+extension OvationSchemaV1 {
+    @Model
+    final class Payment {
+        var id: UUID = UUID()
 
-    var client: Client?
+        var client: Client?
 
-    /// The amount actually written, stamped with the business day it arrived.
-    var amount: Money = Money.zero
-    var receivedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        /// The amount actually written, stamped with the business day it arrived.
+        var amount: Money = Money.zero
+        var receivedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
 
-    var method: PaymentMethod = PaymentMethod.zelle
+        var method: PaymentMethod = PaymentMethod.zelle
 
-    /// PRD 5.15. CLEARED BELONGS TO THE PAYMENT AND NEVER TO AN ALLOCATION, so
-    /// one check clears once however many invoices it settled, and an invoice can
-    /// never be cleared on its own.
-    var clearedOn: BusinessDate?
+        /// PRD 5.15. CLEARED BELONGS TO THE PAYMENT AND NEVER TO AN ALLOCATION, so
+        /// one check clears once however many invoices it settled, and an invoice can
+        /// never be cleared on its own.
+        var clearedOn: BusinessDate?
 
-    /// A check number, a Zelle reference, whatever identifies it on a statement.
-    var reference: String?
+        /// A check number, a Zelle reference, whatever identifies it on a statement.
+        var reference: String?
 
-    /// Deleting a payment takes its allocations with it: they are statements
-    /// about money this record represents and mean nothing without it. Releasing
-    /// one is a different thing entirely and does not delete anything, see
-    /// `PaymentAllocation.releasedOn`.
-    @Relationship(deleteRule: .cascade, inverse: \PaymentAllocation.payment)
-    var allocations: [PaymentAllocation] = []
+        /// Deleting a payment takes its allocations with it: they are statements
+        /// about money this record represents and mean nothing without it. Releasing
+        /// one is a different thing entirely and does not delete anything, see
+        /// `PaymentAllocation.releasedOn`.
+        @Relationship(deleteRule: .cascade, inverse: \PaymentAllocation.payment)
+        var allocations: [PaymentAllocation] = []
 
-    init(client: Client?, amount: Money, method: PaymentMethod, receivedOn: BusinessDate) {
-        self.client = client
-        self.amount = amount
-        self.method = method
-        self.receivedOn = receivedOn
-    }
+        init(client: Client?, amount: Money, method: PaymentMethod, receivedOn: BusinessDate) {
+            self.client = client
+            self.amount = amount
+            self.method = method
+            self.receivedOn = receivedOn
+        }
 
-    /// The allocations that still stand. A released one is kept for the record
-    /// and counts towards nothing.
-    var activeAllocations: [PaymentAllocation] { allocations.filter { $0.releasedOn == nil } }
+        /// The allocations that still stand. A released one is kept for the record
+        /// and counts towards nothing.
+        var activeAllocations: [PaymentAllocation] { allocations.filter { $0.releasedOn == nil } }
 
-    /// THE ONE PREDICATE. Every reader of how much of this payment is spoken for
-    /// goes through here, so a count and the rows it promises cannot disagree
-    /// (L16).
-    var allocated: Money { Money.sum(of: activeAllocations.map(\.amount)) }
+        /// THE ONE PREDICATE. Every reader of how much of this payment is spoken for
+        /// goes through here, so a count and the rows it promises cannot disagree
+        /// (L16).
+        var allocated: Money { Money.sum(of: activeAllocations.map(\.amount)) }
 
-    /// What is still being held on the client's behalf.
-    var unallocated: Money { amount - allocated }
+        /// What is still being held on the client's behalf.
+        var unallocated: Money { amount - allocated }
 
-    var canBeCleared: Bool { method.gainsAClearedStep }
+        var canBeCleared: Bool { method.gainsAClearedStep }
 
-    /// Records that a check cleared. Answers whether it did anything, because a
-    /// control that silently does nothing is worse than one that refuses (L109).
-    @discardableResult
-    func markCleared(on day: BusinessDate) -> Bool {
-        guard canBeCleared else { return false }
-        clearedOn = day
-        return true
+        /// Records that a check cleared. Answers whether it did anything, because a
+        /// control that silently does nothing is worse than one that refuses (L109).
+        @discardableResult
+        func markCleared(on day: BusinessDate) -> Bool {
+            guard canBeCleared else { return false }
+            clearedOn = day
+            return true
+        }
     }
 }
 
@@ -88,24 +90,26 @@ final class Payment {
 /// still exists and still arrived. Deleting the row would destroy the record of
 /// what was decided and when, which is the question an audit exists to answer
 /// (L529).
-@Model
-final class PaymentAllocation {
-    var id: UUID = UUID()
+extension OvationSchemaV1 {
+    @Model
+    final class PaymentAllocation {
+        var id: UUID = UUID()
 
-    var payment: Payment?
-    var invoice: Invoice?
+        var payment: Payment?
+        var invoice: Invoice?
 
-    var amount: Money = Money.zero
-    var allocatedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        var amount: Money = Money.zero
+        var allocatedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
 
-    /// When it stopped standing. Nil while it stands.
-    var releasedOn: BusinessDate?
+        /// When it stopped standing. Nil while it stands.
+        var releasedOn: BusinessDate?
 
-    init(payment: Payment?, invoice: Invoice?, amount: Money, allocatedOn: BusinessDate) {
-        self.payment = payment
-        self.invoice = invoice
-        self.amount = amount
-        self.allocatedOn = allocatedOn
+        init(payment: Payment?, invoice: Invoice?, amount: Money, allocatedOn: BusinessDate) {
+            self.payment = payment
+            self.invoice = invoice
+            self.amount = amount
+            self.allocatedOn = allocatedOn
+        }
     }
 }
 
@@ -115,27 +119,39 @@ final class PaymentAllocation {
 /// income in the year it was issued and a refund can move in a different calendar
 /// year. How that is reported is one of the questions for the accountant recorded
 /// in PRD 9.3, so nothing here asserts a year for it.
-@Model
-final class Refund {
-    var id: UUID = UUID()
+extension OvationSchemaV1 {
+    @Model
+    final class Refund {
+        var id: UUID = UUID()
 
-    var invoice: Invoice?
-    /// Which payment went back, where it was one payment.
-    var payment: Payment?
+        var invoice: Invoice?
+        /// Which payment went back, where it was one payment.
+        var payment: Payment?
 
-    var amount: Money = Money.zero
-    var refundedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
-    var method: PaymentMethod?
-    var note: String?
+        var amount: Money = Money.zero
+        var refundedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        var method: PaymentMethod?
+        var note: String?
 
-    init(
-        invoice: Invoice?, payment: Payment?, amount: Money,
-        refundedOn: BusinessDate, method: PaymentMethod?
-    ) {
-        self.invoice = invoice
-        self.payment = payment
-        self.amount = amount
-        self.refundedOn = refundedOn
-        self.method = method
+        init(
+            invoice: Invoice?, payment: Payment?, amount: Money,
+            refundedOn: BusinessDate, method: PaymentMethod?
+        ) {
+            self.invoice = invoice
+            self.payment = payment
+            self.amount = amount
+            self.refundedOn = refundedOn
+            self.method = method
+        }
     }
 }
+
+// THE NAME THE REST OF THE APP USES (ovation#134). The type belongs to a
+// schema VERSION, because a version has to be able to describe a shape that
+// is no longer current. Everything outside the store speaks about the shape
+// in force, so it says the bare name and this is what points that name at the
+// version in force. When a version 2 exists, this line moves to it and every
+// call site is already correct.
+typealias Payment = OvationSchemaV1.Payment
+typealias PaymentAllocation = OvationSchemaV1.PaymentAllocation
+typealias Refund = OvationSchemaV1.Refund

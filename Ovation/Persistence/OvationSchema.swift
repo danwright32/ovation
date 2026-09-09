@@ -97,7 +97,35 @@ enum OvationSchema {
 /// settled before the first real version 2.
 enum OvationSchemaV1: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
-    static var models: [any PersistentModel.Type] { OvationSchema.models }
+
+    /// What version 1 holds, said by version 1 (ovation#134).
+    ///
+    /// THIS LIST IS NOT `OvationSchema.models` AND MUST NEVER BECOME IT AGAIN.
+    /// That list is what the app holds RIGHT NOW. At one version the two are the
+    /// same sentence, which is why the delegation read as a saving rather than a
+    /// defect; at two versions this one would silently describe the newer one's
+    /// models, both versions would be the same shape, and any stage between them
+    /// would have nothing to carry. `check-schema-registered.sh` refuses the
+    /// delegation by name so it cannot come back as a tidy-up.
+    ///
+    /// THE TYPES THEMSELVES BELONG TO THIS VERSION, declared in extensions of it
+    /// beside their own documentation, with a `typealias` in each file pointing
+    /// the bare name at the version in force. A version 2 declares its own copy
+    /// of whatever CHANGED and names this version's types for everything that
+    /// did not, which is what keeps ten identical copies from appearing the first
+    /// time one field moves.
+    static var models: [any PersistentModel.Type] { [
+        Client.self,
+        Invoice.self,
+        Shoot.self,
+        LineItem.self,
+        ServiceType.self,
+        Payment.self,
+        PaymentAllocation.self,
+        Refund.self,
+        Expense.self,
+        ReferralLedgerEntry.self,
+    ] }
 }
 
 /// The plan that carries a store from one version to the next.

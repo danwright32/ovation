@@ -35,82 +35,84 @@ enum ReceiptEvidence: Equatable, Hashable, Codable, Sendable {
     case importedWithoutOne
 }
 
-@Model
-final class Expense {
-    var id: UUID = UUID()
+extension OvationSchemaV1 {
+    @Model
+    final class Expense {
+        var id: UUID = UUID()
 
-    var amount: Money = Money.zero
+        var amount: Money = Money.zero
 
-    /// The day that decides the tax year, stamped at write.
-    var incurredOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        /// The day that decides the tax year, stamped at write.
+        var incurredOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
 
-    /// PRD 5.18: filled only where the reading is unambiguous, left empty where
-    /// it is doubtful. Absent is a real answer here, never a guess.
-    var vendor: String?
+        /// PRD 5.18: filled only where the reading is unambiguous, left empty where
+        /// it is doubtful. Absent is a real answer here, never a guess.
+        var vendor: String?
 
-    /// PRD 5.19. Absent until it is filed, which is why the export has to be able
-    /// to report an expense that has not been categorised rather than dropping it.
-    var category: ExpenseCategory?
+        /// PRD 5.19. Absent until it is filed, which is why the export has to be able
+        /// to report an expense that has not been categorised rather than dropping it.
+        var category: ExpenseCategory?
 
-    var receipt: ReceiptEvidence = ReceiptEvidence.noneRecorded
+        var receipt: ReceiptEvidence = ReceiptEvidence.noneRecorded
 
-    var note: String?
+        var note: String?
 
-    // MARK: where it came from, for LOOKUP only, never as the identity
+        // MARK: where it came from, for LOOKUP only, never as the identity
 
-    /// The Gmail message this was filed from.
-    var gmailMessageKey: String?
+        /// The Gmail message this was filed from.
+        var gmailMessageKey: String?
 
-    /// Which attachment of that message. Two identical attachments in one message
-    /// are two expenses and are told apart by this.
-    var attachmentPartIndex: Int?
+        /// Which attachment of that message. Two identical attachments in one message
+        /// are two expenses and are told apart by this.
+        var attachmentPartIndex: Int?
 
-    /// Gmail's own attachment id, stored so the file can be FETCHED again. Never
-    /// part of the key: see the header.
-    var gmailAttachmentID: String?
+        /// Gmail's own attachment id, stored so the file can be FETCHED again. Never
+        /// part of the key: see the header.
+        var gmailAttachmentID: String?
 
-    /// The QuickBooks import batch this came from. ovation#69 owns what goes in it.
-    var importKey: String?
+        /// The QuickBooks import batch this came from. ovation#69 owns what goes in it.
+        var importKey: String?
 
-    init(amount: Money, incurredOn: BusinessDate, receipt: ReceiptEvidence) {
-        self.amount = amount
-        self.incurredOn = incurredOn
-        self.receipt = receipt
-    }
-
-    var hasReceipt: Bool {
-        if case .file = receipt { return true }
-        return false
-    }
-
-    /// The receipt's content hash, where there is one. This is what the backup
-    /// enumerates and re-checks, so a document that has gone missing is reported
-    /// rather than passing because the database still opens.
-    var receiptHash: String? {
-        if case .file(let sha256, _) = receipt { return sha256 }
-        return nil
-    }
-
-    /// What the CSV says about a missing receipt, which is nothing at all when
-    /// there is one. Two absences, two sentences (L11).
-    var receiptMissingNote: String {
-        switch receipt {
-        case .file: return ""
-        case .noneRecorded: return "No receipt"
-        case .importedWithoutOne: return "Imported without a receipt"
+        init(amount: Money, incurredOn: BusinessDate, receipt: ReceiptEvidence) {
+            self.amount = amount
+            self.incurredOn = incurredOn
+            self.receipt = receipt
         }
-    }
 
-    /// PRD 5.19: every expense carries a category, so one without it is work
-    /// waiting rather than a settled row.
-    var needsACategory: Bool { category == nil }
+        var hasReceipt: Bool {
+            if case .file = receipt { return true }
+            return false
+        }
 
-    /// The key that stops the same attachment being filed twice, recomputable
-    /// from the message and the file itself. Nil where this expense came from no
-    /// message at all.
-    var intakeKey: String? {
-        guard let gmailMessageKey, let receiptHash, let attachmentPartIndex else { return nil }
-        return "\(gmailMessageKey):\(receiptHash):\(attachmentPartIndex)"
+        /// The receipt's content hash, where there is one. This is what the backup
+        /// enumerates and re-checks, so a document that has gone missing is reported
+        /// rather than passing because the database still opens.
+        var receiptHash: String? {
+            if case .file(let sha256, _) = receipt { return sha256 }
+            return nil
+        }
+
+        /// What the CSV says about a missing receipt, which is nothing at all when
+        /// there is one. Two absences, two sentences (L11).
+        var receiptMissingNote: String {
+            switch receipt {
+            case .file: return ""
+            case .noneRecorded: return "No receipt"
+            case .importedWithoutOne: return "Imported without a receipt"
+            }
+        }
+
+        /// PRD 5.19: every expense carries a category, so one without it is work
+        /// waiting rather than a settled row.
+        var needsACategory: Bool { category == nil }
+
+        /// The key that stops the same attachment being filed twice, recomputable
+        /// from the message and the file itself. Nil where this expense came from no
+        /// message at all.
+        var intakeKey: String? {
+            guard let gmailMessageKey, let receiptHash, let attachmentPartIndex else { return nil }
+            return "\(gmailMessageKey):\(receiptHash):\(attachmentPartIndex)"
+        }
     }
 }
 
@@ -128,49 +130,60 @@ final class Expense {
 /// WHAT WRITES ONE, and the idempotency key that stops the credit being earned
 /// twice when a paid transition is re-crossed by an edit and resend or a cancel,
 /// refund and repay, is ovation#38.
-@Model
-final class ReferralLedgerEntry {
-    var id: UUID = UUID()
+extension OvationSchemaV1 {
+    @Model
+    final class ReferralLedgerEntry {
+        var id: UUID = UUID()
 
-    var client: Client?
+        var client: Client?
 
-    /// Positive where it was earned, negative where it was spent.
-    var hours: Hours = Hours.zero
+        /// Positive where it was earned, negative where it was spent.
+        var hours: Hours = Hours.zero
 
-    var occurredOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        var occurredOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
 
-    /// The booking that earned it, which is what a second append for the same key
-    /// is refused against (ovation#38). Nil on a spending entry.
-    var earnedFromBookingKey: String?
+        /// The booking that earned it, which is what a second append for the same key
+        /// is refused against (ovation#38). Nil on a spending entry.
+        var earnedFromBookingKey: String?
 
-    /// The invoice this credit was spent on (ovation#38). Nil on an earning.
-    ///
-    /// IT IS THE SECOND IDEMPOTENCY KEY, and it is here for the same reason the
-    /// first one is: editing and resending an invoice re-runs whatever applied
-    /// its credit, exactly as it re-crosses the paid transition, and without a
-    /// key the client is charged their own credit twice.
-    ///
-    /// It also makes the two records reconcilable. The invoice FREEZES what it
-    /// applied (`ReferralCredit`) and the ledger is the running total, and the
-    /// two must agree about which credit was used; without this neither can be
-    /// checked against the other.
-    ///
-    /// Ovation's own UUID rather than a relationship, because a ledger entry is
-    /// an append only fact about the past and must not be cascaded away with the
-    /// invoice it mentions (L38, PRD 5.30).
-    var spentOnInvoiceID: UUID?
+        /// The invoice this credit was spent on (ovation#38). Nil on an earning.
+        ///
+        /// IT IS THE SECOND IDEMPOTENCY KEY, and it is here for the same reason the
+        /// first one is: editing and resending an invoice re-runs whatever applied
+        /// its credit, exactly as it re-crosses the paid transition, and without a
+        /// key the client is charged their own credit twice.
+        ///
+        /// It also makes the two records reconcilable. The invoice FREEZES what it
+        /// applied (`ReferralCredit`) and the ledger is the running total, and the
+        /// two must agree about which credit was used; without this neither can be
+        /// checked against the other.
+        ///
+        /// Ovation's own UUID rather than a relationship, because a ledger entry is
+        /// an append only fact about the past and must not be cascaded away with the
+        /// invoice it mentions (L38, PRD 5.30).
+        var spentOnInvoiceID: UUID?
 
-    var note: String?
+        var note: String?
 
-    init(
-        client: Client?, hours: Hours, occurredOn: BusinessDate,
-        earnedFromBookingKey: String?, spentOnInvoiceID: UUID? = nil, note: String?
-    ) {
-        self.client = client
-        self.hours = hours
-        self.occurredOn = occurredOn
-        self.earnedFromBookingKey = earnedFromBookingKey
-        self.spentOnInvoiceID = spentOnInvoiceID
-        self.note = note
+        init(
+            client: Client?, hours: Hours, occurredOn: BusinessDate,
+            earnedFromBookingKey: String?, spentOnInvoiceID: UUID? = nil, note: String?
+        ) {
+            self.client = client
+            self.hours = hours
+            self.occurredOn = occurredOn
+            self.earnedFromBookingKey = earnedFromBookingKey
+            self.spentOnInvoiceID = spentOnInvoiceID
+            self.note = note
+        }
     }
 }
+
+// THE NAME THE REST OF THE APP USES (ovation#134). The type belongs to a
+// schema VERSION, because a version has to be able to describe a shape that
+// is no longer current. Everything outside the store speaks about the shape
+// in force, so it says the bare name and this is what points that name at the
+// version in force. When a version 2 exists, this line moves to it and every
+// call site is already correct.
+typealias Expense = OvationSchemaV1.Expense
+typealias ReferralLedgerEntry = OvationSchemaV1.ReferralLedgerEntry

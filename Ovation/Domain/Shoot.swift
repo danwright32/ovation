@@ -17,36 +17,46 @@
 import Foundation
 import SwiftData
 
-@Model
-final class Shoot {
-    var id: UUID = UUID()
+extension OvationSchemaV1 {
+    @Model
+    final class Shoot {
+        var id: UUID = UUID()
 
-    /// What Dan calls it. Frozen at commit time in the handoff, so it can differ
-    /// from whatever the current roster says.
-    var name: String = ""
+        /// What Dan calls it. Frozen at commit time in the handoff, so it can differ
+        /// from whatever the current roster says.
+        var name: String = ""
 
-    /// PRD 5.3. Two real instants or a day, held as one value so the day and the
-    /// times can never disagree.
-    var when: ShootWhen?
+        /// PRD 5.3. Two real instants or a day, held as one value so the day and the
+        /// times can never disagree.
+        var when: ShootWhen?
 
-    /// Absent on the one real handoff record there is.
-    var venue: String?
+        /// Absent on the one real handoff record there is.
+        var venue: String?
 
-    /// The Downbeat booking this came from, for LOOKUP only. Never the identity:
-    /// PRD 42c.
-    var bookingKey: String?
+        /// The Downbeat booking this came from, for LOOKUP only. Never the identity:
+        /// PRD 42c.
+        var bookingKey: String?
 
-    /// Declared order within its invoice (L343).
-    var sortIndex: Int = 0
+        /// Declared order within its invoice (L343).
+        var sortIndex: Int = 0
 
-    var invoice: Invoice?
+        var invoice: Invoice?
 
-    init(name: String, when: ShootWhen?, venue: String?) {
-        self.name = name
-        self.when = when
-        self.venue = venue
+        init(name: String, when: ShootWhen?, venue: String?) {
+            self.name = name
+            self.when = when
+            self.venue = venue
+        }
+
+        /// The business day this shoot was on, or nil where nothing recorded one.
+        var day: BusinessDate? { when?.day }
     }
-
-    /// The business day this shoot was on, or nil where nothing recorded one.
-    var day: BusinessDate? { when?.day }
 }
+
+// THE NAME THE REST OF THE APP USES (ovation#134). The type belongs to a
+// schema VERSION, because a version has to be able to describe a shape that
+// is no longer current. Everything outside the store speaks about the shape
+// in force, so it says the bare name and this is what points that name at the
+// version in force. When a version 2 exists, this line moves to it and every
+// call site is already correct.
+typealias Shoot = OvationSchemaV1.Shoot
