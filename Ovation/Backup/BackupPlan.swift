@@ -74,6 +74,16 @@ enum BackupPlan {
         // migrates it BACKWARDS and the newer field is gone.
         .init(path: "Ovation.store.version", kind: .file, expectation: .required),
 
+        // The export run record (ovation#64). NOT required, and the reason is the
+        // same shape as the write ahead log's: a fresh installation has never run
+        // an export and legitimately has no file, so requiring it would refuse
+        // every backup until the first run. Carried whenever it IS there, because
+        // it is the only thing that can say whether an export is stale, and a
+        // restore without it silences that notice for ever (L575).
+        .init(path: ExportRunLog.filename, kind: .file,
+              expectation: .presentSometimes(
+                reason: "absent until the first export has been run")),
+
         // Its write ahead log and shared memory file. NOT required, because a
         // checkpointed store legitimately has neither, and requiring them would
         // refuse every healthy backup. Carried whenever they ARE there, because
@@ -98,8 +108,6 @@ enum BackupPlan {
               expectation: .notYetBuilt(issue: "ovation#31")),
         .init(path: "consumed-messages.jsonl", kind: .file,
               expectation: .notYetBuilt(issue: "ovation#79")),
-        .init(path: "export-runs.jsonl", kind: .file,
-              expectation: .notYetBuilt(issue: "ovation#64")),
     ]
 
     /// Files that must NEVER reach an archive, by name.

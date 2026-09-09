@@ -89,6 +89,45 @@ struct OvationApp: App {
                 recordVersion: {
                     try StoreVersionMarker.write(
                         OvationSchema.versionedSchema.versionIdentifier, besideStoreAt: $0)
+                },
+                // ovation#64. What is true about the year end export, derived at
+                // every launch from the durable run record rather than stored as
+                // a conclusion (L175). Both notices reach Dan through the same
+                // presenter as everything else (L242).
+                //
+                // A RUN RECORD THAT EXISTS AND CANNOT BE READ IS ITS OWN PROBLEM,
+                // never an empty history: an unreadable log would otherwise raise
+                // staleness, which is a true sentence for the wrong reason and
+                // sends Dan to run an export rather than to look at a damaged
+                // file (L11, L215).
+                exportNotices: { container, now in
+                    guard let url = ExportRunLog.liveExportRunRecord() else { return [] }
+                    let log = ExportRunLog(url: url)
+                    let loaded: (runs: [ExportRun], skipped: Int)
+                    do {
+                        loaded = try log.load()
+                    } catch {
+                        _ = store.raise(
+                            kind: .exportRunRecordUnreadable, subject: url.lastPathComponent,
+                            sentence: "Ovation could not read its record of past exports at "
+                                + "\(url.path): \(error.localizedDescription). Until it can, it "
+                                + "cannot tell you when an export was last run.",
+                            now: now)
+                        return []
+                    }
+                    if loaded.skipped > 0 {
+                        _ = store.raise(
+                            kind: .exportRunRecordDamaged, subject: url.lastPathComponent,
+                            sentence: "\(loaded.skipped) line(s) of Ovation's record of past "
+                                + "exports could not be read. The runs they describe are lost "
+                                + "from that history, and a staleness notice may name an older "
+                                + "run than the one that actually happened.",
+                            now: now)
+                    }
+                    return ExportRunLog.notices(
+                        from: loaded.runs, now: now,
+                        storeHasEverHeldSomethingToExport:
+                            ExportRunLog.storeHasSomethingToExport(container))
                 }
             ).run(now: Date())
         }

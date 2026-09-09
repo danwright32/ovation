@@ -54,6 +54,10 @@ enum LiveDataFloor {
         .init(name: "liveURL",
               reaches: "the problems journal, the record of every failure reported",
               resolve: { FileProblemsJournal.liveURL() }, issue: nil),
+        .init(name: "liveExportRunRecord",
+              reaches: "the record of when the export last ran. A test written success "
+                + "makes the staleness report permanently unraisable",
+              resolve: { ExportRunLog.liveExportRunRecord() }, issue: nil),
 
         // NOT BUILT. Named now so the floor is extended by this list rather than
         // by whoever notices, and so a later milestone inherits the requirement
@@ -73,10 +77,6 @@ enum LiveDataFloor {
               reaches: "the record of which messages were filed. A test write "
                 + "permanently suppresses that message's receipt",
               resolve: nil, issue: "ovation#79"),
-        .init(name: "liveExportRunRecord",
-              reaches: "the record of when the export last ran. A test written success "
-                + "makes the staleness report permanently unraisable",
-              resolve: nil, issue: "ovation#64"),
         .init(name: "liveExportDirectory",
               reaches: "the folder the CSVs are written to. A test naming it writes "
                 + "over whatever is there",

@@ -101,6 +101,21 @@ enum BusinessCalendar {
         return calendar.startOfDay(for: parsed)
     }
 
+    /// Whole business days between two instants, counted by calendar day rather
+    /// than by dividing an interval, so a day that is 23 or 25 hours long across
+    /// a clock change still counts as one (ovation#64). Never negative: a caller
+    /// asking how long ago something was gets 0 for the future rather than a
+    /// number that reads as a very stale value.
+    ///
+    /// One date helper decides what a day is, here, rather than each caller
+    /// dividing by 86,400 slightly differently (L39).
+    static func wholeDays(from: Date, to: Date) -> Int {
+        guard to > from else { return 0 }
+        let start = calendar.startOfDay(for: from)
+        let end = calendar.startOfDay(for: to)
+        return calendar.dateComponents([.day], from: start, to: end).day ?? 0
+    }
+
     /// The year a day key belongs to, or nil when the key is not one. Derived
     /// through `startOfDay` rather than by taking the first four characters, so
     /// there is one definition of what a valid key is (L41).

@@ -63,6 +63,13 @@ struct StoreLaunchSequence {
     /// beside it, so the next launch can refuse a downgrade before opening
     /// anything. Injected like every other step.
     let recordVersion: @Sendable (URL) throws -> Void
+    /// ovation#64. What is true about the year end export at this moment, read
+    /// from the durable run record and from the store that has just opened.
+    ///
+    /// INJECTED WITH NO DEFAULT, like every other step. A default of "no notices"
+    /// would be indistinguishable from a healthy export history, which is this
+    /// feature's own failure mode (L168, L98).
+    let exportNotices: @Sendable (ModelContainer, Date) -> [ExportNotice]
 
     @discardableResult
     func run(now: Date) -> Outcome {
@@ -196,6 +203,19 @@ struct StoreLaunchSequence {
                     + "store: \(error.localizedDescription). It opened anyway, and the service "
                     + "type picker on a new invoice will be empty until a type is added.",
                 now: now)
+        }
+
+        // 7. SAY WHAT IS TRUE ABOUT THE EXPORT (ovation#64). Both notices reach
+        // Dan through this one presenter rather than as independent alerts
+        // (L242), and both are DERIVED here rather than stored as a conclusion,
+        // because a recorded fact about something outside the app is only true on
+        // the day it was written (L175).
+        //
+        // It runs last, after the store is open, because one of the two questions
+        // it answers is about what the store holds.
+        for notice in exportNotices(container, now) {
+            _ = problems.raise(kind: notice.kind, subject: notice.subject,
+                               sentence: notice.sentence, now: now)
         }
 
         return .opened

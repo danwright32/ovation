@@ -24,13 +24,17 @@ struct BackupTests {
         // has built yet is recorded with the issue that will build it, rather
         // than being silently absent (L98).
         //
-        // THREE, NOT FOUR: `referral-ledger.jsonl` left the plan when ovation#38
-        // shipped, because the ledger is a model INSIDE the store rather than a
-        // file beside it, so the file it named will never exist. A member whose
-        // issue is closed reads as work outstanding forever and makes every
-        // archive report itself short of a file nothing writes.
+        // TWO, AND THE COUNT HAS COME DOWN TWICE FOR TWO DIFFERENT REASONS.
+        // `referral-ledger.jsonl` left the plan when ovation#38 shipped, because
+        // the ledger is a model INSIDE the store rather than a file beside it, so
+        // the file it named will never exist: a member whose issue is closed
+        // reads as work outstanding forever and makes every archive report itself
+        // short of a file nothing writes. `export-runs.jsonl` left it when
+        // ovation#64 BUILT it, and moved to the absent-for-a-good-reason list
+        // below rather than out of the plan, because a fresh installation has
+        // never run an export and legitimately has no file.
         let pending = manifest.members.filter { $0.status == .notYetBuilt }
-        #expect(pending.count == 3)
+        #expect(pending.count == 2)
         #expect(!pending.contains { $0.path.contains("referral") })
         #expect(pending.allSatisfy { $0.issue?.hasPrefix("ovation#") == true })
 
@@ -39,7 +43,8 @@ struct BackupTests {
         // The two need opposite responses: one is normal, the other is a
         // reminder that the archive is short.
         let absent = manifest.members.filter { $0.status == .legitimatelyAbsent }
-        #expect(absent.map(\.path).sorted() == ["Ovation.store-shm", "Ovation.store-wal"])
+        #expect(absent.map(\.path).sorted()
+                == ["Ovation.store-shm", "Ovation.store-wal", "export-runs.jsonl"])
         #expect(absent.allSatisfy { $0.issue == nil })
     }
 

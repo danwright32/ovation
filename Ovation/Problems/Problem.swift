@@ -60,6 +60,23 @@ extension ProblemKind {
     /// No export has been run for long enough to be worth saying (ovation#64).
     static let exportStale = ProblemKind("export.stale")
 
+    /// The last export ran and correctly found nothing (ovation#64). Its own
+    /// kind, and differently worded, because an export that found nothing and one
+    /// that never ran look the same on disk and need different work: this one
+    /// needs nothing done at all (L11, L98).
+    static let exportFoundNothing = ProblemKind("export.found-nothing")
+
+    /// The record of past exports is there and could not be read at all
+    /// (ovation#64). Deliberately not folded into staleness: that would be a true
+    /// sentence for the wrong reason, and it would send Dan to run an export
+    /// rather than to look at a damaged file (L11).
+    static let exportRunRecordUnreadable = ProblemKind("export.run-record-unreadable")
+
+    /// Some lines of the export run record did not decode, so that history is
+    /// short. Different from being unable to read it at all, because the notices
+    /// still work and may simply name an older run (L215).
+    static let exportRunRecordDamaged = ProblemKind("export.run-record-damaged")
+
     /// The problems journal could not be READ at all, so this session started
     /// with no history. A different fact from not being able to write one, and
     /// it needs a different sentence (L11).

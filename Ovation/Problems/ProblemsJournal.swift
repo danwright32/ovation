@@ -67,12 +67,10 @@ final class FileProblemsJournal: ProblemsJournal {
     let isDurable = true
     private(set) var skippedOnLastLoad = 0
 
-    private let url: URL
-    private let fileManager: FileManager
+    private let file: AppendOnlyLineFile
 
     init(url: URL, fileManager: FileManager = .default) {
-        self.url = url
-        self.fileManager = fileManager
+        self.file = AppendOnlyLineFile(url: url, fileManager: fileManager)
     }
 
     /// Where a real launch keeps it, or nil when this launch may not touch
@@ -91,83 +89,38 @@ final class FileProblemsJournal: ProblemsJournal {
     func append(_ record: ProblemJournalRecord) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard var line = String(data: try encoder.encode(record), encoding: .utf8) else {
+        guard let line = String(data: try encoder.encode(record), encoding: .utf8) else {
             throw ProblemsJournalError.couldNotWrite("the record did not encode as text")
         }
-        line += "\n"
-
-        let directory = url.deletingLastPathComponent()
-        if !fileManager.fileExists(atPath: directory.path) {
-            do {
-                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            } catch {
-                throw ProblemsJournalError.couldNotWrite(
-                    "the directory \(directory.path) could not be made: \(error.localizedDescription)")
+        do {
+            try file.append(line)
+        } catch let error as AppendOnlyLineFileError {
+            // The file mechanics are shared (ovation#64); the vocabulary a caller
+            // sees is not. Every existing caller catches `ProblemsJournalError`,
+            // and a shared error type leaking through here would make the
+            // extraction a change to what they can catch (L337).
+            switch error {
+            case .couldNotWrite(let detail), .couldNotRead(let detail):
+                throw ProblemsJournalError.couldNotWrite(detail)
             }
         }
-
-        guard let data = line.data(using: .utf8) else {
-            throw ProblemsJournalError.couldNotWrite("the record did not encode as bytes")
-        }
-
-        if fileManager.fileExists(atPath: url.path) {
-            do {
-                // Opened for UPDATE rather than writing: the fresh line check
-                // below has to READ the last byte, and a write only handle
-                // refuses that.
-                let handle = try FileHandle(forUpdating: url)
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                // START ON A FRESH LINE, and this is a fix rather than tidiness.
-                // A crash part way through an append leaves a fragment with no
-                // newline after it, and writing straight onto that FUSES the
-                // fragment and the next record into one line, so the corruption
-                // costs a good record as well as the lost one. Found by the test
-                // that stages exactly that, which expected to lose one line and
-                // lost two.
-                if try !endsWithNewline(handle) {
-                    try handle.write(contentsOf: Data("\n".utf8))
-                }
-                try handle.write(contentsOf: data)
-            } catch {
-                throw ProblemsJournalError.couldNotWrite(
-                    "\(url.path): \(error.localizedDescription)")
-            }
-        } else {
-            do {
-                try data.write(to: url, options: .atomic)
-            } catch {
-                throw ProblemsJournalError.couldNotWrite(
-                    "\(url.path): \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// Whether the file already ends in a newline, so an append starts cleanly.
-    /// An empty file counts as ending in one: there is nothing to fuse to.
-    private func endsWithNewline(_ handle: FileHandle) throws -> Bool {
-        let end = try handle.offset()
-        guard end > 0 else { return true }
-        try handle.seek(toOffset: end - 1)
-        let last = try handle.read(upToCount: 1)
-        try handle.seekToEnd()
-        return last == Data("\n".utf8)
     }
 
     func load() throws -> [ProblemJournalRecord] {
         skippedOnLastLoad = 0
-        guard fileManager.fileExists(atPath: url.path) else { return [] }
-
-        let text: String
+        let lines: [String]
         do {
-            text = try String(contentsOf: url, encoding: .utf8)
-        } catch {
-            throw ProblemsJournalError.couldNotRead("\(url.path): \(error.localizedDescription)")
+            lines = try file.lines()
+        } catch let error as AppendOnlyLineFileError {
+            switch error {
+            case .couldNotRead(let detail), .couldNotWrite(let detail):
+                throw ProblemsJournalError.couldNotRead(detail)
+            }
         }
 
         let decoder = JSONDecoder()
         var records: [ProblemJournalRecord] = []
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+        for line in lines {
             guard let data = line.data(using: .utf8),
                   let record = try? decoder.decode(ProblemJournalRecord.self, from: data) else {
                 skippedOnLastLoad += 1

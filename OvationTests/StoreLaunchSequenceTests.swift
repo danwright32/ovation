@@ -26,7 +26,7 @@ struct StoreLaunchSequenceTests {
         let outcome = world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
-        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed", "export-notices"])
         #expect(world.store.open.isEmpty)
     }
 
@@ -119,7 +119,7 @@ struct StoreLaunchSequenceTests {
 
         #expect(outcome == .opened)
         #expect(!world.recorder.steps.contains("backup"))
-        #expect(world.recorder.steps == ["identify", "checkpoint", "open", "version", "seed"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "open", "version", "seed", "export-notices"])
         #expect(world.store.open.isEmpty)
     }
 
@@ -157,7 +157,7 @@ struct StoreLaunchSequenceTests {
 
         #expect(outcome == .opened)
         #expect(world.store.open.contains { $0.kind == .backupFailed })
-        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed", "export-notices"])
     }
 
     @Test("the backup failure names which half failed")
@@ -171,6 +171,57 @@ struct StoreLaunchSequenceTests {
 
         let problem = try #require(world.store.open.first { $0.kind == .backupFailed })
         #expect(problem.sentence.lowercased().contains("could not be written"))
+    }
+
+    // MARK: what is true about the export is said at launch (ovation#64)
+
+    @Test("an export notice is raised through the one launch presenter")
+    func exportNoticesReachTheProblemsStore() throws {
+        // Both notices reach Dan through this presenter rather than as
+        // independent alerts (L242), and they are derived at launch rather than
+        // stored as a conclusion (L175).
+        let world = try World(exportNotices: { _, _ in [.stale(days: 41)] })
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        let problem = try #require(world.store.open.first { $0.kind == .exportStale })
+        #expect(problem.sentence.contains("41 days"))
+    }
+
+    @Test("with nothing to say it raises nothing, because that is every ordinary launch")
+    func noExportNoticeRaisesNothing() throws {
+        let world = try World(exportNotices: { _, _ in [] })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(world.store.open.isEmpty)
+    }
+
+    @Test("the notices are asked for AFTER the store opened, because one is about its contents")
+    func exportNoticesComeAfterTheOpen() throws {
+        let world = try World(exportNotices: { _, _ in [] })
+
+        _ = world.sequence.run(now: world.instant)
+
+        let steps = world.recorder.steps
+        let open = try #require(steps.firstIndex(of: "open"))
+        let notices = try #require(steps.firstIndex(of: "export-notices"))
+        #expect(open < notices)
+    }
+
+    @Test("a store refused at IDENTIFY is never asked about its export history")
+    func arefusedStoreRaisesNoExportNotice() throws {
+        // Asking would mean reading a store the sequence has just refused to
+        // open, and answering "nobody has exported" about a database Ovation
+        // could not identify is a claim the check never measured (L11).
+        let world = try World(exportNotices: { _, _ in [.stale(days: 99)] })
+        try world.writeForeignStore()
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(!world.recorder.steps.contains("export-notices"))
+        #expect(world.store.open.allSatisfy { $0.kind != .exportStale })
     }
 
     // MARK: fixtures
@@ -237,8 +288,13 @@ struct StoreLaunchSequenceTests {
 
         _ = world.sequence.run(now: world.instant)
 
-        #expect(world.recorder.steps.last == "seed")
-        #expect(world.recorder.steps.firstIndex(of: "seed")! > world.recorder.steps.firstIndex(of: "backup")!)
+        // Asserted as the two ORDERINGS this test is about rather than as "seed
+        // is last", which was only ever a proxy for them: ovation#64 added a step
+        // after it that writes nothing, and the proxy went red for a reason that
+        // has nothing to do with what this test defends (L430).
+        let steps = world.recorder.steps
+        #expect(steps.firstIndex(of: "seed")! > steps.firstIndex(of: "open")!)
+        #expect(steps.firstIndex(of: "seed")! > steps.firstIndex(of: "backup")!)
     }
 
     @Test("a store that refuses at IDENTIFY is never seeded")
@@ -304,7 +360,8 @@ struct StoreLaunchSequenceTests {
              checkpoint: (@Sendable (URL) -> StoreCheckpoint.Outcome)? = nil,
              backup: (@Sendable (Date) throws -> URL)? = nil,
              seed: (@Sendable (ModelContainer) throws -> Int)? = nil,
-             recordVersion: (@Sendable (URL) throws -> Void)? = nil) throws {
+             recordVersion: (@Sendable (URL) throws -> Void)? = nil,
+             exportNotices: (@Sendable (ModelContainer, Date) -> [ExportNotice])? = nil) throws {
             directory = URL.temporaryDirectory
                 .appending(path: "ovation-launch-\(UUID().uuidString)",
                            directoryHint: .isDirectory)
@@ -361,6 +418,10 @@ struct StoreLaunchSequenceTests {
                     recorder.record("version")
                     if let recordVersion { return try recordVersion(url) }
                     try StoreVersionMarker.write(Schema.Version(1, 0, 0), besideStoreAt: url)
+                },
+                exportNotices: { container, now in
+                    recorder.record("export-notices")
+                    return exportNotices?(container, now) ?? []
                 })
         }
 
