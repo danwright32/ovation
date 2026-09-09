@@ -73,11 +73,17 @@ blocked() {
     "there is no Overture installed-build.json at the recorded path" \
     "it is written by Overture's mac/build-install.sh; reinstall Overture, or correct the path"
 
-# PARSED BY CONVERTING IT, not by `plutil -lint`. Measured 2026-09-06: `-lint`
-# reports "Unexpected character {" on the very JSON that `plutil -extract` reads
-# without complaint, so the tool named for the job is the wrong one here and
-# using it made every healthy record read as corrupt.
-readable_json() { plutil -convert xml1 -o /dev/null -- "$1" >/dev/null 2>&1; }
+# JSON IS READ BY THE SHARED LIBRARY (ovation#152), because this check had the
+# same macOS only reader `check-booking-queue.sh` did: `plutil`. On a Linux runner
+# every record read as unreadable, so seven cases of this check's own suite failed
+# there while passing here.
+#
+# The library carries what plutil taught us, which is about plutil rather than
+# about either caller: `plutil -lint` reports "Unexpected character {" on the very
+# JSON that `plutil -extract` reads without complaint, so the tool named for the
+# job was the wrong one even on the platform that has it.
+# shellcheck source=lib/json-field.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-field.sh"
 
 readable_json "$RECORD" || cannot_measure \
     "Overture's installed-build.json is not readable as JSON" \
@@ -86,12 +92,12 @@ readable_json "$RECORD" || cannot_measure \
 # Each field is asked for BY NAME and refused BY NAME. One shared message here
 # would let a missing field answer for a missing file, and the two need
 # different actions (L11).
-INSTALLED="$(plutil -extract commit raw -o - "$RECORD" 2>/dev/null)" || INSTALLED=""
+INSTALLED="$(json_field "$RECORD" commit)" || INSTALLED=""
 [ -n "$INSTALLED" ] || cannot_measure \
     "Overture's installed-build.json has no 'commit' field" \
     "the record predates that field, or the install did not finish; reinstall Overture"
 
-PROVENANCE="$(plutil -extract provenance raw -o - "$RECORD" 2>/dev/null)" || PROVENANCE=""
+PROVENANCE="$(json_field "$RECORD" provenance)" || PROVENANCE=""
 [ -n "$PROVENANCE" ] || cannot_measure \
     "Overture's installed-build.json has no 'provenance' field" \
     "the record predates that field, or the install did not finish; reinstall Overture"
@@ -157,7 +163,7 @@ readable_json "$EXPORT_FILE" || cannot_measure \
     "the Downbeat export is not readable as JSON" \
     "it may have been caught mid write; launch Downbeat again and re-run this"
 
-VERSION="$(plutil -extract version raw -o - "$EXPORT_FILE" 2>/dev/null)" || VERSION=""
+VERSION="$(json_field "$EXPORT_FILE" version)" || VERSION=""
 [ -n "$VERSION" ] || cannot_measure \
     "the Downbeat export has no 'version' field" \
     "it was written by a build older than the format itself; reinstall Downbeat"

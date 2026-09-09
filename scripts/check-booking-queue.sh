@@ -77,48 +77,14 @@ if [ -z "$MINIMUM_VERSION" ]; then
         "$DECLARATION is there and could not be read as JSON holding an integer minimumVersion"
 fi
 
-# READ WITH python3 RATHER THAN plutil (ovation#152). It used `plutil -convert`
-# and `plutil -extract`, which exist only on macOS, so every record read as
-# unreadable on a Linux runner and five cases of this check's own suite failed
-# there while passing here. Measured on CI rather than guessed: that job is what
-# ovation#152 added to find out.
-#
-# The note plutil earned is kept, because it is about plutil rather than about
-# this file: `plutil -lint` reports "Unexpected character {" on JSON that
-# `plutil -extract` reads without complaint (measured 2026-09-06), so the tool
-# named for the job was the wrong one even on the platform that has it.
-#
-# python3 is already required by this repository's other guards, and it is the
-# same reader the declaration below is parsed with, so there is one JSON reader
-# here rather than two that can disagree.
-readable_json() {
-    python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$1" >/dev/null 2>&1
-}
-# One top level field, printed raw, or nothing when it is absent. A container
-# (an object or an array) prints a non empty marker rather than its contents,
-# because every caller here only asks whether it is THERE and printing a client
-# object would put names into output that reaches transcripts (L222).
-field() {
-    python3 - "$1" "$2" <<'PYFIELD' 2>/dev/null
-import json, sys
-try:
-    with open(sys.argv[1]) as fh:
-        data = json.load(fh)
-except Exception:
-    raise SystemExit(1)
-if not isinstance(data, dict) or sys.argv[2] not in data:
-    raise SystemExit(0)
-value = data[sys.argv[2]]
-if isinstance(value, (dict, list)):
-    print("present")
-elif isinstance(value, bool):
-    print("true" if value else "false")
-elif value is None:
-    raise SystemExit(0)
-else:
-    print(value)
-PYFIELD
-}
+# JSON IS READ BY THE SHARED LIBRARY (ovation#152). It used `plutil`, which
+# exists only on macOS, so on a Linux runner every well formed record read as
+# unreadable and this check reported BLOCKED about a healthy queue. The reader
+# moved into a library because the sibling install check had the same defect for
+# the same reason, and two copies of one reader drift (L613).
+# shellcheck source=lib/json-field.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-field.sh"
+field() { json_field "$1" "$2"; }
 
 if [ ! -d "$QUEUE" ]; then
     cannot_measure "the queue directory has never been created" \
