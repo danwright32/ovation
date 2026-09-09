@@ -24,7 +24,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "booking queue reader tests" 19
+harness_begin "booking queue reader tests" 25
 
 TARGET="scripts/check-booking-queue.sh"
 require_target "$TARGET"
@@ -113,8 +113,44 @@ BAD="$(queue malformed)"; printf 'not json at all\n' > "$BAD/$UUID_A.json"
 check "a record that is not JSON is BLOCKED, never skipped" "$(status_of "$BAD")" "1"
 
 V2="$(queue oldversion)"; record_file "$V2" "$UUID_A" 2 - yes
-check "a record at the wrong format version is BLOCKED" "$(status_of "$V2")" "1"
+check "a record BELOW the accepted minimum is BLOCKED" "$(status_of "$V2")" "1"
 check "and it names the version it found" "$(says "$(run_check "$V2")" "2")" "yes"
+check "and the minimum it wanted, because that is the half that says what to do" \
+    "$(says "$(run_check "$V2")" "3")" "yes"
+
+# ---------------------------------------------------------------------------
+# THE FLOOR IS A MINIMUM, AND IT COMES FROM THE PUBLISHED DECLARATION
+# (ovation#33). This reader used to require an EXACT version, which is the gate
+# shape that turns Downbeat's next additive bump into a total outage: every
+# record refused, and a queue nothing drains looks exactly like a quiet week
+# (L255, L98).
+#
+# The number is read from `integration/downbeat-handoff-accepted-versions.json`,
+# the same file Downbeat's push gate reads and the same one `HandoffRecord`'s
+# behaviour test ties the decoder to. One derivation, so this reader and the
+# decoder cannot come to different answers about the same file (L70, L263).
+V4="$(queue newversion)"; record_file "$V4" "$UUID_A" 4 - yes
+check "a record ABOVE the minimum is a PASS, which is the whole point of a floor" \
+    "$(status_of "$V4")" "0"
+
+V3="$(queue atthefloor)"; record_file "$V3" "$UUID_A" 3 - yes
+check "and the minimum itself is still accepted" "$(status_of "$V3")" "0"
+
+# A DECLARATION IT CANNOT READ IS NOT A PASS. The floor is the whole judgement,
+# so a reader that fell back to a built in number would answer confidently from a
+# constant nobody published, and the two would drift with nothing reporting it
+# (L98, L11).
+MISSING_DECL="$WORK/no-declaration.json"
+rm -f "$MISSING_DECL"
+check "a missing declaration cannot be measured, rather than defaulting" \
+    "$(OVATION_HANDOFF_DECLARATION="$MISSING_DECL" run_check "$V3" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check "and it says which file it could not read" \
+    "$(says "$(OVATION_HANDOFF_DECLARATION="$MISSING_DECL" run_check "$V3")" "no-declaration.json")" "yes"
+
+BAD_DECL="$WORK/malformed-declaration.json"
+printf 'not json\n' > "$BAD_DECL"
+check "a declaration that is present and malformed cannot be measured either" \
+    "$(OVATION_HANDOFF_DECLARATION="$BAD_DECL" run_check "$V3" >/dev/null 2>&1; printf '%s' "$?")" "2"
 
 for field in committedAt booking client; do
     D="$(queue "missing-$field")"; record_file "$D" "$UUID_A" 3 "$field" yes

@@ -30,8 +30,9 @@
 # scrollback and transcripts by a route that guard never inspects (L222).
 set -uo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QUEUE="${OVATION_BOOKING_QUEUE:-${HOME}/Library/Application Support/Ovation/booking-queue}"
-WANT_VERSION="${OVATION_HANDOFF_VERSION:-3}"
+DECLARATION="${OVATION_HANDOFF_DECLARATION:-${REPO_ROOT}/integration/downbeat-handoff-accepted-versions.json}"
 
 cannot_measure() {
     echo "CANNOT MEASURE: $1"
@@ -39,6 +40,42 @@ cannot_measure() {
     echo "    Nothing was verified. This is not a pass."
     exit 2
 }
+
+# THE FLOOR IS A MINIMUM AND IT IS READ, NEVER TYPED HERE (ovation#33). This used
+# to require an EXACT version, which is the gate shape that turns Downbeat's next
+# additive bump into a total outage: every record refused, and a queue nothing
+# drains looks exactly like a quiet week (L255, L98).
+#
+# It comes from the same published declaration Downbeat's push gate reads and
+# `HandoffRecord`'s behaviour test ties the decoder to, so this reader and the
+# decoder cannot answer differently about one file. A second copy of the number
+# here would be a second definition that drifts, and the one that drifted would
+# be believed (L70, L263).
+#
+# A DECLARATION IT CANNOT READ IS CANNOT MEASURE, never a fallback to a built in
+# number: the floor is the whole judgement, so a reader that guessed would answer
+# confidently from a constant nobody published.
+if [ ! -f "$DECLARATION" ]; then
+    cannot_measure "the accepted versions declaration is not there" \
+        "expected $DECLARATION, which is what states the oldest handoff format Ovation reads"
+fi
+
+MINIMUM_VERSION="$(python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    raise SystemExit(1)
+lo = d.get("minimumVersion") if isinstance(d, dict) else None
+if not isinstance(lo, int) or isinstance(lo, bool):
+    raise SystemExit(1)
+print(lo)
+' "$DECLARATION" 2>/dev/null)" || MINIMUM_VERSION=""
+
+if [ -z "$MINIMUM_VERSION" ]; then
+    cannot_measure "the accepted versions declaration states no usable minimum" \
+        "$DECLARATION is there and could not be read as JSON holding an integer minimumVersion"
+fi
 
 # Reading a JSON file is done by CONVERTING it. `plutil -lint` reports
 # "Unexpected character {" on JSON that `plutil -extract` reads without
@@ -89,8 +126,19 @@ for f in "$QUEUE"/*; do
     fi
 
     version="$(field "$f" version)"
-    if [ "$version" != "$WANT_VERSION" ]; then
-        note "$stem is format version ${version:-absent}, not ${WANT_VERSION}"
+    # Absent, not a number, or below the floor. Told apart, because the remedies
+    # differ: a record with no version is not a handoff record at all, while an
+    # older one is a Downbeat that has not been upgraded (L11).
+    if [ -z "$version" ]; then
+        note "$stem does not say which format version it is"
+        continue
+    fi
+    if ! printf '%s' "$version" | grep -qE '^[0-9]+$'; then
+        note "$stem states a format version that is not a number"
+        continue
+    fi
+    if [ "$version" -lt "$MINIMUM_VERSION" ]; then
+        note "$stem is format version ${version}, and Ovation reads ${MINIMUM_VERSION} and above"
         continue
     fi
 
@@ -118,5 +166,5 @@ if [ "$RECORDS" -eq 0 ]; then
         "Downbeat has queued bookings here before and something has drained them, or none has been committed since it was created"
 fi
 
-echo "PASS: the queue holds ${RECORDS} record(s), every one readable at version ${WANT_VERSION}"
+echo "PASS: the queue holds ${RECORDS} record(s), every one readable at version ${MINIMUM_VERSION} or above"
 exit 0
