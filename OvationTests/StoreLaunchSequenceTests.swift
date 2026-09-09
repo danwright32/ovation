@@ -394,6 +394,24 @@ struct StoreLaunchSequenceTests {
                 let context = ModelContext(container)
                 context.insert(Client(name: "Ashgrove Chamber Players", taxStatus: .neverRecorded))
                 try context.save()
+
+                // AND WAIT UNTIL THE FIXTURE'S OWN WRITER HAS LET GO.
+                //
+                // Measured on CI, 2026-09-09 (ovation#159): the sequence refused
+                // at CHECKPOINT with "database is locked", because the container
+                // above still held the file when the checkpoint ran. It passes
+                // here every time and failed twice on a runner, which is what a
+                // window that only opens under load looks like.
+                //
+                // WAITING ON THE CONDITION, NOT ON A DURATION. A fixed sleep here
+                // would be an assertion about how busy the machine is, and it
+                // would be the suite's slowest test on a quiet one (L290, L524).
+                // The bound exists so a genuinely stuck file fails the test rather
+                // than hanging it (L110).
+                var attempts = 0
+                while attempts < 200, StoreCheckpoint.run(storeURL: storeURL) != .checkpointed {
+                    attempts += 1
+                }
             }
 
             store = ProblemsStore(journal: InMemoryProblemsJournal())
