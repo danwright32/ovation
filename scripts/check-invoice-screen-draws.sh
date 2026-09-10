@@ -389,15 +389,32 @@ window.addEventListener("load", function () {
       /* WHAT IS LEFT OVER IS STATED (PRD 5.14e). The fixture's invoice is
          smaller than the balance, so this is the partial case by construction. */
       var leftover = document.querySelector(".invsum .heldwhy");
-      var owed = parseFloat((before.Total || "0").replace(/,/g, ""));
-      var used = Math.abs(parseFloat(heldFig.replace(/[-,]/g, "")));
-      claim("what is left over stays held, and the invoice says how much",
-            used >= owed - 0.005
-              ? !!leftover && /stays held/.test(leftover.textContent)
-              : !leftover,
-            used >= owed - 0.005
-              ? (leftover ? leftover.textContent.trim() : "nothing said about the rest")
-              : "the whole balance was used, so there is nothing left to say");
+      /* A FIGURE THAT WILL NOT PARSE IS ITS OWN REFUSAL, never a number fed
+         into the comparison below. parseFloat answers NaN, NaN loses every
+         comparison it is in, and this claim would then take its "the whole
+         balance was used" branch and PASS on a screen missing its Total
+         entirely: the permissive side, silently, with no error raised (L50). */
+      function figure(text) {
+        var n = parseFloat(String(text).replace(/[-,]/g, ""));
+        return isFinite(n) ? Math.abs(n) : null;
+      }
+      var owed = figure(before.Total);
+      var used = figure(heldFig);
+      if (owed === null || used === null) {
+        claim("what is left over stays held, and the invoice says how much", false,
+              "could not read the figures to compare: Total is "
+                + JSON.stringify(before.Total) + " and the applied line is "
+                + JSON.stringify(heldFig));
+      } else {
+        var partial = used < owed - 0.005;
+        claim("what is left over stays held, and the invoice says how much",
+              partial ? !leftover
+                      : !!leftover && /stays held/.test(leftover.textContent),
+              partial
+                ? "the invoice is larger than the balance, so nothing is left over"
+                : (leftover ? leftover.textContent.trim()
+                            : "nothing said about the rest"));
+      }
 
       if (pressable) {
         pressable.click();

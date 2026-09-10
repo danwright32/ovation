@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 50
+harness_begin "invoice screen rendering checks" 53
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -266,6 +266,18 @@ check "the branch is where the mutation expects it" \
 check "money applied to both open invoices is refused" "$(status_on "$BOTH")" "1"
 check "and the claim that fired names the second open invoice" \
     "$(failed_claims "$BOTH")" "with two invoices open it is applied to neither, and says why;"
+
+# 15. A FIGURE THE CHECK CANNOT READ. The leftover claim compares two numbers
+#     parsed off the screen, and parseFloat answers NaN rather than failing: NaN
+#     loses every comparison it is in, so before this was guarded the claim took
+#     its "nothing is left over" branch and PASSED on a screen whose figures
+#     could not be read at all (L50). This plants exactly that.
+UNREADABLE="$WORK/unreadable-figure.html"
+check "the applied figure is where the mutation expects it" \
+    "$(mutate "$UNREADABLE" 's|row.append(label, el("div", "fig", "-" + money(on)));|row.append(label, el("div", "fig", "-" + "n/a"));|' '"-" + "n/a"')" "1"
+check "a figure the check cannot read is refused, not passed" "$(status_on "$UNREADABLE")" "1"
+check "and the claim that fired names what is left over" \
+    "$(failed_claims "$UNREADABLE")" "what is left over stays held, and the invoice says how much;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.

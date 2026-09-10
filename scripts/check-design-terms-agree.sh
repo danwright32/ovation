@@ -79,6 +79,11 @@ def terms_in(path):
     for shape in SHAPES:
         found = shape.search(text)
         if found:
+            # NEVER EMPTY, and so there is no second branch for an empty list
+            # further down: both patterns require at least one quoted label to
+            # match at all, so a match always yields one. A caller side check for
+            # emptiness would be a branch nothing can reach, reading as care
+            # (L29), and worse, it would answer for this refusal as well.
             return LABEL.findall(found.group(1)), None
     return None, "%s declares no payment terms this can read" % path
 
@@ -94,9 +99,6 @@ def main(argv):
         terms, why = terms_in(path)
         if terms is None:
             print("CANNOT MEASURE: %s" % why)
-            return 2
-        if not terms:
-            print("CANNOT MEASURE: %s declares no payment terms" % path)
             return 2
         lists.append(terms)
 
