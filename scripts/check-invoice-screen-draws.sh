@@ -389,7 +389,12 @@ window.addEventListener("load", function () {
           function (ln) {
             if (ln.firstChild.textContent.trim() === label) found = ln.querySelector(".fig");
           });
-        return found ? parseFloat(getComputedStyle(found).fontSize) : null;
+        /* NULL RATHER THAN NaN when the size will not parse, so the claims
+           below cannot take their permissive branch on a figure nothing could
+           read (L50). Same shape as `figure` further down this file. */
+        if (!found) { return null; }
+        var size = parseFloat(getComputedStyle(found).fontSize);
+        return isFinite(size) ? size : null;
       }
       var totSize = figSizeOf("Total");
       var outSize = figSizeOf("Outstanding");

@@ -488,7 +488,7 @@ color: var(--faint); }
    is a question nobody has asked yet (Dan, 2026-09-07). */
 
 var CLIENTS = [
-  { c: "Ashgrove Chamber Players",     m: "office@ashgrovechamber.example",   o: null, t: null,         h: "$500.00",   r: null },
+  { c: "Ashgrove Chamber Players",     m: "office@ashgrovechamber.example",   o: null, t: null,         h: 500,         r: null },
   { c: "Bellweather Dance Collective", m: "hello@bellweatherdance.example",   o: null, t: null,         h: null,        r: null },
   { c: "Brackenridge Youth Orchestra", m: "admin@brackenridgeyo.example",     o: null, t: null,         h: null,        r: null },
   { c: "Calder Street Theatre",        m: "boxoffice@calderstreet.example",   o: null, t: "Not exempt", h: null,        r: null },
@@ -497,7 +497,7 @@ var CLIENTS = [
   { c: "Eastvale Opera Workshop",      m: "office@draytonarts.example",       o: null, t: null,         h: null,        r: null, shared: true },
   { c: "Fenwick Early Music Society",  m: "consort@fenwickearly.example",     o: null, t: null,         h: null,        r: "2.5 hrs" },
   { c: "Gallowmere Brass Band",        m: "band@gallowmerebrass.example",     o: null, t: null,         h: null,        r: null },
-  { c: "Harborlight Ballet",           m: "studio@harborlightballet.example", o: "treasurer@harborlightballet.example", t: "Not exempt", h: "$1,250.00", r: "3.0 hrs" },
+  { c: "Harborlight Ballet",           m: "studio@harborlightballet.example", o: "treasurer@harborlightballet.example", t: "Not exempt", h: 1250,        r: "3.0 hrs" },
   { c: "Inglenook Jazz Collective",    m: "gigs@inglenookjazz.example",       o: null, t: null,         h: null,        r: null },
   { c: "Juniper Row Playhouse",        m: "stage@juniperrow.example",         o: null, t: null,         h: null,        r: null },
   { c: "Kestrel Lane Quartet",         m: "quartet@kestrellane.example",      o: null, t: null,         h: null,        r: null },
@@ -518,10 +518,26 @@ var CLIENTS = [
   { c: "Westfield Choral Society",     m: "music@westfieldchoral.example",    o: null, t: "Not exempt", h: null,        r: "3.0 hrs" },
   { c: "Wrenfield Academy of Dance",   m: "school@wrenfieldacademy.example",  o: null, t: null,         h: null,        r: null },
   { c: "Yarrow Street Collective",     m: "make@yarrowstreet.example",        o: null, t: null,         h: null,        r: null },
-  { c: "Zephyr Hall Concerts",         m: "hall@zephyrhall.example",          o: null, t: "Not exempt", h: "$87.50",    r: null }
+  { c: "Zephyr Hall Concerts",         m: "hall@zephyrhall.example",          o: null, t: "Not exempt", h: 87.5,        r: null }
 ];
 
 var SELECTED = "Drayton Wind Ensemble";
+/* HELD MONEY IS A NUMBER, and the "$1,250.00" on screen is DERIVED from it.
+   It was stored as the display string until 2026-09-10, and the rail's total
+   under the card had to parse it back out to add it up. parseFloat answers NaN
+   rather than failing, NaN loses every comparison it is in, so one malformed
+   balance would have made the sum NaN, `NaN > 0` false, and the rail would have
+   drawn NOTHING while the boxes beside it showed money: the quiet side, in
+   silence, with nothing raised (L50). One definition, formatted where it is
+   drawn, means there is no parse to fail.
+
+   A balance of ZERO is falsy here and that is deliberate rather than incidental:
+   a quantity of nothing is not drawn anywhere on this screen (Dan, 2026-09-07),
+   so a client holding nothing has no box, no amount beside the name, and adds
+   nothing to the rail. */
+function dollars(n) {
+  return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 var HELD = CLIENTS.filter(function (k) { return k.h; });
 var NO_TAX = CLIENTS.filter(function (k) { return !k.t; });
 var BAD_ADDRESS = CLIENTS.filter(function (k) { return k.bad; });
@@ -648,7 +664,7 @@ function arrivalWords(a) {
 
 function heldBox(k) {
   var box = el("div", "mbox");
-  box.append(el("div", "mlabel", "Money held"), el("div", "mval", k.h));
+  box.append(el("div", "mlabel", "Money held"), el("div", "mval", dollars(k.h)));
   var came = ARRIVALS[k.c] || [];
   if (came.length === 0) {
     /* Nothing recorded about where it came from is its own state, and it is said
@@ -791,7 +807,7 @@ function clientsScreen() {
     var n = el("div", "nrow");
     n.dataset.client = k.c;
     if (k.h && !QUIET) {
-      n.append(el("span", "nname", k.c), el("span", "nheld", k.h));
+      n.append(el("span", "nname", k.c), el("span", "nheld", dollars(k.h)));
       n.classList.add("hasheld");
     } else {
       n.textContent = k.c;
@@ -853,9 +869,7 @@ function buildScreen() {
      is a second definition and it drifts in whichever direction flatters the
      reading (L107). On a settled day the boxes are not drawn either, so the sum
      is zero and, being a quantity of nothing, the line is not drawn at all. */
-  var heldTotal = QUIET ? 0 : HELD.reduce(function (a, k) {
-    return a + parseFloat(String(k.h).replace(/[$,]/g, ""));
-  }, 0);
+  var heldTotal = QUIET ? 0 : HELD.reduce(function (a, k) { return a + k.h; }, 0);
   if (heldTotal > 0) {
     var railheld = el("div", "railheld");
     railheld.append(el("span", null, "Money held"),
