@@ -206,6 +206,16 @@ gate_check check-design-shell-inline.sh "a design file's copy of the shell disag
 # the deletion and the guard ship together.
 gate_check check-design-dead-rules.sh "a design file carries CSS for a screen it does not draw."
 
+# ovation#149. Rounds A to D of ovation#111 produced one popup list and built it
+# as TWO, merged in the same change. The component shipped without the guard
+# that keeps it the only one, and a shared component created to end N copies
+# converts the site in front of whoever built it and leaves the rest standing
+# (L613). Three screens are still to be drawn and each wants a short list of
+# choices. A rule in the design record would be followed by whoever read it
+# (L27), so it is a scan, and it recognises a copy by its SHAPE rather than its
+# name, because the name is the thing a copy changes.
+gate_check check-design-shared-components.sh "a design file declares a second copy of a shared component."
+
 # ovation#102. The AppIcon catalog is DERIVED from icon/ovation-app-icon.png and
 # both are committed. Nothing asserted they were still in step, and both ways it
 # goes wrong are silent: the artwork replaced without the script being re-run, so

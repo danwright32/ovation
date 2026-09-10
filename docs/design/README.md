@@ -175,6 +175,30 @@ agree. The fault it was aimed at is claim 3.
 checks ran on exactly one machine and both CI jobs answered CANNOT MEASURE, so a push from anywhere
 else was judged without them.
 
+## One popup list, and something that keeps it the only one
+
+**`scripts/check-design-shared-components.sh` refuses a second hand rolled copy of a component the
+record shares** (ovation#149). Today that is one component: `.poplist`, the popup list of choices,
+used twice on the invoice screen. It was built as TWO, `.typelist` and `.duelist`, and merged in the
+same change; what shipped without it was the guard that keeps it the only one. A shared component
+created to end N copies converts the site in front of whoever built it and leaves the rest standing,
+and the next screen either copies it by eye or invents its own. The receipts queue, the review and
+send screen and the Clients screen are each going to want a short list of choices.
+
+**A copy is recognised by its SHAPE, not its name**, because the name is the thing a copy changes: a
+class that positions itself absolutely and has rules for the choices inside it. That is what a hand
+rolled copy has to declare in order to work at all. Measured across the record, exactly one class
+matches. The near misses are asserted too, because a guard that accused them is one people learn to
+skip: a veil that is positioned and holds no choices is not a popup list, and a sidebar of buttons
+that is not positioned is not one either.
+
+**`scripts/check-design-collisions.py` is the round tool beside it** (ovation#132), and it now has a
+suite. It takes a settled stylesheet and one round's, and refuses a class name the round redefined
+without declaring. Two outcomes it did not have: a reuse entry naming a class NEITHER sheet defines
+is refused, which is the long list its own header warns about caught one entry at a time, and a
+stylesheet that is not there is refused rather than read as an empty one, which would report a clean
+round for a mistyped path.
+
 ## Nothing carries CSS for a screen it does not draw
 
 **`scripts/check-design-dead-rules.sh` refuses a rule the file that holds it can never apply.** Each

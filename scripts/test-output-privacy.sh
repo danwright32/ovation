@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 51
+harness_begin "output privacy tests" 53
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -418,6 +418,26 @@ check "and none on the clean run either" \
 check "and none when it cannot measure at all" \
     "$(leaks_in "$(OVATION_DESIGN_ROOT="$DEAD_ROOT/nowhere" \
         python3 ./scripts/check-design-dead-rules.sh 2>&1)")" "clean"
+
+# The shared component guard, ovation#149. It names a CLASS and a file, both of
+# which are things we wrote, and never any element's text. The fixture puts a
+# name in the page's prose and in a class attribute.
+COMPONENT_ROOT="$WORK/design-components"
+mkdir -p "$COMPONENT_ROOT"
+cat > "$COMPONENT_ROOT/invoice-list.html" <<HTML
+<h1>$CLIENT at $VENUE</h1>
+<style>
+.choicelist { position: absolute; }
+.choicelist button { display: block; }
+</style>
+<div class="choicelist">$CLIENT at $VENUE</div>
+HTML
+check "the shared component guard prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$COMPONENT_ROOT" \
+        python3 ./scripts/check-design-shared-components.sh 2>&1)")" "clean"
+check "and none when it cannot measure" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$COMPONENT_ROOT/nowhere" \
+        python3 ./scripts/check-design-shared-components.sh 2>&1)")" "clean"
 
 # The design record's open list, ovation#172. It prints issue numbers and line
 # numbers, and never the sentence, which is prose and is where a client or a
