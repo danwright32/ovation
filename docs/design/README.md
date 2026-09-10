@@ -982,9 +982,20 @@ have shipped.
 **THE ROUND NEEDED A FIXTURE THE FILE COULD NOT DRAW.** With `$500.00` held against a `408.28`
 invoice the balance covers all of it, so the file could reach `Outstanding 0.00` and could not
 reach a partial one at all, and a partial is the case where three figures are on screen at once.
-A third switch was added with the round and kept: the balance covers part of the invoice, or all
-of it. A branch no fixture can reach is the branch that ships untested, which is the same reason
-the two invoice switch beside it exists.
+A switch for the amount was added with the round and kept, `$150.00` or `$500.00`. A branch no
+fixture can reach is the branch that ships untested, which is the same reason the two invoice
+switch beside it exists.
+
+**It shares that switch's ROW, and the first attempt did not.** A third statebar cost 40px above
+the window, and it broke the CI check that presses the due date and measures where the terms are
+painted: on the Linux runner the page renders about 40px taller than it does here, so the list
+opened below the fold and the claim refused, correctly, because it could not measure it. That is
+this file's own recorded decision arriving again from the other side, since two prose blocks were
+cut from above the window for exactly the same reason. Folded onto one row the page is back to
+the height it was, measured at 1440, 1280, 1180 and 1024 and identical at all four. Each group
+marks its own buttons: one row holding two vocabularies cannot be marked by position, because a
+loop over every button in it would index the amounts against the counts and light the wrong
+pair.
 
 **One thing here was decided by Claude rather than by Dan, and is flagged as such.** An invoice
 smaller than the balance uses part of it, and PRD 5.14e is explicit that a partial leaves exactly

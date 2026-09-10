@@ -2724,67 +2724,79 @@ function buildScreen() {
   });
   anchor.parentNode.insertBefore(bar, anchor.nextSibling);
 
-  /* HOW MANY OF THIS CLIENT'S INVOICES ARE OPEN, which decides whether Ovation
-     applies the held money itself (round C3). A second switch rather than a
-     second file: both branches have to be reachable, or the one nobody can draw
-     is the one that ships. */
-  var held = el("div", "statebar");
-  held.append(el("span", "lab", "Cedar Hill is holding money, and"));
-  var counts = [[1, "1 invoice open", "it is applied"],
-                [2, "2 invoices open", "it is applied to neither"]];
-  counts.forEach(function (c) {
-    var b = el("button", "sbtn");
-    b.type = "button";
-    b.append(el("span", null, c[1]), el("span", "share", c[2]));
-    b.addEventListener("click", function () {
-      OPEN_INVOICES = c[0];
-      HELD_TAKEN = false;
-      HELD_REMOVED = false;
-      [].forEach.call(held.querySelectorAll(".sbtn"), function (o, i) {
-        o.setAttribute("aria-pressed", String(counts[i][0] === OPEN_INVOICES));
-      });
-      redraw();
-    });
-    held.append(b);
-  });
-  [].forEach.call(held.querySelectorAll(".sbtn"), function (o, i) {
-    o.setAttribute("aria-pressed", String(i === 0));
-  });
-  bar.parentNode.insertBefore(held, bar.nextSibling);
+  /* TWO FIXTURE SWITCHES ON ONE ROW: how much of the invoice the balance covers,
+     and how many of this client's invoices are open. Both are switches rather
+     than settings, and both exist for the same reason: a branch no fixture can
+     reach is the branch that ships untested.
 
-  /* HOW MUCH OF THE INVOICE THE BALANCE COVERS, added with ovation#189 and kept.
-     The round about which figure carries the weight could not be run without
-     it: at $500.00 against a 408.28 invoice the balance covers ALL of it, so
-     the file could draw Outstanding 0.00 and could not draw a partial at all,
-     and a partial is the only state with three figures on screen at once. A
-     branch no fixture can reach is the branch that ships untested, which is the
-     same reason the switch above it exists. Measured rather than assumed: 150
-     leaves 258.28 outstanding, and 500 covers it and leaves the rest held,
-     which is the line PRD 14k added. */
-  var covers = el("div", "statebar");
-  covers.append(el("span", "lab", "and the balance covers"));
-  var sizes = [[150, "part of the invoice", "Outstanding is what is left"],
-               [500, "all of it", "Outstanding is 0.00, and the rest stays held"]];
-  function markCovers() {
-    [].forEach.call(covers.querySelectorAll(".sbtn"), function (o, i) {
+     THE COUNT (round C3) decides whether Ovation applies the money itself. The
+     AMOUNT was added with ovation#189, which could not be run without it: at
+     $500.00 against a 408.28 invoice the balance covers ALL of it, so this file
+     could draw Outstanding 0.00 and could not draw a partial at all, and a
+     partial is the only state with three figures on screen at once. Measured
+     rather than assumed: 150 leaves 258.28 outstanding, and 500 covers it and
+     leaves 91.72 held on the client, which is the line PRD 14k added.
+
+     THEY SHARE A ROW RATHER THAN TAKING TWO, and that is deliberate. A third
+     statebar cost 40px above the window, and this file already carries a
+     recorded decision about exactly that: two prose blocks were cut because
+     carrying all three took the top of the design from 380px to 514px down the
+     page on an 800px laptop window. It showed up as a CI failure on Linux
+     rather than here, where the page renders 40px shorter: the due date terms
+     opened below the fold and the claim that they are painted where they sit
+     refused, correctly, because it could not measure them.
+
+     EACH GROUP MARKS ITS OWN BUTTONS, `.cbtn` and `.nbtn`. One row holding two
+     vocabularies cannot be marked by position: a loop over every `.sbtn` in the
+     row would index the amounts against the counts and light the wrong pair. */
+  var held = el("div", "statebar");
+  held.append(el("span", "lab", "Cedar Hill is holding"));
+
+  var sizes = [[150, "$150.00", "part of the invoice"],
+               [500, "$500.00", "all of it"]];
+  function markSizes() {
+    [].forEach.call(held.querySelectorAll(".cbtn"), function (o, i) {
       o.setAttribute("aria-pressed", String(sizes[i][0] === HELD_ON_CLIENT));
     });
   }
   sizes.forEach(function (c) {
-    var b = el("button", "sbtn");
+    var b = el("button", "sbtn cbtn");
     b.type = "button";
     b.append(el("span", null, c[1]), el("span", "share", c[2]));
     b.addEventListener("click", function () {
       HELD_ON_CLIENT = c[0];
       HELD_TAKEN = false;
       HELD_REMOVED = false;
-      markCovers();
+      markSizes();
       redraw();
     });
-    covers.append(b);
+    held.append(b);
   });
-  markCovers();
-  held.parentNode.insertBefore(covers, held.nextSibling);
+  held.append(el("span", "lab", "and has"));
+
+  var counts = [[1, "1 invoice open", "it is applied"],
+                [2, "2 invoices open", "it is applied to neither"]];
+  function markCounts() {
+    [].forEach.call(held.querySelectorAll(".nbtn"), function (o, i) {
+      o.setAttribute("aria-pressed", String(counts[i][0] === OPEN_INVOICES));
+    });
+  }
+  counts.forEach(function (c) {
+    var b = el("button", "sbtn nbtn");
+    b.type = "button";
+    b.append(el("span", null, c[1]), el("span", "share", c[2]));
+    b.addEventListener("click", function () {
+      OPEN_INVOICES = c[0];
+      HELD_TAKEN = false;
+      HELD_REMOVED = false;
+      markCounts();
+      redraw();
+    });
+    held.append(b);
+  });
+  markSizes();
+  markCounts();
+  bar.parentNode.insertBefore(held, bar.nextSibling);
 })();
 
 /* THE SAME SUITES THE REPOSITORY RUNS. scripts/test-design-rules.sh runs the
