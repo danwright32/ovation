@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 38
+harness_begin "invoice screen rendering checks" 50
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -218,6 +218,54 @@ check "the second ending is where the mutation expects it" \
 check "an invoice that loses its history is refused" "$(status_on "$LOSTPANE")" "1"
 check "and the claim that fired names the recorded decision" \
     "$(failed_claims "$LOSTPANE")" "an invoice recorded as not billed says so and keeps its history;"
+
+# 11. HELD MONEY TREATED AS A PRICE REDUCTION. The one fault here that produces
+#     a WRONG INVOICE rather than a wrong screen: folding an applied payment
+#     into the total takes it through the tax base. It is invisible in the
+#     source, because a block appended below the total looks exactly as correct
+#     appended above it, and the figures on screen all still add up.
+NETTED="$WORK/netted.html"
+check "the total line is where the mutation expects it" \
+    "$(mutate "$NETTED" 's|sumBox.append(line("Total", money(t.total), "tot"));|sumBox.append(line("Total", money(t.total - heldApplied(t.total)), "tot"));|' 'money(t.total - heldApplied')" "1"
+check "held money folded into the total is refused" "$(status_on "$NETTED")" "1"
+check "and the claim that fired names the arithmetic" \
+    "$(failed_claims "$NETTED")" "applying held money leaves the subtotal and the tax alone;"
+
+# 12. REMOVE OFF ITS OWN LINE. Moving it out of the label puts it back where Dan
+#     rejected it on 2026-09-10: present, pressable, and naming nothing.
+#     THE MUTATION RENAMES THE LABEL rather than moving Remove out of the row.
+#     Appending it as a third child does break the claim, and it breaks two more
+#     with it: the row is a two column grid, so a third child opens a third
+#     column and pushes the figure off the one shared right edge. A mutation that
+#     fires three claims proves none of them (L154), so this one takes the class
+#     off and leaves the geometry alone.
+LOOSE="$WORK/loose-remove.html"
+check "the label's class is where the mutation expects it" \
+    "$(mutate "$LOOSE" 's|var label = el("div", "heldlabel");|var label = el("div", "heldnamed");|' 'el("div", "heldnamed")')" "1"
+check "a Remove that is not on the held money line is refused" "$(status_on "$LOOSE")" "1"
+check "and the claim that fired names where Remove sits" \
+    "$(failed_claims "$LOOSE")" "Remove is on the held money line itself;"
+
+# 13. THE LEFTOVER GOING UNSAID. An invoice smaller than the balance uses part
+#     of it, and PRD 5.14e leaves exactly the rest held. Without the sentence,
+#     two screens show 500.00 and 440.94 and the person does the subtraction.
+QUIETREST="$WORK/quiet-rest.html"
+check "the leftover sentence is where the mutation expects it" \
+    "$(mutate "$QUIETREST" 's|^        "\$" + money(HELD_ON_CLIENT - on) + " stays held on the client."));$|        ""));|' 'stays held on the client')" "0"
+check "a leftover that is never named is refused" "$(status_on "$QUIETREST")" "1"
+check "and the claim that fired names what is left over" \
+    "$(failed_claims "$QUIETREST")" "what is left over stays held, and the invoice says how much;"
+
+# 14. ONE POT OF MONEY APPLIED TO TWO INVOICES. Two allocations of one payment
+#     may never both fit (PRD 5.14b). Applying it whenever there is an invoice
+#     open produces a screen that looks entirely healthy on either invoice read
+#     alone, which is why nothing but driving both states can see it.
+BOTH="$WORK/both-invoices.html"
+check "the branch is where the mutation expects it" \
+    "$(mutate "$BOTH" 's|^  if (OPEN_INVOICES > 1) return HELD_TAKEN ? Math.min(HELD_ON_CLIENT, total) : 0;$|  if (OPEN_INVOICES > 1) return Math.min(HELD_ON_CLIENT, total);|' 'OPEN_INVOICES > 1) return Math.min')" "1"
+check "money applied to both open invoices is refused" "$(status_on "$BOTH")" "1"
+check "and the claim that fired names the second open invoice" \
+    "$(failed_claims "$BOTH")" "with two invoices open it is applied to neither, and says why;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.

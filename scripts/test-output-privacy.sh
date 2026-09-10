@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 53
+harness_begin "output privacy tests" 56
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -582,6 +582,55 @@ check "and none when the file cannot be read at all" \
         "$(shasum -a 256 "$BOOKINGS" | cut -d' ' -f1)" 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# THE PAYMENT TERMS GUARD (ovation#98 round D). It compares the term list the
+# Clients screen offers against the one the invoice screen offers, and its
+# refusal PRINTS the terms that do not agree.
+#
+# THE NEEDLE IS IN THE PROSE, NOT IN THE TERMS, and that is the case worth
+# testing rather than a way around one. The terms are PRD 7's fixed vocabulary,
+# four constants in code; a client's name can never be one. What a design file
+# genuinely does carry is prose, paragraphs of it, and that is where a name
+# would sit. So the fixture puts one in each file's prose and in a comment
+# beside the very declaration the guard reads, and the claim is that a guard
+# which prints part of a file prints only the part it is about.
+# ---------------------------------------------------------------------------
+TERMS_DIR="$WORK/terms"
+mkdir -p "$TERMS_DIR"
+cat > "$TERMS_DIR/clients.html" <<HTML
+<p>The Clients screen, drawn from the roster $CLIENT is on, photographed at $VENUE.</p>
+<script>
+/* $CLIENT asked for these terms after the shoot at $VENUE. */
+var TERMS = ["On receipt", "7 days", "14 days", "21 days", "30 days"];
+</script>
+HTML
+cat > "$TERMS_DIR/invoice.html" <<HTML
+<p>The invoice screen, as sent to $CLIENT for the run at $VENUE.</p>
+<script>
+/* $CLIENT is invoiced on these. */
+var TERMS = [["On receipt", 0], ["7 days", 7], ["14 days", 14], ["30 days", 30]];
+</script>
+HTML
+check "the payment terms guard prints no identity when the two lists disagree" \
+    "$(leaks_in "$(./scripts/check-design-terms-agree.sh \
+        "$TERMS_DIR/clients.html" "$TERMS_DIR/invoice.html" 2>&1)")" "clean"
+# AND IT REALLY DID REFUSE, naming the term. Without this the case above would
+# pass just as well on a guard that printed nothing at all, having never reached
+# the line that prints anything (L159).
+check "and that refusal really did name the term, so the case reached it" \
+    "$(./scripts/check-design-terms-agree.sh \
+        "$TERMS_DIR/clients.html" "$TERMS_DIR/invoice.html" 2>&1 | grep -c '21 days')" "1"
+# The other thing it prints is a file it cannot read, and it names that file by
+# PATH. A path is permitted output in this repository, alongside counts, ids and
+# field names, so the fixture does not plant a name in one: an assertion that a
+# guard may not print a path it was HANDED would be stricter than the rule, and
+# would be answered by making the refusal say less rather than by making it safe.
+# What is asserted is that a guard which cannot read its subject still prints
+# nothing OUT of it.
+check "and none when it cannot read a file" \
+    "$(leaks_in "$(./scripts/check-design-terms-agree.sh \
+        "$TERMS_DIR/clients.html" "$TERMS_DIR/not-there.html" 2>&1)")" "clean"
+
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever
 # nobody remembered to add, and the exempted one is the one this suite exists for

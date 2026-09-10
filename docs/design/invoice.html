@@ -682,6 +682,28 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
             gap: 7px; width: 318px; padding-top: 2px; }
 .discedit .lab { font-size: 12px; color: var(--quiet); }
 
+/* HELD MONEY (ovation#109), and it does the opposite of the discount above: its
+   one control DOES fit the 208px label column, so it stays on the row rather
+   than taking a line of its own. On its own line under Outstanding it named
+   nothing (Dan, 2026-09-10), and the row width is unchanged at 318px, so every
+   figure keeps the one shared right edge. */
+.heldlabel { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.sline.heldline .fig { color: var(--soft); }
+.heldback { font: inherit; font-size: 11.5px; padding: 0; border: 0; background: none;
+            color: var(--accent); text-decoration: underline; text-underline-offset: 3px;
+            cursor: pointer; }
+/* The offer, which exists only where Ovation did NOT apply the money itself. */
+.heldoffer { display: flex; align-items: baseline; justify-content: space-between;
+             gap: 10px; flex-wrap: wrap; width: 318px; padding: 9px 0 2px; }
+.heldsays { font-size: 13px; color: var(--soft); }
+.heldoffer b { font-family: "IBM Plex Mono", ui-monospace, monospace;
+               font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink); }
+.heldbtn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 3px 11px;
+           border: 1px solid var(--accent); border-radius: 4px; background: var(--bg);
+           color: var(--accent); cursor: pointer; }
+.heldwhy { width: 318px; font-size: 12px; color: var(--quiet); text-align: left;
+           padding-top: 2px; }
+
 /* A menu, drawn as the menu bar would draw it, because round 5 settled that the
    rare things live there and never on the screen.
 
@@ -828,7 +850,7 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 <div class="frame">
   <p class="eyebrow">Ovation, the design record</p>
   <h1>The invoice screen</h1>
-  <p class="asks">ovation#111, settled with Dan over nine rounds on 7 September. Set the two times, then answer the tax status. Use the switch for the states an invoice passes through, press History in the header, and open Edit in the menu bar for a discount, a referral credit, and the rest of the rare things. The switch is BEHAVIOUR rather than a chooser, the same way the quiet day switch is on the Clients screen: none of these states can be seen from a still.</p>
+  <p class="asks">ovation#111, settled with Dan over nine rounds on 7 September, with money held on the client added on 10 September (ovation#109). Set the two times, then answer the tax status. Use the switches for the states an invoice passes through and for how many of the client's invoices are open, press History in the header, and open Edit in the menu bar for a discount, a referral credit, and the rest of the rare things. The switches are BEHAVIOUR rather than a chooser, the same way the quiet day switch is on the Clients screen: none of these states can be seen from a still.</p>
   <!-- NO PARAGRAPH OF EVIDENCE HERE, deliberately. What the nine rounds settled and what they were
        measured from is in this folder's README, and the frequency behind the foot's order is stated
        in this file's own round 9 comment. Both files this record was merged from carried two prose
@@ -1559,6 +1581,39 @@ var CREDIT = 0;                                         /* referral credit spent
 var PANE_OPEN = false;
 var MENU_OPEN = false;
 
+/* ---- money the client is holding (ovation#109, settled 2026-09-10) ----
+
+   Rounds B, C, C1, C2 and C3 settled all of this. It is on the INVOICE and not
+   on Clients, because that is where the money is spent (round B). Ovation
+   applies it ITSELF and says so rather than offering it, because a deposit
+   exists in order to be used (round C). The way back out is called Remove
+   (round C1) and sits beside the words it acts on, not on a line of its own
+   under the total, where it named nothing (round C2, Dan: "it's not clear what
+   I'm removing there").
+
+   AND IT IS AUTOMATIC ONLY WHERE THERE IS ONE ANSWER (round C3). Two
+   allocations of one payment may never both fit (PRD 5.14b), so with more than
+   one invoice open for the client, Ovation puts it on neither and offers it on
+   both with the reason. Something has to choose, and a chooser nobody can see
+   is worse than a question.
+
+   `OPEN_INVOICES` is a fixture switch, not a setting. Both branches ship, and a
+   branch no fixture can reach is the branch that ships untested. */
+var HELD_ON_CLIENT = 500;
+var OPEN_INVOICES = 1;       /* how many of this client's invoices are open */
+var HELD_TAKEN = false;      /* Use it here was pressed, in the two invoice case */
+var HELD_REMOVED = false;    /* Remove was pressed, in the one invoice case */
+
+/* WHAT IS ACTUALLY ON THIS INVOICE, derived from the invoice's own total rather
+   than stored beside it: a second copy of a figure the screen computes is a
+   second definition, and it drifts in whichever direction flatters the reading
+   (L107). Never more than the invoice is owed, and never more than arrived. */
+function heldApplied(total) {
+  if (HELD_ON_CLIENT <= 0) return 0;
+  if (OPEN_INVOICES > 1) return HELD_TAKEN ? Math.min(HELD_ON_CLIENT, total) : 0;
+  return HELD_REMOVED ? 0 : Math.min(HELD_ON_CLIENT, total);
+}
+
 /* What has been typed into the segment being typed into, and which one that is.
    It lives OUTSIDE the DOM because the screen is rebuilt on every keystroke,
    and it is cleared the moment focus moves to a different segment, so a digit
@@ -2249,6 +2304,11 @@ function buildInvoice() {
     if (tl.drawn) {
       sumBox.append(line(tl.label, money(tl.amount)));
       sumBox.append(line("Total", money(t.total), "tot"));
+      /* Below the total, never above it: see heldBlock. It is drawn only once
+         there IS a total, for the same reason the total is: a figure taken off
+         a price nobody has established asserts something the screen cannot
+         support. */
+      heldBlock(sumBox, line, t.total);
     }
 
     if (tl.saysWhy) {
@@ -2344,6 +2404,76 @@ function besideItsHistory(inv, total) {
   pane.append(list);
   panewrap.append(inv, pane);
   return panewrap;
+}
+
+/* ---- the held money block (ovation#109) ----
+
+   IT SITS BELOW THE TOTAL AND NEVER INSIDE THE SUBTOTAL. A payment is not a
+   price reduction: the referral credit is a negative line inside the subtotal
+   because it changes what is being charged, and this does not. Anything applied
+   above the total would reach the tax base, which would be a wrong invoice
+   rather than a wrong layout.
+
+   REMOVE FITS THE 208px LABEL COLUMN, and that was measured rather than assumed,
+   because the discount's controls do NOT fit it and two attempts to widen that
+   row put the discount's figure off the one shared right edge, once 24px left
+   and once 24px right. With Remove beside the words, all five figures still
+   share the edge. */
+function heldBlock(sumBox, line, total) {
+  var on = heldApplied(total);
+
+  if (on > 0) {
+    var row = el("div", "sline heldline");
+    var label = el("div", "heldlabel");
+    label.append(el("span", null, "Held money applied"));
+    var off = el("button", "heldback", "Remove");
+    off.type = "button";
+    off.addEventListener("click", function () {
+      if (OPEN_INVOICES > 1) { HELD_TAKEN = false; } else { HELD_REMOVED = true; }
+      redraw();
+    });
+    label.append(off);
+    row.append(label, el("div", "fig", "-" + money(on)));
+    sumBox.append(row);
+    sumBox.append(line("Outstanding", money(total - on), "tot"));
+    /* WHAT IS LEFT IS SAID, never left as a subtraction. An invoice smaller than
+       the balance uses part of it, and PRD 5.14e is explicit that a partial
+       leaves exactly the rest held rather than driving both figures to zero. Two
+       screens showing 500.00 held and 408.28 applied, with nothing naming the
+       91.72, is the product asking Dan to do the arithmetic it just did. */
+    if (on < HELD_ON_CLIENT) {
+      sumBox.append(el("div", "heldwhy",
+        "$" + money(HELD_ON_CLIENT - on) + " stays held on the client."));
+    }
+    return;
+  }
+
+  if (OPEN_INVOICES > 1) {
+    /* Round C3. Nothing was applied anywhere, and the invoice says why, because
+       otherwise this reads as the money having gone missing. */
+    var offer = el("div", "heldoffer");
+    offer.append(el("span", "heldsays", "Cedar Hill Youth Orchestra is holding "),
+                 el("b", null, "$" + money(HELD_ON_CLIENT)));
+    var use = el("button", "heldbtn", "Use it here");
+    use.type = "button";
+    use.addEventListener("click", function () { HELD_TAKEN = true; redraw(); });
+    offer.append(use);
+    sumBox.append(offer, el("div", "heldwhy",
+      OPEN_INVOICES + " invoices are open for this client, so it was not put on either."));
+    return;
+  }
+
+  /* One invoice, and Remove was pressed. The money went back to the client, so
+     the way back in is offered rather than leaving a screen with no way out of
+     what was just done. */
+  var back = el("div", "heldoffer");
+  back.append(el("span", "heldsays", "Cedar Hill Youth Orchestra is holding "),
+              el("b", null, "$" + money(HELD_ON_CLIENT)));
+  var again = el("button", "heldbtn", "Use it");
+  again.type = "button";
+  again.addEventListener("click", function () { HELD_REMOVED = false; redraw(); });
+  back.append(again);
+  sumBox.append(back);
 }
 
 /* The discount's own edit line. Its design was never put to Dan: it exists
@@ -2536,6 +2666,34 @@ function buildScreen() {
     o.setAttribute("aria-pressed", String(i === 0));
   });
   anchor.parentNode.insertBefore(bar, anchor.nextSibling);
+
+  /* HOW MANY OF THIS CLIENT'S INVOICES ARE OPEN, which decides whether Ovation
+     applies the held money itself (round C3). A second switch rather than a
+     second file: both branches have to be reachable, or the one nobody can draw
+     is the one that ships. */
+  var held = el("div", "statebar");
+  held.append(el("span", "lab", "Cedar Hill has $500.00 held, and"));
+  var counts = [[1, "1 invoice open", "it is applied"],
+                [2, "2 invoices open", "it is applied to neither"]];
+  counts.forEach(function (c) {
+    var b = el("button", "sbtn");
+    b.type = "button";
+    b.append(el("span", null, c[1]), el("span", "share", c[2]));
+    b.addEventListener("click", function () {
+      OPEN_INVOICES = c[0];
+      HELD_TAKEN = false;
+      HELD_REMOVED = false;
+      [].forEach.call(held.querySelectorAll(".sbtn"), function (o, i) {
+        o.setAttribute("aria-pressed", String(counts[i][0] === OPEN_INVOICES));
+      });
+      redraw();
+    });
+    held.append(b);
+  });
+  [].forEach.call(held.querySelectorAll(".sbtn"), function (o, i) {
+    o.setAttribute("aria-pressed", String(i === 0));
+  });
+  bar.parentNode.insertBefore(held, bar.nextSibling);
 })();
 
 /* THE SAME SUITES THE REPOSITORY RUNS. scripts/test-design-rules.sh runs the

@@ -259,6 +259,52 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .mval { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 19px; color: var(--ink); font-weight: 500; }
 .mnote { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
 
+/* ROUND A, settled 2026-09-10. The two boxes stay, and the FIGURES tell them
+   apart: inside these boxes the mono tabular face is the money face, so a
+   balance counted in hours is set in the body face at the same size and weight.
+   The rule is written narrowly ON PURPOSE. "Mono is the money face" was the
+   reason first given for this and it is not true of the product: the sidebar
+   counts, the invoice's date panel and its history are all mono and none of
+   them is money. Measured before it was written down, and Dan chose the narrow
+   form over sweeping four settled files. */
+.mval.notmoney { font-family: "Archivo", ui-sans-serif, -apple-system, sans-serif;
+                 font-variant-numeric: normal; }
+
+/* ROUND E, settled 2026-09-10. Where the held money came from. A deposit
+   arrives before any invoice exists and an overpayment arrives against one and
+   exceeds it; the money then behaves identically either way (PRD 5.14a), so
+   ovation#96's question was whether to draw any difference at all.
+
+   A SINGLE ARRIVAL IS NEVER BROKEN DOWN, in any state: one row restating the
+   figure the box already shows is the same number twice, which is the fault
+   this screen has rejected before. It gets the sentence instead. */
+.arrivals { display: flex; flex-direction: column; gap: 3px; padding-top: 3px; }
+.arrival { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+           font-size: 11.5px; color: var(--faint); }
+.arrival .aamt { flex: none; font-family: "IBM Plex Mono", ui-monospace, monospace;
+                 font-variant-numeric: tabular-nums; }
+
+/* ROUND D, settled 2026-09-10. The standing payment terms, which PRD 51h
+   assigned to this screen on 2026-09-08 and which nothing had drawn: the row
+   stated 14 days as a plain fact with no way to change it. The VALUE is the
+   control, and it opens the same four terms the invoice's due date control
+   opens. Kept against four chips always shown, which spends the row on every
+   one of 31 clients for something changed on almost none, and against a Change
+   word beside a read only value, which is one more press for the same list. */
+.termhold { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+            position: relative; min-width: 0; }
+.termbtn { font: inherit; font-size: 13.5px; color: var(--ink); padding: 2px 9px;
+           border: 1px solid var(--rule); border-radius: 4px; background: var(--sunk);
+           cursor: pointer; }
+.termbtn[aria-expanded="true"] { border-color: var(--accent); }
+.termlist { position: absolute; top: 100%; left: 0; z-index: 5; margin-top: 4px;
+            background: var(--bg); border: 1px solid var(--rule); border-radius: 6px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 4px 0; min-width: 140px;
+            display: flex; flex-direction: column; }
+.termitem { font: inherit; font-size: 13px; text-align: left; padding: 5px 14px;
+            border: 0; background: none; color: var(--ink); cursor: pointer; }
+.termitem.on { font-weight: 600; background: var(--selbg); }
+
 .dhead { font-size: 10.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--rule); padding-bottom: 6px; }
 .drow { display: grid; grid-template-columns: 44px minmax(0,1fr) 120px 92px 108px; gap: 12px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px; }
 .dnum, .dwhen, .damt { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--soft); white-space: nowrap; }
@@ -319,7 +365,7 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 
   <header class="masthead">
     <div class="eyebrow">Ovation, Clients and the roster</div>
-    <h1>Settled over five rounds on 7 September.</h1>
+    <h1>Settled over eight rounds, five on 7 September and three on 10 September.</h1>
     <p class="lede">
       Names on the left, one client on the right. The amount rides beside any client whose money
       Ovation is holding. A count in the sidebar carries it to every screen. And the roster is
@@ -328,6 +374,8 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
     <p class="lede">
       <strong>Click the sidebar to move between the two, and click a name to change the client.</strong>
       That is navigation rather than a chooser: it is what the real window does.
+      <strong>Press 14 days</strong> to change a client's standing payment terms, and click
+      Harborlight, Ashgrove and Zephyr Hall to see the three shapes money held can take.
     </p>
   </header>
 
@@ -368,23 +416,52 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
       <p>Two clients on one address gets a quiet line where the client is, with a way to say it
       is correct. The answer is recorded <b>against that address</b>, so changing it asks again.</p>
     </div>
+    <div><h3>The figures tell the two balances apart</h3>
+      <p>Money held is dollars and referral credit is hours, so inside these boxes the mono
+      tabular face is the money face and hours are set in the body face. <b>The rule is written
+      narrowly on purpose</b>: mono is not the money face in the product at large, and the
+      sidebar counts, the date panel and the history are all mono and none of them is money.</p>
+    </div>
+    <div><h3>This screen is read, not acted on</h3>
+      <p>Applying held money to an invoice lives <b>on the invoice</b>, settled 10 September.
+      So the sidebar count still counts down, and the one action here is the payment terms,
+      which PRD 51h put on this screen rather than on any invoice.</p>
+    </div>
+    <div><h3>Where the money came from, only when it says something</h3>
+      <p>A deposit and an overpayment behave identically once received, so the box names the
+      arrival rather than classifying the balance. <b>A single arrival is never broken down</b>,
+      because one row restating the figure above it is the same number twice.</p>
+    </div>
   </div>
 
   <section class="closing">
     <h2>What this still is not</h2>
     <ol>
-      <li><b>Nothing here applies held money to an invoice</b>, which is what would make the
-      sidebar count actually count down. That is ovation#109.</li>
       <li><b>The detail pane scrolls sideways once the window is narrowed</b>, from 874px.
       ovation#110, and it needs a decision from Dan about a minimum window width.</li>
-      <li><b>None of these decisions is in the PRD as numbered requirements yet</b>, other than
-      the ones about addresses, which were corrected as they were made.</li>
+      <li><b>The roster pass does not cover the shared contract email.</b> Two clients share
+      one, and that is asked about on the client rather than in the pass, so the one screen
+      that exists to be cleared once does not hold every question about the roster.</li>
+      <li><b>Nothing here refuses a term the invoice would not offer.</b> The four terms are
+      one list in the product and two copies in the design record, one in this file and one in
+      <code>invoice.html</code>, and nothing yet compares them.</li>
     </ol>
   </section>
 </div>
 <script>
 /* OVATION: THE CLIENTS SCREEN AND THE ROSTER PASS. Settled over five rounds on
-   2026-09-07. ovation#98, ovation#40.
+   2026-09-07 and three more on 2026-09-10. ovation#98, ovation#40, ovation#96.
+
+   THE THREE LATER ROUNDS, each with its reason beside the code it produced:
+   A. The two balances keep their boxes and the FIGURES tell them apart.
+   D. The payment terms VALUE is the control (PRD 51h had assigned this screen
+      the control and nothing had drawn it).
+   E. The held money box names the arrival it came from, and lists them when
+      there is more than one.
+   A fourth question was asked here and answered somewhere else: applying held
+   money to an invoice lives ON THE INVOICE (round B, ovation#109), so this
+   screen deliberately carries no control for it and the sidebar count still
+   counts down.
 
    THIS IS THE DESIGN, NOT THE CHOOSER IT CAME FROM. The position switchers the
    rounds used are stripped. What is left is BEHAVIOUR: the sidebar navigates
@@ -455,17 +532,30 @@ var PLACE = "clients";
 
 function el(t, c, x) { var n = document.createElement(t); if (c) n.className = c; if (x !== undefined) n.textContent = x; return n; }
 
-var HELD = CLIENTS.filter(function (k) { return k.h; });
-var NO_TAX = CLIENTS.filter(function (k) { return !k.t; });
-var BAD_ADDRESS = CLIENTS.filter(function (k) { return k.bad; });
-var TO_SETTLE = CLIENTS.filter(function (k) { return !k.t || k.bad; });
+/* WHERE EACH HELD BALANCE CAME FROM (round E). Keyed on the client, because the
+   money belongs to the client and not to any invoice (PRD 5.14a). Harborlight's
+   balance is two arrivals of different kinds, which is the only case in which
+   round E's answer draws anything the sentence would not. */
+var ARRIVALS = {
+  "Harborlight Ballet": [
+    { kind: "deposit",  amount: "$1,000.00", when: "3 Sep",  against: null },
+    { kind: "overpaid", amount: "$250.00",   when: "2 Oct",  against: "1126" }
+  ],
+  "Ashgrove Chamber Players": [
+    { kind: "deposit",  amount: "$500.00",   when: "28 Aug", against: null }
+  ],
+  "Zephyr Hall Concerts": [
+    { kind: "overpaid", amount: "$87.50",    when: "14 Aug", against: "1104" }
+  ]
+};
 
-var INVOICES = [
-  { n: "1131", s: "Autumn gala",      d: "14 Nov 2026", a: "1,088.75", w: "Sent, unpaid" },
-  { n: "1126", s: "Studio portraits", d: "2 Oct 2026",  a: "816.56",   w: "Paid" },
-  { n: "1119", s: "Spring showcase",  d: "18 May 2026", a: "1,360.94", w: "Paid" },
-  { n: "1112", s: "Winter matinee",   d: "9 Feb 2026",  a: "680.47",   w: "Paid" }
-];
+/* PRD 7's terms, and the SAME four the invoice's due date control offers. They
+   are one list in the product (PRD 51h): a client's standing terms and an
+   invoice's own due date that offer different terms would be two vocabularies
+   for one thing. */
+var TERMS = ["On receipt", "7 days", "14 days", "30 days"];
+var TERM = "14 days";
+var TERMS_OPEN = false;
 
 /* On a settled day the roster is clear, so the whole screen is gone. */
 function rosterCount() { return QUIET ? 0 : TO_SETTLE.length; }
@@ -541,6 +631,64 @@ function rosterScreen() {
 }
 
 // --------------------------------------------------------------- the clients
+/* ROUND E. The box names where the money came from, and lists the arrivals when
+   there is more than one. One arrival gets the sentence: a single row would
+   restate the figure standing directly above it. */
+function arrivalWords(a) {
+  return a.kind === "deposit" ? "Deposit received " + a.when
+                              : "Overpaid on invoice " + a.against;
+}
+
+function heldBox(k) {
+  var box = el("div", "mbox");
+  box.append(el("div", "mlabel", "Money held"), el("div", "mval", k.h));
+  var came = ARRIVALS[k.c] || [];
+  if (came.length === 0) {
+    /* Nothing recorded about where it came from is its own state, and it is said
+       rather than left blank: the money is real either way. */
+    box.append(el("div", "mnote", "Received, not yet applied to an invoice"));
+    return box;
+  }
+  if (came.length === 1) {
+    box.append(el("div", "mnote", arrivalWords(came[0])));
+    return box;
+  }
+  var list = el("div", "arrivals");
+  came.forEach(function (a) {
+    var row = el("div", "arrival");
+    row.append(el("span", "awhat", arrivalWords(a)), el("span", "aamt", a.amount));
+    list.append(row);
+  });
+  box.append(list);
+  return box;
+}
+
+/* ROUND D. The value is the control. It opens the same four terms the invoice's
+   due date control opens, and unlike that one it names no dates: a client's
+   standing terms produce a date only once there is an invoice to date. */
+function termsRow() {
+  var row = el("div", "fact");
+  row.append(el("span", "flabel", "Payment terms"));
+  var hold = el("span", "fval termhold");
+  var btn = el("button", "termbtn", TERM);
+  btn.type = "button";
+  btn.setAttribute("aria-expanded", String(TERMS_OPEN));
+  btn.addEventListener("click", function () { TERMS_OPEN = !TERMS_OPEN; draw(); });
+  hold.append(btn);
+  if (TERMS_OPEN) {
+    var list = el("div", "termlist");
+    TERMS.forEach(function (t) {
+      var item = el("button", "termitem" + (t === TERM ? " on" : ""), t);
+      item.type = "button";
+      item.addEventListener("click", function () { TERM = t; TERMS_OPEN = false; draw(); });
+      list.append(item);
+    });
+    hold.append(list);
+  }
+  row.append(hold);
+  return row;
+}
+
 function detailFor(k) {
   var detail = el("div", "detail");
   detail.append(el("h5", null, k.c));
@@ -577,9 +725,7 @@ function detailFor(k) {
   tax.append(tv);
   facts.append(tax);
 
-  var terms = el("div", "fact");
-  terms.append(el("span", "flabel", "Payment terms"), el("span", "fval", "14 days"));
-  facts.append(terms);
+  facts.append(termsRow());
   detail.append(facts);
 
   if (k.shared) {
@@ -591,16 +737,13 @@ function detailFor(k) {
 
   if (!QUIET && (k.h || k.r)) {
     var wrap = el("div", "money");
-    if (k.h) {
-      var held = el("div", "mbox");
-      held.append(el("div", "mlabel", "Money held"), el("div", "mval", k.h),
-                  el("div", "mnote", "Received, not yet applied to an invoice"));
-      wrap.append(held);
-    }
+    if (k.h) wrap.append(heldBox(k));
     if (k.r) {
       var cred = el("div", "mbox");
-      cred.append(el("div", "mlabel", "Referral credit"), el("div", "mval", k.r),
-                  el("div", "mnote", "Earned by referring. Comes off an invoice as a line"));
+      /* NOT the money face: this balance is counted in hours, not dollars. */
+      cred.append(el("div", "mlabel", "Referral credit"), el("div", "mval notmoney", k.r),
+                  el("div", "mnote", "Earned by referring. Comes off an invoice in its own "
+                                   + "block above the subtotal"));
       wrap.append(cred);
     }
     if (wrap.children.length === 1) wrap.classList.add("single");

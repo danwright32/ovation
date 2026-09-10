@@ -330,6 +330,122 @@ window.addEventListener("load", function () {
           mainWord === "Review",
           "the foot's main action says " + JSON.stringify(mainWord));
 
+    /* ---- money held on the client (ovation#109, settled 2026-09-10) ----
+
+       These run BEFORE the not billed flow below, which replaces the totals
+       with a single sentence: after it there is no sumBox to make any claim
+       about, and the claims would fail for a reason that is not theirs.
+
+       THE ARITHMETIC IS THE POINT, not the placement. A payment is not a price
+       reduction, so nothing about applying it may reach the subtotal, the
+       referral credit block or the tax. That is invisible in the source: the
+       block is appended a few lines below the total and would look equally
+       correct appended a few lines above it, and the wrong one produces a wrong
+       invoice rather than a wrong layout. */
+    function totalsNow() {
+      var out = {};
+      Array.prototype.forEach.call(document.querySelectorAll(".invsum .sline"), function (ln) {
+        out[ln.firstChild.textContent.trim()] = ln.querySelector(".fig").textContent.trim();
+      });
+      return out;
+    }
+
+    var applied = document.querySelector(".sline.heldline");
+    if (!applied) {
+      claim("held money is applied, and says so", false,
+            "no held money line on an invoice whose client is holding some");
+      claim("applying held money leaves the subtotal and the tax alone", false,
+            "no held money line to apply");
+      claim("what is left over stays held, and the invoice says how much", false,
+            "no held money line to leave anything over");
+      claim("Remove is on the held money line itself", false, "no held money line");
+      claim("with two invoices open it is applied to neither, and says why", false,
+            "no held money line");
+    } else {
+      var before = totalsNow();
+      var heldFig = applied.querySelector(".fig").textContent.trim();
+      claim("held money is applied, and says so",
+            heldFig.charAt(0) === "-" && "Outstanding" in before,
+            "the line reads " + JSON.stringify(heldFig)
+              + " and the totals are " + JSON.stringify(before));
+
+      /* REMOVE IS ON THE LINE, not under the total, which is where it named
+         nothing (Dan, 2026-09-10). Being INSIDE .heldlabel is the claim: a
+         Remove anywhere else in the totals box would still be found by a
+         looser selector and would pass this while being the rejected design. */
+      var removeWord = applied.querySelector(".heldlabel .heldback");
+      claim("Remove is on the held money line itself",
+            !!removeWord && removeWord.textContent.trim() === "Remove",
+            removeWord ? "on the line, reading " + JSON.stringify(removeWord.textContent.trim())
+                       : "not inside the held money line's own label");
+
+      /* THE CLAIM BELOW LOOKS FOR REMOVE MORE LOOSELY ON PURPOSE. It is about
+         the arithmetic, and it needs something to press to measure it; sharing
+         the strict selector above would make a Remove in the wrong PLACE fire
+         two claims at once, and a mutation that breaks two claims proves
+         neither of them (L154). */
+      var pressable = document.querySelector(".invsum .heldback");
+
+      /* WHAT IS LEFT OVER IS STATED (PRD 5.14e). The fixture's invoice is
+         smaller than the balance, so this is the partial case by construction. */
+      var leftover = document.querySelector(".invsum .heldwhy");
+      var owed = parseFloat((before.Total || "0").replace(/,/g, ""));
+      var used = Math.abs(parseFloat(heldFig.replace(/[-,]/g, "")));
+      claim("what is left over stays held, and the invoice says how much",
+            used >= owed - 0.005
+              ? !!leftover && /stays held/.test(leftover.textContent)
+              : !leftover,
+            used >= owed - 0.005
+              ? (leftover ? leftover.textContent.trim() : "nothing said about the rest")
+              : "the whole balance was used, so there is nothing left to say");
+
+      if (pressable) {
+        pressable.click();
+        var after = totalsNow();
+        claim("applying held money leaves the subtotal and the tax alone",
+              before.Subtotal === after.Subtotal
+                && before["Sales tax, 8.875%"] === after["Sales tax, 8.875%"]
+                && before.Total === after.Total,
+              "before " + JSON.stringify(before) + " after " + JSON.stringify(after));
+        /* Put it back, so the claims after this one see the settled screen. */
+        var useAgain = document.querySelector(".invsum .heldoffer .heldbtn");
+        if (useAgain) useAgain.click();
+      } else {
+        claim("applying held money leaves the subtotal and the tax alone", false,
+              "no Remove to press, so nothing could be compared");
+      }
+
+      /* THE SECOND BRANCH, which no still can show. With more than one invoice
+         open, nothing is applied and the invoice says why (round C3): two
+         allocations of one payment may never both fit (PRD 5.14b), and a
+         chooser nobody can see is worse than a question. */
+      var counts = document.querySelectorAll(".statebar");
+      var twoBtn = counts.length > 1
+        ? Array.prototype.filter.call(counts[1].querySelectorAll(".sbtn"),
+            function (b) { return /2 invoices open/.test(b.textContent); })[0]
+        : null;
+      if (!twoBtn) {
+        claim("with two invoices open it is applied to neither, and says why", false,
+              "the page has no switch for a second open invoice, so that branch "
+                + "cannot be drawn at all");
+      } else {
+        twoBtn.click();
+        var stillApplied = document.querySelector(".sline.heldline");
+        var why = document.querySelector(".invsum .heldwhy");
+        var offered = document.querySelector(".invsum .heldoffer .heldbtn");
+        claim("with two invoices open it is applied to neither, and says why",
+              !stillApplied && !!why && /invoices are open/.test(why.textContent)
+                && !!offered,
+              (stillApplied ? "STILL APPLIED" : "not applied")
+                + ", " + (why ? JSON.stringify(why.textContent.trim()) : "no reason given")
+                + ", " + (offered ? "offered here" : "NOT OFFERED here"));
+        /* Back to one, for the claims below. */
+        var oneBtn = Array.prototype.filter.call(counts[1].querySelectorAll(".sbtn"),
+          function (b) { return /1 invoice open/.test(b.textContent); })[0];
+        if (oneBtn) oneBtn.click();
+      }
+    }
+
     /* ---- asking before a rare, consequential action ---- */
     var edit2 = Array.prototype.filter.call(
       document.querySelectorAll(".menubar [role=button]"),

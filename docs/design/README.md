@@ -356,14 +356,23 @@ machine without a network is one people learn to skip.
 ## What is still open
 
 Where the venue and the real shoot times live, `ovation#95`. The receipts queue, `ovation#100`, is
-the only screen not designed at all. How money held on a client appears is `ovation#98`, which
-`clients.html` deliberately leaves until the Clients screen is settled as a whole.
+the only screen not designed at all. The Clients detail pane scrolls sideways once the window is
+narrowed, `ovation#110`, which needs a decision from Dan about a minimum window width.
 
 ## What was open here and is now settled
 
 **Everything below was in the section above and is not any more.** It is kept rather than deleted,
 because what a decision REPLACED is part of the decision, and moved rather than left, because the
 heading above is read as a list of what is outstanding.
+
+**How money held on a client appears is settled** (`ovation#98`, `ovation#109`, `ovation#96`, five
+rounds on 2026-09-10, recorded under "The Clients screen" and "The invoice screen" below). It was
+listed here as waiting for the Clients screen to be settled as a whole, and settling it took the
+question off this screen entirely: the money is SHOWN under Clients and APPLIED on the invoice, so
+the surface that displays it and the surface that acts on it are different screens. That was Dan's
+call in round B, put to him with the frequency behind it (6 of 171 invoices across 2015 to 2024
+were paid before they were issued), because a rare action has to earn its place rather than be
+assumed onto a screen.
 
 **`ovation#18`, the app icon, is settled and shipped (2026-09-07).** It was listed here as
 waiting on the palette, and the palette is what it waited for: the artwork is a cream paper
@@ -654,24 +663,76 @@ something is MISSING is still drawn.
 navigates between the two screens and clicking a name changes the client, both of which the real
 window does.
 
+### Round A, settled 2026-09-10: both boxes stay, and the FIGURES tell them apart
+
+PRD 5.14c is the requirement with a real consequence behind it: held money and referral credit
+drawn alike would let credit nobody paid settle an invoice. Four options were rendered, from the
+two identical boxes the file drew that morning, through demoting the credit to a standing fact
+beside Sales tax, through moving it down to the head of the invoice list where it is spent. Dan
+kept BOTH boxes and separated them by kind: money held is dollars in the mono tabular face,
+referral credit is hours in the body face.
+
+**The rule is recorded narrowly, and that correction was made in front of him.** The readout that
+sold him the option said mono tabular figures are "the money face in this design". Measured across
+the other four design files, that is false: the sidebar counts, the invoice's date panel and its
+event history are all mono and none of them is money. Asked whether to sweep the product to make
+the broad rule true, or to record the narrow one, he chose narrow. **So the rule is: inside the
+client's money boxes, a dollar figure is mono and a balance that is not dollars is not.** It says
+nothing about dates or counts anywhere else.
+
+One thing rode along rather than being tested: the credit's note said it "comes off an invoice as a
+line", which PRD 8 corrected on 2026-09-07 to its own BLOCK above the subtotal. Leaving the stale
+sentence in would have made the round about a wording nobody was proposing.
+
+### Round B, settled 2026-09-10: applying held money is NOT on this screen
+
+`ovation#109` asked where the control lives, and it was put to Dan as whether it belongs here at
+all, with the frequency in front of him: across 2015 to 2024, 6 of 171 invoices were paid before
+they were issued, median 11 days early. That is a floor rather than a total, since the FreshBooks
+export carries no payment amounts and no balances at all, so an overpayment leaves no trace in it.
+Roughly one every other year either way.
+
+He chose the invoice. **So this screen SHOWS the money and never moves it**, and the line in the
+design record that read as a defect ("nothing on the screen is an ACTION") is now the design. The
+sidebar count still counts down, because applying happens on the invoice. What the invoice does
+with it is recorded under "The invoice screen" below.
+
+### Round D, settled 2026-09-10: the payment terms value is the control
+
+PRD 51h settled on 2026-09-08 that a client's STANDING terms are set here and never on an invoice,
+and nothing had drawn the control: the row stated `14 days` as a plain fact. Three were rendered.
+Four chips always shown was rejected because it spends the row on every one of 31 clients for
+something changed on almost none; a read only value with a Change word beside it was rejected as
+one more press for the same list. **The value itself opens the four terms**, which are the same
+four the invoice's due date control opens.
+
+The two files hold two copies of that list, because a design file may reach outside itself never,
+so `scripts/check-design-terms-agree.sh` compares them and the push gate refuses a disagreement.
+That guard exists because the claim that the two lists cannot drift was made to Dan while he was
+choosing the control, and on the day it was said nothing compared them.
+
+### Round E, settled 2026-09-10: the box names the arrival, and lists them when there is more than one
+
+`ovation#96` asked whether a deposit is told apart from an overpayment at all, and answering no
+would still have been a decision. Dan took the third option: the box names where the money came
+from (`Deposit received 3 Sep`, `Overpaid on invoice 1126`), and where a balance is made of more
+than one arrival it lists them with their amounts.
+
+**A single arrival is never broken down**, in any state. One row restating the figure standing
+directly above it is the same number twice, which is the fault this screen has rejected before.
+
 ### What the screen still is not
 
-Referral credit sits beside held money as an equal box and nothing yet keeps them from reading
-as one balance. The roster clean up has no surface: 25 of the 31 have no tax status and the
-screen says it quietly, and two share a contract email and it says nothing at all. And nothing
-on the screen is an ACTION: applying held money to an invoice is what makes it useful and there
-is no control for it.
+The detail pane scrolls sideways once the window is narrowed, from 874px (`ovation#110`). The
+roster pass does not cover the shared contract email: two clients share one, and that is asked
+about on the client rather than in the pass, so the one screen that exists to be cleared once does
+not hold every question about the roster. A first attempt drew a shared email one shade quieter,
+which measured as no difference at all on screen and was removed rather than left as a distinction
+the page claims and does not draw.
 
-### What is deliberately still open
-
-How held money and referral credit are kept from reading as one balance, which is the one with
-a real consequence: PRD 5.14c, drawing them alike would let credit nobody paid settle an
-invoice. Whether a deposit is distinguishable from an overpayment at all (ovation#96): both
-land in held money by design, and the money behaves identically either way. Where the
-ovation#40 roster clean up lives, since a shared contract email is currently drawn no
-differently from any other. A first attempt marked it one
-shade quieter, which measured as no difference at all on screen and was removed rather than
-left as a distinction the page claims and does not draw.
+Nothing here is rendered by a check the way the invoice screen is. Every claim above about what
+this file DRAWS was measured by hand on the day, and only the generic rendering rules
+(`check-design-draws.sh`) and the terms comparison run against it afterwards.
 
 ## The invoice screen
 
@@ -830,6 +891,49 @@ file could ever have shown, because both fixtures were an hour and a half.
 **The payment in the audit history named a constant, `$408.28`,** which was true only while the total
 could not change. It is the invoice's own total now, because a history contradicting the invoice it
 belongs to is worse than one that says less.
+
+### Money held on the client, settled 2026-09-10 over four rounds
+
+`ovation#109` reached this screen from the Clients rounds: round B settled that applying held money
+lives on the invoice and not under Clients. Four rounds settled what the invoice does with it, and
+the whole of it is one rule: **Ovation applies it itself where there is one answer, and asks where
+there is more than one.**
+
+**Round C. There is no offer, on an invoice that is the only one open.** Four were rendered, an
+offer under the Total, an offer in the foot beside the action, an offer inside the history pane,
+and no offer at all with the money already applied. Dan took the last: a deposit exists in order to
+be used. The pane option was drawn with the pane open, because the pane is closed by default and an
+offer inside it does not exist until somebody opens it, which is what that option costs.
+
+**Round C1. The way back out is called `Remove`.** Dan rejected "Put it back" on sight. `Remove` is
+already this screen's word for taking a discount off, so it is one vocabulary rather than a second.
+`Undo` was deliberately not offered: the Edit menu has one, and two things named Undo on one screen
+would mean different things.
+
+**Round C2. `Remove` sits beside the words it acts on**, on the held money line itself. On its own
+line under Outstanding it named nothing: "it's not clear what I'm removing there". Three placements
+were rendered and all three were measured against the fault this exact row already has a history of,
+because the discount's controls do NOT fit the totals row's 208px label column and two attempts to
+widen it put the discount's figure off the one shared right edge, once 24px left and once 24px
+right. `Remove` fits: the row stays 318px and all five figures keep the edge at 1246px.
+
+**Round C3. With more than one invoice open, nothing is applied to either.** Two allocations of one
+payment may never both fit (PRD 5.14b), so something has to choose, and a chooser nobody can see is
+worse than a question. Both invoices offer `Use it here` and say why. Rejected: naming which invoice
+took it, and saying nothing at all.
+
+**THE RESULT NEVER TOUCHES THE SUBTOTAL.** A payment is not a price reduction. The referral credit
+is a negative line INSIDE the subtotal because it changes what is being charged; this sits below the
+Total, so nothing it does reaches the tax base. That is invisible in the source, since the block
+would look equally correct appended a few lines higher, and the wrong one produces a wrong invoice
+rather than a wrong screen. `check-invoice-screen-draws.sh` presses `Remove` and compares the
+subtotal, the tax and the Total before and after, and the suite plants exactly that defect.
+
+**One thing here was decided by Claude rather than by Dan, and is flagged as such.** An invoice
+smaller than the balance uses part of it, and PRD 5.14e is explicit that a partial leaves exactly
+the rest held. Nothing said what happened to the rest, so the line now reads `$59.06 stays held on
+the client`. It follows from round C's own logic, that Ovation applies it and SAYS so, but it was
+not put to him.
 
 ### What is deliberately still open
 

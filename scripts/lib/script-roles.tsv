@@ -56,6 +56,7 @@ check-design-collisions.py	tool	Takes a settled stylesheet and one design round'
 check-design-draws.sh	tool	Renders every design file at more than one window width and asserts what is true of EVERY one: the console is silent at rest and after every control on the page has been pressed, the page drew something, nothing is cut off with no way to reach it, the page does not scroll sideways, and every figure in a block that says its figures line up does. It is a TOOL rather than a gate because it needs a browser, and a push gate that refuses on every machine without one is a gate people learn to skip (L376). Its sibling test-design-draws.sh plants one defect per claim and answers CANNOT MEASURE rather than passing when there is no browser (ovation#141).
 check-design-record-open.sh	workflow	Run by .github/workflows/ci.yml, and by nothing else, because it is the one check that asks GitHub: a push gate needing a network refuses on every machine without one, which is a gate people learn to skip (L376, L571). test-design-record-open.sh drives it through an injected state reader rather than the real tracker, so a case names the states it is about and closing an issue cannot turn the suite red (ovation#172).
 check-design-rules-inline.sh	gated	A repo wide guard.
+check-design-terms-agree.sh	gated	A repo wide guard.
 check-design-self-contained.sh	gated	A repo wide guard.
 check-design-shell-inline.sh	gated	A repo wide guard.
 check-design-tokens-resolve.sh	tool	Renders every design file and asks each element what the colour tokens its rules NAME actually resolved to, which is the gap ovation#120 came from: a token referenced but never defined leaves no error and no mark, so the declaration reads as correct while the thing is not drawn (L585). It is a TOOL rather than a gate because it needs a browser, and a push gate that refuses on every machine without one is a gate people learn to skip (L376). Its sibling test-design-tokens-resolve.sh runs it against the committed files on every test run, and answers CANNOT MEASURE rather than passing when there is no browser.
@@ -106,6 +107,7 @@ test-custody-not-staged.sh	suite
 test-design-draws.sh	suite	
 test-design-record-open.sh	suite	
 test-design-rules-inline.sh	suite	
+test-design-terms-agree.sh	suite
 test-design-rules.sh	suite	
 test-design-screenshot.sh	suite	
 test-design-collisions.sh	suite	
