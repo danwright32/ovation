@@ -66,8 +66,16 @@ SIDECAR = "invoice-list.png.layout"
 # Twice actual size, which is what the README says it is. The window is tall
 # enough to hold the record's prose above the screen as well as the screen, and
 # the crop takes only the screen.
+#
+# THE HEIGHT IS HEADROOM, NOT A MEASUREMENT, and it has to be re-checked when the
+# screen grows. It was 1600 until ovation#190 put a group of two invoices and a
+# band at the top of the list: the committed file still fitted, and the SUITE's
+# own case, which makes every row 10px taller to prove a changed screen is caught,
+# did not. The tool refused with CANNOT MEASURE, which is the right answer and
+# names this constant as the remedy. Anything that adds rows to the list will
+# spend this headroom again.
 SCALE = 2
-WINDOW = (1440, 1600)
+WINDOW = (1440, 1900)
 
 PROBE = r"""
 <script>

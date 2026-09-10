@@ -308,6 +308,10 @@ color: var(--faint); }
 /* the idle groups get air rather than a label: "Paid or cleared" and
    "Cancelled" already say they need nothing. */
 .disc.firstidle { margin-top: 16px; border-top: 1px solid var(--rule); }
+/* The first ordinary row after the waiting group, carrying the same separation
+   that band carries, because a band with rows under it and nothing closing it
+   makes every row below read as part of it (ovation#190). */
+.row.afterwaiting { margin-top: 16px; border-top: 1px solid var(--rule); }
 .disc { display: grid; grid-template-columns: var(--cols); gap: 14px; align-items: center; padding: 9px 24px; font-size: 13.5px; color: var(--quiet); background: var(--sunk); border-bottom: 1px solid var(--rule-soft); }
 .disc .lead { grid-column: 1 / 4; display: flex; align-items: center; gap: 10px; }
 .disc b { font-weight: 600; }
@@ -413,9 +417,16 @@ var GROUPS = [
     { c: "Harbor Light Opera", n: "draft", a: "3,700.00", act: "Send",
       shoots: [{ s: "Tosca, dress rehearsal", d: "2 Sep 2026" },
                { s: "Tosca, opening night",   d: "6 Sep 2026" }] }]},
-  { sum: "2,200.00", rows: [
+  { sum: "4,220.00", rows: [
     { c: "Westfield Choral Society", s: "Autumn Evensong", d: "18 Jul 2026", n: "1021", a: "1,240.00", age: "34d", act: "Remind" },
-    { c: "Ninth Street Players", s: "The Winter Guest", d: "2 Aug 2026", n: "1029", a: "960.00", age: "12d", act: "Remind" }]},
+    { c: "Ninth Street Players", s: "The Winter Guest", d: "2 Aug 2026", n: "1029", a: "960.00", age: "12d", act: "Remind" },
+    /* ONE CLIENT WITH TWO OPEN INVOICES, which this list had none of until
+       ovation#190. PRD 14j is about exactly that client: the money they are
+       holding could settle either invoice and not both, so Ovation applies it to
+       neither and asks. A branch no fixture can reach is the branch that ships
+       untested, and this one could not be drawn here at all. */
+    { c: "Cedar Hill Youth Orchestra", s: "Family concert", d: "12 Aug 2026", n: "1026", a: "620.00", age: "29d", act: "Remind" },
+    { c: "Cedar Hill Youth Orchestra", s: "Autumn Gala", d: "24 Aug 2026", n: "1044", a: "1,400.00", age: "17d", act: "Remind" }]},
   { sum: "2,180.00", rows: [
     { c: "Cedar Hill Youth Orchestra", s: "Side by Side concert", d: "29 Aug 2026", n: "draft", a: "1,400.00", act: "Send" },
     { c: "Riverside Wind Ensemble", s: "Autumn Winds", d: "5 Sep 2026", n: "draft", a: "780.00", act: "Send" },
@@ -427,6 +438,12 @@ var GROUPS = [
   { sum: "1,320.00", rows: [
     { c: "Alder Street Opera", s: "La Boheme, act three", d: "24 Aug 2026", n: "1037", a: "1,320.00", act: "Mark sent" }]}
 ];
+/* The invoices that client's money could settle, named by NUMBER so the group
+   moves them rather than holding a second copy of them, and the balance itself,
+   which is the same $500.00 the invoice screen's fixture holds. */
+var WAITING = ["1026", "1044"];
+var HELD_ON_CLIENT = "500.00";
+
 var SENT = [
   { c: "Marlowe Dance Collective", s: "Spring Program B", d: "22 Aug 2026", n: "1038", a: "2,150.00", said: "sent 15d ago" },
   { c: "Blackwater Theatre Company", s: "Uncle Vanya, opening night", d: "30 Aug 2026", n: "1039", a: "1,675.00", said: "sent 7d ago" },
@@ -494,7 +511,12 @@ function windowFor(layout) {
   side.append(top);
   var card = el("div", "card");
   card.append(el("div", "hd", "Needs you"));
-  [["To send", "4"], ["To chase", "2"], ["To confirm", "2"], ["Receipts to file", "7"]].forEach(function (pr) {
+  /* TO PLACE COUNTS INVOICES, not clients (PRD 46a, 46d). Every other line in
+     this card counts invoices, which is what makes the four comparable, and the
+     one line that ever counted something else was taken out of it. It sits above
+     Receipts to file because that line is the other half of the product. */
+  [["To send", "4"], ["To chase", "2"], ["To confirm", "2"], ["To place", "2"],
+   ["Receipts to file", "7"]].forEach(function (pr) {
     var ln = el("div", "ln"); ln.append(el("span", null, pr[0]), el("b", null, pr[1])); card.append(ln);
   });
   side.append(card);
@@ -528,13 +550,62 @@ function windowFor(layout) {
   main.append(head);
 
   var scroll = el("div", "scroll");
+
+  /* WAITING ON YOU TO PLACE MONEY (ovation#190, settled with Dan 2026-09-10,
+     PRD 46d). PRD 14j says that where a client has more than one invoice open
+     Ovation applies their held money to neither and offers `Use it here` on
+     each. That offer was the only surface the case had, so it could only be met
+     by already being on one of those invoices, and it is not rare: 24 of 129
+     payments in the 2019 to 2024 history arrived while another of that client's
+     invoices was open, 18.6%, concentrated in 3 of the 41 clients
+     (scripts/measure-invoice-history.py).
+
+     THE ROWS ARE MOVED, NEVER COPIED. The first version drew them here AND left
+     them in their own group, so two invoices appeared twice under a header
+     saying 2. Every row read correctly on its own and the fault existed only in
+     the list as a whole. check-design-draws.sh now refuses a list that draws one
+     invoice twice.
+
+     THE COUNT IS THE LENGTH OF WHAT WAS MOVED, never a number written beside it,
+     which is this file's own rule: the card and any group total are computed
+     once and read twice. */
+  var waiting = [];
+  GROUPS.forEach(function (g) {
+    g.rows.forEach(function (r) { if (WAITING.indexOf(r.n) !== -1) waiting.push(r); });
+  });
+  if (waiting.length) {
+    var band = el("div", "disc open");
+    var lead = el("div", "lead");
+    lead.append(el("span", "tri"), el("b", null, "Waiting on you to place money"),
+                el("span", "n", String(waiting.length)));
+    band.append(lead, el("div", "sum", HELD_ON_CLIENT + " held"));
+    scroll.append(band);
+    waiting.forEach(function (r) {
+      scroll.append(rowEl({ c: r.c, s: r.s, d: r.d, n: r.n, a: r.a, act: "Use it here" }, false));
+    });
+  }
+
+  /* THE GROUP HAS TO END. Every other band in this list either sits at the
+     bottom or starts a block that runs to it, so a band at the TOP with rows
+     under it made the whole list read as its contents: the header said 2 and
+     thirteen rows followed. The first ordinary row after it carries the rule and
+     the air the idle block's first band carries, which is this file's own way of
+     saying a new block starts here. */
+  var closeNext = waiting.length > 0;
+
   GROUPS.forEach(function (g) {
     if (layout === "N3") {
       var b = el("div", "brk");
       b.append(el("div", "sum", g.sum));
       scroll.append(b);
     }
-    g.rows.forEach(function (r, i) { var n = rowEl(r, i === 0); if (r.c === "Westfield Choral Society") n.classList.add("sel"); scroll.append(n); });
+    g.rows.forEach(function (r, i) {
+      if (WAITING.indexOf(r.n) !== -1) return;
+      var n = rowEl(r, i === 0);
+      if (r.c === "Westfield Choral Society") n.classList.add("sel");
+      if (closeNext) { n.classList.add("afterwaiting"); closeNext = false; }
+      scroll.append(n);
+    });
   });
   IDLE.forEach(function (g, gi) {
     var d = el("div", "disc" + (g[3] ? " open" : "") + (gi === 0 ? " firstidle" : ""));

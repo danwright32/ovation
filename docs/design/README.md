@@ -32,10 +32,51 @@ three things in it are web idioms that must be translated rather than copied:
 | A row | One line at 29px: client and shoot name, shoot date, invoice number or draft, amount, action. Venue and shoot times are deliberately absent and need a home (ovation#95). Where one invoice covers several shoots it names the LAST one, counts the rest, and shows a date span. |
 | Actions | A word, not a button. "Mark cleared" and "Mark sent", never "Cleared" or "It was sent": a control says what it does. |
 | Selection | A tint only, no left bar. A bar flush against the espresso sidebar is invisible, and a tint is what macOS uses anyway. |
-| Counts | Four, in the sidebar card, each appearing exactly once, and every one of them a count of INVOICES. No inventory counts: a number in the chrome only ever means this many things need you. |
+| Counts | Five, in the sidebar card, each appearing exactly once, and every one of them a count of INVOICES. Four until `To place` was added on 2026-09-10 (ovation#190, PRD 46d). No inventory counts: a number in the chrome only ever means this many things need you. |
 | Money held | A figure, in dollars, on its own line UNDER the card rather than a fifth count in it, in the colour the rail's status lines use. Settled 2026-09-10 (ovation#187, PRD 46b), and drawn only when there is some. |
+| Money waiting to be placed | A group at the TOP of the list, open and labelled, holding the invoices a client's held money could settle where it can settle more than one and Ovation will not choose (PRD 14j, 46d). Settled 2026-09-10 (ovation#190). |
 | Idle invoices | Disclosures at the foot, with Sent awaiting payment open by default. No "Nothing to do" label above them: the group names already say it. |
 | Colour | Espresso `#3B2B21`. Light mode only, deliberately (PRD 43). No red anywhere (PRD 45). |
+
+### Waiting on you to place money, settled 2026-09-10 (ovation#190)
+
+**The case that needs Dan was the one nothing announced.** PRD 14j settles that where a client
+with held money has more than one invoice open, Ovation applies it to neither and offers `Use it
+here` on each. That offer was the whole surface: you met it by already being on one of those
+invoices. The rail's held money figure was deliberately taken out of the Needs you card
+(ovation#187), rightly, because most held money needs nobody, which also left the subset that
+does need somebody with no count, no group and no route from the screen Dan works from.
+
+**It was measured before it was drawn, and the measurement changed what the round was about.**
+24 of 129 payments across 2019 to 2024 arrived while another of that client's invoices was still
+open, 18.6%, and it happened to 3 of the 41 clients. So it is not a twice a decade case, and it is
+concentrated. `scripts/measure-invoice-history.py` produces it, and the section it prints says in
+the same breath that it is an upper bound: the export carries no payment amounts, so nothing in it
+can say how often money was actually left over.
+
+**Dan took the group AND the count**, over the list unchanged and over the group with no count.
+The two are one option rather than two because PRD 46a says acting on a card line takes you to the
+groups it rolls up, so a count with nowhere to go was never a candidate. `To place` counts
+INVOICES, not clients, which is what keeps every line in that card counting one unit. The card is
+chrome, so the line is on all four screens that draw it, and `check-design-sidebar-card.sh` is what
+holds them together.
+
+**Two faults reached Dan in the round itself, and both are recorded because the fix is the
+design.** The group COPIED its rows rather than moving them, so two invoices were drawn twice
+under a header saying 2, and every row read correctly on its own: the fault existed only in the
+list as a whole. And the band had nothing closing it, so the thirteen rows below it read as its
+contents. `check-design-draws.sh` now refuses a list that draws one numbered invoice twice, which
+is the first of those two, and the first ordinary row after the group carries the rule and air the
+idle block already uses, which is the second. The round's own harness check had proved every
+addition was inside the list and had never asked whether an invoice was now in it twice.
+
+**One of the two invoices in the first fixture was a DRAFT**, which cannot have money placed on it
+at all: PRD 14h is about OPEN invoices. The fixture now carries one client with two issued, open
+invoices, which this list had none of, because a branch no fixture can reach is the branch that
+ships untested.
+
+**Not settled here: money held against a client with NO open invoice.** It is the other half of
+ovation#190, it has no invoice to group, and it gets its own round.
 
 ## The review and send screen
 

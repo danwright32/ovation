@@ -52,7 +52,11 @@ believed (L1):
      already had to fix this twice, and it is checked wherever a file draws more
      than one `.fig` inside one block rather than being asserted about a
      particular screen.
-  6. DELIBERATELY ABSENT, and recorded rather than left to be rediscovered. A
+  6. NO INVOICE IS DRAWN TWICE IN ONE LIST. A group that copies its rows rather
+     than moving them draws each of them twice, every row reads as correct on
+     its own, and the fault exists only in the list as a whole. Numbered rows
+     only, since `draft` is legitimately repeated.
+  7. DELIBERATELY ABSENT, and recorded rather than left to be rediscovered. A
      claim that the app window is drawn at its DECLARED width cannot be written
      from a rendering: `getComputedStyle(el).width` returns the USED width, so a
      window squeezed by its stage reports the squeezed number as its
@@ -252,6 +256,35 @@ window.addEventListener("load", function () {
           offenders.length === 0,
           offenders.length ? offenders.join(" // ")
                            : groups + " marked block(s) of figures");
+
+    /* 8. NO INVOICE IS DRAWN TWICE IN ONE LIST (ovation#190).
+
+       A group that COPIES its rows rather than moving them draws each of them
+       twice. Every row still reads as correct on its own, every rule about rows
+       still holds, and the fault exists only in the list as a whole, which is
+       the one place nobody reads (L605). It reached Dan in a design round on
+       2026-09-10, two invoices drawn twice under a header saying 2, and nothing
+       here could see it.
+
+       ONLY A NUMBERED ROW COUNTS. `draft` is what an unissued invoice draws in
+       that column and there are legitimately many of them; the claim is about
+       an invoice NUMBER, which is unique by construction (PRD 5.19).
+
+       IT RUNS BEFORE ANY CONTROL IS PRESSED, because pressing legitimately
+       changes what a list holds. And it reports how many numbered rows it
+       found, so a file with no list at all says so rather than reading like a
+       list that passed (L98). */
+    var seenNumbers = {}, drawnTwice = [];
+    Array.prototype.forEach.call(document.querySelectorAll(".scroll .row .num"),
+      function (cell) {
+        var value = (cell.textContent || "").trim();
+        if (!/^[0-9]+$/.test(value)) return;
+        if (seenNumbers[value] && drawnTwice.indexOf(value) === -1) drawnTwice.push(value);
+        seenNumbers[value] = 1;
+      });
+    claim("no invoice is drawn twice in one list", drawnTwice.length === 0,
+          drawnTwice.length ? "drawn twice: " + drawnTwice.join(", ")
+                            : Object.keys(seenNumbers).length + " numbered row(s), each once");
 
     /* 7. AND IT STAYS SILENT WHEN THE PAGE IS DRIVEN.
 

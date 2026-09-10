@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 42
+harness_begin "design rendering checks" 45
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -114,6 +114,22 @@ check "the money row is where the mutation expects it" \
 check "a figure off the shared right edge is refused" "$(one_status "$EDGE")" "1"
 check "and the claim that fired names the right edge" \
     "$(fired "$EDGE")" "every figure in a block that says its figures line up does;"
+
+# ---------------------------------------------------------------------------
+# 5b. ONE INVOICE DRAWN TWICE IN ONE LIST (ovation#190). The waiting group MOVES
+#     its rows: it collects them, draws them under its band, and the loop that
+#     draws the ordinary groups skips them. Take away that skip and each of them
+#     is drawn twice, which is exactly the version that reached Dan on 2026-09-10
+#     in a design round, under a header saying 2. Every row still read as correct
+#     on its own; the fault existed only in the list as a whole, which is the one
+#     place nobody reads, and no check could see it.
+# ---------------------------------------------------------------------------
+TWICE="$WORK/twice.html"
+check "the line that MOVES the waiting rows is where the mutation expects it" \
+    "$(mutate "$TWICE" 's|      if (WAITING.indexOf(r.n) !== -1) return;|      if (false) return;|' 'if (false) return;' invoice-list.html)" "1"
+check "a list drawing one invoice twice is refused" "$(one_status "$TWICE")" "1"
+check "and the claim that fired names the invoice drawn twice" \
+    "$(fired "$TWICE")" "no invoice is drawn twice in one list;"
 
 # ---------------------------------------------------------------------------
 # 6. A PAGE THAT DREW ALMOST NOTHING. Without this every claim above passes

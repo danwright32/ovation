@@ -773,7 +773,11 @@ function shell(main, extra) {
   side.append(top);
   var card = rsEl("card");
   card.append(rsEl("hd", "Needs you"));
-  [["To send", 4], ["To chase", 2], ["To confirm", 2], ["Receipts to file", 7]]
+  /* TO PLACE counts the invoices waiting on a decision about held money
+     (ovation#190, PRD 46d). The card is chrome and is the same on every screen,
+     so it is here as well as on the list where it was settled. */
+  [["To send", 4], ["To chase", 2], ["To confirm", 2], ["To place", 2],
+   ["Receipts to file", 7]]
     .forEach(function (pr) {
       var ln = rsEl("ln");
       ln.append(rsEl(null, pr[0], "span"), rsEl(null, String(pr[1]), "b"));

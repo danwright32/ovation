@@ -874,8 +874,12 @@ function buildScreen() {
 
   var card = el("div", "card");
   card.append(el("div", "hd", "Needs you"));
+  /* TO PLACE is a count of INVOICES waiting on a decision about held money
+     (ovation#190, PRD 46d), which is what keeps every line in this card counting
+     the same unit. The card is chrome and is the same on every screen, so it is
+     here as well as on the list where it was settled. */
   var lines = QUIET ? [] : [["To send", 4], ["To chase", 2], ["To confirm", 2],
-                            ["Receipts to file", 7]];
+                            ["To place", 2], ["Receipts to file", 7]];
   if (lines.length === 0) {
     card.append(el("div", "quiet", "Nothing waiting"));
   } else {
