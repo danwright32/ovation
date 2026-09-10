@@ -75,8 +75,25 @@ at all: PRD 14h is about OPEN invoices. The fixture now carries one client with 
 invoices, which this list had none of, because a branch no fixture can reach is the branch that
 ships untested.
 
-**Not settled here: money held against a client with NO open invoice.** It is the other half of
-ovation#190, it has no invoice to group, and it gets its own round.
+**Money held against a client with NO open invoice gets nothing here, and that is a decision**
+(second round, same day, PRD 46e). It has no invoice to group, so the candidates were different:
+nothing at all, a second quiet line under the rail's `Money held` figure naming the part with no
+invoice open, and a `To return` count in the card. Dan kept nothing.
+
+**Both rejected options are recorded with their reasons, because a no is only reversible if the
+reasons are.** The split rail line states a fact where the fact already is and asks nothing of
+anybody, which is both its case and why it is easy to look past. The `To return` count claims the
+money is WORK, which is what every other line in that card means, and it would have to lead
+somewhere, which today is the Clients screen.
+
+**The cost is real and is stated rather than implied: nothing in Ovation ever prompts a return.**
+After this the money is visible only where the client is. **No requirement says such money is owed
+back**, which was checked rather than repeated: ovation#190's body said PRD 5.14a does, and 14a says
+nothing of the kind. What is recorded is that a refund names the payment it came out of and held
+money is netted against refunds (14e). Whether unused money is owed back at all is undecided, and
+this round did not decide it. Frequency in front of him: 6 of 171 invoices across 2015 to 2024 were paid before
+they were issued, median 11 days early, a floor rather than a total because the export carries no
+payment amounts at all.
 
 ## The review and send screen
 
