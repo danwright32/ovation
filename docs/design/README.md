@@ -292,7 +292,17 @@ saved 105KB. All three families are open licensed (OFL), so embedding is permitt
 is 119KB as a result, up from 30KB, which is the price of the record being self contained.
 
 `invoice-list.png` is a rendering of the same file at 2x, framed to the window, for when an
-image is more convenient than opening the page.
+image is more convenient than opening the page. **`scripts/build-design-screenshot.sh` makes it,
+and `--check` says when it has gone stale** (ovation#178). Nothing produced it until 2026-09-09,
+and it had silently described a screen four settled rounds out of date; it was noticed only because
+the fixture happened to change.
+
+The crop is the `.screen` rect read out of the rendering, so a screen that changes size is framed
+correctly without anybody adjusting a number. `--check` compares the LAYOUT rather than the pixels,
+recorded in `invoice-list.png.layout` beside it: two machines do not produce identical PNGs, so a
+byte comparison would be red everywhere but the machine that last rendered it. It does not move
+when the prose around the screen is edited, which is what makes it a check people can keep, and it
+moves the moment the screen is drawn differently.
 
 ## Type
 
