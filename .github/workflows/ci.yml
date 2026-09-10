@@ -160,6 +160,7 @@ jobs:
           python3 scripts/check-design-draws.sh
           python3 scripts/check-invoice-screen-draws.sh
           python3 scripts/check-design-tokens-resolve.sh
+          python3 scripts/check-design-sidebar-card.sh
 
       - name: Run every shell suite
         run: |

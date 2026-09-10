@@ -48,6 +48,32 @@
 .card .hd { font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
 .card .ln { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--soft); }
 .card .ln b { color: var(--ink); font-weight: 600; font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+/* MONEY HELD ON CLIENTS, UNDER THE CARD AND NOT IN IT (ovation#187, settled
+   with Dan 2026-09-10 over two rounds). The card promises that a number in it
+   means this many things need you (PRD 46a), and since PRD 14h Ovation places a
+   client's held money by itself whenever that client has one open invoice, so
+   the number stopped marking work and started marking money sitting. It was
+   also the only line in the card counting CLIENTS while the other four count
+   invoices, with nothing on screen saying so.
+
+   So it is a figure rather than a count, outside the card, in the colour the
+   status lines at the foot of the rail use. Rejected: taking it off the chrome
+   entirely, keeping it as a fifth count, and recounting it as the clients whose
+   money could not be placed automatically. Rejected in the second round: the
+   card's own label and figure colours, and the figure alone at the card's
+   brightness.
+
+   ALIGNED ON THE CARD BY CONSTRUCTION, not by two numbers agreeing: 3px margin
+   plus 12px padding here is the same 15px as the card's 3px margin, 1px border
+   and 11px padding, on both edges, so the label starts where the card's labels
+   start and the figure ends where the card's figures end. Measured in a
+   rendering at 249 and 420. */
+.railheld { display: flex; align-items: baseline; justify-content: space-between;
+            gap: 8px; margin: -6px 3px 12px; padding: 0 12px; font-size: 12px;
+            color: var(--faint); }
+.railheld b { font-family: "IBM Plex Mono", ui-monospace, monospace;
+              font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 500;
+              color: var(--faint); }
 .status { margin: 0 3px; padding: 10px 9px 4px; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 5px; }
 .status .fault { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--ink); }
 .status .fault b { font-weight: 700; }
@@ -79,6 +105,7 @@
 .card .hd { color: var(--rail-card-hd); }
 .card .ln { color: var(--rail-card-ln); }
 .card .ln b { color: var(--rail-card-b); }
+.railheld, .railheld b { color: var(--rail-dim); }
 .status { border-top-color: var(--rail-st-bd); }
 .status .fault { color: var(--rail-fault); }
 .status .fault .read { color: var(--rail-read); }

@@ -66,37 +66,12 @@ moves the whole design record for a test (L2):
     OVATION_DESIGN_ROOT   the design record to read
 """
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
-from design_inline import html_files, longest_run, significant_lines  # noqa: E402
-
-DECLARES_UNSHELLED = "NOT SHELLED:"
-
-
-def declared_parts(text):
-    """Which parts a design file says it does not carry, and why.
-
-    The part is named first so the declaration is machine readable, and the
-    reason follows it, because a declaration carrying no reason is evidence
-    nobody reasoned about it rather than a decision (L233).
-    """
-    found = {}
-    for raw in text.splitlines():
-        if DECLARES_UNSHELLED not in raw:
-            continue
-        said = raw.split(DECLARES_UNSHELLED, 1)[1]
-        said = said.replace("*/", " ").strip()
-        match = re.match(r"([A-Za-z0-9_.\-]+)[,:\s]+(.*)", said)
-        if not match:
-            continue
-        reason = " ".join(match.group(2).split())
-        if reason:
-            found[match.group(1)] = reason
-    return found
-
+from design_inline import (DECLARES_UNSHELLED, declared_parts, html_files,  # noqa: E402
+                           longest_run, significant_lines)
 
 def main():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

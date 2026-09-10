@@ -132,6 +132,12 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 .card .hd { font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
 .card .ln { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--soft); }
 .card .ln b { color: var(--ink); font-weight: 600; font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.railheld { display: flex; align-items: baseline; justify-content: space-between;
+gap: 8px; margin: -6px 3px 12px; padding: 0 12px; font-size: 12px;
+color: var(--faint); }
+.railheld b { font-family: "IBM Plex Mono", ui-monospace, monospace;
+font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 500;
+color: var(--faint); }
 .status { margin: 0 3px; padding: 10px 9px 4px; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 5px; }
 .status .fault { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--ink); }
 .status .fault b { font-weight: 700; }
@@ -164,6 +170,7 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 .card .hd { color: var(--rail-card-hd); }
 .card .ln { color: var(--rail-card-ln); }
 .card .ln b { color: var(--rail-card-b); }
+.railheld, .railheld b { color: var(--rail-dim); }
 .status { border-top-color: var(--rail-st-bd); }
 .status .fault { color: var(--rail-fault); }
 .status .fault .read { color: var(--rail-read); }
@@ -461,6 +468,25 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
 .sline.tot { padding-top: 8px; border-top: 1px solid var(--rule); color: var(--ink);
              font-weight: 600; }
 .sline.tot .fig { font-size: 15.5px; font-weight: 500; }
+
+/* WHICH FIGURE THE EYE LANDS ON, settled with Dan 2026-09-10 (ovation#189, PRD
+   14m). An invoice carrying held money drew Total and Outstanding at the same
+   treatment two lines apart, and nothing said which one was the answer. They
+   are read at different moments: Total is what the invoice is for and is the
+   figure the client sees on the PDF, and Outstanding is what is still owed and
+   is what the chase and the sidebar's To chase count are timed from.
+
+   THE RULE IS THAT THE HEAVY FIGURE IS ALWAYS WHAT IS STILL OWED. Where an
+   Outstanding line is drawn it carries and Total drops to an ordinary line,
+   keeping its rule because the rule is where the arithmetic finishes. Where
+   there is no Outstanding line, Total is what is owed and is unchanged, which
+   is why this is scoped to `.hasout` rather than written on `.totline`.
+
+   Rejected: both heavy, which is what it drew (a fully covered invoice reads
+   Outstanding 0.00, the most important thing on the screen, competing with the
+   figure above it), and Total carrying with Outstanding beneath it. */
+.invsum.hasout .sline.totline { font-weight: 400; color: var(--soft); }
+.invsum.hasout .sline.totline .fig { font-size: 13.5px; font-weight: 400; }
 .taxnote { width: 318px; font-size: 12.5px; color: var(--quiet); text-align: left;
            padding-top: 1px; }
 
@@ -2311,7 +2337,7 @@ function buildInvoice() {
        gives an unpriced draft. */
     if (tl.drawn) {
       sumBox.append(line(tl.label, money(tl.amount)));
-      sumBox.append(line("Total", money(t.total), "tot"));
+      sumBox.append(line("Total", money(t.total), "tot totline"));
       /* Below the total, never above it: see heldBlock. It is drawn only once
          there IS a total, for the same reason the total is: a figure taken off
          a price nobody has established asserts something the screen cannot
@@ -2450,7 +2476,14 @@ function heldBlock(sumBox, line, total) {
     label.append(off);
     row.append(label, el("div", "fig", "-" + money(on)));
     sumBox.append(row);
-    sumBox.append(line("Outstanding", money(total - on), "tot"));
+    /* THE TOTALS BLOCK SAYS, IN THE MARKUP, THAT IT DREW AN OUTSTANDING LINE,
+       so the stylesheet can quieten Total on this invoice and leave it alone on
+       every other one. Almost every invoice carries no held money and has no
+       Outstanding line at all, and on that one Total IS what is owed. A rule
+       that quietened Total everywhere would be judged on the rare invoice and
+       would ship on the common one. */
+    sumBox.classList.add("hasout");
+    sumBox.append(line("Outstanding", money(total - on), "tot outline"));
     /* WHAT IS LEFT IS SAID, never left as a subtraction. An invoice smaller than
        the balance uses part of it, and PRD 5.14e is explicit that a partial
        leaves exactly the rest held rather than driving both figures to zero. Two
@@ -2628,12 +2661,21 @@ function buildScreen() {
   var card = el("div", "card");
   card.append(el("div", "hd", "Needs you"));
   [["To send", 4], ["To chase", 2], ["To confirm", 2],
-   ["Receipts to file", 7], ["Money held", 3]].forEach(function (pr) {
+   ["Receipts to file", 7]].forEach(function (pr) {
     var ln = el("div", "ln");
     ln.append(el("span", null, pr[0]), el("b", null, String(pr[1])));
     card.append(ln);
   });
   side.append(card);
+  /* MONEY HELD IS NOT ONE OF THE CARD'S COUNTS (ovation#187, settled with Dan
+     2026-09-10 over two rounds, PRD 46b). The card says this many things need
+     you, and since PRD 14h Ovation places held money by itself whenever the
+     client has one open invoice, so this stopped being work waiting. It is a
+     figure under the card in the status colour, and it is a quantity, so a
+     quantity of nothing is not drawn. */
+  var railheld = el("div", "railheld");
+  railheld.append(el("span", null, "Money held"), el("b", null, "1,837.50"));
+  side.append(railheld);
   ["Invoices", "Expenses", "Clients"].forEach(function (label) {
     side.append(el("div", "item" + (label === "Invoices" ? " on" : ""), label));
   });
@@ -2687,7 +2729,7 @@ function buildScreen() {
      second file: both branches have to be reachable, or the one nobody can draw
      is the one that ships. */
   var held = el("div", "statebar");
-  held.append(el("span", "lab", "Cedar Hill has $500.00 held, and"));
+  held.append(el("span", "lab", "Cedar Hill is holding money, and"));
   var counts = [[1, "1 invoice open", "it is applied"],
                 [2, "2 invoices open", "it is applied to neither"]];
   counts.forEach(function (c) {
@@ -2709,6 +2751,40 @@ function buildScreen() {
     o.setAttribute("aria-pressed", String(i === 0));
   });
   bar.parentNode.insertBefore(held, bar.nextSibling);
+
+  /* HOW MUCH OF THE INVOICE THE BALANCE COVERS, added with ovation#189 and kept.
+     The round about which figure carries the weight could not be run without
+     it: at $500.00 against a 408.28 invoice the balance covers ALL of it, so
+     the file could draw Outstanding 0.00 and could not draw a partial at all,
+     and a partial is the only state with three figures on screen at once. A
+     branch no fixture can reach is the branch that ships untested, which is the
+     same reason the switch above it exists. Measured rather than assumed: 150
+     leaves 258.28 outstanding, and 500 covers it and leaves the rest held,
+     which is the line PRD 14k added. */
+  var covers = el("div", "statebar");
+  covers.append(el("span", "lab", "and the balance covers"));
+  var sizes = [[150, "part of the invoice", "Outstanding is what is left"],
+               [500, "all of it", "Outstanding is 0.00, and the rest stays held"]];
+  function markCovers() {
+    [].forEach.call(covers.querySelectorAll(".sbtn"), function (o, i) {
+      o.setAttribute("aria-pressed", String(sizes[i][0] === HELD_ON_CLIENT));
+    });
+  }
+  sizes.forEach(function (c) {
+    var b = el("button", "sbtn");
+    b.type = "button";
+    b.append(el("span", null, c[1]), el("span", "share", c[2]));
+    b.addEventListener("click", function () {
+      HELD_ON_CLIENT = c[0];
+      HELD_TAKEN = false;
+      HELD_REMOVED = false;
+      markCovers();
+      redraw();
+    });
+    covers.append(b);
+  });
+  markCovers();
+  held.parentNode.insertBefore(covers, held.nextSibling);
 })();
 
 /* THE SAME SUITES THE REPOSITORY RUNS. scripts/test-design-rules.sh runs the

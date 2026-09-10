@@ -373,6 +373,30 @@ window.addEventListener("load", function () {
          nothing (Dan, 2026-09-10). Being INSIDE .heldlabel is the claim: a
          Remove anywhere else in the totals box would still be found by a
          looser selector and would pass this while being the rejected design. */
+      /* WHICH FIGURE THE EYE LANDS ON (PRD 14m, settled 2026-09-10). Total and
+         Outstanding were drawn at the same treatment, two lines apart, and
+         nothing said which one was the answer. The rule Dan chose is that the
+         heavy figure is always what is still OWED, so where an Outstanding line
+         is drawn it carries and Total drops to an ordinary line.
+
+         MEASURED FROM THE RENDERING, never from the class list. The classes are
+         the thing a wrong stylesheet keeps while drawing them identically, and
+         a rule scoped to the wrong selector leaves both markup and declaration
+         reading as correct (L437, L585). */
+      function figSizeOf(label) {
+        var found = null;
+        Array.prototype.forEach.call(document.querySelectorAll(".invsum .sline"),
+          function (ln) {
+            if (ln.firstChild.textContent.trim() === label) found = ln.querySelector(".fig");
+          });
+        return found ? parseFloat(getComputedStyle(found).fontSize) : null;
+      }
+      var totSize = figSizeOf("Total");
+      var outSize = figSizeOf("Outstanding");
+      claim("Outstanding is drawn heavier than Total",
+            totSize !== null && outSize !== null && outSize > totSize + 0.5,
+            "Total's figure is " + totSize + "px and Outstanding's is " + outSize + "px");
+
       var removeWord = applied.querySelector(".heldlabel .heldback");
       claim("Remove is on the held money line itself",
             !!removeWord && removeWord.textContent.trim() === "Remove",
@@ -484,6 +508,20 @@ window.addEventListener("load", function () {
               !onPaid && !offerOnPaid,
               (onPaid ? "APPLIED on a paid invoice" : "not applied")
                 + ", " + (offerOnPaid ? "OFFERED on a paid invoice" : "not offered"));
+
+        /* AND THE COMMON INVOICE IS UNCHANGED. Almost every invoice carries no
+           held money and so has no Outstanding line at all, and on that one
+           Total is what is owed and keeps the heavy figure. This is the half
+           that a rule quietening Total everywhere would break, and it would
+           break it on the case nobody looks at twice, so it is asserted against
+           the SIZE measured on Outstanding above rather than against a literal
+           nobody would notice going stale (L63). */
+        var totOnPaid = figSizeOf("Total");
+        claim("with no Outstanding line, Total keeps the heavy figure",
+              totOnPaid !== null && outSize !== null
+                && Math.abs(totOnPaid - outSize) < 0.5,
+              "Total's figure is " + totOnPaid + "px where Outstanding's was "
+                + outSize + "px");
         var draftBtn = Array.prototype.filter.call(states, function (b) {
           return /a draft/.test(b.textContent);
         })[0];

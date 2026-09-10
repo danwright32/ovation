@@ -158,6 +158,12 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .card .hd { font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
 .card .ln { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--soft); }
 .card .ln b { color: var(--ink); font-weight: 600; font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.railheld { display: flex; align-items: baseline; justify-content: space-between;
+gap: 8px; margin: -6px 3px 12px; padding: 0 12px; font-size: 12px;
+color: var(--faint); }
+.railheld b { font-family: "IBM Plex Mono", ui-monospace, monospace;
+font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 500;
+color: var(--faint); }
 .status { margin: 0 3px; padding: 10px 9px 4px; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 5px; }
 .status .fault { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--ink); }
 .status .fault b { font-weight: 700; }
@@ -190,6 +196,7 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .card .hd { color: var(--rail-card-hd); }
 .card .ln { color: var(--rail-card-ln); }
 .card .ln b { color: var(--rail-card-b); }
+.railheld, .railheld b { color: var(--rail-dim); }
 .status { border-top-color: var(--rail-st-bd); }
 .status .fault { color: var(--rail-fault); }
 .status .fault .read { color: var(--rail-read); }
@@ -822,7 +829,7 @@ function buildScreen() {
   var card = el("div", "card");
   card.append(el("div", "hd", "Needs you"));
   var lines = QUIET ? [] : [["To send", 4], ["To chase", 2], ["To confirm", 2],
-                            ["Receipts to file", 7], ["Money held", HELD.length]];
+                            ["Receipts to file", 7]];
   if (lines.length === 0) {
     card.append(el("div", "quiet", "Nothing waiting"));
   } else {
@@ -833,6 +840,29 @@ function buildScreen() {
     });
   }
   side.append(card);
+
+  /* MONEY HELD IS NOT ONE OF THE CARD'S COUNTS (ovation#187, settled with Dan
+     2026-09-10 over two rounds, PRD 46b). It used to be the fifth line, and it
+     was the only one counting CLIENTS where the other four count invoices, with
+     nothing on screen saying so, so 3 meant either. Since PRD 14h Ovation
+     places held money by itself whenever the client has one open invoice, so
+     the number had also stopped marking work waiting.
+
+     IT IS SUMMED FROM THE SAME LIST THE MONEY BOXES ARE DRAWN FROM, never
+     written beside it, because a second copy of a figure this screen computes
+     is a second definition and it drifts in whichever direction flatters the
+     reading (L107). On a settled day the boxes are not drawn either, so the sum
+     is zero and, being a quantity of nothing, the line is not drawn at all. */
+  var heldTotal = QUIET ? 0 : HELD.reduce(function (a, k) {
+    return a + parseFloat(String(k.h).replace(/[$,]/g, ""));
+  }, 0);
+  if (heldTotal > 0) {
+    var railheld = el("div", "railheld");
+    railheld.append(el("span", null, "Money held"),
+                    el("b", null, heldTotal.toLocaleString("en-US",
+                      { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
+    side.append(railheld);
+  }
 
   /* THE ROSTER IS A PLACE, AND IT IS ONLY THERE WHEN IT HAS SOMETHING IN IT.
      Dan, 2026-09-07: only show that page if there are clients that need fixing.

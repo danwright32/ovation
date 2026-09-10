@@ -32,7 +32,8 @@ three things in it are web idioms that must be translated rather than copied:
 | A row | One line at 29px: client and shoot name, shoot date, invoice number or draft, amount, action. Venue and shoot times are deliberately absent and need a home (ovation#95). Where one invoice covers several shoots it names the LAST one, counts the rest, and shows a date span. |
 | Actions | A word, not a button. "Mark cleared" and "Mark sent", never "Cleared" or "It was sent": a control says what it does. |
 | Selection | A tint only, no left bar. A bar flush against the espresso sidebar is invisible, and a tint is what macOS uses anyway. |
-| Counts | Four, in the sidebar card, each appearing exactly once. No inventory counts: a number in the chrome only ever means this many things need you. |
+| Counts | Four, in the sidebar card, each appearing exactly once, and every one of them a count of INVOICES. No inventory counts: a number in the chrome only ever means this many things need you. |
+| Money held | A figure, in dollars, on its own line UNDER the card rather than a fifth count in it, in the colour the rail's status lines use. Settled 2026-09-10 (ovation#187, PRD 46b), and drawn only when there is some. |
 | Idle invoices | Disclosures at the foot, with Sent awaiting payment open by default. No "Nothing to do" label above them: the group names already say it. |
 | Colour | Espresso `#3B2B21`. Light mode only, deliberately (PRD 43). No red anywhere (PRD 45). |
 
@@ -540,6 +541,35 @@ whether applying a deposit to an invoice clears it from this screen, is what exp
 does, so held money counts DOWN as it is dealt with, exactly like the other four, and it fits
 the card's rule rather than breaking it.
 
+**That reversed three days later, and the argument recorded as wrong turned out to be right for
+a reason nobody had on 2026-09-07** (ovation#187, settled with Dan 2026-09-10 over two rounds,
+PRD 46b). What made held money count down was Dan applying it. Round C of ovation#109 then
+settled that **Ovation applies it ITSELF** whenever the client has exactly one open invoice
+(PRD 14h), so for almost every balance nothing is waiting on him at all: the number stopped
+marking work and went back to marking money sitting, which is precisely what the rejected
+argument said it was. Two other things had come apart from the card at the same time. It was
+the only line counting CLIENTS where the other four count invoices, with nothing on screen
+saying so, so `3` meant either. And PRD 46a still described four lines and mapped four, so the
+fifth had no mapping and the card could not be reproduced from the requirement.
+
+So the money came out of the card and sits beneath it as a FIGURE, in the colour the status
+lines at the foot of the rail use. Dan's rule from round 2 survives untouched and is now the
+general one: a quantity of nothing is not drawn, so on a day when nothing is held there is no
+line. Four options were rendered in the first round, from taking it off the chrome entirely to
+recounting it as the clients whose money could not be placed automatically; the second round
+moved only how loud the line is, against the card's own label and figure colours and against
+the figure alone at the card's brightness.
+
+**The line is summed from the same list the money boxes are drawn from**, never written beside
+them. A second copy of a figure this screen computes is a second definition and it drifts in
+whichever direction flatters the reading (L107).
+
+**It aligns with the card by construction rather than by two numbers agreeing.** The card is
+3px of margin, 1px of border and 11px of padding; the line is 3px of margin and 12px of
+padding. Both come to 15px on each side, so the label starts where the card's labels start and
+the figure ends where the card's figures end. Measured in a rendering at 249 and 420, and
+`scripts/check-design-sidebar-card.sh` measures it on every design file at every run.
+
 Two costs were measured in the browser rather than guessed, and both are named on the page
 itself rather than left for the implementer to find: putting the amount on the name cuts
 "Ashgrove Chamber Players" short in a 240px column, and the strip above the list costs 43px,
@@ -928,6 +958,33 @@ Total, so nothing it does reaches the tax base. That is invisible in the source,
 would look equally correct appended a few lines higher, and the wrong one produces a wrong invoice
 rather than a wrong screen. `check-invoice-screen-draws.sh` presses `Remove` and compares the
 subtotal, the tax and the Total before and after, and the suite plants exactly that defect.
+
+**Round 189, settled 2026-09-10: Outstanding carries the weight and Total drops to an ordinary
+line.** An invoice carrying held money drew two heavy figures two lines apart, `Total` and, two
+lines below it, `Outstanding`, both in the same treatment, and nothing said which one the eye was
+meant to land on. The question had never been asked: round C moved where the OFFER lives and held
+the result constant in all four options on purpose, so the treatment of the result itself was the
+one thing not being judged. They answer different questions and are read at different moments,
+which is what decides it: Total is what the invoice is for and is the figure the client sees on
+the PDF, and Outstanding is what is still owed and is what the chase and the sidebar's To chase
+count are timed from. So the heavy figure is always what is still OWED. Rejected: both heavy,
+which is what it drew, and Total carrying with Outstanding beneath it.
+
+**The half that matters most is the invoice with no held money**, which is almost every invoice:
+it has no Outstanding line at all, Total is what is owed, and it is unchanged. The quietening is
+scoped to a totals block that actually drew an Outstanding line, rather than written on the Total
+row, because a rule quietening Total everywhere would have been judged on the rare invoice and
+would have shipped on the common one. Both halves are asserted from a rendering, and the suite
+plants both mistakes: a rule aimed at a class nothing carries, which leaves the markup and the
+stylesheet reading exactly as they do now, and the scope dropped, which is the one that would
+have shipped.
+
+**THE ROUND NEEDED A FIXTURE THE FILE COULD NOT DRAW.** With `$500.00` held against a `408.28`
+invoice the balance covers all of it, so the file could reach `Outstanding 0.00` and could not
+reach a partial one at all, and a partial is the case where three figures are on screen at once.
+A third switch was added with the round and kept: the balance covers part of the invoice, or all
+of it. A branch no fixture can reach is the branch that ships untested, which is the same reason
+the two invoice switch beside it exists.
 
 **One thing here was decided by Claude rather than by Dan, and is flagged as such.** An invoice
 smaller than the balance uses part of it, and PRD 5.14e is explicit that a partial leaves exactly

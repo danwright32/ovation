@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 56
+harness_begin "invoice screen rendering checks" 62
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -226,7 +226,7 @@ check "and the claim that fired names the recorded decision" \
 #     appended above it, and the figures on screen all still add up.
 NETTED="$WORK/netted.html"
 check "the total line is where the mutation expects it" \
-    "$(mutate "$NETTED" 's|sumBox.append(line("Total", money(t.total), "tot"));|sumBox.append(line("Total", money(t.total - heldApplied(t.total)), "tot"));|' 'money(t.total - heldApplied')" "1"
+    "$(mutate "$NETTED" 's|sumBox.append(line("Total", money(t.total), "tot totline"));|sumBox.append(line("Total", money(t.total - heldApplied(t.total)), "tot totline"));|' 'money(t.total - heldApplied')" "1"
 check "held money folded into the total is refused" "$(status_on "$NETTED")" "1"
 check "and the claim that fired names the arithmetic" \
     "$(failed_claims "$NETTED")" "applying held money leaves the subtotal and the tax alone;"
@@ -295,6 +295,30 @@ check "the paid guard is gone from the mutated copy" \
 check "held money on a paid invoice is refused" "$(status_on "$ONPAID")" "1"
 check "and the claim that fired names the paid invoice" \
     "$(failed_claims "$ONPAID")" "a paid invoice neither applies held money nor offers it;"
+
+# 17. TOTAL AND OUTSTANDING AT THE SAME WEIGHT. This is the state the file was
+#     in until 2026-09-10: two heavy figures two lines apart, with nothing
+#     saying which one the eye should land on. The mutation aims the quietening
+#     rule at a class nothing carries, which leaves the stylesheet, the markup
+#     and every source reading looking exactly as they do now (L585).
+SAMEWEIGHT="$WORK/same-weight.html"
+check "the totals rule is where the mutation expects it" \
+    "$(mutate "$SAMEWEIGHT" 's|\.invsum\.hasout \.sline\.totline|.invsum.neverset .sline.totline|g' 'invsum.neverset .sline.totline')" "2"
+check "two figures at the same weight are refused" "$(status_on "$SAMEWEIGHT")" "1"
+check "and the claim that fired names which figure carries" \
+    "$(failed_claims "$SAMEWEIGHT")" "Outstanding is drawn heavier than Total;"
+
+# 18. TOTAL QUIETENED ON EVERY INVOICE. The other half, and the one that would
+#     ship: dropping the `.hasout` scope quietens Total on the invoice that has
+#     no Outstanding line at all, which is almost every invoice. The rare case
+#     it was judged on still looks right, so the fault lives entirely on the
+#     screen nobody looks at twice.
+ALWAYSQUIET="$WORK/always-quiet.html"
+check "the scope is where the mutation expects it" \
+    "$(mutate "$ALWAYSQUIET" 's|\.invsum\.hasout \.sline\.totline|.invsum .sline.totline|g' 'invsum .sline.totline')" "2"
+check "a Total quietened on every invoice is refused" "$(status_on "$ALWAYSQUIET")" "1"
+check "and the claim that fired names the invoice with no Outstanding line" \
+    "$(failed_claims "$ALWAYSQUIET")" "with no Outstanding line, Total keeps the heavy figure;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.

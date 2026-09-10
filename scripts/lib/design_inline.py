@@ -114,3 +114,35 @@ def longest_run(source_lines, file_lines):
 def html_files(names):
     """The design files in a directory listing, in a stable order."""
     return sorted(n for n in names if n.lower().endswith((".html", ".htm")))
+
+
+DECLARES_UNSHELLED = "NOT SHELLED:"
+
+
+def declared_parts(text):
+    """Which shell parts a design file says it does not carry, and why.
+
+    The part is named first so the declaration is machine readable, and the
+    reason follows it, because a declaration carrying no reason is evidence
+    nobody reasoned about it rather than a decision (L233).
+
+    IT LIVES HERE RATHER THAN IN THE CHECK THAT INVENTED IT because a second
+    check now asks the same question. `check-design-sidebar-card.sh` compares
+    the rail across the files that DRAW an app window, and the file that draws
+    none is the file that already declares it carries no window.css. Sharing the
+    declaration while copying the code that reads it is not consolidation
+    (L370): the two would drift, and each would go on reading as correct.
+    """
+    found = {}
+    for raw in text.splitlines():
+        if DECLARES_UNSHELLED not in raw:
+            continue
+        said = raw.split(DECLARES_UNSHELLED, 1)[1]
+        said = said.replace("*/", " ").strip()
+        match = re.match(r"([A-Za-z0-9_.\-]+)[,:\s]+(.*)", said)
+        if not match:
+            continue
+        reason = " ".join(match.group(2).split())
+        if reason:
+            found[match.group(1)] = reason
+    return found
