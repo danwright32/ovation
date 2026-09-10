@@ -1003,6 +1003,46 @@ the rest held. Nothing said what happened to the rest, so the line now reads `$5
 the client`. It follows from round C's own logic, that Ovation applies it and SAYS so, but it was
 not put to him.
 
+### The rail's held money line, settled 2026-09-10 (ovation#191)
+
+**It stays, unchanged, on a screen that already names one client's held money.** The rail's figure
+is every client's, `1,837.50`. The invoice's own `Held money applied` and `$91.72 stays held on the
+client` are Cedar Hill's alone, a few inches away. Two figures, both labelled about held money,
+meaning different things, on one page. The line itself was judged on the invoice LIST (PRD 46b),
+where no per client figure exists, so this composition had never been in front of anybody, and the
+rule it appeared to break is a rule about the COMPOSITION rather than about either element (L605).
+
+**Three whole alternatives were rendered beside it and Dan kept the screen as it is.**
+
+1. **Drop the line wherever the page already says it.** Its cost was drawn rather than argued:
+   whether the invoice carries a held figure of its own is a STATE, not a property of the screen,
+   because a paid invoice draws neither the applied line nor the offer (PRD 14h) and neither does a
+   client holding nothing. So the rail would gain and lose a line as one invoice moves through its
+   life, which is chrome changing shape under the person.
+2. **Word it for scope**, `Held, all clients` against the invoice's `Held money applied`.
+3. **Take it off the chrome entirely**, leaving held money only where it is about one client. PRD
+   46b had already turned that down on its own grounds; this round put it beside the case that
+   motivates it.
+
+**PRD 46c carries the decision**, which matters more than usual here: what was settled is that no
+screen may suppress the line for what is on the page under it, and a rule of that shape is only
+enforceable if it is written down. `scripts/check-design-sidebar-card.sh` already asserts it, by
+requiring the four rails to agree, and until now that agreement was a fact about nobody having
+tried rather than a requirement.
+
+**The round was run against a harness lifted out of this file, and the lift was proved rather than
+assumed.** One builder drew all four options with the rail's line as the only thing that moved:
+option 1 rendered identically to `invoice.html`, 118 elements compared, and the options that remove
+the line move nothing outside the rail, with the spacer absorbing the freed 26px so the rail stays
+560px tall in all four. **That proof is what turned up ovation#194**, which is not this round's to
+fix: three of the five design files declare no doctype and two do, so they render under two
+different layout modes, and the same markup measured 37.95px in one and 41.06px in the other.
+
+**The Clients screen was deliberately NOT settled by this** (Dan's call, put to him before the round
+was built). It says `Money held` three times rather than twice, the rail's total, a figure on every
+name row, and the selected client's box, and a figure repeated down a list is a different question
+from one standing beside a total. It gets its own round.
+
 ### What is deliberately still open
 
 What the sidebar counts do about an invoice that cannot be sent (ovation#129).
