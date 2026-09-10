@@ -19,6 +19,7 @@ Usage: measure-invoice-history.py <freshbooks-export.csv>
 """
 import collections
 import csv
+import datetime
 import statistics
 import sys
 
@@ -43,6 +44,62 @@ def numeric(text, column="unnamed"):
     except ValueError:
         UNREADABLE[column] += 1
         return None
+
+
+def a_date(text):
+    """A date, or None. Never today's date standing in for a missing one."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    for shape in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"):
+        try:
+            return datetime.datetime.strptime(raw, shape).date()
+        except ValueError:
+            continue
+    UNREADABLE["Date"] += 1
+    return None
+
+
+def payments_with_another_open(by_invoice):
+    """How often a payment arrived while another of that client's invoices was open.
+
+    ovation#190. PRD 14j says that with more than one invoice open Ovation
+    applies the money to neither and asks, and nothing knew how often that
+    happens. This is the closest the export can come: for every invoice that was
+    paid, count the client's OTHER invoices that were issued before that payment
+    and not yet paid at it.
+
+    IT IS AN UPPER BOUND ON THE SITUATION, NOT A COUNT OF IT, and the caller says
+    so. The export carries no payment amounts and no balances, so a payment that
+    left money over is indistinguishable here from one that settled its invoice
+    exactly, and money HELD is what PRD 14j is actually about.
+
+    AN INVOICE WITH NO PAID DATE IS OPEN FROM ITS ISSUE DATE ONWARDS, never
+    absent. The real export has one, the overdue invoice, and treating it as
+    closed would make every later payment look like the only one outstanding.
+    """
+    spans = []
+    for number, lines in by_invoice.items():
+        row = lines[0]
+        issued = a_date(row.get("Date Issued"))
+        if issued is None:
+            continue
+        spans.append((row["Client Name"], issued, a_date(row.get("Date Paid")), number))
+
+    measured = 0
+    with_another = 0
+    clients = set()
+    for client, issued, paid, number in spans:
+        if paid is None:
+            continue
+        measured += 1
+        others = [s for s in spans
+                  if s[0] == client and s[3] != number
+                  and s[1] <= paid and (s[2] is None or s[2] > paid)]
+        if others:
+            with_another += 1
+            clients.add(client)
+    return measured, with_another, clients
 
 
 def issued_rows(rows):
@@ -112,6 +169,23 @@ def main(argv):
 
     taxed = {r["Invoice #"] for r in issued if numeric(r["Tax 1 Amount"], "Tax 1 Amount") not in (None, 0.0)}
     print(f"\nINVOICES CHARGING TAX        {len(taxed):4d}   {len(taxed) / total:6.1%}")
+
+    # ovation#190. Counted from the two dates the export does carry, and the
+    # sentence about payment amounts is part of the measurement rather than a
+    # caveat on it: without it the number reads as how often money was held.
+    print("\nPAYMENTS ARRIVING WITH ANOTHER INVOICE OPEN")
+    if "Date Paid" not in (rows[0].keys() if rows else {}):
+        print("  this export has no Date Paid column, so nothing here was measured")
+    else:
+        measured, with_another, clients = payments_with_another_open(by_invoice)
+        print(f"  payments measured          {measured:4d}")
+        if measured:
+            print(f"  arriving with another open {with_another:4d}   {with_another / measured:6.1%}")
+        else:
+            print(f"  arriving with another open {with_another:4d}")
+        print(f"  clients it happened to     {len(clients):4d}")
+        print("  The export carries no payment amounts and no balances, so this is how often the"
+              "\n  SITUATION arose, never how often money was actually held.")
 
     # Said out loud, and said even when it is zero, because "no unreadable
     # values" and "nobody looked" must not be the same output (L98).
