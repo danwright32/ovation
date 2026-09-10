@@ -52,11 +52,16 @@ believed (L1):
      already had to fix this twice, and it is checked wherever a file draws more
      than one `.fig` inside one block rather than being asserted about a
      particular screen.
-  6. NO INVOICE IS DRAWN TWICE IN ONE LIST. A group that copies its rows rather
+  6. THE PAGE RENDERS IN STANDARDS MODE. A file with no doctype is rendered in
+     quirks mode, which lays out a line box by different rules, so a record whose
+     files disagree about the mode cannot be compared with itself. The MODE is
+     asserted rather than the declaration, because a file can carry the string
+     and still land in quirks.
+  7. NO INVOICE IS DRAWN TWICE IN ONE LIST. A group that copies its rows rather
      than moving them draws each of them twice, every row reads as correct on
      its own, and the fault exists only in the list as a whole. Numbered rows
      only, since `draft` is legitimately repeated.
-  7. DELIBERATELY ABSENT, and recorded rather than left to be rediscovered. A
+  8. DELIBERATELY ABSENT, and recorded rather than left to be rediscovered. A
      claim that the app window is drawn at its DECLARED width cannot be written
      from a rendering: `getComputedStyle(el).width` returns the USED width, so a
      window squeezed by its stage reports the squeezed number as its
@@ -256,6 +261,25 @@ window.addEventListener("load", function () {
           offenders.length === 0,
           offenders.length ? offenders.join(" // ")
                            : groups + " marked block(s) of figures");
+
+    /* 9. THE PAGE RENDERS IN STANDARDS MODE (ovation#194).
+
+       A file with no doctype is rendered in QUIRKS mode by every browser, and
+       three of the five design files had none until 2026-09-10 while two had
+       one. The two modes lay out a line box by different rules: in the invoice
+       screen's history pane the same markup, the same stylesheet and every
+       computed property identical measured 37.95px in one mode and 41.06px in
+       the other. Nothing here could see it, and any check that renders a file
+       and compares it against anything else was measuring the mode as well as
+       the design.
+
+       IT ASSERTS THE MODE, NOT THE TEXT. A file can carry the declaration and
+       still land in quirks mode, so what is read back is what the browser
+       actually did (L63). */
+    claim("the page renders in standards mode",
+          document.compatMode === "CSS1Compat",
+          document.compatMode + (document.compatMode === "BackCompat"
+            ? ", which is quirks mode: this file declares no doctype" : ""));
 
     /* 8. NO INVOICE IS DRAWN TWICE IN ONE LIST (ovation#190).
 

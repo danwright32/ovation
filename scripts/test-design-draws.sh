@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 45
+harness_begin "design rendering checks" 48
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -130,6 +130,26 @@ check "the line that MOVES the waiting rows is where the mutation expects it" \
 check "a list drawing one invoice twice is refused" "$(one_status "$TWICE")" "1"
 check "and the claim that fired names the invoice drawn twice" \
     "$(fired "$TWICE")" "no invoice is drawn twice in one list;"
+
+# ---------------------------------------------------------------------------
+# 5c. A PAGE WITH NO DOCTYPE (ovation#194). Three of the five design files had
+#     none until 2026-09-10, so every browser rendered them in QUIRKS mode while
+#     two rendered in standards, and the two modes lay out a line box by
+#     different rules: the same markup measured 37.95px in one file and 41.06px
+#     in the other, with every computed property identical. Nothing could see it,
+#     and any check that renders a file and compares it with anything else was
+#     measuring the mode as well as the design.
+#
+#     THE CLAIM IS ABOUT THE MODE, NOT THE TEXT. A file can carry the string and
+#     still land in quirks mode, so the rendered `document.compatMode` is what is
+#     asserted rather than a grep for the declaration (L63).
+# ---------------------------------------------------------------------------
+QUIRKS="$WORK/quirks.html"
+check "the doctype is where the mutation expects it" \
+    "$(mutate "$QUIRKS" '1{/<!doctype html>/d;}' '^<html lang="en">' review-send.html)" "1"
+check "a design file that renders in quirks mode is refused" "$(one_status "$QUIRKS")" "1"
+check "and the claim that fired names the rendering mode" \
+    "$(fired "$QUIRKS")" "the page renders in standards mode;"
 
 # ---------------------------------------------------------------------------
 # 6. A PAGE THAT DREW ALMOST NOTHING. Without this every claim above passes

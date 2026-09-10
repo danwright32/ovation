@@ -353,6 +353,24 @@ nothing; an option that widened the screen while `.win` kept its own fixed width
 options drew at one size under a readout naming three; and a date column narrowed to 96px
 where the span did not shorten but overflowed 17px into the invoice number.
 
+## Every file declares a doctype, and something asserts it
+
+**A file with no doctype is rendered in QUIRKS mode by every browser**, and until 2026-09-10 three
+of these five had none while two had one, so the record was written in two different sets of layout
+rules without anybody knowing. The two modes lay out a line box differently: in the invoice screen's
+history pane, the same markup, the same stylesheet, the same embedded faces and every computed
+property identical measured 37.95px in one mode and 41.06px in the other.
+
+**It matters because these files are compared with each other and with themselves.** The rail is
+compared across four of them, the committed picture is compared with the layout its file draws, and
+a design round lifts a screen out of a file and has to prove the lift still draws the same screen.
+Every one of those was measuring the document mode as well as the design.
+
+**`check-design-draws.sh` asserts the MODE, not the declaration**, because a file can carry the
+string and still land in quirks. Its suite plants the defect by deleting the doctype from a file
+that has one. Found while building a round for ovation#191, by comparing a lifted screen against
+the file it came from and getting a refusal nobody had asked for (ovation#194).
+
 ## It needs nothing external
 
 **Zero network requests, and `scripts/check-design-self-contained.sh` is what keeps that true.**
