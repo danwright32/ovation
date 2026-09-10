@@ -66,6 +66,7 @@ check-isolation-floor.sh	gated	A repo wide guard.
 check-launch-sequence-wired.sh	gated	A repo wide guard.
 check-live-data-untouched.sh	gated	A BRACKET rather than a question: run-tests.sh snapshots before the run and compares after, so it holds both ends and neither entry point can run it alone.
 check-migration-stages.sh	gated	A repo wide guard.
+check-plan-claims.sh	tool	Re-checks the implementation plan's machine checkable claims about the two sibling repositories and reports which have drifted: every path and line it cites, every commit it names, what is installed (through check-sibling-installs.sh) and the export's version and booking count. It REPORTS rather than edits, because a drifted claim may mean the plan is wrong or the sibling has regressed and only a reader can tell which. A TOOL rather than a gate because it reads two other checkouts, and a gate refusing on every machine without them is one people learn to skip (L376). test-plan-claims.sh drives it entirely on fixture estates (ovation#16).
 check-ported-artifacts.sh	gated	A repo wide guard.
 check-preconditions.sh	gated	The entry point for the checks a push does not run. It is itself a check, and it runs the others.
 check-schema-registered.sh	gated	A repo wide guard.
@@ -125,6 +126,7 @@ test-measure-booking-export.sh	suite
 test-measure-invoice-history.sh	suite	
 test-migration-stages.sh	suite	
 test-output-privacy.sh	suite	
+test-plan-claims.sh	suite	
 test-preconditions.sh	suite	
 test-project-configuration.sh	suite	
 test-run-tests.sh	suite	
