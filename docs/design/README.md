@@ -372,7 +372,20 @@ inside the colour this file settled rather than the other way round. That invers
 point. Downbeat and Overture each derived their palette FROM their icon; Ovation chose the
 design language first.
 
-The source artwork is `icon/ovation-app-icon.png` and the shipped catalog is derived from it
+**A Debug build carries its own variant** (ovation#103, 2026-09-09). Everything Ovation does to keep
+a development run apart from the resident copy, a separate bundle identity, its own data directory,
+its own permission grants, its own URL scheme, is invisible in the Dock, which is the one surface a
+person actually looks at before clicking, and both builds used to carry the same icon.
+
+It is a second DERIVATION rather than second artwork, so there is nothing to redraw when the icon
+changes: `scripts/build-app-icon.sh` produces both catalogs from the one source. The Debug treatment
+is the whole artwork desaturated AND a band across the lower corner, because at 16 points a corner
+mark alone is four pixels and a desaturation alone could be read as somebody's screen; the pair is
+unmistakeable at every size. The band's violet appears nowhere else in Ovation, deliberately: a
+marker for a special mode built out of the ordinary palette reads as chrome and is looked past by
+exactly the person it is warning.
+
+The source artwork is `icon/ovation-app-icon.png` and both shipped catalogs are derived from it
 by `scripts/build-app-icon.sh`, never by hand. **No drop shadow is composited into the
 artwork**, deliberately: macOS draws its own, and a fabricated one inside a build script is
 a design decision nobody would ever find to argue with. If the icon should carry one of its

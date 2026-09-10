@@ -38,6 +38,19 @@ CATALOG="Ovation/Assets.xcassets"
 # state before its replacement is verified (L5).
 ICONSET="${OVATION_ICONSET_OUT:-$CATALOG/AppIcon.appiconset}"
 
+# WHICH VARIANT TO DERIVE, "release" or "debug" (ovation#103). Both come from the
+# same artwork by the same code: a Debug variant is a second DERIVATION rather
+# than second artwork, so nothing can be redrawn for one and not the other.
+VARIANT="${OVATION_ICON_VARIANT:-release}"
+case "$VARIANT" in
+    release|debug) ;;
+    *)
+        echo "REFUSED: OVATION_ICON_VARIANT must be release or debug, not $VARIANT."
+        echo "         Nothing was written."
+        exit 2
+        ;;
+esac
+
 if [ ! -f "$SOURCE" ]; then
     echo "REFUSED: the source artwork is not at $SOURCE."
     echo "         Nothing was written. This script cannot invent the icon."
@@ -56,13 +69,13 @@ fi
 
 mkdir -p "$ICONSET" || exit 1
 
-python3 - "$SOURCE" "$ICONSET" <<'PY'
+python3 - "$SOURCE" "$ICONSET" "$VARIANT" <<'PY'
 import json
 import sys
 
 from PIL import Image
 
-source_path, iconset = sys.argv[1], sys.argv[2]
+source_path, iconset, variant = sys.argv[1], sys.argv[2], sys.argv[3]
 
 CANVAS = 1024      # Apple's macOS icon canvas
 BODY = 824         # the rounded square inside it
@@ -91,7 +104,50 @@ def squircle_mask(size, exponent, supersample):
             pixels[x, y] = 255
     return mask.resize((size, size), Image.LANCZOS)
 
+def mark_as_debug(art):
+    """The Debug variant, ovation#103.
+
+    Ovation goes to real lengths to keep a development run apart from the
+    resident copy: a separate bundle identity, its own data directory, its own
+    permission grants, its own URL scheme. Until this existed both builds
+    carried the SAME icon, so the one surface a person actually looks at gave no
+    sign which build they were clicking, and a Dock with both running showed two
+    identical icons. That is the isolation being invisible exactly where a human
+    decision is made.
+
+    TWO TREATMENTS, NOT ONE, AND THAT IS THE POINT. At 16 points a corner mark
+    is four pixels across and is not a difference anybody sees in a Dock, and a
+    desaturation alone is a difference somebody could read as their screen. So
+    the whole artwork goes grey AND a band crosses it: the pair is
+    unmistakeable at every size the catalog carries.
+
+    THE BAND'S COLOUR APPEARS NOWHERE ELSE IN OVATION. The product is espresso,
+    cream and an amber accent; this is a saturated violet, chosen because a
+    marker for a dangerous or special mode built out of the ordinary palette
+    reads as chrome and is looked past by exactly the person it is warning
+    (L623).
+
+    IT IS A DERIVATION AND NOT ARTWORK, so there is nothing to redraw when the
+    icon changes: `scripts/build-app-icon.sh` produces both from one source.
+    """
+    from PIL import ImageDraw
+    grey = art.convert("L").convert("RGB")
+    art = Image.blend(art, grey, 0.82)
+    band = Image.new("RGBA", art.size, (0, 0, 0, 0))
+    pen = ImageDraw.Draw(band)
+    width = art.size[0]
+    thickness = int(round(width * 0.20))
+    # A band from the left edge to the bottom edge, across the lower corner, so
+    # it crosses the silhouette rather than sitting in a corner where a small
+    # size loses it.
+    pen.line([(-width * 0.05, width * 0.72), (width * 0.72, width * 1.05)],
+             fill=(91, 75, 214, 255), width=thickness)
+    return Image.alpha_composite(art.convert("RGBA"), band).convert("RGB")
+
+
 art = Image.open(source_path).convert("RGB").resize((BODY, BODY), Image.LANCZOS)
+if variant == "debug":
+    art = mark_as_debug(art)
 body = Image.new("RGBA", (BODY, BODY))
 body.paste(art, (0, 0))
 body.putalpha(squircle_mask(BODY, EXPONENT, SUPERSAMPLE))
@@ -143,5 +199,5 @@ fi
 
 # Say what actually landed, rather than exiting 0 in silence: a run that wrote
 # nothing and a run that wrote everything must not be the same event (L98).
-echo "AppIcon catalog rebuilt from $SOURCE:"
+echo "$(basename "$ICONSET") rebuilt from $SOURCE, variant $VARIANT:"
 ls -1 "$ICONSET" | sed 's/^/    /'

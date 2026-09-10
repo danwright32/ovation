@@ -64,6 +64,19 @@ BUNDLE_ICON_LARGEST_PX=1024
 # is set to in project.yml, and the two must agree or the catalog compiles an
 # icon nothing looks up. Named here once so the suite and this judgement cannot
 # drift apart (L70).
+#
+# ONE PER CONFIGURATION SINCE ovation#103, because Debug now carries its own
+# derived variant so a development run is distinguishable from the resident copy
+# in the Dock. It is a TABLE rather than an argument the caller passes, for the
+# same reason it was a constant before: the expected value and the setting that
+# produces it must have one home, and a caller free to say what it expects would
+# be the check agreeing with whatever it was handed (L70).
+bundle_icon_name_for() {
+    case "$1" in
+        Debug) printf 'AppIconDebug' ;;
+        *) printf 'AppIcon' ;;
+    esac
+}
 BUNDLE_ICON_NAME=AppIcon
 
 # How many assertions one call makes. A caller derives its declared total from
@@ -98,8 +111,8 @@ bundle_icon_checks() {
     # stamps CFBundleIconFile in during the build, from the catalog it actually
     # compiled. That is precisely why a source-side check cannot see this
     # failure (L188).
-    check "the $config bundle names an app icon" \
-        "$icon_name" "$BUNDLE_ICON_NAME"
+    check "the $config bundle names its own app icon" \
+        "$icon_name" "$(bundle_icon_name_for "$config")"
 
     # 2. AND THE FILE IT NAMES IS ACTUALLY IN THERE.
     #

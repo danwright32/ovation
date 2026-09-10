@@ -30,7 +30,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "bundle icon judgement tests" 13
+harness_begin "bundle icon judgement tests" 14
 
 TARGET="scripts/lib/bundle-icon-checks.sh"
 require_target "$TARGET"
@@ -54,8 +54,15 @@ outcome() {
 # ---------------------------------------------------------------------------
 check "a Release bundle with a full size icon passes every judgement" \
     "$(outcome Release AppIcon yes 1024)" "3 3 0"
-check "and so does a Debug bundle with one" \
-    "$(outcome Debug AppIcon yes 1024)" "3 3 0"
+check "and so does a Debug bundle with ITS OWN one" \
+    "$(outcome Debug AppIconDebug yes 1024)" "3 3 0"
+# ovation#103. Debug carries a derived variant so a development run is
+# distinguishable from the resident copy in the Dock, and the judgement knows
+# which name belongs to which configuration. A Debug bundle naming the RELEASE
+# icon is the variant having silently stopped being applied, and the symptom is
+# two identical icons, which reads as normal (L188).
+check "a Debug bundle naming the Release icon is refused" \
+    "$(outcome Debug AppIcon yes 1024)" "3 2 1"
 
 # ---------------------------------------------------------------------------
 # SEEN TO FAIL 1: THE DEFECT AS IT ACTUALLY SHIPPED (ovation#18).

@@ -58,10 +58,22 @@ def main():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     source = os.environ.get("OVATION_ICON_SOURCE") or os.path.join(
         repo_root, "icon", "ovation-app-icon.png")
-    catalog = os.environ.get("OVATION_ICON_CATALOG") or os.path.join(
-        repo_root, "Ovation", "Assets.xcassets", "AppIcon.appiconset")
     builder = os.environ.get("OVATION_ICON_BUILDER") or os.path.join(
         repo_root, "scripts", "build-app-icon.sh")
+
+    # BOTH VARIANTS, because there are two committed catalogs and both are
+    # derived from the same artwork (ovation#103). Checking only the Release one
+    # would leave the Debug variant free to be edited by hand or to fall out of
+    # step with the artwork, which is the whole fault this check exists for, on
+    # the build a person is most likely to be looking at while working.
+    variants = [
+        ("release", os.environ.get("OVATION_ICON_CATALOG") or os.path.join(
+            repo_root, "Ovation", "Assets.xcassets", "AppIcon.appiconset")),
+    ]
+    if not os.environ.get("OVATION_ICON_CATALOG"):
+        variants.append(("debug", os.path.join(
+            repo_root, "Ovation", "Assets.xcassets", "AppIconDebug.appiconset")))
+    catalog = variants[0][1]
 
     if not os.path.isfile(source):
         print(f"CANNOT MEASURE: the source artwork is not at {source}.")
@@ -84,20 +96,35 @@ def main():
         print("                    python3 -m pip install --user Pillow")
         return 2
 
-    with tempfile.TemporaryDirectory(prefix="ovation-icon-") as work:
-        rebuilt = os.path.join(work, "AppIcon.appiconset")
-        environment = dict(os.environ)
-        environment["OVATION_ICON_SOURCE"] = source
-        environment["OVATION_ICONSET_OUT"] = rebuilt
-        run = subprocess.run(["bash", builder], cwd=repo_root, env=environment,
-                             capture_output=True, text=True)
-        if run.returncode != 0 or not os.path.isdir(rebuilt):
-            print("CANNOT MEASURE: the builder refused, so nothing was compared.")
-            for line in (run.stdout + run.stderr).strip().splitlines()[:6]:
-                print(f"                {line}")
+    for _, committed in variants:
+        if not os.path.isdir(committed):
+            print(f"CANNOT MEASURE: no catalog at {committed}.")
+            print("                That is not a pass: there is nothing to compare.")
             return 2
 
-        return compare(catalog, rebuilt)
+    verdicts = []
+    with tempfile.TemporaryDirectory(prefix="ovation-icon-") as work:
+        for variant, committed in variants:
+            rebuilt = os.path.join(work, variant + ".appiconset")
+            environment = dict(os.environ)
+            environment["OVATION_ICON_SOURCE"] = source
+            environment["OVATION_ICONSET_OUT"] = rebuilt
+            environment["OVATION_ICON_VARIANT"] = variant
+            run = subprocess.run(["bash", builder], cwd=repo_root, env=environment,
+                                 capture_output=True, text=True)
+            if run.returncode != 0 or not os.path.isdir(rebuilt):
+                print("CANNOT MEASURE: the builder refused for the %s variant, so "
+                      "nothing was compared." % variant)
+                for line in (run.stdout + run.stderr).strip().splitlines()[:6]:
+                    print(f"                {line}")
+                return 2
+            print("  %s: %s" % (variant, os.path.basename(committed)))
+            verdicts.append(compare(committed, rebuilt))
+
+    # THE WORST ANSWER IS THE ANSWER, and every variant is asked rather than the
+    # run stopping at the first: a reader who fixes the one it named would
+    # otherwise meet the next one on the following run (L47).
+    return max(verdicts) if verdicts else 2
 
 
 def compare(catalog, rebuilt):

@@ -49,8 +49,10 @@ CONFIGURATIONS="Debug Release"
 # reading as a pass.
 NCONFIGS=0
 for _c in $CONFIGURATIONS; do NCONFIGS=$((NCONFIGS+1)); done
+# Plus the one assertion that is about the PAIR rather than about either
+# configuration on its own (ovation#103).
 harness_begin "built bundle icon tests (${CONFIGURATIONS// /, })" \
-    "$((NCONFIGS * $(bundle_icon_checks_count)))"
+    "$((NCONFIGS * $(bundle_icon_checks_count) + 1))"
 
 require_target "project.yml"
 
@@ -134,15 +136,29 @@ widths = [
     r["PixelWidth"] for r in records
     if isinstance(r, dict)
     and r.get("AssetType") == "Icon Image"
-    and r.get("Name") == "AppIcon"
+    and r.get("Name") == sys.argv[1]
     and "PixelWidth" in r
 ]
 print(max(widths) if widths else 0)
-')"
+' "${ICON_NAME%.icns}")"
         [ -n "$LARGEST_PX" ] || LARGEST_PX=0
     fi
 
     bundle_icon_checks "$CONFIG" "$ICON_NAME" "$ICNS_PRESENT" "$LARGEST_PX"
+    eval "ICON_NAME_$CONFIG=\"\$ICON_NAME\""
 done
+
+# ovation#103. THE TWO CONFIGURATIONS MUST NAME DIFFERENT ICONS. Everything else
+# Ovation does to keep a development run apart from the resident copy is
+# invisible in the Dock, which is the one surface a person actually looks at
+# before clicking, and until 2026-09-09 both builds carried the same icon.
+#
+# ASSERTED ON THE BUILT BUNDLES, like every other reading here, because the
+# variant can stop being applied without any setting changing: a catalog renamed
+# or a per configuration setting lost leaves both builds naming `AppIcon` again,
+# and the symptom is the state this replaced, which reads as normal (L188).
+check "Debug and Release name DIFFERENT icons in their built bundles" \
+    "$([ -n "$ICON_NAME_Debug" ] && [ "$ICON_NAME_Debug" != "$ICON_NAME_Release" ] \
+        && echo different || echo "both say ${ICON_NAME_Release:-nothing}")" "different"
 
 harness_end

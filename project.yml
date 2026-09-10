@@ -154,6 +154,22 @@ targets:
           PRODUCT_BUNDLE_IDENTIFIER: com.danwright.ovation.debug
           OVATION_URL_SCHEME: ovation-debug
           CODE_SIGN_ENTITLEMENTS: Ovation/Ovation-Debug.entitlements
+          # ovation#103. Everything above keeps a development run apart from the
+          # resident copy, and until this line both builds carried the SAME
+          # icon, so the one surface a person actually looks at gave no sign
+          # which build they were clicking: a Dock with both running showed two
+          # identical icons. That is the isolation being invisible exactly where
+          # a human decision is made, and the cost lands on the day it matters.
+          #
+          # It is a second DERIVATION rather than second artwork.
+          # scripts/build-app-icon.sh produces both catalogs from
+          # icon/ovation-app-icon.png, so nothing can be redrawn for one build
+          # and not the other, and scripts/check-app-icon-current.sh holds both
+          # to that source. The bundle suite asserts the two configurations name
+          # DIFFERENT icons, because without that the variant can silently stop
+          # being applied and the symptom is the state this replaced, which
+          # reads as normal.
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIconDebug
   # The PURE suite, UNHOSTED on purpose, adopted from the source rather than
   # retrofitted later, because the reason it exists there is measured and applies
   # to Ovation from its first test.
