@@ -129,19 +129,45 @@ def mark_as_debug(art):
 
     IT IS A DERIVATION AND NOT ARTWORK, so there is nothing to redraw when the
     icon changes: `scripts/build-app-icon.sh` produces both from one source.
+
+    IT IS DRAWN PER PIXEL, not with `ImageDraw`, and that is not a style
+    choice. The first version used `ImageDraw.line` with a width, which
+    different Pillow versions rasterise differently: the catalog reproduced
+    exactly on this Mac and did not on the Linux CI runner, so
+    `check-app-icon-current.sh` went red there and nowhere else, which is a
+    standing red on one machine and the shape L376 is about. `squircle_mask`
+    above already draws by arithmetic for the same kind of reason, and it
+    reproduces on both.
     """
-    from PIL import ImageDraw
     grey = art.convert("L").convert("RGB")
     art = Image.blend(art, grey, 0.82)
-    band = Image.new("RGBA", art.size, (0, 0, 0, 0))
-    pen = ImageDraw.Draw(band)
-    width = art.size[0]
-    thickness = int(round(width * 0.20))
-    # A band from the left edge to the bottom edge, across the lower corner, so
-    # it crosses the silhouette rather than sitting in a corner where a small
-    # size loses it.
-    pen.line([(-width * 0.05, width * 0.72), (width * 0.72, width * 1.05)],
-             fill=(91, 75, 214, 255), width=thickness)
+
+    size = art.size[0]
+    supersample = 4
+    big = size * supersample
+    # A band across the lower corner, as the set of points within half a
+    # thickness of the line through two corners of the square. Both are
+    # fractions of the width, so the mark scales with the artwork.
+    x0, y0 = -0.05 * big, 0.72 * big
+    x1, y1 = 0.72 * big, 1.05 * big
+    half = (0.20 * big) / 2.0
+    dx, dy = x1 - x0, y1 - y0
+    length = (dx * dx + dy * dy) ** 0.5
+    mask = Image.new("L", (big, big), 0)
+    pixels = mask.load()
+    for y in range(big):
+        # The perpendicular distance from a point to the line is linear in x,
+        # so each row is a span rather than a scan: solve for where it crosses
+        # the half thickness instead of testing every pixel.
+        offset = (dx * (y + 0.5 - y0)) / dy if dy else 0.0
+        centre = x0 + offset
+        span = half * length / abs(dy) if dy else 0.0
+        left = int(round(centre - span))
+        right = int(round(centre + span))
+        for x in range(max(0, left), min(big, right)):
+            pixels[x, y] = 255
+    band = Image.new("RGBA", art.size, (91, 75, 214, 0))
+    band.putalpha(mask.resize(art.size, Image.LANCZOS))
     return Image.alpha_composite(art.convert("RGBA"), band).convert("RGB")
 
 

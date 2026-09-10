@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "app icon currency tests" 23
+harness_begin "app icon currency tests" 24
 
 TARGET="scripts/check-app-icon-current.sh"
 require_target "$TARGET"
@@ -151,8 +151,24 @@ check "a missing artwork cannot be measured" "$LAST_STATUS" "2"
 measure "$WORK/blue.png" "$WORK/nowhere"
 check "a missing catalog cannot be measured" "$LAST_STATUS" "2"
 
-# The real pair, once.
-check "the committed catalog is what the real artwork produces" \
-    "$(OVATION_ICON_SOURCE= OVATION_ICON_CATALOG= "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+# The real pair, once. BOTH catalogs, since ovation#103, because the check reads
+# both when it is not pointed at one.
+#
+# ITS OWN OUTPUT IS KEPT, and that is not decoration. This assertion went red on
+# the Linux CI runner and nowhere else, and all the log said was `expected 0,
+# got 1`: the check had named the file and the difference and the suite threw
+# them away, so the only way to find out what had happened was to reproduce it
+# by hand. A guard whose failure says nothing about what it measured leaves the
+# reader facing the same command (L148).
+REAL="$WORK/real-pair.txt"
+OVATION_ICON_SOURCE= OVATION_ICON_CATALOG= "./$TARGET" > "$REAL" 2>&1
+REAL_STATUS=$?
+if [ "$REAL_STATUS" != "0" ]; then
+    echo "      what the check actually said:"
+    sed 's/^/      /' "$REAL"
+fi
+check "the committed catalogs are what the real artwork produces" "$REAL_STATUS" "0"
+check "and both variants were compared, not only the Release one" \
+    "$(grep -cE '^  (release|debug): ' "$REAL")" "2"
 
 harness_end
