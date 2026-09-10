@@ -692,6 +692,21 @@ from `rules/` by a script rather than typed, and nothing stops the next person e
 alone: what stops it SHIPPING is the guard, in the push gate. Change the rule in `rules/`, and copy
 it back.
 
+**It compares what the rule SAYS as well as what it does** (ovation#144, 2026-09-09). Until then it
+compared the code with comments stripped, deliberately, because a design file rewraps a rule's prose
+when it is pasted into its script. The consequence was that the guard enforced the code being
+identical and let the REASONING diverge, and these comments are not decoration: a rule file's comment
+is where the decision, its measurement and the person who made it are recorded. `rules/duration.js`
+carries who chose the 12 hour cap and what it was chosen against; `rules/waiting.js` carries the
+workflow in Dan's own words. It was not hypothetical: the cap's provenance was added to `rules/`
+on 2026-09-08 and copied into `invoice.html` BY HAND, with the guard green before and after.
+
+A comment is now one token with its whitespace collapsed across line breaks, so the same sentence
+wrapped differently is still fine and a CHANGED sentence is not. **`REASONING DRIFTED` is its own
+outcome**, because comparing the comments alone reports "no design file carries any of it" for a
+rule whose first line is a comment somebody reworded, which is the wrong diagnosis for a rule that is
+inlined and running.
+
 The page prints its own verdict line above the window, and it reports the same 150 across the same 6
 suites that `scripts/test-design-rules.sh` reports. Two numbers that must agree, from two places,
 which is the cheapest possible check that the copy is the copy.

@@ -72,7 +72,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
-from design_inline import html_files, longest_run, significant_lines  # noqa: E402
+from design_inline import comparable_tokens, html_files, longest_run, significant_lines  # noqa: E402
 
 DECLARES_UNRENDERED = "NOT RENDERED:"
 
@@ -108,7 +108,8 @@ def main():
     for filename in html_files(os.listdir(root)):
         path = os.path.join(root, filename)
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
-            designs[filename] = significant_lines(handle.read())
+            raw = handle.read()
+            designs[filename] = (significant_lines(raw), comparable_tokens(raw))
     if not designs:
         print(f"CANNOT SCAN: no design files under {root} to compare the rules against.")
         print("             That is not a pass either, and it is a different cause from")
@@ -124,21 +125,39 @@ def main():
             unrendered.append((name, reason))
             continue
 
-        rule_lines = significant_lines(text)
-        if not rule_lines:
+        # TWO READINGS OF THE SAME COPY, and the pair is what tells the causes
+        # apart (ovation#144, L11). The first is the code alone, which is what
+        # this guard has always compared. The second includes what the rule SAYS
+        # about itself, because a rule file's comment is where the decision, its
+        # measurement and the person who made it are recorded, and the guard used
+        # to enforce the code being identical while letting the reasoning
+        # diverge. Compared on its own the second reading answers "no design file
+        # carries any of it" for a rule whose first line is a comment somebody
+        # reworded, which is the wrong diagnosis for a rule that is inlined and
+        # running.
+        rule_code = significant_lines(text)
+        rule_tokens = comparable_tokens(text)
+        if not rule_code:
             faults.append((name, "NOT INLINE", "the rule file holds no code at all", None))
             continue
 
-        best_file, best_run = None, 0
-        for design, file_lines in designs.items():
-            run = longest_run(rule_lines, file_lines)
+        best_file, best_run, best_tokens = None, 0, 0
+        for design, (file_code, file_tokens) in designs.items():
+            run = longest_run(rule_code, file_code)
             if run > best_run:
                 best_file, best_run = design, run
-            if best_run == len(rule_lines):
+                best_tokens = longest_run(rule_tokens, file_tokens)
+            if best_run == len(rule_code) and best_tokens == len(rule_tokens):
                 break
 
-        if best_run == len(rule_lines):
+        if best_run == len(rule_code) and best_tokens == len(rule_tokens):
             inlined.append((name, best_file))
+        elif best_run == len(rule_code):
+            faults.append((name, "REASONING DRIFTED",
+                           f"{best_file} runs this rule's code exactly and does not "
+                           f"say the same thing about it. The comment is where the "
+                           f"decision and its measurement are recorded, so the two "
+                           f"copies now give different reasons for one rule", None))
         elif best_run == 0:
             faults.append((name, "NOT INLINE",
                            "no design file carries any of it, so no screen runs this rule",
@@ -146,7 +165,7 @@ def main():
         else:
             faults.append((name, "DRIFTED",
                            f"{best_file} carries it as far as line {best_run + 1} "
-                           f"of {len(rule_lines)} and then disagrees", None))
+                           f"of {len(rule_code)} and then disagrees", None))
 
     for name, design in inlined:
         print(f"  {name}: inlined verbatim in {design}")
@@ -161,10 +180,13 @@ def main():
 
     if faults:
         drifted = sum(1 for f in faults if f[1] == "DRIFTED")
-        missing = len(faults) - drifted
+        reworded = sum(1 for f in faults if f[1] == "REASONING DRIFTED")
+        missing = len(faults) - drifted - reworded
         parts = []
         if drifted:
             parts.append(f"{drifted} drifted")
+        if reworded:
+            parts.append(f"{reworded} saying something different about the same code")
         if missing:
             parts.append(f"{missing} carried by no design file")
         print(f"RULES AND DESIGN DISAGREE: {', '.join(parts)}, "

@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rule inlining tests" 20
+harness_begin "design rule inlining tests" 27
 
 TARGET="scripts/check-design-rules-inline.sh"
 require_target "$TARGET"
@@ -162,6 +162,56 @@ printf '%s' "$RULE" > "$NOHTML/rules/duration.js"
 check "a record with rules but no design files cannot measure" "$(status_on "$NOHTML")" "2"
 check "and names that as its own cause" \
     "$(run_on "$NOHTML" | grep -c 'no design file')" "1"
+
+# ---------------------------------------------------------------------------
+# THE REASONING, WHICH THIS GUARD USED TO LET DRIFT (ovation#144). A rule file's
+# comment is where the decision, its measurement and the person who made it are
+# recorded, and until 2026-09-09 the guard compared the CODE and reported OK
+# while the two copies gave different reasons for the same rule. It is not
+# hypothetical: the 12 hour cap's provenance was added to `rules/duration.js` on
+# 2026-09-08 and copied into the design file BY HAND, with the guard green
+# before and after.
+# ---------------------------------------------------------------------------
+REWORDED="$WORK/reworded"
+record "$REWORDED" '  /* Half away from zero, stated for POSITIVES because a
+     debit is one. */
+  function roundToQuarter(hours) {
+    return Math.round(hours / 0.25) * 0.25;
+  }
+'
+check "a copy that runs the same code and says something else is refused" \
+    "$(status_on "$REWORDED")" "1"
+check "and the finding names the reasoning rather than the code" \
+    "$(run_on "$REWORDED" | grep -c 'REASONING DRIFTED')" "1"
+check "and it is NOT reported as a rule no design file carries" \
+    "$(run_on "$REWORDED" | grep -c 'NOT INLINE')" "0"
+check "which is what comparing the comments alone would have said" \
+    "$(run_on "$REWORDED" | grep -c 'saying something different about the same code')" "1"
+
+# REWRAPPING THE SAME SENTENCE IS STILL FINE, which is the whole reason comments
+# were stripped in the first place. The healthy fixture above already rewraps
+# its comment across different line breaks and is asserted clean; this makes the
+# tolerance explicit rather than incidental, by rewrapping it differently again.
+REWRAPPED="$WORK/rewrapped"
+record "$REWRAPPED" '  /* Half away from zero, stated
+     for negatives
+     because a credit is one. */
+  function roundToQuarter(hours) {
+    return Math.round(hours / 0.25) * 0.25;
+  }
+'
+check "the same sentence wrapped differently is not drift" "$(status_on "$REWRAPPED")" "0"
+
+# A COMMENT REMOVED ENTIRELY is the same fault as one reworded: the design file
+# then records no reason at all for a rule whose reason is the decision.
+STRIPPED="$WORK/stripped"
+record "$STRIPPED" '  function roundToQuarter(hours) {
+    return Math.round(hours / 0.25) * 0.25;
+  }
+'
+check "a copy that drops the reasoning altogether is refused" "$(status_on "$STRIPPED")" "1"
+check "and named the same way, because it is the same loss" \
+    "$(run_on "$STRIPPED" | grep -c 'REASONING DRIFTED')" "1"
 
 # ---------------------------------------------------------------------------
 # The real record, so the seam is not the only thing ever exercised.

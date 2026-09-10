@@ -47,6 +47,45 @@ def significant_lines(text):
     return lines
 
 
+COMMENT = re.compile(r"/\*.*?\*/|(?:^|\s)//[^\n]*", re.S | re.M)
+
+
+def comparable_tokens(text):
+    """The comparable shape of a file INCLUDING what it says about itself.
+
+    ovation#144. `significant_lines` strips comments, deliberately: a design file
+    rewraps a rule's prose when the rule is pasted into its script, so a
+    comparison that broke on rewrapping could only ever match by luck. The
+    consequence was that the guard enforced the CODE being identical and let the
+    REASONING diverge, and these comments are not decoration: a rule file's
+    comment is where the decision, its measurement and the person who made it are
+    recorded. `rules/duration.js` carries who chose the 12 hour cap and what it
+    was chosen against; `rules/waiting.js` carries the workflow in Dan's own
+    words. So the two copies could give different reasons for the same rule and
+    the guard reported OK, and on 2026-09-08 the cap's provenance was added to
+    one copy by hand with the guard green before and after.
+
+    A COMMENT BECOMES ONE TOKEN, whitespace collapsed across its line breaks, so
+    rewrapping the same sentence is tolerated and a CHANGED sentence is not. Code
+    lines are collapsed exactly as `significant_lines` collapses them, so the two
+    readings cannot disagree about what a line is.
+    """
+    tokens = []
+    at = 0
+    for found in COMMENT.finditer(text):
+        tokens.extend(_code_tokens(text[at:found.start()]))
+        said = " ".join(found.group(0).split())
+        if said:
+            tokens.append("said: " + said)
+        at = found.end()
+    tokens.extend(_code_tokens(text[at:]))
+    return tokens
+
+
+def _code_tokens(text):
+    return [" ".join(raw.split()) for raw in text.splitlines() if raw.split()]
+
+
 def longest_run(source_lines, file_lines):
     """How many of the source's lines appear contiguously, at best, in the file.
 
