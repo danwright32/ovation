@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 53
+harness_begin "invoice screen rendering checks" 56
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -278,6 +278,23 @@ check "the applied figure is where the mutation expects it" \
 check "a figure the check cannot read is refused, not passed" "$(status_on "$UNREADABLE")" "1"
 check "and the claim that fired names what is left over" \
     "$(failed_claims "$UNREADABLE")" "what is left over stays held, and the invoice says how much;"
+
+# 16. HELD MONEY ON AN INVOICE THAT IS ALREADY PAID. This was the real state of
+#     the file for the length of one commit: the foot said Paid in full while the
+#     totals said 408.28 of held money had been applied and 0.00 was outstanding,
+#     which in the built product is the same money counted twice. No reading of
+#     the source showed it, because the block sat inside a branch that looked
+#     entirely correct; driving the state switch is what showed it.
+ONPAID="$WORK/on-paid.html"
+#     THE MUTATION TAKES OUT THE BLOCK'S GUARD AND LEAVES heldApplied's, which
+#     is the state the first attempt at this fix actually left the file in:
+#     nothing is applied, and the offer stands on an invoice reading Paid in
+#     full. Refusing only the arithmetic is the fault wearing its other face.
+check "the paid guard is gone from the mutated copy" \
+    "$(mutate "$ONPAID" 's|^  if (INVSTATE === "paid") return;$||' '^  if (INVSTATE === "paid") return;$')" "0"
+check "held money on a paid invoice is refused" "$(status_on "$ONPAID")" "1"
+check "and the claim that fired names the paid invoice" \
+    "$(failed_claims "$ONPAID")" "a paid invoice neither applies held money nor offers it;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.

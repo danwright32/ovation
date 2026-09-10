@@ -1610,6 +1610,14 @@ var HELD_REMOVED = false;    /* Remove was pressed, in the one invoice case */
    (L107). Never more than the invoice is owed, and never more than arrived. */
 function heldApplied(total) {
   if (HELD_ON_CLIENT <= 0) return 0;
+  /* A PAID INVOICE IS NOT AN OPEN ONE, and nothing is owed on it. Without this
+     the screen contradicted itself in two places at once: the foot said Paid in
+     full while the totals said 408.28 of held money had been applied and 0.00
+     was outstanding, which in the built product is the same money counted
+     twice. PRD 14h says exactly one OPEN invoice and this file applied it to
+     any invoice at all, so the requirement was right and the rendering of it
+     was not. Found by driving the state switch rather than by reading it. */
+  if (INVSTATE === "paid") return 0;
   if (OPEN_INVOICES > 1) return HELD_TAKEN ? Math.min(HELD_ON_CLIENT, total) : 0;
   return HELD_REMOVED ? 0 : Math.min(HELD_ON_CLIENT, total);
 }
@@ -2420,6 +2428,13 @@ function besideItsHistory(inv, total) {
    and once 24px right. With Remove beside the words, all five figures still
    share the edge. */
 function heldBlock(sumBox, line, total) {
+  /* NOTHING AT ALL ON A PAID INVOICE, neither the applied line nor the offer.
+     Refusing only the arithmetic left the offer standing, which is the same
+     fault wearing the other face: an invoice reading Paid in full with a
+     control asking whether to put more money on it. PRD 14h turns on the
+     client's OPEN invoices, and a paid one is not one of them. */
+  if (INVSTATE === "paid") return;
+
   var on = heldApplied(total);
 
   if (on > 0) {

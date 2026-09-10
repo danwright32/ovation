@@ -461,6 +461,34 @@ window.addEventListener("load", function () {
           function (b) { return /1 invoice open/.test(b.textContent); })[0];
         if (oneBtn) oneBtn.click();
       }
+
+      /* A PAID INVOICE IS NOT AN OPEN ONE (PRD 14h), so it gets NEITHER the
+         applied line nor the offer. Both halves are asserted, because refusing
+         only the arithmetic left the offer standing and an invoice reading Paid
+         in full with a control asking to put more money on it is the same fault
+         wearing the other face. Found by driving the state switch: no reading of
+         the source would have shown it, because the block was appended inside a
+         branch that looked entirely correct. */
+      var states = counts.length ? counts[0].querySelectorAll(".sbtn") : [];
+      var paidBtn = Array.prototype.filter.call(states, function (b) {
+        return /^paid/.test(b.textContent);
+      })[0];
+      if (!paidBtn) {
+        claim("a paid invoice neither applies held money nor offers it", false,
+              "the page has no switch to a paid invoice, so that state cannot be drawn");
+      } else {
+        paidBtn.click();
+        var onPaid = document.querySelector(".sline.heldline");
+        var offerOnPaid = document.querySelector(".invsum .heldoffer");
+        claim("a paid invoice neither applies held money nor offers it",
+              !onPaid && !offerOnPaid,
+              (onPaid ? "APPLIED on a paid invoice" : "not applied")
+                + ", " + (offerOnPaid ? "OFFERED on a paid invoice" : "not offered"));
+        var draftBtn = Array.prototype.filter.call(states, function (b) {
+          return /a draft/.test(b.textContent);
+        })[0];
+        if (draftBtn) draftBtn.click();
+      }
     }
 
     /* ---- asking before a rare, consequential action ---- */
