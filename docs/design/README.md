@@ -751,6 +751,40 @@ than one arrival it lists them with their amounts.
 **A single arrival is never broken down**, in any state. One row restating the figure standing
 directly above it is the same number twice, which is the fault this screen has rejected before.
 
+### Round F, settled 2026-09-10: the row keeps its figure, except beside the box (ovation#98)
+
+**`Money held` was stated three times on this screen** and the duplication existed only in the
+composition, which is the one place nobody reads (L605): the rail's all client total, a figure on
+every name row that has one, and the selected client's own box. Whenever a client holding money is
+the one selected, two of those three are the same client's money, side by side.
+
+**The rail was not a candidate, and that is PRD 46c from an hour earlier.** It settled that the
+rail's line is the same on every screen, so offering to move it here would have been offering
+something already decided. What was left was the row, and three options were rendered: all three
+as they are, no figure on any row, and no figure on the row whose box is open. Dan took the third.
+
+**What the rejected option would have cost is why the middle one is not obviously right.** Taking
+the figure off every row makes the list say nothing about balances at all, so finding who is
+holding money means clicking through 31 names. Three of the 31 hold money, measured, so the figure
+is drawn on three rows and moves as the selection moves.
+
+**THE ROW NOW DEPENDS ON THE SELECTION, WHICH THE REPAINT DID NOT.** The screen's repaint toggled
+the selection class and replaced the detail pane and never touched the rows, so the obvious way to
+write this rule, where the row is BUILT, draws correctly on load and never again: the figure stays
+missing from whoever was selected when the page opened and stays drawn on whoever is pressed. That
+version reads as correct in the source and passes every check that does not press anything.
+
+So the rule arrived with `scripts/check-clients-screen-draws.sh`, which renders the file, presses
+the rows and asserts the figure moves, and with a suite that plants four defects: the rule written
+only where the row is built, the rule inverted, the figure taken off every row, and the money box
+removed. The last two are there because a check about where a figure is NOT is otherwise satisfied
+by a file that draws it nowhere (L98), and because what the row gives up has to be stated somewhere,
+which makes this a move rather than a deletion. It is the first thing that DRIVES this screen, which
+is part of what ovation#186 asks for; the rest of that issue is untouched.
+
+**It makes five browser starts in the CI step that proves the design checks can measure**, where
+there were four, which ovation#183 already counts as a cost worth removing. It is not removed here.
+
 ### What the screen still is not
 
 The detail pane scrolls sideways once the window is narrowed, from 874px (`ovation#110`). The

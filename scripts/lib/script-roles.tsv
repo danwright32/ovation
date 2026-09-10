@@ -46,6 +46,7 @@ check-app-icon-current.sh	gated	A repo wide guard.
 check-booking-queue.sh	gated	A repo wide guard.
 check-ci-workflow.sh	gated	A repo wide guard.
 check-ci-liveness.sh	workflow	Run by .github/workflows/ci-liveness.yml on a schedule and on every push to main. It judges whether a commit has landed that no successful CI run has followed; test-ci-liveness.sh drives it with dates rather than by pushing and waiting (ovation#155).
+check-clients-screen-draws.sh	tool	Renders docs/design/clients.html in a headless browser, PRESSES the name rows and reads back what moved, which is the only way to see the rule ovation#98 settled: the held money figure is drawn on every row that has one except the row whose box is open beside it, so what is drawn depends on the selection and no reading of the source can check it. It is a TOOL rather than a gate for the same reason check-invoice-screen-draws.sh is: it needs a browser, and a push gate that refuses on every machine without one is a gate people learn to skip (L376). Its sibling test-clients-screen-draws.sh runs it against the committed file on every test run and answers CANNOT MEASURE rather than passing when there is no browser.
 check-custody-files.sh	gated	A repo wide guard.
 check-custody-not-staged.sh	gated	A repo wide guard.
 check-design-shared-components.sh	gated	A repo wide guard.
@@ -103,6 +104,7 @@ test-bundle-identity-checks.sh	suite
 test-check-ported-artifacts.sh	suite	
 test-ci-workflow.sh	suite	
 test-ci-liveness.sh	suite
+test-clients-screen-draws.sh	suite	
 test-custody-files.sh	suite	
 test-custody-not-staged.sh	suite	
 test-design-draws.sh	suite	

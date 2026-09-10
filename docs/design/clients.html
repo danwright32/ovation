@@ -795,9 +795,44 @@ function clientsScreen() {
   var split = el("div", "split");
   var names = el("div", "names");
 
+  /* THE HELD FIGURE IS NOT DRAWN ON THE ROW WHOSE BOX IS OPEN BESIDE IT
+     (ovation#98, settled with Dan 2026-09-10, PRD 14n). Money held is named
+     three times on this screen: the rail's all client total, the row, and the
+     selected client's box. The rail's line is fixed by PRD 46c and is the same
+     on every screen, so what was left to decide was the row, and the row keeps
+     its figure everywhere except beside the box already stating it. The list
+     still shows at a glance who is holding money, which is what dropping the
+     figure from every row would have cost, and no client's money is stated
+     twice at once.
+
+     SO THE ROW DEPENDS ON THE SELECTION, WHICH THE REPAINT DID NOT. It toggled
+     the selection class and replaced the detail pane, and never touched the
+     rows. A version of this rule written only where the row is BUILT draws
+     correctly on load and never again: the figure stays missing from whoever
+     was selected when the page opened and stays drawn on whoever is pressed.
+     That version reads as correct in the source, and it is one of the two
+     defects scripts/test-clients-screen-draws.sh plants. */
+  function fillRow(n, k) {
+    n.replaceChildren();
+    n.classList.remove("hasheld");
+    if (k.h && !QUIET && k.c !== chosen) {
+      n.append(el("span", "nname", k.c), el("span", "nheld", dollars(k.h)));
+      n.classList.add("hasheld");
+    } else {
+      n.textContent = k.c;
+    }
+  }
+
+  var byName = {};
+  CLIENTS.forEach(function (k) { byName[k.c] = k; });
+
   function paint() {
     [].forEach.call(names.children, function (n) {
       n.classList.toggle("sel", n.dataset.client === chosen);
+      /* Keyed on the row's own client rather than its position, because a row
+         that is paired with the wrong client draws a real name against a real
+         figure and looks entirely correct. */
+      fillRow(n, byName[n.dataset.client]);
     });
     split.replaceChild(detailFor(CLIENTS.filter(function (x) { return x.c === chosen; })[0]),
                        split.lastChild);
@@ -806,12 +841,7 @@ function clientsScreen() {
   CLIENTS.forEach(function (k) {
     var n = el("div", "nrow");
     n.dataset.client = k.c;
-    if (k.h && !QUIET) {
-      n.append(el("span", "nname", k.c), el("span", "nheld", dollars(k.h)));
-      n.classList.add("hasheld");
-    } else {
-      n.textContent = k.c;
-    }
+    fillRow(n, k);
     if (k.c === chosen) n.classList.add("sel");
     n.addEventListener("click", function () { chosen = k.c; paint(); });
     names.append(n);
