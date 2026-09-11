@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 61
+harness_begin "git hooks tests" 64
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -35,6 +35,18 @@ REPO_ROOT="$PWD"
 # from a shell that has one set cannot silently switch off what it is measuring.
 hook() {
     env -u SKIP_TEST_RUN -u FORCE_TEST_RUN -u SKIP_STYLE_CHECK -u SKIP_TEST_CHECK \
+        OVATION_HOOK_TEST_COMMAND="$1" "$REPO_ROOT/$HOOK" < /dev/null 2>&1
+}
+
+# THE SAME HOOK ON A MACHINE WITH NO SIBLING CHECKOUTS, which is every CI runner
+# and is the condition this suite could not see until it went red there
+# (ovation#211). check-plan-claims.sh cannot measure a plan whose claims are all
+# about Downbeat and Overture when neither is present, and it says so in a
+# sentence that uses the word green while explaining why reporting green would be
+# meaningless. That is the check working correctly.
+hook_without_siblings() {
+    env -u SKIP_TEST_RUN -u FORCE_TEST_RUN -u SKIP_STYLE_CHECK -u SKIP_TEST_CHECK \
+        OVATION_SIBLING_ROOT="$WORK/no-siblings" \
         OVATION_HOOK_TEST_COMMAND="$1" "$REPO_ROOT/$HOOK" < /dev/null 2>&1
 }
 
@@ -94,8 +106,29 @@ check "git's own .sample files do not block installation" "$ST5" "0"
 # 6. The hook itself: a green suite lets the push through.
 OUT6="$(hook "true")"; ST6=$?
 check "a green suite allows the push" "$ST6" "0"
+# THE SENTENCE, NOT THE WORD ANYWHERE IN THE OUTPUT. This counted every line
+# containing "green" and expected exactly one, which made it an assertion about
+# what every OTHER check in the gate happens to say. It went red on CI and
+# nowhere else, for a completely correct reason: with no sibling checkouts
+# check-plan-claims.sh reports that it cannot measure, and its message uses the
+# word. Main was red for at least two commits on that (ovation#211).
+#
+# It is the same fault the red case below was already narrowed for, where "red"
+# matched inside "registered", and it is the same remedy: match the line the hook
+# actually prints.
 check "and it says the suite was green" \
-    "$(printf '%s' "$OUT6" | grep -ci "green")" "1"
+    "$(printf '%s\n' "$OUT6" | grep -c '^pre-push: unit suite is green\.$')" "1"
+
+# AND IT STILL SAYS IT EXACTLY ONCE WHERE ANOTHER CHECK ALSO SAYS THE WORD.
+# Without this the narrowing above is a change nothing exercises, and the next
+# person to widen it back to a word count would find the suite green here and red
+# on CI all over again (L1).
+OUT6B="$(hook_without_siblings "true")"; ST6B=$?
+check "a green suite allows the push with no siblings on the machine" "$ST6B" "0"
+check "and it still says the suite was green exactly once" \
+    "$(printf '%s\n' "$OUT6B" | grep -c '^pre-push: unit suite is green\.$')" "1"
+check "even though another check's message also uses the word" \
+    "$([ "$(printf '%s\n' "$OUT6B" | grep -ci green)" -ge 2 ] && echo yes || echo no)" "yes"
 
 # 7. A RED suite refuses. This is the whole job.
 OUT7="$(hook "exit 1")"; ST7=$?
