@@ -162,6 +162,7 @@ jobs:
           python3 scripts/check-clients-screen-draws.sh
           python3 scripts/check-design-tokens-resolve.sh
           python3 scripts/check-design-sidebar-card.sh
+          python3 scripts/check-design-window-top.sh
 
       - name: Run every shell suite
         run: |

@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design record status tests" 20
+harness_begin "design record status tests" 29
 
 TARGET="scripts/check-design-record-open.sh"
 require_target "$TARGET"
@@ -138,5 +138,87 @@ REAL=$?
 KNOWN="no, it exited $REAL"
 if [ "$REAL" = "0" ] || [ "$REAL" = "1" ] || [ "$REAL" = "2" ]; then KNOWN="yes"; fi
 check "the committed record answers with one of this check's own outcomes" "$KNOWN" "yes"
+
+# ---------------------------------------------------------------------------
+# EACH DESIGN FILE'S OWN LIST OF WHAT IT DOES NOT ANSWER (ovation#200). The
+# record's section above was checked from ovation#172 onwards; the same kind of
+# list inside each design file was checked by nothing, and one of them was false
+# on the day this was filed. They carried three different headings, so nothing
+# could even find them all; they now carry one (L118).
+#
+# A DESIGN FILE THAT CARRIES NO SUCH LIST IS NAMED, NOT PASSED OVER. invoice.html
+# keeps its record in the README rather than in itself, so having none is
+# correct there, and a file that LOST its list would otherwise look the same.
+# ---------------------------------------------------------------------------
+design_file() {
+    # $1 destination directory, $2 file name, $3 the body of the open list
+    mkdir -p "$1"
+    cat > "$1/$2" <<HTML
+<meta charset="utf-8">
+<h2>The decisions</h2>
+<p>Settled, and naming ovation#998 which must never be looked up.</p>
+<h2>What is deliberately still open</h2>
+$3
+HTML
+}
+
+FILEOPEN="$WORK/fileopen"
+record "$FILEOPEN" 'The record itself names `ovation#100`.'
+design_file "$FILEOPEN" "invoice-list.html" '<p>Where the times live, ovation#95.</p>'
+printf '95 OPEN\n100 OPEN\n998 CLOSED\n' > "$STATES"
+check "a design file whose own open list names an open issue passes" \
+    "$(status_on "$FILEOPEN")" "0"
+# The ISSUE line, not merely the file name: the file is also named on its own
+# "carries a list" line, which says nothing about whether the list was read.
+check "and the file's list is actually read, not just the record's" \
+    "$(run_on "$FILEOPEN" | grep -cE 'OPEN +ovation#95, named on line [0-9]+ of invoice-list.html')" "1"
+
+# THE FAULT: a file's own list naming an issue that has since closed.
+FILECLOSED="$WORK/fileclosed"
+record "$FILECLOSED" 'The record itself names `ovation#100`.'
+design_file "$FILECLOSED" "clients.html" '<p>The pane scrolls sideways, ovation#110.</p>'
+printf '100 OPEN\n110 CLOSED\n998 CLOSED\n' > "$STATES"
+check "a design file calling a closed issue still open is refused" \
+    "$(status_on "$FILECLOSED")" "1"
+check "and the refusal names the file it is in" \
+    "$(run_on "$FILECLOSED" | grep -cE 'CLOSED +ovation#110, named on line [0-9]+ of clients.html')" "1"
+
+# AND NOTHING OUTSIDE THE LIST IS LOOKED UP, or the check would report on every
+# issue the file happens to mention, most of which are settled by design.
+check "an issue named outside the list is never asked about" \
+    "$(run_on "$FILECLOSED" | grep -c 'ovation#998')" "0"
+
+# THE LIST ENDS AT THE SCRIPT, and this case is why. These files put the open
+# list LAST in their prose with no heading after it, so a section ending only at
+# the next heading runs to the end of the file and swallows every issue named in
+# a script comment. The first run of this check accused nine citations and every
+# one of them was a comment correctly recording a settled decision (L11, L375).
+SCRIPTED="$WORK/scripted"
+record "$SCRIPTED" 'The record itself names `ovation#100`.'
+mkdir -p "$SCRIPTED"
+cat > "$SCRIPTED/invoice-list.html" <<'HTML'
+<meta charset="utf-8">
+<h2>What is deliberately still open</h2>
+<p>Where the times live, ovation#95.</p>
+<script>
+/* Settled in ovation#997, which is closed and must never be looked up. */
+var x = 1;
+</script>
+HTML
+printf '95 OPEN\n100 OPEN\n997 CLOSED\n' > "$STATES"
+check "a settled issue named in a script comment is not read as still open" \
+    "$(status_on "$SCRIPTED")" "0"
+check "and that issue is never asked about at all" \
+    "$(run_on "$SCRIPTED" | grep -c 'ovation#997')" "0"
+
+# A FILE WITH NO LIST AT ALL IS COUNTED AND NAMED.
+NOLIST="$WORK/nolist"
+record "$NOLIST" 'The record itself names `ovation#100`.'
+mkdir -p "$NOLIST"
+printf '<meta charset="utf-8">\n<h1>The invoice screen</h1>\n' > "$NOLIST/invoice.html"
+printf '100 OPEN\n' > "$STATES"
+check "a design file carrying no open list does not refuse" "$(status_on "$NOLIST")" "0"
+check "and it is named, so a list that disappeared is visible" \
+    "$(run_on "$NOLIST" | grep -c 'invoice.html carries no')" "1"
 
 harness_end

@@ -234,6 +234,83 @@ agree. The fault it was aimed at is claim 3.
 checks ran on exactly one machine and both CI jobs answered CANNOT MEASURE, so a push from anywhere
 else was judged without them.
 
+## Each file's own list of what it does not answer is checked too
+
+**`scripts/check-design-record-open.sh` now reads each design file's own open list as well as this
+record's** (ovation#200). Three files carry a list about themselves, and until then nothing checked
+any of them. One was false on the day the issue was filed: `invoice-list.html` told its reader that
+money held against a client had no surface there, which PRD 46b and 46d had made untrue the same
+day. It was found by hand, while looking for something else.
+
+**They carried three different headings and now carry one.** `What is left`, `What this still is
+not` and `What is deliberately still open` were one kind of list under three names, so nothing could
+find them all. They are all `What is deliberately still open` now.
+
+**A file that carries none is named rather than passed over.** `invoice.html` and `invoice-pdf.html`
+keep their records here in the README, so having none is right; a file that LOST its list would
+otherwise look the same.
+
+**The first run found one stale citation and a second entry beside it.** `invoice-list.html` still
+listed the app icon as outstanding, citing an issue closed weeks ago, and listed review and send as
+a screen still to be designed when its file sits in this folder. Both corrected in place.
+
+**What it still cannot catch is the larger half.** These lists are prose, so what is checkable is
+what they CITE. The entry that caused the issue named nothing at all, and would pass. Requiring a
+citation per entry was considered and not done, because splitting prose into entries is a guess
+about markup and a guard that guesses is one whose refusals cannot be trusted.
+
+## The card is a rollup, and its figures are counted rather than typed
+
+**`scripts/check-design-sidebar-card.sh` now also compares each card line against the rows the same
+file draws under it** (ovation#198, PRD 46a). Until then it proved the four files draw the SAME
+card, line for line, and nothing proved any of those figures agreed with the screen it sits on. The
+only thing keeping them in step was that a person wrote both, which is the fault Dan found on
+2026-09-10 in the invoice list: a band saying 2 above a list that did not hold 2.
+
+**The mapping lives in `invoice-list.html`, not in the check.** `CARD_LINES` names, for each line,
+the row ACTIONS it rolls up. The card's figure is counted from that, and every row is stamped with
+the line it was counted into as it is built, so the check compares two readings of one derivation
+rather than the file's idea of the mapping against a second one written beside the checker.
+
+**Four lines can be judged and sixteen cannot, and the check says so rather than passing over
+them.** `Receipts to file` counts the other half of the product, which has no screen in this record
+at all; and three of the four files draw the card without drawing any rows beneath it, because they
+are not the list. A run that judged four lines and a run that judged none would otherwise end with
+the same sentence.
+
+**Two drafts belong to no line, deliberately.** The one waiting for a date and the one waiting for
+an hours figure cannot be sent, so they are not `To send`, and the card has no line for them. It is
+recorded because a row in no line looks exactly like a row somebody forgot to map.
+
+## The window comes before the reading, and something measures it
+
+**`scripts/check-design-window-top.sh` renders every file in an 800px laptop window and refuses one
+whose app window starts more than 460px down the page** (ovation#192). The number cannot be read
+from any stylesheet: it is the sum of whatever masthead, prose, notice and switches happen to sit
+above the window, at that width, in whatever the browser makes of them.
+
+**The ceiling is derived from a decision this record already held, rather than invented.**
+`invoice.html` cut two prose blocks from above its window because carrying all three took the top of
+the design from 380px down the page to 514px, which is more than half an 800px screen gone before
+the thing the page exists to show. 380 was the state that decision accepted and 514 the state it
+rejected; 460 sits between them. It is a GROWTH guard: it says a page may not drift back into a
+shape that was looked at and refused, not that any page is well composed.
+
+**Nothing enforced it, and everything had drifted.** Measured on 2026-09-10, the first time anything
+looked: `invoice-list.html` 340px, `invoice.html` 437px, `clients.html` 830px and
+`review-send.html` 1574px. Two of the four put a whole laptop screen, or two, of reading in front of
+the design. The fault had already cost a red build: one extra row of state switches added about 40px
+above the invoice window, the Linux runner renders the page taller than this Mac, the due date terms
+opened below the fold, and `check-invoice-screen-draws.sh` refused an unrelated claim saying it
+could not measure them. The refusal was correct and named the wrong subject.
+
+**What changed in the two files, said plainly because it is a change to a settled record.** No
+screen was touched: `.screen` and everything inside it is byte for byte what it was. What moved is
+the reading matter around it. `clients.html` keeps its masthead above the window and its reading
+notice and driving instructions now sit beneath it. `review-send.html` keeps its eyebrow and
+heading above and its whole record, including why the screen exists and what to press, now sits
+beneath. Both now read the way `invoice.html` already did: the thing, then the argument for it.
+
 ## One popup list, and something that keeps it the only one
 
 **`scripts/check-design-shared-components.sh` refuses a second hand rolled copy of a component the

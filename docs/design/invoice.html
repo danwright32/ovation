@@ -883,7 +883,19 @@ color: var(--faint); }
        in this file's own round 9 comment. Both files this record was merged from carried two prose
        blocks above the window; carrying all three took the top of the design from 380px down the
        page to 514px, measured on an 800px laptop window, which is more than half the screen gone
-       before the thing the page exists to show. -->
+       before the thing the page exists to show.
+
+       THAT DECISION IS NOW ENFORCED, by scripts/check-design-window-top.sh (ovation#192), which
+       renders every design file in that same 800px window and refuses one whose window starts more
+       than 460px down the page. 460 is derived from the two numbers above rather than invented: 380
+       was the state this decision accepted and 514 the state it rejected.
+
+       AND THE 380 ABOVE IS THE NUMBER AS IT WAS, not as it is. This file renders its window 437px
+       down today, so the decision had already drifted 57px back towards the state it refused, with
+       nothing able to say so. The measured figure is deliberately not restated here as a second
+       number to maintain: the check prints it, and a number in prose that nothing asserts goes
+       stale the first time the thing it measures changes while reading exactly like one that is
+       enforced (L210, ovation#201). -->
   <p class="verdict" id="verdict"></p>
   <div class="stage" id="stage"></div>
 </div>

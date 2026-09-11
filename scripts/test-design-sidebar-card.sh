@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design sidebar card tests" 21
+harness_begin "design sidebar card tests" 28
 
 TARGET="scripts/check-design-sidebar-card.sh"
 require_target "$TARGET"
@@ -74,6 +74,31 @@ FOUR='    <div class="ln"><span>To send</span><b>4</b></div>
 FIVE="$FOUR"'
     <div class="ln"><span>Money held</span><b>3</b></div>'
 HELD='  <div class="railheld"><span>Money held</span><b>1,837.50</b></div>'
+HELD_LINE="$HELD"
+
+# ovation#198. A rail PLUS the rows the card claims to roll up, each stamped with
+# the card line it was counted into. $1 file, $2 the card's lines, $3 the rows.
+rollup_file() {
+    cat > "$1" <<HTML
+<meta charset="utf-8">
+<style>
+.side { width: 208px; }
+.card { margin: 2px 3px 10px; padding: 10px 11px; border: 1px solid #62554D; }
+.card .ln { display: flex; justify-content: space-between; }
+.railheld { display: flex; justify-content: space-between; margin: -6px 3px 12px; padding: 0 12px; }
+</style>
+<div class="screen"><div class="win"><nav class="side">
+  <div class="card"><div class="hd">Needs you</div>
+$2
+  </div>
+$HELD_LINE
+</nav>
+<div class="scroll">
+$3
+</div>
+</div></div>
+HTML
+}
 
 # ---------------------------------------------------------------------------
 # The committed record, which is the case that proves the check is not simply
@@ -183,5 +208,52 @@ check "a file that is not there is refused rather than passed" \
     "$("./$TARGET" "$WORK/no-such-file.html" >/dev/null 2>&1; printf '%s' "$?")" "2"
 check "and a browser that is not there answers cannot measure" \
     "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "3"
+
+# ---------------------------------------------------------------------------
+# THE CARD IS A ROLLUP AND ITS FIGURES ARE COUNTED (ovation#198, PRD 46a). The
+# check above proves the four files draw the SAME card; nothing proved any of
+# those figures agreed with the screen it sits on. That is the fault Dan found on
+# 2026-09-10 in this very file: a band saying 2 above a list that did not hold 2.
+#
+# EACH ROW CARRIES THE LINE IT WAS COUNTED INTO, so the comparison is between two
+# readings of one derivation rather than between the checker's idea of the
+# mapping and the file's (L107).
+# ---------------------------------------------------------------------------
+ROLL_OK='    <div class="ln"><span>To send</span><b>2</b></div>'
+ROLL_ROWS='  <div class="row" data-cardline="To send">one</div>
+  <div class="row" data-cardline="To send">two</div>'
+
+GOOD="$WORK/rollup-good"; mkdir -p "$GOOD"
+rollup_file "$GOOD/invoice-list.html" "$ROLL_OK" "$ROLL_ROWS"
+rollup_file "$GOOD/clients.html" "$ROLL_OK" "$ROLL_ROWS"
+check "a card figure that matches the rows it counts passes" "$(status_on "$GOOD")" "0"
+check "and it says how many lines it was able to judge against rows" \
+    "$(run_on "$GOOD" | grep -c 'rolled up')" "1"
+
+# The same pair with the figure moved by one, which is the whole job.
+ROLL_BAD='    <div class="ln"><span>To send</span><b>3</b></div>'
+BAD="$WORK/rollup-bad"; mkdir -p "$BAD"
+rollup_file "$BAD/invoice-list.html" "$ROLL_BAD" "$ROLL_ROWS"
+rollup_file "$BAD/clients.html" "$ROLL_BAD" "$ROLL_ROWS"
+check "a card figure that does not match the rows it counts is refused" "$(status_on "$BAD")" "1"
+# BOTH files carry the fault, because the pair has to agree with each other for
+# the rail comparison to get out of the way, so BOTH are named. Naming only one
+# would leave the reader assuming the other is the correct copy.
+check "and it names the line, the figure and the rows actually drawn" \
+    "$(run_on "$BAD" | grep -c "To send.*says 3.*2 row")" "2"
+check "and it names the file the disagreement is in" \
+    "$(run_on "$BAD" | grep -c 'invoice-list.html')" "2"
+
+# A LINE WITH NO ROWS IN THIS FILE IS NOT A PASS AND NOT A FAILURE. `Receipts to
+# file` counts the other half of the product, which has no screen in this record,
+# so it can only be reported as unjudged (L98).
+UNJUDGED='    <div class="ln"><span>To send</span><b>2</b></div>
+    <div class="ln"><span>Receipts to file</span><b>7</b></div>'
+NONE="$WORK/rollup-unjudged"; mkdir -p "$NONE"
+rollup_file "$NONE/invoice-list.html" "$UNJUDGED" "$ROLL_ROWS"
+rollup_file "$NONE/clients.html" "$UNJUDGED" "$ROLL_ROWS"
+check "a card line with no rows in the file does not refuse" "$(status_on "$NONE")" "0"
+check "and the count of lines it could not judge is printed rather than left silent" \
+    "$(run_on "$NONE" | grep -c 'could not be judged')" "1"
 
 harness_end

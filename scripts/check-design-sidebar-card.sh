@@ -24,6 +24,27 @@ WHAT IT ASSERTS, and each is one thing the drift actually did:
   4. the rail's held money line is present in the same files and reads the same
   5. in each file, that line's label starts where the card's labels start and
      its figure ends where the card's figures end
+  6. every card line whose rows the same file draws has a figure equal to the
+     number of those rows (ovation#198)
+
+SIX IS THE ROLLUP, AND IT IS A DIFFERENT CLAIM FROM ONE TO FIVE. Those prove the
+four files draw the SAME card; nothing proved any of those figures agreed with
+the screen it sits on, and the only thing keeping them in step was that a person
+wrote both. That is exactly the fault Dan found on 2026-09-10 in the invoice
+list: a band saying 2 above a list that did not hold 2.
+
+THE MAPPING LIVES IN THE FILE, NEVER HERE. Each row the list draws is STAMPED
+with the card line it was counted into, and the card's figure is counted from the
+same derivation, so this compares two readings of one thing rather than the
+file's idea of the mapping against a second one written beside the check (L107).
+PRD 46a states the rule and says in its own words that it is unenforceable
+without the mapping beside it.
+
+AND A LINE WITH NO ROWS IN THIS RECORD IS NEITHER. `Receipts to file` counts the
+other half of the product, which has no screen here at all, and three of the four
+files draw the card without drawing any rows under it. Those are counted and
+printed rather than passed over, because a run that judged four lines and a run
+that judged none otherwise end with the same sentence (L98).
 
 FIVE IS GEOMETRY AND IT IS HERE ON PURPOSE. The held line sits OUTSIDE the card
 (ovation#187), so its 3px margin and 12px padding have to add up to the card's
@@ -40,7 +61,8 @@ two cannot come to disagree about which files draw a window (L370).
 Exit codes, one per outcome (L11):
 
     0  every rail agrees, and every held line sits on the card's edges
-    1  the rails disagree, or a held line is off the card's edges
+    1  the rails disagree, a held line is off the card's edges, or a card
+       figure disagrees with the rows the same file draws under it
     2  fewer than two rails were rendered, which is not a pass: nothing was
        compared, and a comparison with one subject reports exactly what perfect
        agreement reports (L98)
@@ -88,6 +110,16 @@ PROBE = r"""
                          figure ? figure.textContent.trim() : null]);
       if (label && figure) { report.cardEdges = edges(label, figure); }
     }
+  }
+  // ovation#198. Every row the list draws carries the card line it was counted
+  // into, so the card's figure and the rows under it can be compared as two
+  // readings of one derivation. A file that draws no such rows reports none,
+  // which is a different fact from reporting zero.
+  report.rolledUp = {};
+  var stamped = document.querySelectorAll("[data-cardline]");
+  for (var s = 0; s < stamped.length; s++) {
+    var line = stamped[s].getAttribute("data-cardline");
+    report.rolledUp[line] = (report.rolledUp[line] || 0) + 1;
   }
   var held = document.querySelector(".railheld");
   if (held) {
@@ -151,7 +183,10 @@ def main():
             return 2
         paths = [os.path.join(root, name) for name in html_files(os.listdir(root))]
 
-    rails, no_card, edges_off, skipped = {}, [], [], []
+    # `reports` keeps each file's whole report, not only its rail, because the
+    # rollup claim below reads the row stamps out of the same render rather
+    # than starting a sixth browser for them (ovation#183, ovation#198).
+    rails, reports, no_card, edges_off, skipped = {}, {}, [], [], []
     for path in paths:
         name = os.path.basename(path)
         if not os.path.isfile(path):
@@ -176,6 +211,7 @@ def main():
             continue
 
         rails[name] = rail_of(report)
+        reports[name] = report
         print("  %s: %s" % (name, say(rails[name])))
 
         # The held line's own edges against the card's, inside this one file.
@@ -217,6 +253,48 @@ def main():
         print("                is the one thing a checker may never do (L98).")
         return 2
 
+    # ovation#198. THE CARD IS A ROLLUP: its figures must agree with the rows the
+    # same file draws, not only with the other files' copies of the card. PRD 46a
+    # states the rule and says in its own words that it is unenforceable without
+    # the mapping beside it; the mapping is the stamp each row carries.
+    rollup_faults = []
+    rolled = 0
+    unjudged = 0
+    for name, report in reports.items():
+        counts = report.get("rolledUp") or {}
+        for label, figure in report.get("lines") or []:
+            drawn = counts.get(label)
+            if drawn is None:
+                # NOT A PASS AND NOT A FAILURE. `Receipts to file` counts the
+                # other half of the product, which has no screen in this record.
+                unjudged += 1
+                continue
+            rolled += 1
+            try:
+                said = int((figure or "").strip())
+            except (TypeError, ValueError):
+                rollup_faults.append((name, label, figure, drawn,
+                                      "its figure is not a number this can compare"))
+                continue
+            if said != drawn:
+                rollup_faults.append((name, label, figure, drawn, None))
+
+    if rollup_faults:
+        print("")
+        print("A CARD FIGURE DISAGREES WITH THE ROWS IT COUNTS: %d line(s)."
+              % len(rollup_faults))
+        for name, label, figure, drawn, why in rollup_faults:
+            if why:
+                print("  %s: %s says %s, and %s" % (name, label, figure, why))
+            else:
+                print("  %s: %s says %s, and the file draws %d row(s) stamped with it"
+                      % (name, label, figure, drawn))
+        print("")
+        print("The card is a rollup (PRD 46a): its numbers are computed once and")
+        print("read twice, never derived separately. A band saying 2 above a list")
+        print("that does not hold 2 is the fault this exists for.")
+        return 1
+
     agreed = set(rails.values())
     if len(agreed) > 1:
         print("")
@@ -249,6 +327,9 @@ def main():
 
     print("OK: one rail across %d design file(s), %s. %d file(s) draw no app window."
           % (len(rails), say(next(iter(agreed))), len(skipped)))
+    print("    %d card line(s) rolled up and agreed with the rows drawn under them; "
+          "%d could not be judged here, having no rows in the file that draws them."
+          % (rolled, unjudged))
     return 0
 
 

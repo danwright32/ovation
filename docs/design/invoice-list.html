@@ -393,7 +393,7 @@ color: var(--faint); }
   </div>
 
   <section class="closing">
-    <h2>What is left</h2>
+    <h2>What is deliberately still open</h2>
     <ol>
       <li><b>Where the venue and the times live</b>, ovation#95. The row has no room and the handoff
       sends both on every booking.</li>
@@ -409,10 +409,8 @@ color: var(--faint); }
       figure about them, never a client's balance as a row. Money held against a client with NO open
       invoice is the case that still has nothing here, and that is a decision rather than a gap
       (PRD 46e).</li>
-      <li><b>Two screens.</b> The receipts queue, and review and send, which is the one where a mistake
-      reaches a client.</li>
-      <li><b>The icon</b>, ovation#18, which was waiting on exactly this: the palette is now settled,
-      so it can be drawn to sit inside espresso.</li>
+      <li><b>One screen.</b> The receipts queue, ovation#100. Review and send was the other one and
+      is settled, at docs/design/review-send.html.</li>
     </ol>
   </section>
 
@@ -450,6 +448,58 @@ var GROUPS = [
    which is the same $500.00 the invoice screen's fixture holds. */
 var WAITING = ["1026", "1044"];
 var HELD_ON_CLIENT = "500.00";
+
+/* THE CARD IS A ROLLUP, AND ITS FIGURES ARE COUNTED RATHER THAN TYPED (PRD 46a,
+   ovation#198). Each line names the row ACTIONS it rolls up. The figure comes
+   from counting the rows with those actions, and every row is STAMPED with the
+   line it belongs to as it is built, so the card's number and the rows under it
+   are one derivation read twice rather than two numbers a person keeps in step.
+
+   THAT IS THE FAULT DAN FOUND ON 2026-09-10, in this file: a band saying 2 above
+   a list that did not hold 2. PRD 46a states the rule and says in its own words
+   that it is unenforceable without the mapping beside it. This is the mapping,
+   and scripts/check-design-sidebar-card.sh reads the stamps back out of the
+   rendering and refuses a line whose figure and rows disagree.
+
+   RECEIPTS TO FILE CARRIES ITS OWN NUMBER, and that is not an exemption to be
+   tidied away later: it counts the other half of the product, which has no
+   screen in this record at all, so there are no rows here for it to be counted
+   from. It carries no stamp, the check reports it as a line it cannot judge
+   here, and the count of those is printed rather than left silent (L98).
+
+   THE TWO DRAFTS THAT NEED A DATE AND AN HOURS FIGURE BELONG TO NO LINE. They
+   cannot be sent yet, so they are not To send, and the card has no line for
+   them. That is the card as PRD 46a settles it, and it is recorded here because
+   a row in no line looks exactly like a row somebody forgot to map. */
+var CARD_LINES = [
+  { label: "To send",          acts: ["Send"] },
+  { label: "To chase",         acts: ["Remind"] },
+  { label: "To confirm",       acts: ["Mark cleared", "Mark sent"] },
+  { label: "To place",         acts: ["Use it here"] },
+  { label: "Receipts to file", acts: [], fixed: "7" }
+];
+
+/* A row that the waiting band moved is drawn with the band's own action, so the
+   count and the stamp have to read it the same way the list does. Deriving it
+   here, once, is what stops the card counting a row in the group it was taken
+   out of. */
+function actOf(r) { return WAITING.indexOf(r.n) !== -1 ? "Use it here" : r.act; }
+
+function cardLineFor(act) {
+  for (var i = 0; i < CARD_LINES.length; i++) {
+    if (CARD_LINES[i].acts.indexOf(act) !== -1) { return CARD_LINES[i].label; }
+  }
+  return null;
+}
+
+function cardFigure(line) {
+  if (!line.acts.length) { return line.fixed; }
+  var n = 0;
+  GROUPS.forEach(function (g) {
+    g.rows.forEach(function (r) { if (line.acts.indexOf(actOf(r)) !== -1) { n++; } });
+  });
+  return String(n);
+}
 
 var SENT = [
   { c: "Marlowe Dance Collective", s: "Spring Program B", d: "22 Aug 2026", n: "1038", a: "2,150.00", said: "sent 15d ago" },
@@ -495,6 +545,10 @@ function rowEl(r, first) {
   var amt = el("div", "amt" + (r.unpriced || r.comped ? " word" : ""),
                 r.unpriced ? "no price" : r.comped ? "comped" : r.a);
   n.append(who, el("div", "when", when), el("div", "num", r.n), amt, end);
+  /* THE STAMP IS WHAT MAKES THE ROLLUP CHECKABLE. Without it the card's figure
+     and the rows it claims to count can only be compared by a person. */
+  var line = cardLineFor(r.act);
+  if (line) { n.setAttribute("data-cardline", line); }
   return n;
 }
 
@@ -522,9 +576,10 @@ function windowFor(layout) {
      this card counts invoices, which is what makes the four comparable, and the
      one line that ever counted something else was taken out of it. It sits above
      Receipts to file because that line is the other half of the product. */
-  [["To send", "4"], ["To chase", "2"], ["To confirm", "2"], ["To place", "2"],
-   ["Receipts to file", "7"]].forEach(function (pr) {
-    var ln = el("div", "ln"); ln.append(el("span", null, pr[0]), el("b", null, pr[1])); card.append(ln);
+  CARD_LINES.forEach(function (line) {
+    var ln = el("div", "ln");
+    ln.append(el("span", null, line.label), el("b", null, cardFigure(line)));
+    card.append(ln);
   });
   side.append(card);
   /* MONEY HELD IS NOT ONE OF THE CARD'S COUNTS (ovation#187, settled with Dan
