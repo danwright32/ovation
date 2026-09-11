@@ -1,4 +1,4 @@
-// ovation#64, PRD 6.32 and 6.35. A durable record of every export run, and the
+// ovation#64, PRD 5.32 and 5.35. A durable record of every export run, and the
 // two notices derived from it.
 //
 // ZERO ROWS IS NOT SUCCESS. An export that produced no rows is indistinguishable

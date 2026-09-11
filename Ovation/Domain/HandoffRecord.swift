@@ -1,4 +1,4 @@
-// ovation#33, PRD 6.34 and PRD section 8 item 8. One queued booking, as Downbeat
+// ovation#33, PRD 5.34 and PRD section 8 item 8. One queued booking, as Downbeat
 // wrote it, and the version floor that decides which records Ovation will read.
 //
 // THE FLOOR IS A MINIMUM, NEVER AN EQUALITY. An equality gate turns the

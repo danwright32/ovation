@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 56
+harness_begin "output privacy tests" 60
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -630,6 +630,69 @@ check "and that refusal really did name the term, so the case reached it" \
 check "and none when it cannot read a file" \
     "$(leaks_in "$(./scripts/check-design-terms-agree.sh \
         "$TERMS_DIR/clients.html" "$TERMS_DIR/not-there.html" 2>&1)")" "clean"
+
+# ---------------------------------------------------------------------------
+# THE PRD CITATION GUARD (ovation#199). It reads every file git tracks, which on
+# Dan's machine includes the design record and the issues, and it refuses by
+# naming a FILE, a LINE NUMBER and a requirement number. It never prints the line
+# it found, and that is the property asserted here: the fixture puts an identity
+# on the very line that carries the bad citation, so a refusal that quoted its
+# context would fail this.
+# ---------------------------------------------------------------------------
+# The word is held in a variable for the reason check-prd-citations.sh records:
+# a file that spells a broken citation is refused by the check it is driving.
+CITE_WORD="PRD"
+CITE="$WORK/citetree"
+mkdir -p "$CITE"
+cp PRD.md "$CITE/PRD.md"
+cat > "$CITE/notes.md" <<MD
+Agreed with $CLIENT at $VENUE during $SHOOT, recorded at ${CITE_WORD} 999.
+MD
+( cd "$CITE" && git init -q -b main . && git add -A ) >/dev/null 2>&1
+check "the PRD citation guard prints no identity when it refuses" \
+    "$(leaks_in "$(./scripts/check-prd-citations.sh "$CITE" 2>&1)")" "clean"
+# AND IT REALLY DID REFUSE, naming the citation, or the case above would pass on
+# a guard that printed nothing at all, having never reached the line that prints
+# anything (L159).
+check "and that refusal really did name the citation, so the case reached it" \
+    "$(./scripts/check-prd-citations.sh "$CITE" 2>&1 | grep -c "notes.md:1 cites ${CITE_WORD} 5.999")" "1"
+
+# ---------------------------------------------------------------------------
+# THE PLAN CLAIMS GUARD (ovation#181). It became a gated check when the push gate
+# learned to treat its exit 3 as "no siblings here", and a gated check is one this
+# suite must cover. It reads TWO OTHER CHECKOUTS, whose files carry comments, and
+# a comment beside a booking is exactly where a client name sits (L222). What it
+# prints is paths, line numbers and the PLAN's own quoted literals, and the
+# fixture below puts an identity in each of the three places it could leak from:
+# the sibling source it reads, the plan row it quotes, and the file name itself.
+# ---------------------------------------------------------------------------
+PLANDIR="$WORK/planclaims"
+# BOTH siblings have to be present or the guard answers "no Overture here" and
+# never opens the file carrying the name, which would pass this case without
+# reaching anything (L159).
+mkdir -p "$PLANDIR/siblings/Downbeat/Downbeat" "$PLANDIR/siblings/Overture"
+cat > "$PLANDIR/siblings/Downbeat/Downbeat/Booking.swift" <<SWIFT
+// Booked by $CLIENT for $SHOOT at $VENUE.
+let marker = "anchored"
+SWIFT
+cat > "$PLANDIR/plan.md" <<MD
+# A plan
+
+| what | where | says |
+| --- | --- | --- |
+| the booking | \`Downbeat/Downbeat/Booking.swift:2\` | \`anchored\`, written for $CLIENT |
+| the missing one | \`Downbeat/Downbeat/$VENUE.swift:9\` | \`gone\` |
+MD
+PLAN_OUT="$(OVATION_PLAN="$PLANDIR/plan.md" OVATION_SIBLING_ROOT="$PLANDIR/siblings" \
+    OVATION_SIBLING_INSTALL_CHECK="/nonexistent" OVATION_BOOKING_EXPORT="/nonexistent" \
+    ./scripts/check-plan-claims.sh 2>&1)"
+check "the plan claims guard prints no identity" "$(leaks_in "$PLAN_OUT")" "clean"
+# AND IT REALLY DID READ THE ESTATE, or the case above would pass on a guard that
+# printed nothing at all, having never reached the line that prints anything
+# (L159). The anchored row is the one it can only answer by opening the sibling
+# file that carries the name.
+check "and it really did anchor a row in the sibling file, so the case reached it" \
+    "$(printf '%s' "$PLAN_OUT" | grep -c 'HELD')" "1"
 
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever

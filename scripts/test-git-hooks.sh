@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 57
+harness_begin "git hooks tests" 61
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -317,6 +317,34 @@ check "and the closing line names the check that went unmeasured" \
     "$(printf '%s' "$OUT135B" | grep -c 'unmeasured on this machine: check-identity-leaks')" "1"
 check "and it does NOT accuse the tree of holding a real identity" \
     "$(printf '%s' "$OUT135B" | grep -ci 'identity appears')" "0"
+
+# ovation#181. ONE CHECK DECLARES ITS OWN CANNOT MEASURE CODE, because
+# check-plan-claims.sh separates two things the other guards do not: exit 3, a
+# sibling repository is not on this machine, and exit 2, the siblings are there
+# and nothing could be compared. Those are the gate's "could not be answered
+# here" and "a fault on this machine" exactly, and the gate line for it names 3
+# as its unmeasured code.
+#
+# THE CODE IS DECLARED PER CALL SITE RATHER THAN TAUGHT TO EVERY CHECK, and the
+# second case below is what holds that: 3 means REFUSE to every other guard this
+# gate runs, and a third rule put behind one shared code would quietly widen all
+# of them (L448).
+G181A="$(stage_tree gate181a 0)"; add_check "$G181A" "check-plan-claims.sh" 3
+OUT181A="$(hook_from_tree_in "$G181A" "$G181A")"; ST181A=$?
+check "the plan claims check does not refuse a push on a machine with no siblings" \
+    "$([ "$ST181A" -ne 0 ] && echo refused || echo allowed)" "allowed"
+check "and the closing line names it as unmeasured" \
+    "$(printf '%s' "$OUT181A" | grep -c 'unmeasured on this machine: check-plan-claims')" "1"
+
+G181B="$(stage_tree gate181b 0)"; add_check "$G181B" "check-plan-claims.sh" 2
+OUT181B="$(hook_from_tree_in "$G181B" "$G181B")"; ST181B=$?
+check "and it DOES refuse when the siblings were there and nothing compared" \
+    "$([ "$ST181B" -ne 0 ] && echo refused || echo allowed)" "refused"
+
+G181C="$(stage_tree gate181c 0)"; add_check "$G181C" "check-identity-leaks.sh" 3
+OUT181C="$(hook_from_tree_in "$G181C" "$G181C")"; ST181C=$?
+check "a guard that declared no code of its own still refuses on 3" \
+    "$([ "$ST181C" -ne 0 ] && echo refused || echo allowed)" "refused"
 
 G3="$(stage_tree gate3 0)"; add_check "$G3" "check-identity-leaks.sh" 4
 OUT135C="$(hook_from_tree_in "$G3" "$G3")"; ST135C=$?

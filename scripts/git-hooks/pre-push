@@ -87,8 +87,19 @@ fi
 # written once and every check goes through it (L30, L613).
 UNMEASURED=""
 
+# A THIRD ARGUMENT NAMES THE EXIT CODE THAT MEANS "NOT ANSWERABLE HERE", and it
+# defaults to 2, which is what every guard in this repository uses. It exists for
+# check-plan-claims.sh (ovation#181), whose own vocabulary separates a sibling
+# repository not being on this machine (3) from the siblings being there and
+# nothing having been comparable (2). Those are this gate's two unmeasured
+# outcomes exactly, in the opposite order.
+#
+# IT IS DECLARED PER CALL SITE rather than taught to every check, because 3 means
+# REFUSE to every other guard here and putting a second rule behind one shared
+# code would quietly widen all of them (L448). The suite holds that: a guard that
+# declares no code of its own still refuses on 3.
 gate_check() {
-    local name="$1" refusal="$2"
+    local name="$1" refusal="$2" unmeasured="${3:-2}"
     local script="${REPO_ROOT}/scripts/${name}"
     # A CHECK NAMED HERE AND MISSING FROM THE TREE IS A REFUSAL, not a skip. The
     # hook and the scripts now come from the same revision (ovation#138), so a
@@ -103,15 +114,21 @@ gate_check() {
         exit 1
     fi
     "${script}"
-    case "$?" in
+    local status=$?
+    # THE DECLARED CODE IS TESTED FIRST AND ON ITS OWN, never folded onto 2. A
+    # call site that names 3 is saying 3 is its only unmeasured outcome, so its 2
+    # must reach the refusal below like any other code: for check-plan-claims.sh
+    # exit 2 means the siblings WERE here and nothing could be compared, which is
+    # a fault, and an earlier version that remapped 3 onto 2 let that through.
+    if [ "$status" = "$unmeasured" ]; then
+        UNMEASURED="${UNMEASURED}${name} "
+        echo "pre-push: ${name} could not be measured here (see above)." >&2
+        echo "pre-push: nothing on this machine could have answered it, so the" >&2
+        echo "pre-push: push is not refused for it. What it covers went unchecked." >&2
+        return 0
+    fi
+    case "$status" in
         0) return 0 ;;
-        2)
-            UNMEASURED="${UNMEASURED}${name} "
-            echo "pre-push: ${name} could not be measured here (see above)." >&2
-            echo "pre-push: nothing on this machine could have answered it, so the" >&2
-            echo "pre-push: push is not refused for it. What it covers went unchecked." >&2
-            return 0
-            ;;
         4)
             echo "pre-push: ${name} could not be measured, although this machine has" >&2
             echo "pre-push: what it needs to. That is a fault here rather than in the" >&2
@@ -195,6 +212,36 @@ gate_check check-design-rules-inline.sh "a design file's copy of a rule disagree
 # alone. The claim that they cannot drift was made to Dan while he was choosing
 # the control; this is what makes it true.
 gate_check check-design-terms-agree.sh "the two design files offer different payment terms."
+
+# ovation#199. The repository cites PRD requirements 518 times and nothing
+# resolved any of them. A wrong citation is worse than a dangling link: the
+# reader follows it, finds a number, and comes away believing the requirement
+# says something. The first run found four, all of the same shape, a section
+# qualifier naming the section the requirements are NOT in.
+gate_check check-prd-citations.sh "a PRD citation names a requirement that is not there."
+
+# ovation#181. check-plan-claims.sh re-checks every claim the implementation plan
+# makes about the two sibling repositories, and until now NOTHING ran it: it was
+# a tool, run by a person on demand, so the plan drifted from the moment it was
+# committed and the first sign was somebody typing the command months later. That
+# is what ovation#16 already caught happening, with eight claims drifted and
+# nothing able to say so. Worse, the plan carries a sentence at the top saying it
+# is re-checkable in one command, which reads as an assurance (L400, L244).
+#
+# WHY THE GATE AND NOT A SCHEDULE. It reads two checkouts that exist on Dan's Mac
+# and on no runner, so a scheduled job would report CANNOT MEASURE every week for
+# ever, which is the state that teaches everyone to ignore the whole workflow.
+# The gate is the one thing that runs where the checkouts actually are, and it is
+# SILENT rather than refusing anywhere else: exit 3, its own code for a sibling
+# that is not here, is declared as this call's unmeasured code.
+#
+# IT REFUSES ON LITTLE. A line that moved is reported and not refused, because
+# these are other repositories and a line number in them is stale within the week
+# (L538). What refuses is a cited file that is gone, one shorter than the line
+# cited, or a path that resolves in more than one repository. Measured before
+# wiring it: 42 citations, 27 held, 0 moved, 0 absent, and the whole run took
+# under a second.
+gate_check check-plan-claims.sh "the plan cites a sibling file that is gone, short or ambiguous." 3
 
 # ovation#120. The same shape, for the shell every design file draws its window
 # with: the typefaces, the reset, the desktop, the palette and the window. Each

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-/// ovation#33, PRD 6.34 and section 8 item 8. The decoder for one queued booking,
+/// ovation#33, PRD 5.34 and section 8 item 8. The decoder for one queued booking,
 /// and the version floor that decides which records it will read.
 ///
 /// THE FLOOR IS A MINIMUM, NEVER AN EQUALITY. An equality gate turns the
