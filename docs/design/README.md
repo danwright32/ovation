@@ -861,6 +861,26 @@ is part of what ovation#186 asks for; the rest of that issue is untouched.
 **It makes five browser starts in the CI step that proves the design checks can measure**, where
 there were four, which ovation#183 already counts as a cost worth removing. It is not removed here.
 
+### The roster pass holds what blocks, settled 2026-09-10 (ovation#40)
+
+**Two of the 31 clients share one address, and it stays where PRD 38c put it, on the client.** The
+pass exists to unblock sending, a shared address can never stop an invoice going out, so the pass is
+two sections: the one address that cannot be sent to, and the 25 missing tax statuses. Rejected, and
+both were rendered at the real count rather than described: a third section counted in the pass's
+total, which makes the screen mean every roster question rather than every blocker, and the same
+section sitting there uncounted.
+
+**The cost is kept rather than dropped: the one screen built to be cleared once does not hold every
+question about the roster.** This file used to carry that sentence as a gap in its own closing list.
+It is a decision now, and the list says so.
+
+**The round could not be judged until the fixture changed, which is ovation#197 in miniature.** Both
+of the file's shared clients also lack a tax status, so they sit in the pass either way and counting
+them changes nothing: two of the three options drew the identical screen. The round gave one of them
+a status. The export cannot say which is true of the real pair, because it has no field for a tax
+status at all, and PRD 5a0 records that the figure behind this whole pass is one of the two nothing
+can re-derive.
+
 ### What the screen still is not
 
 The detail pane scrolls sideways once the window is narrowed, from 874px (`ovation#110`). The
