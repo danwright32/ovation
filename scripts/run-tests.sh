@@ -230,8 +230,12 @@ else
   # The rule and the reasoning live in the shared helper, because build-install.sh
   # reaches xcodebuild by its own route and needs the same thing (L613).
   #
-  # It happens BEFORE the locks: generating touches only this repository's own
-  # file and needs to exclude nothing.
+  # It happens BEFORE the locks, and that is now a scoped claim rather than the
+  # blanket one it used to be. This CREATES a project where there is none, so a
+  # fresh checkout does not queue behind a sibling's build for a file nothing can
+  # be reading. REGENERATING an existing one is a different act and does take the
+  # lock, in regenerate-xcode-project.sh: it rewrites a file a running build is
+  # reading, which happened on 2026-09-10 and survived on luck (ovation#202).
   # shellcheck source=lib/ensure-xcode-project.sh
   . "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
   ensure_xcode_project "${REPO_ROOT}" "${XCODE_PROJECT}" "${XCODEGEN}" || exit 2
@@ -261,15 +265,12 @@ else
   # hang is the worse of the two (L110). Both holders are knowable: Downbeat's
   # lock directory carries an owner file, which Ovation writes for its own runs,
   # and the file lock can be attributed by asking which process holds it.
-  describe_dir_holder() {
-    if [ -f "${DIR_LOCK}/owner" ]; then
-      printf 'held by %s' "$(head -1 "${DIR_LOCK}/owner" 2>/dev/null)"
-    elif [ -d "${DIR_LOCK}" ]; then
-      printf 'held by a run that left no owner file'
-    else
-      printf 'free'
-    fi
-  }
+  # ovation#202. Taking it and describing its holder live in lib/dir-lock.sh,
+  # because the regenerator now takes the same lock and a second copy of the
+  # owner line's format would drift into a refusal naming nobody (L370).
+  # shellcheck source=lib/dir-lock.sh
+  . "${REPO_ROOT}/scripts/lib/dir-lock.sh"
+  describe_dir_holder() { dir_lock_describe "${DIR_LOCK}"; }
   describe_file_holder() {
     local pid pids="" desc=""
     if [ -x /usr/sbin/lsof ]; then
@@ -296,9 +297,8 @@ else
   wait_started="$(date +%s)"
   announced=0
   while :; do
-    if mkdir "${DIR_LOCK}" 2>/dev/null; then
+    if dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}")" "$$"; then
       DIR_LOCK_HELD=1
-      printf '%s:%s\n' "$(basename "${REPO_ROOT}")" "$$" > "${DIR_LOCK}/owner" 2>/dev/null || true
       # Non blocking. If Overture has it, we do not queue holding Downbeat's.
       exec 9>"${FILE_LOCK}" || { echo "Error: cannot open ${FILE_LOCK}" >&2; exit 3; }
       if "${FLOCK_BIN}" -n 9; then

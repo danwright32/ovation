@@ -19,9 +19,16 @@ struct RootView: View {
     /// Injected so a test can drive dismissal without reading the clock. The app
     /// passes the real one.
     var now: () -> Date = Date.init
+    /// ovation#162. Nil where there is no export control at all, which is every
+    /// hosted test that was written before there was one.
+    var exportCommand: YearEndExportCommand?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let command = exportCommand, case .running = command.progress {
+                RunningExportView(command: command)
+            }
+
             if let problem = presenter.showing {
                 LaunchNoticeView(problem: problem,
                                  waiting: presenter.waiting,
@@ -92,5 +99,41 @@ struct ProblemsListView: View {
                 }
             }
         }
+    }
+}
+
+
+/// ovation#162. An export in flight, said in a way that separates working, still
+/// alive, and failed.
+///
+/// THIS IS A STANDING RULE RATHER THAN A DETAIL OF THIS FEATURE. Any action that
+/// does not return at once has to let the reader tell, at a glance, that it
+/// started, that it is still going, and that it ended. A spinner that looks the
+/// same whether the work is progressing, hung or dead is a defect, so this counts
+/// seconds: a number that stops moving is a run that has stopped.
+///
+/// THE OUTCOME IS NOT SHOWN HERE. It arrives as a problem in the list below,
+/// through the same presenter every other condition uses (L242), which is also
+/// why this surface disappears the moment the run ends rather than becoming a
+/// second place the result is stated (L605).
+struct RunningExportView: View {
+    let command: YearEndExportCommand
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(sentence(at: context.date))
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(sentence(at: context.date))
+        }
+    }
+
+    func sentence(at instant: Date) -> String {
+        guard let seconds = command.elapsed(now: instant) else {
+            return "\(YearEndExportCommand.title) has finished."
+        }
+        return "Exporting the year. \(Int(seconds.rounded()))s so far."
     }
 }

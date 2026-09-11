@@ -70,6 +70,20 @@ struct StoreLaunchSequence {
     /// would be indistinguishable from a healthy export history, which is this
     /// feature's own failure mode (L168, L98).
     let exportNotices: @Sendable (ModelContainer, Date) -> [ExportNotice]
+    /// ovation#162. Hands the opened store to whoever has to act on it later.
+    ///
+    /// IT EXISTS BECAUSE A CONTROL NEEDS ONE. `YearEndExportCommand` runs an
+    /// export over this store, and until now the container was a local inside
+    /// this method: the app opened it, used it, and dropped it, so nothing after
+    /// launch could read the store at all. Opening a SECOND container would be a
+    /// second writer over one file, which is the thing the second instance check
+    /// exists to prevent (ovation#84), so the one that is already open is handed
+    /// on instead.
+    ///
+    /// It runs LAST, after every step above, so nothing downstream sees a store
+    /// that has not been checkpointed, identified, seeded and version stamped.
+    /// It defaults to doing nothing, which is what every test wants.
+    var onOpened: @Sendable (ModelContainer) -> Void = { _ in }
 
     @discardableResult
     func run(now: Date) -> Outcome {
@@ -218,6 +232,7 @@ struct StoreLaunchSequence {
                                sentence: notice.sentence, now: now)
         }
 
+        onOpened(container)
         return .opened
     }
 

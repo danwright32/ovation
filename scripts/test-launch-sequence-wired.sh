@@ -127,5 +127,44 @@ SWIFT
 check "an entry point that asks and never reads the answer is refused too" 4 \
     "$(run_on "${WORK}/asks-and-ignores.swift")"
 
+# 5, ovation#162. THE EXPORT CONTROL IS WIRED, or it is a dead menu item. The
+# command runs an export over the store this sequence opened, and the only way it
+# can have that store is `onOpened`: opening a second container would be a second
+# writer over one file, which is what case 4 above exists to prevent. Nothing
+# else can assert this, for the same reason nothing else can assert the sequence
+# is run at all, because @main is the one file no test in the suite compiles.
+cat > "${WORK}/never-takes-the-store.swift" <<'SWIFT'
+@main
+struct OvationApp: App {
+    init() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let verdict = SecondInstance.check(executablePath: "x", runningPIDs: { _ in [] })
+        if verdict.mayRun, let storeURL = StoreLocation.liveStoreURL() {
+            StoreLaunchSequence(storeURL: storeURL, problems: store).run(now: Date())
+        }
+    }
+}
+SWIFT
+check "an entry point that never takes the opened store is refused" 5 \
+    "$(run_on "${WORK}/never-takes-the-store.swift")"
+
+# And one that does, so the rule above is not bought by refusing everything (L1).
+cat > "${WORK}/takes-the-store.swift" <<'SWIFT'
+@main
+struct OvationApp: App {
+    init() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let verdict = SecondInstance.check(executablePath: "x", runningPIDs: { _ in [] })
+        if verdict.mayRun, let storeURL = StoreLocation.liveStoreURL() {
+            var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
+            sequence.onOpened = { opened.container = $0 }
+            sequence.run(now: Date())
+        }
+    }
+}
+SWIFT
+check "and one that takes it passes" 0 \
+    "$(run_on "${WORK}/takes-the-store.swift")"
+
 echo "launch sequence wiring tests: ${PASSED} passed, ${FAILED} failed"
 [[ "${FAILED}" -eq 0 ]]

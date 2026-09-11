@@ -56,7 +56,8 @@ Exit codes, one per outcome:
     0  every citation found resolves to a requirement that exists
     1  at least one does not, and it says which, in which file, on which line
     2  it could not measure: no PRD, no requirements in it, no citations found,
-       or a root it cannot enumerate
+       a root it cannot enumerate, or a tracked file it could not open, whose
+       citations therefore went unchecked
 """
 import os
 import re
@@ -159,15 +160,25 @@ def main(argv):
         return 2
 
     total = 0
-    unreadable = 0
+    not_text = 0
+    unopenable = []
     dangling = []
     for name in names:
         path = os.path.join(root, name)
         try:
             with open(path, encoding="utf-8") as handle:
                 text = handle.read()
-        except (OSError, UnicodeDecodeError):
-            unreadable += 1
+        except UnicodeDecodeError:
+            # NOT TEXT. An icon or a font carries no citations, and skipping it
+            # is the right answer rather than a gap.
+            not_text += 1
+            continue
+        except OSError as why:
+            # COULD NOT BE OPENED, which is a different fact and a fault: git
+            # says the file is here and this could not read it, so its citations
+            # went unchecked. Folding it in with the binaries above made a
+            # permission fault and a PNG the same event (L11).
+            unopenable.append((name, why.strerror or str(why)))
             continue
         for section, item, line in citations_in(text):
             total += 1
@@ -181,6 +192,18 @@ def main(argv):
         print("CANNOT MEASURE: no PRD citations were found in the %d files git tracks"
               % len(names))
         print("    Either nothing cites the PRD, or this stopped matching them.")
+        return 2
+
+    # A FILE GIT TRACKS THAT COULD NOT BE OPENED IS REPORTED ON EVERY PATH, and
+    # it is reported BEFORE the verdict on the citations, because whatever it
+    # holds went unchecked and a verdict that did not say so would be a claim
+    # about the whole tree made from part of it.
+    if unopenable:
+        print("CANNOT MEASURE: %d file(s) git tracks could not be opened, so their"
+              % len(unopenable))
+        print("                citations went unchecked either way.")
+        for name, why in unopenable:
+            print("  %s: %s" % (name, why))
         return 2
 
     if dangling:
@@ -198,8 +221,8 @@ def main(argv):
           % (total, len(names)))
     print("      %d requirements declared across sections %s."
           % (sum(len(v) for v in declared.values()), sections))
-    if unreadable:
-        print("      %d file(s) were not text and were not scanned." % unreadable)
+    if not_text:
+        print("      %d file(s) were not text and were not scanned." % not_text)
     return 0
 
 

@@ -494,4 +494,42 @@ struct StoreLaunchSequenceTests {
     enum FixtureFailure: Error {
         case couldNotBuildForeignStore
     }
+    // MARK: the opened store is handed on (ovation#162)
+
+    @Test("a sequence that opened hands the store it opened to whoever needs it")
+    func handsOnTheOpenedStore() throws {
+        // A control that runs after launch cannot open its own container: two
+        // containers over one file are two writers, which is what the second
+        // instance check exists to prevent (ovation#84). So the one already open
+        // is handed on, and this is what proves it happens at all (L3).
+        let world = try World()
+        // A counter the @Sendable hook can raise. The existing Recorder in this
+        // file is the same shape and for the same reason.
+        final class Box: @unchecked Sendable { var count = 0 }
+        let box = Box()
+        var sequence = world.sequence
+        sequence.onOpened = { _ in box.count += 1 }
+
+        #expect(sequence.run(now: world.instant) == .opened)
+        #expect(box.count == 1)
+    }
+
+    @Test("a sequence that refused hands on nothing, because nothing opened")
+    func handsOnNothingWhenItRefused() throws {
+        // Handing on a store the sequence refused to open would give the control
+        // a container nobody checked, which is the opposite of what the sequence
+        // is for (L98).
+        let world = try World()
+        try world.writeForeignStore()
+        // A counter the @Sendable hook can raise. The existing Recorder in this
+        // file is the same shape and for the same reason.
+        final class Box: @unchecked Sendable { var count = 0 }
+        let box = Box()
+        var sequence = world.sequence
+        sequence.onOpened = { _ in box.count += 1 }
+
+        #expect(sequence.run(now: world.instant) != .opened)
+        #expect(box.count == 0)
+    }
+
 }

@@ -72,6 +72,7 @@ check-live-data-untouched.sh	gated	A BRACKET rather than a question: run-tests.s
 check-migration-stages.sh	gated	A repo wide guard.
 check-plan-claims.sh	gated	A repo wide guard, and the ONE that declares its own CANNOT MEASURE code. It was a tool until ovation#181, on the reasoning that a gate reading two other checkouts would refuse on every machine without them (L376). That reasoning is answered rather than overturned: the gate line names exit 3, a sibling not on this machine, as its unmeasured code, so it is silent there and runs where the checkouts actually are. Nothing else ran it, so the plan drifted from the moment it was committed while carrying a sentence saying it was re-checkable in one command.
 check-prd-citations.sh	gated	A repo wide guard.
+regenerate-xcode-project.sh	tool	Rewrites Ovation.xcodeproj from project.yml, under the same lock every xcodebuild run of it takes, and REFUSES rather than waits when that lock is held, naming the holder. Adding a source file requires a regeneration, because project.yml lists directories and the generated project lists files, so this is run by a person at a keyboard after adding one. It was the one operation that rewrote the project out from under a build while taking nothing (L453, ovation#202). test-regenerate-xcode-project.sh drives every outcome against a stub generator and a staged lock.
 check-ported-artifacts.sh	gated	A repo wide guard.
 check-preconditions.sh	gated	The entry point for the checks a push does not run. It is itself a check, and it runs the others.
 check-schema-registered.sh	gated	A repo wide guard.
@@ -82,6 +83,7 @@ lib/build-one-configuration.sh	library	Sourced by build-products.sh and build-in
 lib/built-product.sh	library	Sourced by the bundle checks to find a built app.
 lib/bundle-icon-checks.sh	library	Sourced by test-built-bundle-icon.sh. test-bundle-icon-checks.sh covers its judgements directly.
 lib/bundle-identity-checks.sh	library	Sourced by test-built-bundle-identity.sh. test-bundle-identity-checks.sh covers its judgements directly.
+lib/dir-lock.sh	library	The directory lock every xcodebuild run in this repository takes, and the one place its owner line is written and read. Sourced by run-tests.sh and by regenerate-xcode-project.sh: both sides write that line and both read it, and a format that drifted would leave a refusal naming nobody (L370, ovation#202). Their own suites cover its behaviour.
 lib/ensure-xcode-project.sh	library	Sourced by run-tests.sh and build-install.sh. Its behaviour is covered by test-run-tests.sh, which drives it through the runner with an injected generator.
 lib/json-field.sh	library	Sourced by check-booking-queue.sh and check-sibling-installs.sh. One JSON reader for both, after plutil made every record read as unreadable on Linux (ovation#152); their own suites cover its behaviour.
 lib/design_render.py	library	Imported by check-invoice-screen-draws.sh, check-design-tokens-resolve.sh and check-design-sidebar-card.sh. One way to render a design file headless and read back what its probe reported, rather than the same browser globs and --dump-dom parsing copied into the second checker (L370). Both their suites drive it.
@@ -139,6 +141,7 @@ test-plan-claims.sh	suite
 test-prd-citations.sh	suite	
 test-preconditions.sh	suite	
 test-project-configuration.sh	suite	
+test-regenerate-xcode-project.sh	suite	
 test-run-tests.sh	suite	
 test-schema-registered.sh	suite	
 test-setup-signing.sh	suite	

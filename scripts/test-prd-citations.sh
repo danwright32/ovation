@@ -24,7 +24,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "every PRD citation names a requirement that exists" 21
+harness_begin "every PRD citation names a requirement that exists" 23
 
 TARGET="scripts/check-prd-citations.sh"
 require_target "$TARGET"
@@ -148,6 +148,23 @@ check "a PRD declaring no requirements cannot be measured" "$RC" "2"
 case "$OUT" in
     *requirement*) check "it says the PRD declared no requirements" "yes" "yes" ;;
     *) check "it says the PRD declared no requirements" "$OUT" "should name the empty requirement list" ;;
+esac
+
+# 11b. A TRACKED FILE THAT CANNOT BE OPENED IS NOT A BINARY. Both used to be
+#      counted together and neither was mentioned unless the run passed, so a
+#      file whose citations went unchecked was indistinguishable from a PNG
+#      (L11). It is reported on EVERY path and it refuses, because a verdict on
+#      the whole tree made from part of it is a claim nothing measured.
+D="$(fixture unopenable "Recorded at $C 5.3 as agreed.")"
+printf 'Recorded at %s 5.3 as agreed.\n' "$C" > "$D/locked.md"
+( cd "$D" && git add -A ) >/dev/null 2>&1
+chmod 000 "$D/locked.md"
+OUT="$(run_on "$D")"; RC=$?
+chmod 644 "$D/locked.md"
+check "a tracked file that cannot be opened cannot be measured" "$RC" "2"
+case "$OUT" in
+    *locked.md*) check "and it names the file it could not open" "yes" "yes" ;;
+    *) check "and it names the file it could not open" "$OUT" "should say locked.md" ;;
 esac
 
 # 11. FINDING NO CITATIONS AT ALL IS ITS OWN OUTCOME. A tree citing nothing and a

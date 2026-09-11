@@ -94,9 +94,16 @@ enum ExportNotice: Equatable, Sendable {
     var sentence: String {
         switch self {
         case .stale(let days):
-            return "Nobody has run a year end export in \(days) days. Ovation only looks "
-                + "when it is open, so nothing is wrong with the data; what is missing is a "
-                + "recent copy of the two files an accountant would work from."
+            // THE REMEDY NAMES THE CONTROL, in the control's own words, and the
+            // name is QUOTED from it rather than written again here, so a rename
+            // cannot send Dan to a menu item that is not there (L70, L399, L111).
+            // Split into pieces because one long concatenation of interpolations
+            // takes the type checker past its own limit.
+            let control = "\(YearEndExportCommand.title) from the File menu."
+            let why = "Ovation only looks when it is open, so nothing is wrong with the "
+                + "data; what is missing is a recent copy of the two files an accountant "
+                + "would work from."
+            return "Nobody has run a year end export in \(days) days. " + why + " " + control
         case .foundNothing(let first, let last):
             return "The last export ran and correctly found nothing between \(first) and "
                 + "\(last). That is an answer rather than a failure, and it is said out loud "

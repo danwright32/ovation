@@ -33,6 +33,8 @@ Exit codes, one per outcome (L11):
     3  it builds the sequence and never runs it, which is the shape of the
        original defect: the parts present and the protection absent
     4  it never checks for a second running copy, or checks and runs anyway
+    5  it never takes the store the sequence opened, so the export control has
+       nothing to run against and is a dead menu item
 """
 import os
 import re
@@ -49,6 +51,12 @@ RUNS = re.compile(r"\.run\s*\(\s*now\s*:")
 # safeguard if the entry point both ASKS and HONOURS the answer.
 ASKS_ABOUT_SECOND_COPY = re.compile(r"\bSecondInstance\.check\s*\(")
 HONOURS_SECOND_COPY = re.compile(r"\bmayRun\b")
+# ovation#162. The export control runs over the store this sequence opened, and
+# `onOpened` is the only way it can have it: opening a second container would be
+# a second writer over one file, which is what the check above exists to prevent.
+# Without this wiring the menu item is there and does nothing, which is the same
+# shape as building the sequence and never running it.
+TAKES_THE_OPENED_STORE = re.compile(r"\.onOpened\s*=")
 
 
 def fail(code, message):
@@ -98,8 +106,14 @@ def main():
                 "The check is present and the protection is absent, which is the same "
                 "shape as building the sequence and not running it." % ENTRY)
 
-    print("OK: the entry point builds the launch sequence, runs it, and stands aside "
-          "for a second running copy.")
+    if not TAKES_THE_OPENED_STORE.search(code):
+        fail(5, "%s never takes the store the sequence opened, so nothing after launch "
+                "can read it. The year end export control would be a menu item that "
+                "does nothing, and opening a second container instead would be a "
+                "second writer over one file." % ENTRY)
+
+    print("OK: the entry point builds the launch sequence, runs it, stands aside for "
+          "a second running copy, and takes the store it opened.")
 
 
 main()

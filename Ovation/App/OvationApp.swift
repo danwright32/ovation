@@ -14,6 +14,14 @@ import SwiftUI
 struct OvationApp: App {
     @State private var store: ProblemsStore
     @State private var presenter: LaunchPresenter
+    /// ovation#162. The control behind the staleness notice. It is held here
+    /// because it must be the SAME object the whole time the app is open: a fresh
+    /// one per press could not know that a run is already going, and two exports
+    /// over one folder write the same three files over each other.
+    @State private var exportCommand: YearEndExportCommand
+    /// The store the launch sequence opened, handed on rather than opened again:
+    /// two containers over one file are two writers (ovation#84).
+    @State private var opened: ModelContainer?
 
     init() {
         // A disposable launch gets a journal that writes nowhere, so nothing a
@@ -58,8 +66,12 @@ struct OvationApp: App {
         // refuses under one, so there is nothing to identify and nothing to back
         // up, and running the sequence against a fabricated path would raise
         // problems about a store nobody has (plan 1.9, the isolation floor).
+        // The container the sequence opens, caught on its way past so the export
+        // command can read the store Dan is actually looking at (ovation#162).
+        let openedStore = OpenedStore()
+
         if secondInstance.mayRun, let storeURL = StoreLocation.liveStoreURL() {
-            StoreLaunchSequence(
+            var sequence = StoreLaunchSequence(
                 storeURL: storeURL,
                 problems: store,
                 checkpoint: { StoreCheckpoint.run(storeURL: $0) },
@@ -129,7 +141,9 @@ struct OvationApp: App {
                         storeHasEverHeldSomethingToExport:
                             ExportRunLog.storeHasSomethingToExport(container))
                 }
-            ).run(now: Date())
+            )
+            sequence.onOpened = { openedStore.container = $0 }
+            sequence.run(now: Date())
         }
 
         let presenter = LaunchPresenter(store: store)
@@ -137,11 +151,57 @@ struct OvationApp: App {
 
         _store = State(initialValue: store)
         _presenter = State(initialValue: presenter)
+        _opened = State(initialValue: openedStore.container)
+        // THE COMMAND IS BUILT EVEN WHEN THERE IS NOWHERE TO WRITE, and answers
+        // why rather than being absent. A menu item that vanishes on a throwaway
+        // launch teaches nothing; one that is there and says what is missing is
+        // the difference between a dead control and a refusal (L109).
+        _exportCommand = State(initialValue: YearEndExportCommand.forThisLaunch())
+    }
+
+    /// A box, because the launch sequence's hook is `@Sendable` and this runs
+    /// before `self` exists.
+    private final class OpenedStore: @unchecked Sendable {
+        var container: ModelContainer?
     }
 
     var body: some Scene {
         Window(OvationBuild.displayName, id: OvationBuild.mainWindowID) {
-            RootView(presenter: presenter, store: store)
+            RootView(presenter: presenter, store: store, exportCommand: exportCommand)
+        }
+        // ovation#162. THE CONTROL THE STALENESS NOTICE NAMES. Until this existed
+        // `YearEndExport.run` was called by nothing, so that notice named a
+        // remedy nobody could reach and pressing on was the only diagnosis
+        // available (L109, L111, L148).
+        //
+        // IT IS NEVER HIDDEN, only disabled with a reason said out loud, because
+        // a control that is not there cannot be asked why (L49).
+        .commands {
+            CommandGroup(after: .newItem) {
+                Button(YearEndExportCommand.title) { runExport() }
+                    .disabled(!exportCommand.mayRun || opened == nil)
+                if let why = whyTheExportCannotRun {
+                    Text(why).font(.footnote)
+                }
+            }
+        }
+    }
+
+    /// Why the menu item would do nothing, in Dan's words rather than the code's
+    /// (L399). A disabled control with no reason is a dead control (L109).
+    private var whyTheExportCannotRun: String? {
+        if opened == nil {
+            return "There is no open store to export from on this launch."
+        }
+        return exportCommand.whyItCannotRun
+    }
+
+    /// Runs one export through the command, which is the one place that marks a
+    /// run started and finished and reports what it came to.
+    private func runExport() {
+        guard let container = opened else { return }
+        exportCommand.press(now: Date(), container: container, problems: store) {
+            presenter.refresh()
         }
     }
 }
