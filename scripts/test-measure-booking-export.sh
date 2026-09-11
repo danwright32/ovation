@@ -11,7 +11,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "booking export measurement tests" 26
+harness_begin "booking export measurement tests" 31
 
 TARGET="scripts/measure-booking-export.py"
 require_target "$TARGET"
@@ -89,6 +89,28 @@ check "and a value that is not an address at all is one client" \
 check "while a client with a main address is never counted as missing one" \
     "$(says "$ADDRS" 'clients with no main address')" "0 of 4"
 
+# ---------------------------------------------------------------------------
+# THE TAX STATUS, which ovation#215 found the record claiming was not here at
+# all. `isTaxExempt` is a three state field: present and true, present and
+# false, or absent, and the third is a real answer rather than a gap, which is
+# why absent is counted rather than folded into not exempt (L257, PRD 5).
+# ---------------------------------------------------------------------------
+TAX="$WORK/tax.json"
+export_with "$TAX" "[$ONE_HOUR]" '[
+  {"id":"c1","email":"a@example.com","contractEmail":"","isTaxExempt":true},
+  {"id":"c2","email":"b@example.com","contractEmail":"","isTaxExempt":true},
+  {"id":"c3","email":"c@example.com","contractEmail":"","isTaxExempt":false},
+  {"id":"c4","email":"d@example.com","contractEmail":""}
+]'
+check "a client carrying a tax status is counted" \
+    "$(says "$TAX" 'clients carrying a recorded status')" "3 of 4"
+check "and exempt is told apart from not exempt" \
+    "$(says "$TAX" 'recorded as exempt')" "2 of 4"
+check "and not exempt is its own count rather than the remainder" \
+    "$(says "$TAX" 'recorded as not exempt')" "1 of 4"
+check "and a client with no tax field at all is counted as never recorded" \
+    "$(says "$TAX" 'clients with no recorded status')" "1 of 4"
+
 NOMAIN="$WORK/nomain.json"
 export_with "$NOMAIN" "[$ONE_HOUR]" '[{"id":"c1","email":"","contractEmail":""}]'
 check "a client with no main address is counted" \
@@ -100,8 +122,15 @@ check "a client with no main address is counted" \
 # ---------------------------------------------------------------------------
 check "every run says which cited figures this export cannot answer" \
     "$(run_on "$SHAPE" | grep -c 'WHAT THIS EXPORT CANNOT ANSWER')" "1"
-check "and names the tax status by the figure the record cites" \
-    "$(run_on "$SHAPE" | grep -c '6 of 31')" "1"
+check "and the figure it cannot answer is the money held on a client" \
+    "$(run_on "$SHAPE" | grep -c 'money held on a client')" "1"
+
+# THE CLAIM THAT WAS THERE UNTIL ovation#215, asserted absent rather than only
+# corrected. It said a client's tax status has no field in this export, which was
+# false while this suite asserted the sentence was printed, so the check and the
+# record agreed with each other and with nothing else (L460).
+check "and it no longer claims the tax status has no field here" \
+    "$(run_on "$SHAPE" | grep -c 'no field for it here')" "0"
 
 # ---------------------------------------------------------------------------
 # THE HASH IS VERIFIED AT READ TIME, which docs/CUSTODY.md requires of every
