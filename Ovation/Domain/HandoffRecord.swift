@@ -42,55 +42,12 @@
 // instants cross midnight UTC while both day strings say the 6th.
 import Foundation
 
-/// Why a queue file could not be read. Distinct causes, distinct cases, because
-/// the remedies are unrelated: an old version is a Downbeat to upgrade, a missing
-/// field is a contract that has changed, and unreadable bytes are a damaged file
-/// (L11).
-enum HandoffRefusal: Equatable, Sendable {
-    /// The bytes are not JSON at all, or there are no bytes. An empty file is
-    /// this rather than an empty record: PRD 5.34 refuses a malformed handoff
-    /// loudly and never reads one as empty.
-    case notReadable(detail: String)
-    /// It parsed and says nothing about which version it is. Deliberately not
-    /// folded into `versionBelowMinimum` as version zero: that would report "this
-    /// record is too old" about a file that never said how old it is, and the two
-    /// need different work.
-    case versionMissing
-    case versionBelowMinimum(found: Int, minimum: Int)
-    /// A field Ovation cannot invoice without is absent. Named, never defaulted:
-    /// a shoot defaulted to no duration would price at nothing and the invoice
-    /// would total correctly against its own parts (L67).
-    case fieldMissing(String)
-    case fieldMalformed(String, detail: String)
-
-    /// What Dan is told, naming the file so the refusal points at something he
-    /// can act on (PRD 5.34, L80).
-    func sentence(for filename: String) -> String {
-        switch self {
-        case .notReadable(let detail):
-            return "The queued booking \(filename) could not be read as a handoff record "
-                + "(\(detail)). The shoot it holds has not been invoiced, and the file has "
-                + "been left in the queue."
-        case .versionMissing:
-            return "The queued booking \(filename) does not say which handoff format it is "
-                + "in, so Ovation cannot tell whether it can read it. The shoot it holds has "
-                + "not been invoiced, and the file has been left in the queue."
-        case .versionBelowMinimum(let found, let minimum):
-            return "The queued booking \(filename) is handoff format version \(found), and "
-                + "Ovation reads version \(minimum) and above. It was written by an older "
-                + "Downbeat than this one. The shoot it holds has not been invoiced, and the "
-                + "file has been left in the queue."
-        case .fieldMissing(let field):
-            return "The queued booking \(filename) has no '\(field)', which Ovation needs to "
-                + "raise the invoice. The shoot it holds has not been invoiced, and the file "
-                + "has been left in the queue."
-        case .fieldMalformed(let field, let detail):
-            return "The queued booking \(filename) has a '\(field)' Ovation could not read "
-                + "(\(detail)). The shoot it holds has not been invoiced, and the file has "
-                + "been left in the queue."
-        }
-    }
-}
+/// Why a queue file could not be read. The CAUSES are `DownbeatReadRefusal`,
+/// shared with the export reader because the ways a versioned Downbeat JSON file
+/// can fail to be read are the same for both; the SENTENCE is below on
+/// `HandoffRecord`, because what a refusal costs is not shared at all
+/// (ovation#208).
+typealias HandoffRefusal = DownbeatReadRefusal
 
 /// What reading one queue file came to.
 enum HandoffRecordReading: Equatable, Sendable {
@@ -254,35 +211,44 @@ struct HandoffRecord: Equatable, Sendable, Decodable {
         return decoder
     }()
 
-    /// Turns Foundation's decoding error into a refusal that NAMES the field, so
-    /// the sentence Dan reads points at something in the file rather than at a
-    /// type in this app.
+    /// Turns Foundation's decoding error into a refusal that NAMES the field.
+    /// The mapping is shared with the export reader; only the word for the whole
+    /// artifact differs (ovation#208).
     private static func refusal(for error: DecodingError) -> HandoffRefusal {
-        switch error {
-        case .keyNotFound(let key, let context):
-            return .fieldMissing(path(context.codingPath + [key]))
-        case .valueNotFound(_, let context):
-            return .fieldMissing(path(context.codingPath))
-        case .typeMismatch(_, let context):
-            return .fieldMalformed(path(context.codingPath),
-                                   detail: context.debugDescription)
-        case .dataCorrupted(let context):
-            // A date that is not ISO 8601 arrives here, with the field in the
-            // path, so it is a malformed field rather than an unreadable file.
-            if context.codingPath.isEmpty {
-                return .notReadable(detail: context.debugDescription)
-            }
-            return .fieldMalformed(path(context.codingPath),
-                                   detail: context.debugDescription)
-        @unknown default:
-            return .notReadable(detail: "\(error)")
-        }
+        DownbeatReadRefusal.refusal(for: error, fallback: "the record")
     }
 
-    /// `booking.startsAt` rather than `CodingKeys(stringValue: "startsAt")`.
-    private static func path(_ keys: [CodingKey]) -> String {
-        let joined = keys.map(\.stringValue).joined(separator: ".")
-        return joined.isEmpty ? "the record" : joined
+    /// What Dan is told, naming the file so the refusal points at something he
+    /// can act on (PRD 5.34, L80).
+    ///
+    /// IT LIVES ON THE READER, NOT ON THE CAUSE (ovation#208). The five causes are
+    /// shared with the export reader; every sentence here is about a shoot that
+    /// has not been invoiced and a file left in the queue, which is true of this
+    /// artifact and of nothing else.
+    static func sentence(for refusal: HandoffRefusal, file filename: String) -> String {
+        switch refusal {
+        case .notReadable(let detail):
+            return "The queued booking \(filename) could not be read as a handoff record "
+                + "(\(detail)). The shoot it holds has not been invoiced, and the file has "
+                + "been left in the queue."
+        case .versionMissing:
+            return "The queued booking \(filename) does not say which handoff format it is "
+                + "in, so Ovation cannot tell whether it can read it. The shoot it holds has "
+                + "not been invoiced, and the file has been left in the queue."
+        case .versionBelowMinimum(let found, let minimum):
+            return "The queued booking \(filename) is handoff format version \(found), and "
+                + "Ovation reads version \(minimum) and above. It was written by an older "
+                + "Downbeat than this one. The shoot it holds has not been invoiced, and the "
+                + "file has been left in the queue."
+        case .fieldMissing(let field):
+            return "The queued booking \(filename) has no '\(field)', which Ovation needs to "
+                + "raise the invoice. The shoot it holds has not been invoiced, and the file "
+                + "has been left in the queue."
+        case .fieldMalformed(let field, let detail):
+            return "The queued booking \(filename) has a '\(field)' Ovation could not read "
+                + "(\(detail)). The shoot it holds has not been invoiced, and the file has "
+                + "been left in the queue."
+        }
     }
 
     private static func shortDescription(of error: DecodingError) -> String {

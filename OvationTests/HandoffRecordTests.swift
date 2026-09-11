@@ -214,7 +214,7 @@ struct HandoffRecordTests {
             .fieldMalformed("booking.startsAt", detail: "expected a date")
         ]
         for refusal in refusals {
-            let sentence = refusal.sentence(for: "5FEBD76A.json")
+            let sentence = HandoffRecord.sentence(for: refusal, file: "5FEBD76A.json")
             #expect(sentence.contains("5FEBD76A.json"),
                     Comment(rawValue: "\(refusal) does not name the file"))
             #expect(sentence.count > 40, Comment(rawValue: "\(refusal) says too little"))
@@ -223,8 +223,8 @@ struct HandoffRecordTests {
 
     @Test("the version refusal names BOTH numbers, because one of them is the remedy")
     func theVersionRefusalNamesBothNumbers() {
-        let sentence = HandoffRefusal.versionBelowMinimum(found: 2, minimum: 3)
-            .sentence(for: "a-booking.json")
+        let sentence = HandoffRecord.sentence(for: .versionBelowMinimum(found: 2, minimum: 3),
+                                              file: "a-booking.json")
         #expect(sentence.contains("2"))
         #expect(sentence.contains("3"))
     }
