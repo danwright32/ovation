@@ -124,6 +124,73 @@ if [ "$saw_wanted_command" -eq 0 ]; then
   problems=$((problems+1))
 fi
 
+# ---------------------------------------------------------------------------
+# EVERY CHECK A WORKFLOW RUNS IS DECLARED AS ONE SOMETHING RUNS (ovation#214).
+#
+# scripts/lib/script-roles.tsv says, for every script here, what watches it, and
+# scripts/test-preconditions.sh already held ONE direction of that: every script
+# declared `workflow` is named by a workflow file. Nothing held the reverse, so
+# six scripts run by .github/workflows/ci.yml were declared `tool`, which that
+# file defines as "Run by a person on demand". Each carried a reason that was
+# true when it was written and had since been answered by gate_check's three
+# outcomes (ovation#135), so every entry read as a considered decision while
+# describing a state that had changed (L346).
+#
+# A COMPARISON IN ONE DIRECTION FINDS ONLY WHAT SOMEBODY REMEMBERED TO DECLARE,
+# which was never the half that went wrong. Both sides are enumerated from their
+# own source and held against each other (L582, L41).
+#
+# THE ROLES IT ACCEPTS ARE WRITTEN AS THE REASON FOR ACCEPTING THEM (L362): the
+# role must name something AUTOMATIC as what runs the check. `workflow` says a
+# workflow does and `gated` says the push gate or the preconditions entry point
+# does, and the partition test holds a `gated` entry to actually being named by
+# one of them, so neither can be claimed to dodge this. Every other role,
+# including one nobody has invented yet, refuses: an allow list fails closed and
+# a refuse list is silent about whatever it does not mention (L96).
+. "$REPO_ROOT/scripts/lib/script-roles.sh"
+
+# READ FROM STEPS, NOT FROM THE WHOLE FILE. Both workflow files here explain
+# themselves at length and name scripts while doing it, and a rule reading every
+# line would refuse on a sentence ABOUT a check rather than on a step that runs
+# one (L135). Comment lines are dropped and nothing else is: a `run: |` block
+# puts its commands on the lines that follow, so narrowing this to lines carrying
+# `run:` would stop seeing most of what a workflow actually runs.
+NAMED_CHECKS="$(while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    grep -v '^[[:space:]]*#' "$file" | grep -ohE 'check-[a-z0-9-]+\.(sh|py)'
+done <<< "$FILES" | sort -u)"
+NAMED_COUNT="$(printf '%s' "$NAMED_CHECKS" | grep -c . || true)"
+
+if [ "$NAMED_COUNT" -gt 0 ] && [ ! -f "$SCRIPT_ROLES_TSV" ]; then
+  # ONE SIDE OF A COMPARISON MISSING IS NOT AGREEMENT (L345, L98).
+  echo "NO INVENTORY TO COMPARE AGAINST: $SCRIPT_ROLES_TSV is not there."
+  echo "    $NAMED_COUNT check script(s) are run by a workflow and nothing here can"
+  echo "    say whether the inventory agrees about what runs them. A comparison"
+  echo "    that could not read one of its two sides is not a pass."
+  problems=$((problems+1))
+elif [ "$NAMED_COUNT" -gt 0 ]; then
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    role="$(role_of "$name")"
+    case "$role" in
+      workflow|gated) ;;
+      "")
+        echo "NO INVENTORY ENTRY: $name is run by a workflow and scripts/lib/script-roles.tsv"
+        echo "    declares nothing about it, so nothing can say what watches it."
+        echo "    Declare it there, with the reason, beside every other script."
+        problems=$((problems+1))
+        ;;
+      *)
+        echo "RUN BY A WORKFLOW, DECLARED AS SOMETHING ELSE: $name is declared '$role'"
+        echo "    A workflow file runs it. Only 'workflow' and 'gated' say something"
+        echo "    automatic does; 'tool' says a person does, on demand, which is a"
+        echo "    different fact and leaves the check looking unwatched."
+        problems=$((problems+1))
+        ;;
+    esac
+  done <<< "$NAMED_CHECKS"
+fi
+
 # DOES IT PARSE AT ALL (ovation#155). Everything above reads lines, which is the
 # right shape for the questions it asks and is blind to the one failure that
 # costs the most: a workflow file GitHub cannot parse runs no jobs, reports a
@@ -171,6 +238,7 @@ while IFS= read -r file; do
 done <<< "$FILES"
 
 echo "examined $FILE_COUNT workflow file(s) and $job_count job(s) under $DIR"
+echo "    $NAMED_COUNT check script(s) named by a step, held against the inventory"
 echo "    parsed with: $PARSER"
 [ "$problems" -eq 0 ] || exit 1
 exit 0

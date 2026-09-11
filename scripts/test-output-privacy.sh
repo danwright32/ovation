@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 60
+harness_begin "output privacy tests" 72
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -693,6 +693,81 @@ check "the plan claims guard prints no identity" "$(leaks_in "$PLAN_OUT")" "clea
 # file that carries the name.
 check "and it really did anchor a row in the sibling file, so the case reached it" \
     "$(printf '%s' "$PLAN_OUT" | grep -c 'HELD')" "1"
+
+# ---------------------------------------------------------------------------
+# THE SIX RENDERING CHECKS (ovation#214). They were declared `tool` while
+# .github/workflows/ci.yml was running them, and `tool` is the one role in the
+# inventory this suite does not cover. Declaring them truthfully brought them
+# into the set, which is the obligation working rather than a side effect: these
+# READ A PAGE AND QUOTE WHAT THEY FOUND ON IT, and they print into a CI log of a
+# repository that is public on purpose, which is a more public place than a
+# terminal, not a less public one.
+#
+# ONE PLANTED PAGE TRIPS ALL SIX, and it carries a fabricated client and venue in
+# its visible text, which is where a rendered reading would pick them up: it
+# names a token nothing defines, throws on load, draws almost nothing, carries no
+# sidebar card, and declares no app window.
+# ---------------------------------------------------------------------------
+DESIGN="$WORK/design"; mkdir -p "$DESIGN"
+cat > "$DESIGN/staged.html" <<HTML
+<!doctype html>
+<title>A staged design file</title>
+<style>.win { color: var(--nowhere-defined); }</style>
+<div class="win">A shoot for $CLIENT at $VENUE</div>
+<script>notAFunction();</script>
+HTML
+
+# WHICH PATH THE RUN TOOK, so a case cannot pass on the branch that speaks about
+# nothing. Without a browser every one of these refuses at the lookup, before it
+# has read a page, and a clean output there says nothing at all about the branch
+# that quotes one (L98, L411).
+verdict_of() {
+    case "$1" in
+        *"CANNOT MEASURE"*) printf 'no browser' ;;
+        *REFUSED*|*FAIL*|*UNRESOLVED*|*"NO CARD"*) printf 'read the page' ;;
+        *) printf 'said nothing either way' ;;
+    esac
+}
+# DETECTED, NOT ASSUMED, and through the same lookup the checks themselves use,
+# so the expectation cannot disagree with what they will do (L70).
+STAGED_BROWSER="$(python3 -B -c 'import sys; sys.path.insert(0, "scripts/lib"); import design_render; print(design_render.find_browser() or "")' 2>/dev/null)"
+if [ -n "$STAGED_BROWSER" ]; then
+    RENDER_PATH="read the page"
+else
+    RENDER_PATH="no browser"
+    echo "NOTE: there is no headless browser here, so the six rendering checks below"
+    echo "      were driven into their CANNOT MEASURE path. Their output was clean,"
+    echo "      and the branch that quotes a page was not reached on this machine."
+fi
+
+OUT="$(OVATION_DESIGN_ROOT="$DESIGN" ./scripts/check-design-draws.sh 2>&1)"
+check "the every file rendering check prints no identity" "$(leaks_in "$OUT")" "clean"
+check "and it took the path this machine can reach" "$(verdict_of "$OUT")" "$RENDER_PATH"
+
+OUT="$(OVATION_DESIGN_ROOT="$DESIGN" ./scripts/check-design-tokens-resolve.sh 2>&1)"
+check "the token resolution check prints no identity" "$(leaks_in "$OUT")" "clean"
+check "and it too took the path this machine can reach" "$(verdict_of "$OUT")" "$RENDER_PATH"
+
+OUT="$(OVATION_DESIGN_ROOT="$DESIGN" ./scripts/check-design-sidebar-card.sh 2>&1)"
+check "the sidebar card check prints no identity" "$(leaks_in "$OUT")" "clean"
+check "and the card check took the path this machine can reach" "$(verdict_of "$OUT")" "$RENDER_PATH"
+
+OUT="$(OVATION_DESIGN_ROOT="$DESIGN" ./scripts/check-design-window-top.sh 2>&1)"
+check "the window ceiling check prints no identity" "$(leaks_in "$OUT")" "clean"
+check "and the ceiling check took the path this machine can reach" "$(verdict_of "$OUT")" "$RENDER_PATH"
+
+# These two take the file as an argument rather than a root, and they print the
+# path they rendered, which is a path and not an identity. The fixture is named
+# for nobody so that stays true.
+OUT="$(./scripts/check-invoice-screen-draws.sh "$DESIGN/staged.html" 2>&1)"
+check "the invoice screen check prints no identity" "$(leaks_in "$OUT")" "clean"
+check "and the invoice screen check took the path this machine can reach" \
+    "$(verdict_of "$OUT")" "$RENDER_PATH"
+
+OUT="$(./scripts/check-clients-screen-draws.sh "$DESIGN/staged.html" 2>&1)"
+check "the clients screen check prints no identity" "$(leaks_in "$OUT")" "clean"
+check "and the clients screen check took the path this machine can reach" \
+    "$(verdict_of "$OUT")" "$RENDER_PATH"
 
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever

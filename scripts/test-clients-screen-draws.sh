@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "Clients screen rendering checks" 15
+harness_begin "Clients screen rendering checks" 17
 
 TARGET="scripts/check-clients-screen-draws.sh"
 require_target "$TARGET"
@@ -128,5 +128,18 @@ check "the box's label is where the mutation expects it" \
 check "a screen that drops the money box is refused" "$(status_on "$NOBOX")" "1"
 check "and the claim that fired names the box" \
     "$(failed_claims "$NOBOX")" "the selected holder's own box still states the money;"
+
+# ---------------------------------------------------------------------------
+# 5. A BROWSER THAT IS NOT THERE (ovation#214). The probe at the top of this file
+#    covers a machine with no browser at all; this is the other way it can go
+#    wrong, a browser NAMED and absent, and the two took different messages. Every
+#    other rendering check prints CANNOT MEASURE here and this one printed a bare
+#    sentence, so a run that measured nothing read like one that found nothing
+#    (L11, L98).
+# ---------------------------------------------------------------------------
+check "a browser that is named and not there answers cannot measure" \
+    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "3"
+check "and it says so in the words the other rendering checks use" \
+    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" 2>&1 | grep -ci 'cannot measure')" "1"
 
 harness_end

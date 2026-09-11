@@ -661,7 +661,13 @@ def main(argv):
     try:
         browser = find_browser()
     except CannotMeasure as err:
-        fail(str(err), 3)
+        # IN THE WORDS, not only in the exit code (ovation#214). This branch used
+        # to print a bare sentence while its four sibling rendering checks all
+        # print CANNOT MEASURE, so a reader of the output could not tell a run
+        # that measured nothing from one that measured and found nothing (L11,
+        # L98). The code was always 3; only the sentence was missing.
+        print("CANNOT MEASURE: %s" % err)
+        return 3
     if browser is None:
         print(NO_BROWSER)
         return 3
@@ -669,7 +675,13 @@ def main(argv):
     try:
         report = render(browser, path, PROBE)
     except CannotMeasure as err:
-        fail(str(err), 3)
+        # IN THE WORDS, not only in the exit code (ovation#214). This branch used
+        # to print a bare sentence while its four sibling rendering checks all
+        # print CANNOT MEASURE, so a reader of the output could not tell a run
+        # that measured nothing from one that measured and found nothing (L11,
+        # L98). The code was always 3; only the sentence was missing.
+        print("CANNOT MEASURE: %s" % err)
+        return 3
     claims = report.get("claims", {})
     if not claims:
         fail("the probe reported no claims at all, so nothing was measured", 3)

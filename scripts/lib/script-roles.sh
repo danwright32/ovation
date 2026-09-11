@@ -13,7 +13,10 @@
 # from the caller's working directory, because a path re-derived from a caller
 # is relative to wherever that caller was invoked from (L372).
 _SCRIPT_ROLES_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPT_ROLES_TSV="${_SCRIPT_ROLES_LIB_DIR}/script-roles.tsv"
+# OVERRIDABLE, so a suite can plant an inventory and drive a disagreement rather
+# than editing the one the repository runs on (ovation#214, L2). The default is
+# the real file, so nothing that does not ask for the seam can reach a fixture.
+SCRIPT_ROLES_TSV="${OVATION_SCRIPT_ROLES_TSV:-${_SCRIPT_ROLES_LIB_DIR}/script-roles.tsv}"
 SCRIPTS_DIR="$(cd "${_SCRIPT_ROLES_LIB_DIR}/.." && pwd)"
 
 # Every declared entry, as `path<TAB>role<TAB>reason`. Comments and blank lines
