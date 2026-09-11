@@ -53,10 +53,32 @@ fi
 # a heading with no such table is not an entry. The real note ends with a section
 # called "What this folder is to Ovation", and a parser that treated every
 # heading as a file would invent one and then report it absent for ever.
-ENTRIES="$(awk '
+# A SECTION MAY DECLARE ITSELF NOT A CUSTODY FILE, by carrying a
+# `| Not a custody file | <reason> |` row (ovation#208). The note records the
+# paths Ovation depends on outside the repository, and one of them is Downbeat's
+# LIVE export, which Downbeat rewrites on every launch: it can never carry a hash,
+# because a hash would fail on every correct read. Reported as unverifiable it
+# would put a line in every run that is right by design, and a category of finding
+# that is always present is the one people stop reading (L36, L233).
+#
+# THE ROW IS THE REASON, NOT THE NAME. Anything excluded here is excluded because
+# something else rewrites it, so the next such path is covered by the same row
+# rather than by a second exemption written for it (L362). The reason is REQUIRED:
+# an empty one falls through and is verified like anything else, so the row cannot
+# become a way to silence a file by accident.
+# THE FIELD SEPARATOR IS A UNIT SEPARATOR RATHER THAN A TAB, and that is a fix
+# rather than a preference. A tab is IFS WHITESPACE even when IFS is set to
+# exactly a tab, so `read` collapses a run of them: a record whose MIDDLE field is
+# empty then shifts every field after it one to the left, silently. It bit the
+# moment a fourth field arrived, because the live export entry carries no SHA-256,
+# so its record was name, path, EMPTY, reason, and the reason was read as the hash.
+# The entry then looked verifiable and was reported absent.
+SEP=$'\x1f'
+
+ENTRIES="$(awk -v SEP="$SEP" '
     /^## / {
-        if (name != "" && path != "") print name "\t" path "\t" hash
-        name = substr($0, 4); path = ""; hash = ""; next
+        if (name != "" && path != "") print name SEP path SEP hash SEP live
+        name = substr($0, 4); path = ""; hash = ""; live = ""; next
     }
     /^\| *Path *\|/ {
         line = $0
@@ -68,7 +90,15 @@ ENTRIES="$(awk '
         if (match(line, /`[^`]*`/)) hash = substr(line, RSTART + 1, RLENGTH - 2)
         next
     }
-    END { if (name != "" && path != "") print name "\t" path "\t" hash }
+    /^\| *Not a custody file *\|/ {
+        line = $0
+        sub(/^\| *Not a custody file *\| */, "", line)
+        sub(/ *\|[ \t]*$/, "", line)
+        gsub(/^[ \t]+|[ \t]+$/, "", line)
+        if (line != "") live = line
+        next
+    }
+    END { if (name != "" && path != "") print name SEP path SEP hash SEP live }
 ' "$NOTE")"
 
 if [ -z "$ENTRIES" ]; then
@@ -81,11 +111,24 @@ fi
 
 TOTAL=0
 OK=0
+EXCLUDED=0
+EXCLUDED_NAMES=""
 BLOCKING=0
 UNVERIFIABLE=0
 
-while IFS=$'\t' read -r name path hash; do
+while IFS="$SEP" read -r name path hash live; do
     [ -n "$name" ] || continue
+
+    # Declared not a custody file, with a reason. Counted and named at the end
+    # rather than dropped in silence, because an exclusion nothing reports is one
+    # nobody can audit (L98, L233). It is NOT part of TOTAL: these are not files
+    # this verifier is claiming to have checked.
+    if [ -n "${live:-}" ]; then
+        EXCLUDED=$((EXCLUDED+1))
+        EXCLUDED_NAMES="${EXCLUDED_NAMES}${EXCLUDED_NAMES:+, }${name}"
+        continue
+    fi
+
     TOTAL=$((TOTAL+1))
     # The note writes paths with a tilde, deliberately, so they survive being
     # read on either Mac. Expand it here rather than storing a real home path.
@@ -141,6 +184,9 @@ done <<< "$ENTRIES"
 
 echo
 echo "Checked ${TOTAL} recorded file(s): ${OK} verified, ${BLOCKING} blocking, ${UNVERIFIABLE} unverifiable."
+if [ "$EXCLUDED" -gt 0 ]; then
+    echo "Skipped ${EXCLUDED} section(s) declared not custody files: ${EXCLUDED_NAMES}"
+fi
 
 [ "$BLOCKING" -gt 0 ] && exit 1
 [ "$UNVERIFIABLE" -gt 0 ] && exit 2

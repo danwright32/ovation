@@ -25,7 +25,7 @@ struct StoreLaunchSequenceTests {
         let outcome = world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
-        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed", "import-clients", "export-notices"])
         #expect(world.store.open.isEmpty)
     }
 
@@ -118,7 +118,7 @@ struct StoreLaunchSequenceTests {
 
         #expect(outcome == .opened)
         #expect(!world.recorder.steps.contains("backup"))
-        #expect(world.recorder.steps == ["identify", "checkpoint", "open", "version", "seed", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "open", "version", "seed", "import-clients", "export-notices"])
         #expect(world.store.open.isEmpty)
     }
 
@@ -156,7 +156,7 @@ struct StoreLaunchSequenceTests {
 
         #expect(outcome == .opened)
         #expect(world.store.open.contains { $0.kind == .backupFailed })
-        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed", "import-clients", "export-notices"])
     }
 
     @Test("the backup failure names which half failed")
@@ -378,7 +378,8 @@ struct StoreLaunchSequenceTests {
              backup: (@Sendable (Date) throws -> URL)? = nil,
              seed: (@Sendable (ModelContainer) throws -> Int)? = nil,
              recordVersion: (@Sendable (URL) throws -> Void)? = nil,
-             exportNotices: (@Sendable (ModelContainer, Date) -> [ExportNotice])? = nil) throws {
+             exportNotices: (@Sendable (ModelContainer, Date) -> [ExportNotice])? = nil,
+             importClients: (@Sendable (ModelContainer) -> [ClientImportNotice])? = nil) throws {
             directory = URL.temporaryDirectory
                 .appending(path: "ovation-launch-\(UUID().uuidString)",
                            directoryHint: .isDirectory)
@@ -457,6 +458,10 @@ struct StoreLaunchSequenceTests {
                 exportNotices: { container, now in
                     recorder.record("export-notices")
                     return exportNotices?(container, now) ?? []
+                },
+                importClients: { container in
+                    recorder.record("import-clients")
+                    return importClients?(container) ?? []
                 })
         }
 
@@ -532,4 +537,60 @@ struct StoreLaunchSequenceTests {
         #expect(box.count == 0)
     }
 
+    // MARK: the client import (ovation#208)
+
+    /// BUILT IS NOT WIRED (L3). ovation#52 and ovation#57 both closed with nothing
+    /// running them, which is why this whole sequence exists, so the import gets
+    /// the same assertion: that the launch actually calls it.
+    @Test("the launch runs the client import")
+    func theLaunchRunsTheClientImport() throws {
+        let world = try World()
+        world.sequence.run(now: world.instant)
+        #expect(world.recorder.steps.contains("import-clients"))
+    }
+
+    /// IT RUNS AFTER THE BACKUP, and that is the requirement rather than a detail:
+    /// the import WRITES, and a write made before the backup is a write the backup
+    /// does not carry (L5). Same reason the seed runs where it does.
+    @Test("the import runs after the store is open and backed up")
+    func theImportRunsAfterTheBackup() throws {
+        let world = try World()
+        world.sequence.run(now: world.instant)
+        let steps = world.recorder.steps
+        let importIndex = try #require(steps.firstIndex(of: "import-clients"))
+        let backupIndex = try #require(steps.firstIndex(of: "backup"))
+        let openIndex = try #require(steps.firstIndex(of: "open"))
+        #expect(importIndex > backupIndex)
+        #expect(importIndex > openIndex)
+    }
+
+    @Test("what the import has to say reaches Dan through the one presenter")
+    func importNoticesAreRaised() throws {
+        let world = try World(importClients: { _ in [.broughtAcross(count: 31)] })
+        world.sequence.run(now: world.instant)
+        #expect(world.store.open.contains { $0.kind == .clientImportBroughtClientsAcross })
+    }
+
+    /// AN IMPORT THAT FOUND NOTHING TO SAY RAISES NOTHING, which is every launch
+    /// after the first. A notice on the commonest case is one Dan learns to click
+    /// past, and then the ones that matter go past with it (L36).
+    @Test("an import with nothing to say raises nothing")
+    func aQuietImportRaisesNothing() throws {
+        let world = try World(importClients: { _ in [] })
+        world.sequence.run(now: world.instant)
+        #expect(!world.store.open.contains { $0.kind == .clientImportBroughtClientsAcross })
+        #expect(!world.store.open.contains { $0.kind == .clientImportNeedsAnAnswer })
+    }
+
+    /// THE LAUNCH STILL OPENS. A roster that could not be refreshed is an
+    /// annoyance; refusing to open would leave Dan unable to invoice at all, which
+    /// is the same weighing the seed step already made, for the same reason.
+    @Test("an import that cannot read the export still lets the app open")
+    func aFailedImportStillOpens() throws {
+        let world = try World(importClients: { _ in
+            [.exportMissing(file: "downbeat-export.json")]
+        })
+        #expect(world.sequence.run(now: world.instant) == .opened)
+        #expect(world.store.open.contains { $0.kind == .clientImportExportMissing })
+    }
 }

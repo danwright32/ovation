@@ -18,12 +18,22 @@ The numbers it re-derives, each cited in the record beside it:
                             an address at all
     design README           31 clients, and how many hold a special behaviour
 
+    PRD 5, PRD 5a          how many clients carry a recorded tax status, and
+                            how that splits into exempt and not exempt
+
 WHAT IT CANNOT PRODUCE, said out loud rather than left looking reproducible.
-Two figures the record cites are NOT in this file and not in any other committed
-source: how many clients carry a recorded tax status (the record says 6 of 31),
-and how much money is held on a client. This export has no field for either. A
-number nobody can reproduce is a defect rather than a fact, so the run says so
-every time rather than only when somebody asks.
+ONE figure the record cites is not in this file and not in any other committed
+source: how much money is held on a client. A number nobody can reproduce is a
+defect rather than a fact, so the run says so every time rather than only when
+somebody asks.
+
+THE TAX STATUS USED TO BE ON THAT LIST AND WAS NEVER MISSING (ovation#215). This
+docstring and the run both said the export has no field for a client's tax
+status, and the suite asserted that sentence was printed, so three places agreed
+with each other and none of them with the file. `isTaxExempt` was there the whole
+time, on 6 of 31 clients, which is exactly the figure the record said could not
+be re-derived, and Downbeat publishes it in its own CONTRACT.md. A claim that
+something cannot be measured must come from attempting the measurement (L460).
 
 PRINTS COUNTS AND SHARES ONLY. Never a client, a venue, a shoot or a hosting
 site. This file carries all four in plain text and the repository is public
@@ -177,6 +187,26 @@ def main(argv):
     print("  clients whose value is not one   %d of %d"
           % (not_an_address, len(clients)))
 
+    # THE TAX STATUS, MEASURED RATHER THAN DECLARED ABSENT (ovation#215). The
+    # record said this export carries no field for it, and printed that sentence
+    # here on every run, while `isTaxExempt` sat in the client shape Downbeat
+    # publishes in its own CONTRACT.md. A claim that something cannot be measured
+    # has to come from attempting the measurement, or nothing downstream ever
+    # contradicts it (L460).
+    #
+    # THREE STATES, NOT TWO. Absent is a real answer meaning nobody has ever
+    # recorded one, and folding it into "not exempt" would report a client as
+    # confirmed taxable on the strength of a missing key (L257, PRD 5).
+    exempt = sum(1 for c in clients if c.get("isTaxExempt") is True)
+    not_exempt = sum(1 for c in clients if c.get("isTaxExempt") is False)
+    never = sum(1 for c in clients if c.get("isTaxExempt") is None)
+    print("\nCLIENT TAX STATUS (PRD 5, PRD 5a)")
+    print("  clients carrying a recorded status %d of %d"
+          % (exempt + not_exempt, len(clients)))
+    print("  recorded as exempt                 %d of %d" % (exempt, len(clients)))
+    print("  recorded as not exempt             %d of %d" % (not_exempt, len(clients)))
+    print("  clients with no recorded status    %d of %d" % (never, len(clients)))
+
     behaviours = collections.Counter()
     for client in clients:
         behaviours[len(client.get("specialBehaviors") or [])] += 1
@@ -184,13 +214,17 @@ def main(argv):
     for count in sorted(behaviours):
         print("  %2d   %4d" % (count, behaviours[count]))
 
-    # SAID EVERY RUN, not only when somebody asks. Two figures the record cites
-    # have no committed source at all, and a run that stayed silent about them
-    # would leave them looking as reproducible as the ones above (L316, L98).
+    # SAID EVERY RUN, not only when somebody asks. A figure the record cites with
+    # no committed source at all would otherwise look as reproducible as the ones
+    # above (L316, L98).
+    #
+    # THE TAX STATUS WAS ON THIS LIST AND SHOULD NEVER HAVE BEEN. It is measured
+    # above, from the field that was here the whole time (ovation#215, L460), so
+    # what is left here is the one figure that genuinely is not in any source.
     print("\nWHAT THIS EXPORT CANNOT ANSWER")
-    print("  a client's recorded tax status: there is no field for it here, so")
-    print("  the record's \"6 of 31 carry one\" cannot be re-derived from any")
-    print("  committed source. Same for money held on a client.")
+    print("  money held on a client: this export carries nothing about payments")
+    print("  and the FreshBooks export is invoices rather than clients, so that")
+    print("  figure cannot be re-derived from any committed source.")
     return 0
 
 

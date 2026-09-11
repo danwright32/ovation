@@ -184,6 +184,32 @@ ovation#23, which exists for exactly this, and it is not free: the guard's own n
 needles derived from real business names WILL over match, and this file's `Item Name` column holds
 event titles that are ordinary English words.
 
+## The LIVE export, which is not a custody file at all
+
+Recorded here because this is where anybody looks for the paths Ovation depends on outside the
+repository, and leaving it out was how it came to be unrecorded while three apps read it.
+
+| Field | Value |
+| --- | --- |
+| Path | `~/Library/Application Support/Overture/downbeat-export.json` |
+| Written by | Downbeat, on every Downbeat launch, atomically (write then rename) |
+| Read by | Overture, and now Ovation (ovation#208) |
+| Declared in | Downbeat's `Downbeat/Integration/OvertureExport/CONTRACT.md` |
+| Not a custody file | Downbeat rewrites it on every launch, so a recorded hash would fail on every correct read |
+
+**It has no recorded hash and must never be given one.** Every file above this section is a frozen
+snapshot whose hash is verified at read time, because a figure derived from a file that changed
+underneath the record is worse than no figure. This one is the opposite: it legitimately changes
+whenever Downbeat launches, so a hash would fail on every correct read. What guards it instead is
+the decoder's own version floor and its named refusals (`Ovation/Domain/DownbeatExport.swift`).
+
+**It sits under OVERTURE's folder, not Ovation's, and that is not a mistake to tidy.** Downbeat
+wrote this file for Overture first and publishes the path in its own contract. Moving it is a
+change to three applications at once.
+
+**Ovation reads it and never writes it.** The import at launch only ever reads; every write it
+makes goes to Ovation's own store.
+
 ## What this folder is to Ovation
 
 Decided 2026-08-28, recorded here so the app and its guards agree:

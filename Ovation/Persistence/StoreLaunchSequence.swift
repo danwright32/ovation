@@ -70,6 +70,13 @@ struct StoreLaunchSequence {
     /// would be indistinguishable from a healthy export history, which is this
     /// feature's own failure mode (L168, L98).
     let exportNotices: @Sendable (ModelContainer, Date) -> [ExportNotice]
+    /// ovation#208. Brings Downbeat's client roster across, and says what it did.
+    ///
+    /// INJECTED WITH NO DEFAULT, like every other step. A default of "no notices"
+    /// would be indistinguishable from an import that ran and correctly found
+    /// nothing to do, which is this feature's own commonest outcome (L168, L98).
+    let importClients: @Sendable (ModelContainer) -> [ClientImportNotice]
+
     /// ovation#162. Hands the opened store to whoever has to act on it later.
     ///
     /// IT EXISTS BECAUSE A CONTROL NEEDS ONE. `YearEndExportCommand` runs an
@@ -219,7 +226,28 @@ struct StoreLaunchSequence {
                 now: now)
         }
 
-        // 7. SAY WHAT IS TRUE ABOUT THE EXPORT (ovation#64). Both notices reach
+        // 7. BRING THE CLIENT ROSTER ACROSS (ovation#208).
+        //
+        // IT RUNS HERE, AFTER THE BACKUP, because it WRITES, and a write made
+        // before the backup is a write the backup does not carry (L5). That is
+        // the same reason the seed sits where it does.
+        //
+        // A FAILURE IS REPORTED AND THE LAUNCH CONTINUES, the same weighing as
+        // the backup and the seed: a roster that could not be refreshed is an
+        // annoyance Dan can work around, and refusing to open would leave him
+        // unable to invoice at all. The runner has already turned every way this
+        // can fail into a notice that says which one it was, so there is nothing
+        // to catch here; what would be wrong is saying nothing.
+        //
+        // A RUN THAT CHANGED NOTHING RAISES NOTHING, which is every launch after
+        // the first. That decision lives in the runner rather than here, so the
+        // rule has one home (L83).
+        for notice in importClients(container) {
+            _ = problems.raise(kind: notice.kind, subject: notice.subject,
+                               sentence: notice.sentence, now: now)
+        }
+
+        // 8. SAY WHAT IS TRUE ABOUT THE EXPORT (ovation#64). Both notices reach
         // Dan through this one presenter rather than as independent alerts
         // (L242), and both are DERIVED here rather than stored as a conclusion,
         // because a recorded fact about something outside the app is only true on

@@ -145,6 +145,60 @@ struct OvationApp: App {
                         from: loaded.runs, now: now,
                         storeHasEverHeldSomethingToExport:
                             ExportRunLog.storeHasSomethingToExport(container))
+                },
+                // ovation#208. Downbeat's client roster, brought across and kept
+                // in step. Nothing in Ovation created a client before this, so
+                // the roster screen was correct and drew nothing.
+                //
+                // THE PATH IS PASSED IN RATHER THAN DEFAULTED, which is Downbeat's
+                // own rule about this same file (downbeat#133): whether a launch
+                // may read it is a decision made here, once, and not something a
+                // convenient default makes for every caller.
+                //
+                // A READ OR A SAVE THAT FAILS IS A NOTICE, never a silent empty
+                // roster. An import that returned nothing because it could not
+                // read anything would be indistinguishable from one that ran and
+                // found nothing to do, which is the outcome that happens on almost
+                // every launch (L98).
+                importClients: { container in
+                    let support = FileManager.default.urls(
+                        for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                    let url = ClientImportRunner.productionURL(
+                        applicationSupportDirectory: support)
+                    let context = ModelContext(container)
+
+                    var held: [Client]
+                    do {
+                        held = try context.fetch(FetchDescriptor<Client>())
+                    } catch {
+                        return [.couldNotRead(
+                            file: url.lastPathComponent,
+                            refusal: .notReadable(
+                                detail: "Ovation could not read its own client list: "
+                                    + error.localizedDescription))]
+                    }
+
+                    let result = ClientImportRunner.run(file: url, held: &held) {
+                        try Data(contentsOf: $0)
+                    }
+
+                    // SAVE ON WHAT IT DID, NEVER ON WHAT IT SAID. A run whose only
+                    // effect was a rename raises no notice, deliberately, and has
+                    // still changed the store: deciding from the notices applied
+                    // every rename in memory and dropped it when this context went,
+                    // on every launch, with no symptom at all (L11).
+                    guard result.summary.changedSomething else { return result.notices }
+                    for client in result.created { context.insert(client) }
+                    do {
+                        try context.save()
+                    } catch {
+                        return [.couldNotRead(
+                            file: url.lastPathComponent,
+                            refusal: .notReadable(
+                                detail: "the clients could not be saved: "
+                                    + error.localizedDescription))]
+                    }
+                    return result.notices
                 }
             )
             sequence.onOpened = { openedStore.container = $0 }

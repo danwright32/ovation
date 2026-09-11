@@ -57,6 +57,27 @@ extension ProblemKind {
     /// app is open and usable, and what is missing is three rows in a picker.
     static let startingDataNotSeeded = ProblemKind("seed.starting-data")
 
+    /// Downbeat's export is not at the path Ovation reads (ovation#208). Its own
+    /// kind because the remedy is not about a file at all: Downbeat writes that
+    /// file when it starts, so opening Downbeat once creates it.
+    static let clientImportExportMissing = ProblemKind("client-import.export-missing")
+
+    /// The export is there and could not be read (ovation#208). Deliberately not
+    /// folded into the one above: that would send Dan to launch Downbeat when the
+    /// real answer is a damaged file, which is a true sentence for the wrong
+    /// reason (L11).
+    static let clientImportUnreadable = ProblemKind("client-import.unreadable")
+
+    /// Clients that were not here before are here now (ovation#208). Not a fault,
+    /// and said out loud because a roster appearing is a change to what every
+    /// screen shows.
+    static let clientImportBroughtClientsAcross = ProblemKind("client-import.brought-across")
+
+    /// Rows that matched more than one client, or matched only by name, so the
+    /// import left them alone (ovation#208). The one import outcome that needs
+    /// Dan, which is why it speaks although nothing changed.
+    static let clientImportNeedsAnAnswer = ProblemKind("client-import.needs-an-answer")
+
     /// No export has been run for long enough to be worth saying (ovation#64).
     static let exportStale = ProblemKind("export.stale")
 
