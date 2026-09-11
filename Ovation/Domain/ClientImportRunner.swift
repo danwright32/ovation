@@ -109,12 +109,20 @@ enum ClientImportRunner {
     /// Read the export, decide, carry it out, and say what happened.
     ///
     /// Returns the clients it CREATED, for the caller to insert into the store,
-    /// and the notices to raise. Updates are made in place on `held`.
+    /// the notices to raise, and a SUMMARY of what it did. Updates are made in
+    /// place on `held`.
+    ///
+    /// THE SUMMARY IS NOT THE NOTICES, and conflating them is a silent data loss.
+    /// A run whose only effect was a rename says NOTHING, deliberately, because a
+    /// refreshed address is invisible maintenance; but it has still changed the
+    /// store and the caller must save. A caller deciding whether to write from
+    /// "did it have anything to say" would apply every rename in memory and drop
+    /// it when the context went, on every launch, with no symptom (L11).
     static func run(
         file url: URL,
         held: inout [Client],
         contentsOf: (URL) throws -> Data
-    ) -> (created: [Client], notices: [ClientImportNotice]) {
+    ) -> (created: [Client], notices: [ClientImportNotice], summary: ClientImportSummary) {
         let filename = url.lastPathComponent
 
         let data: Data
@@ -125,10 +133,11 @@ enum ClientImportRunner {
             // here rather than both reported as a failed read. The remedy for one
             // is to open Downbeat; for the other it is to look at the file.
             if isNoSuchFile(error) {
-                return ([], [.exportMissing(file: filename)])
+                return ([], [.exportMissing(file: filename)], ClientImportSummary())
             }
             return ([], [.couldNotRead(file: filename,
-                                       refusal: .notReadable(detail: error.localizedDescription))])
+                                       refusal: .notReadable(detail: error.localizedDescription))],
+                    ClientImportSummary())
         }
 
         let export: DownbeatExport
@@ -136,7 +145,7 @@ enum ClientImportRunner {
         case .read(let value):
             export = value
         case .refused(let refusal):
-            return ([], [.couldNotRead(file: filename, refusal: refusal)])
+            return ([], [.couldNotRead(file: filename, refusal: refusal)], ClientImportSummary())
         }
 
         let actions = ClientImport.plan(for: export.clients, against: held)
@@ -149,7 +158,7 @@ enum ClientImportRunner {
         var notices: [ClientImportNotice] = []
         if summary.created > 0 { notices.append(.broughtAcross(count: summary.created)) }
         if summary.leftAlone > 0 { notices.append(.needsYou(count: summary.leftAlone)) }
-        return (created, notices)
+        return (created, notices, summary)
     }
 
     /// Whether this error means the file simply is not there. Checked against the

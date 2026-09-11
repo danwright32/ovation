@@ -156,6 +156,24 @@ struct ClientImportRunnerTests {
         #expect(count == 1)
     }
 
+    /// A RUN THAT ONLY UPDATED STILL CHANGED THE STORE, and saying nothing is not
+    /// the same as having nothing to save. The caller decides whether to write
+    /// from this, so a run whose only effect was a rename must report that it
+    /// changed something even though it raises no notice. Getting this wrong is
+    /// silent: the rename is applied in memory and dropped when the context goes.
+    @Test("a run that only updated reports that it changed something")
+    func anUpdateOnlyRunStillChangedSomething() {
+        let id = UUID()
+        var store = [Self.held("Old name", email: "old@example.com", downbeat: id)]
+        let result = ClientImportRunner.run(file: Self.url, held: &store) { _ in
+            Self.bytes(clients: Self.oneRow(id: id, name: "New name", email: "new@example.com"))
+        }
+        #expect(result.notices.isEmpty, "a rename is invisible maintenance and says nothing")
+        #expect(result.summary.changedSomething, "but it DID change the store and must be saved")
+        #expect(result.summary.updated == 1)
+        #expect(store[0].name == "New name")
+    }
+
     // MARK: where the file is
 
     /// THE ONE PATH DOWNBEAT WRITES. It sits under Overture's folder rather than

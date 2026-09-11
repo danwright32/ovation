@@ -81,10 +81,21 @@ struct ClientImportSummary: Equatable, Sendable {
     var updated = 0
     var leftAlone = 0
 
-    /// Whether this run is worth saying anything about. A launch that changed
-    /// nothing is every launch after the first, and a notice on the commonest
-    /// case is one Dan learns to click past (L36).
-    var changedSomething: Bool { created > 0 || updated > 0 || leftAlone > 0 }
+    /// Whether this run WROTE to the store, which is the caller's cue to save.
+    ///
+    /// IT IS NOT "DID IT HAVE ANYTHING TO SAY". A run whose only effect was a
+    /// rename says nothing, deliberately, and has still changed the store; a
+    /// caller that saved on the notices would apply every rename in memory and
+    /// drop it when the context went, on every launch, with no symptom.
+    ///
+    /// AND `leftAlone` IS NOT IN IT. A row left alone is precisely one that
+    /// changed nothing, which is the whole point of that outcome. It raises a
+    /// notice without being a write, which is the mirror of the case above.
+    ///
+    /// An update counts whether or not the values actually differed, because the
+    /// question here is "must I save", and saving a context with nothing in it is
+    /// a no-op rather than a wrong answer.
+    var changedSomething: Bool { created > 0 || updated > 0 }
 }
 
 enum ClientImport {

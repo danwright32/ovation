@@ -181,9 +181,13 @@ struct OvationApp: App {
                     let result = ClientImportRunner.run(file: url, held: &held) {
                         try Data(contentsOf: $0)
                     }
-                    guard !result.created.isEmpty || !result.notices.isEmpty else {
-                        return []
-                    }
+
+                    // SAVE ON WHAT IT DID, NEVER ON WHAT IT SAID. A run whose only
+                    // effect was a rename raises no notice, deliberately, and has
+                    // still changed the store: deciding from the notices applied
+                    // every rename in memory and dropped it when this context went,
+                    // on every launch, with no symptom at all (L11).
+                    guard result.summary.changedSomething else { return result.notices }
                     for client in result.created { context.insert(client) }
                     do {
                         try context.save()
