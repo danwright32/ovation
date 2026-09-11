@@ -826,6 +826,10 @@ Re-measured against the real export under those corrections, counts only:
 So the pass is **one address and 25 tax statuses**, not the mixed pile of four or five problems
 the issue described. Three of the four problem kinds turned out not to be problems.
 
+**The table above is this round's measurement and is kept as it was taken. The address figure is
+now 0**, because Dan corrected that value in Downbeat on 2026-09-11; see the later entry. Nothing
+else in the table moved.
+
 **Ordered by cost, not by count.** One broken address sits above 25 missing statuses. Frequency
 earns real estate on a list read daily; consequence earns it on a list cleared once.
 
@@ -957,6 +961,55 @@ them changes nothing: two of the three options drew the identical screen. The ro
 a status. The export cannot say which is true of the real pair, because it has no field for a tax
 status at all, and PRD 5a0 records that the figure behind this whole pass is one of the two nothing
 can re-derive.
+
+### The address half emptied itself, 2026-09-11 (ovation#40)
+
+**Dan fixed the one unsendable address in Downbeat, at source, and the pass is now 25 tax statuses
+and nothing else.** He was shown the value on his own screen and chose to correct it where client
+records are kept rather than have Ovation edit one, which settles a question this file could not
+answer: **nothing in Ovation edits an address, and nothing needs to.** The roster row drew the fault
+in a read only field and the Clients detail pane draws it the same way, so until that morning the
+pass showed a blocker it offered no way to clear, and could never have reached `Nothing left to
+settle`.
+
+**A section with nothing in it is not drawn.** The file drew both section headers unconditionally,
+so with the fix in place the screen would have said `Addresses that cannot be sent to  0`, which is
+the rule this very screen extended to a whole place in the app. It is the same zero rule as every
+count in the card, as money held, and as the roster's own presence in the rail, and this is the
+fifth time it has been stated.
+
+**Zero is a fact about today's data, never about the rule.** The address section, the check behind
+it and its fixture all stay, because a client typed into Ovation by hand can still carry a value
+that is not an address, and the export could carry one again tomorrow. Re-derive the figure from
+the current export with `scripts/measure-booking-export.py`, never from this paragraph (L175).
+
+### The rail ships with the first screen, settled 2026-09-11 (ovation#40, PRD 44a)
+
+The roster pass is the first product screen Ovation draws in SwiftUI, and the window it lands in
+did not exist. Three were rendered at the real count, 31 clients and 25 needing a status, with the
+screen itself byte identical in all three and only the shell moving.
+
+**Dan took the rail as PRD 44 describes it, with `Invoices`, `Expenses` and `Clients` present and
+marked `not built yet`.** Three of the four entries lead nowhere for months, which is the stated
+cost. What it buys is that the two rules round 5 settled have somewhere to be true: the roster is
+in the rail only while something blocks, and it stays while you are standing on it.
+
+**Rejected: the window holding the pass alone, with no rail.** Drawing it surfaced a consequence
+nobody had written down, which is that the rail carries the launch notices and the backup status as
+well, so a screen taking the whole window takes their surface with it. **Rejected: the rail with
+the Clients screen finished beside it**, which ships both halves of this file at once but draws
+money held and referral credit before either has data behind it.
+
+**Two things the round had to fix in itself, both recorded because both are the kind that read as
+finished.** The traffic lights are drawn inside the rail, so the option with no rail had none at
+all and read as an unfinished window for a reason that has nothing to do with the question; they
+move to the title bar there, which is what macOS does when the sidebar is not carrying colour. And
+the sidebar card was drawn with the invoice list's fixture counts, which would have shown `To send
+4` in an app holding no invoices; it says `Nothing waiting`, which is what is true on day one.
+
+**The placeholder treatment was deliberately not settled by the round.** It was drawn plain so the
+round stayed about whether the rail is there at all. Dan chose to keep it as drawn rather than run
+a second round, on the stated grounds that it is four words in one place.
 
 ### What the screen still is not
 

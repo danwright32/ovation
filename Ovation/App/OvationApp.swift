@@ -22,6 +22,11 @@ struct OvationApp: App {
     /// The store the launch sequence opened, handed on rather than opened again:
     /// two containers over one file are two writers (ovation#84).
     @State private var opened: ModelContainer?
+    /// ovation#40, PRD 44a. The roster pass and the rail around it. Both nil
+    /// where no store was opened, which is every disposable launch, and where
+    /// the client list could not be read, which raises its own problem.
+    @State private var roster: RosterPresenter?
+    @State private var shell: ShellPresenter?
 
     init() {
         // A disposable launch gets a journal that writes nowhere, so nothing a
@@ -146,12 +151,32 @@ struct OvationApp: App {
             sequence.run(now: Date())
         }
 
+        // ovation#40. The roster is read BEFORE the presenter refreshes, so that
+        // a client list it could not read is already in the store by the time
+        // the first screen asks what is wrong. Same ordering, and the same
+        // reason, as the launch sequence above.
+        //
+        // ONE CONTEXT, held by the closures it was made for. The fetch and the
+        // save must be the same context or a change is written back through a
+        // second one, which is two writers over one file (ovation#84).
+        var rosterPair: (roster: RosterPresenter, shell: ShellPresenter)?
+        if let container = openedStore.container {
+            let context = ModelContext(container)
+            rosterPair = RosterLaunch.presenters(
+                fetchClients: { try context.fetch(FetchDescriptor<Client>()) },
+                save: { try context.save() },
+                problems: store,
+                now: Date())
+        }
+
         let presenter = LaunchPresenter(store: store)
         presenter.refresh()
 
         _store = State(initialValue: store)
         _presenter = State(initialValue: presenter)
         _opened = State(initialValue: openedStore.container)
+        _roster = State(initialValue: rosterPair?.roster)
+        _shell = State(initialValue: rosterPair?.shell)
         // THE COMMAND IS BUILT EVEN WHEN THERE IS NOWHERE TO WRITE, and answers
         // why rather than being absent. A menu item that vanishes on a throwaway
         // launch teaches nothing; one that is there and says what is missing is
@@ -167,7 +192,8 @@ struct OvationApp: App {
 
     var body: some Scene {
         Window(OvationBuild.displayName, id: OvationBuild.mainWindowID) {
-            RootView(presenter: presenter, store: store, exportCommand: exportCommand)
+            RootView(presenter: presenter, store: store, exportCommand: exportCommand,
+                     roster: roster, shell: shell)
         }
         // ovation#162. THE CONTROL THE STALENESS NOTICE NAMES. Until this existed
         // `YearEndExport.run` was called by nothing, so that notice named a

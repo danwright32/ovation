@@ -22,7 +22,7 @@ TARGET="scripts/check-forbidden-constructs.sh"
 FORBIDDEN="$([ -x "./$TARGET" ] && "./$TARGET" --list 2>/dev/null)"
 FORBIDDEN_COUNT="$(printf '%s\n' "$FORBIDDEN" | grep -c .)"
 
-harness_begin "forbidden construct tests" $((22 + FORBIDDEN_COUNT))
+harness_begin "forbidden construct tests" $((24 + FORBIDDEN_COUNT))
 require_target "$TARGET"
 harness_temp_dir WORK
 
@@ -155,6 +155,28 @@ check "an allowlist covering every file in the root refuses rather than passing"
 check "a refused allowlist says which entry it refused" \
     "$(OVATION_CONSTRUCT_SCAN_ROOT="$ALLOWED" OVATION_CONSTRUCT_ALLOWLIST="Gone.swift # a reason" \
         "./$TARGET" 2>&1 | grep -c 'Gone.swift')" "1"
+
+# ---------------------------------------------------------------------------
+# WHAT THE DEFAULT ALLOWLIST ACTUALLY COSTS, measured rather than assumed.
+#
+# An entry names a FILE, not a file and a rule, so exempting one construct in a
+# file exempts every construct in it. The palette is exempted for the money rule
+# and would now pass carrying a `Task.detached` or a `Calendar.current` as well,
+# silently, with its own comment still claiming it holds nothing but colour
+# (L448, L129).
+#
+# So the file is scanned here with the allowlist EMPTY, and the money rule is
+# asserted to be the only one it trips. This fails the day anything else goes in
+# it, which is exactly when the exemption's reason stops being true.
+# ---------------------------------------------------------------------------
+PALETTE="$WORK/palette"
+mkdir -p "$PALETTE"
+cp "Ovation/Roster/OvationPalette.swift" "$PALETTE/"
+check "the exempted palette is genuinely found, so this case measures something" \
+    "$(status_on "$PALETTE" "")" "1"
+check "and it trips no OTHER rule, which is what its exemption silently covers" \
+    "$(OVATION_CONSTRUCT_SCAN_ROOT="$PALETTE" OVATION_CONSTRUCT_ALLOWLIST="" \
+        "./$TARGET" 2>&1 | grep -cE 'ambient calendar|cooperative pool')" "0"
 
 # ---------------------------------------------------------------------------
 # The real root, once, so the seam is not the only thing ever measured (L246).

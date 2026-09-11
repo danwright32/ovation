@@ -112,4 +112,67 @@ struct RootViewTests {
     private func at(_ second: Int) -> Date {
         Date(timeIntervalSinceReferenceDate: TimeInterval(second))
     }
+
+    // MARK: which window Dan actually gets (ovation#40, PRD 44a)
+
+    /// L3: built is not wired. Every test above this point renders `ShellView`
+    /// directly, which says nothing about whether the app ever SHOWS it. These
+    /// two drive the choice the window actually makes.
+    ///
+    /// THE SHELL OWNS THE WINDOW ONLY WHILE THE ROSTER IS IN THE RAIL, which is
+    /// the same predicate the rail itself uses rather than a second one beside
+    /// it (L70). So the roster cannot be in the rail with the shell not showing,
+    /// nor the shell showing with nothing to stand on.
+    @Test("the window is the shell while something blocks a send")
+    func theWindowIsTheShellWhenTheRosterHasWork() throws {
+        let (store, presenter) = make()
+        let roster = Self.rosterNeeding(3)
+        let shell = ShellPresenter(selected: .roster, rosterHasWork: { !roster.isSettled })
+
+        let view = RootView(presenter: presenter, store: store, now: { at(11) },
+                            roster: roster, shell: shell)
+
+        #expect(throws: Never.self) {
+            try view.inspect().find(text: Destination.roster.title)
+        }
+        #expect(throws: Never.self) {
+            try view.inspect().find(text: "Invoices")
+        }
+    }
+
+    /// And the other direction, or the assertion above is satisfied by a window
+    /// that shows the shell unconditionally (L98, L159). With nothing blocking,
+    /// the window is what it has always been, so the launch notices and the
+    /// durable list are not quietly replaced by a screen with nothing on it.
+    @Test("the window is the problems surface when nothing blocks a send")
+    func theWindowIsTheProblemsSurfaceWhenSettled() throws {
+        let (store, presenter) = make()
+        store.raise(kind: .foreignStore, subject: "s",
+                    sentence: "The database belongs to another app.", now: at(10))
+        presenter.refresh()
+
+        let roster = Self.rosterNeeding(0)
+        let shell = ShellPresenter(selected: .invoices, rosterHasWork: { !roster.isSettled })
+
+        let view = RootView(presenter: presenter, store: store, now: { at(11) },
+                            roster: roster, shell: shell)
+
+        #expect(throws: Never.self) {
+            try view.inspect().find(text: "The database belongs to another app.")
+        }
+        #expect(throws: (any Error).self) {
+            try view.inspect().find(text: "Invoices")
+        }
+    }
+
+    private static func rosterNeeding(_ count: Int) -> RosterPresenter {
+        var clients: [Client] = []
+        for i in 0..<count {
+            let c = Client(name: "Client \(i)", taxStatus: .neverRecorded)
+            c.email = "c\(i)@example.example"
+            clients.append(c)
+        }
+        return RosterPresenter(clients: clients, save: {})
+    }
 }
+

@@ -23,7 +23,37 @@ struct RootView: View {
     /// hosted test that was written before there was one.
     var exportCommand: YearEndExportCommand?
 
+    /// ovation#40, PRD 44a. The roster pass and the rail around it. Both nil
+    /// where there is no store to read clients from, which is every launch that
+    /// refused to open one, and every hosted test written before this existed.
+    var roster: RosterPresenter?
+    var shell: ShellPresenter?
+
+    /// WHICH WINDOW DAN GETS, decided in ONE place.
+    ///
+    /// The shell owns the window exactly while the roster is in the rail, and it
+    /// asks the RAIL rather than computing a second predicate beside it, so the
+    /// two can never disagree about whether there is anywhere to stand (L70).
+    ///
+    /// WHEN IT IS NOT SHOWING, THE WINDOW IS WHAT IT HAS ALWAYS BEEN. That is
+    /// deliberate rather than a fallback: the launch notices and the durable
+    /// problems list are the only surface several refusals have (ovation#59), so
+    /// they are never replaced by a screen with nothing on it. Inside the shell
+    /// they are carried at the foot of the rail instead.
+    private var shellOwnsTheWindow: Bool {
+        guard let shell, roster != nil else { return false }
+        return shell.destinations.contains(.roster)
+    }
+
     var body: some View {
+        if shellOwnsTheWindow, let shell, let roster {
+            ShellView(shell: shell, roster: roster, problems: store)
+        } else {
+            problemsWindow
+        }
+    }
+
+    private var problemsWindow: some View {
         VStack(alignment: .leading, spacing: 16) {
             if let command = exportCommand, case .running = command.progress {
                 RunningExportView(command: command)

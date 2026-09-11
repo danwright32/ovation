@@ -33,6 +33,29 @@ struct RosterPassTests {
         return c
     }
 
+    // MARK: what the pass CANNOT hold, which is why the chip has one look
+
+    /// EVERY CLIENT IN THE TAX SECTION HAS NO RECORDED STATUS, by construction,
+    /// which is what makes a chosen chip unreachable on that screen.
+    ///
+    /// `RosterPassView` used to draw a filled chip for the answer already
+    /// recorded, taken from the design file, which carries the same branch. It
+    /// can never fire: the section is built from `needingTaxStatus`, so the only
+    /// value any of those clients holds is `neverRecorded`, and answering one
+    /// takes it out of the section rather than marking it. The treatment was
+    /// removed and this is the statement that keeps it removable (L29).
+    @Test("no client in the tax section can already carry a status")
+    func theTaxSectionHoldsOnlyUnansweredClients() {
+        let pass = RosterPass(clients: [
+            Self.client("A", tax: .neverRecorded),
+            Self.client("B", tax: .exempt),
+            Self.client("C", tax: .notExempt),
+        ])
+
+        #expect(pass.needingTaxStatus.count == 1)
+        #expect(pass.needingTaxStatus.allSatisfy { $0.taxStatus == .neverRecorded })
+    }
+
     // MARK: what the pass holds
 
     @Test("a client with no recorded tax status is in the pass")

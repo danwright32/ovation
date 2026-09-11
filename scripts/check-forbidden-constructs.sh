@@ -134,7 +134,31 @@ RULES = (
 # with no reason is refused rather than honoured: an exemption carrying no
 # written reason, sitting beside neighbours that have one, is evidence nobody
 # reasoned about it (L233).
-DEFAULT_ALLOWLIST = ()
+DEFAULT_ALLOWLIST = (
+    # A COLOUR CHANNEL IS NOT MONEY, and this is the one place the distinction
+    # has to be written down. The rule above forbids floating point because
+    # Ovation's money is Int64 minor units and its hours are hundredths, and a
+    # single conversion through a Double is a rounding error small enough to
+    # survive review. `Color(.sRGB, red:green:blue:opacity:)` takes Doubles and
+    # there is no integer form of it, so drawing the agreed palette at all
+    # requires three of them.
+    #
+    # THE HONEST ALTERNATIVES WERE BOTH WORSE. Writing the channels as bare
+    # decimal literals removes the word `Double` and passes this check while
+    # changing nothing about the arithmetic, and it would throw away the hex the
+    # design record is written in, which is what keeps this file comparable with
+    # docs/design/shell/palette.css. Converting through `CGFloat` passes for the
+    # same empty reason: it is not in the token list above and it is still
+    # floating point. Either would be evading the rule by spelling.
+    #
+    # THIS EXEMPTION IS WRONG THE MOMENT THAT FILE HOLDS ANYTHING BUT COLOUR.
+    # It is scoped to one file that contains nothing else, and the parser above
+    # refuses an entry naming a file that is not there, so the reason cannot
+    # outlive what it exempts.
+    "Roster/OvationPalette.swift # colour channels, not money: SwiftUI's Color "
+    "takes Doubles and has no integer form, and this file holds nothing but the "
+    "palette quoted from docs/design/shell/palette.css",
+)
 
 for _rule in RULES:
     _rule["pattern"] = re.compile(

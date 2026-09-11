@@ -16,7 +16,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "project configuration tests" 27
+harness_begin "project configuration tests" 28
 
 require_target "project.yml"
 
@@ -278,7 +278,25 @@ check "a pure suite file importing the app module is found" \
 check "no file in the pure suite imports the app module" \
     "$(app_module_importers OvationTests)" ""
 
-check "and the hosted suite, which does keep a host, still does" \
-    "$(app_module_importers OvationHostedTests)" "RootViewTests.swift"
+# THE EXPECTATION IS DERIVED, NOT LISTED. This named the one hosted file that
+# existed when it was written, so the first correct addition to that suite broke
+# it, and the obvious repair is to paste the new name in beside the old one. A
+# list maintained by hand beside the thing it mirrors drifts, and the rule it is
+# standing in for is not "these files": it is that EVERY file in the hosted suite
+# imports the app module, because that is the suite that keeps a TEST_HOST and
+# the import is only correct there (L41, L96).
+hosted_swift_count() {
+    local f n=0
+    for f in OvationHostedTests/*.swift OvationHostedTests/*/*.swift; do
+        [ -f "$f" ] && n=$((n + 1))
+    done
+    printf '%s' "$n"
+}
+# A suite holding NOTHING satisfies "every file imports it" and reads exactly
+# like a healthy one, so the floor is asserted separately (L98).
+check "the hosted suite actually holds something to check" \
+    "$([ "$(hosted_swift_count)" -gt 0 ] && printf 'yes' || printf 'no')" "yes"
+check "and every file in the hosted suite, which does keep a host, imports it" \
+    "$(app_module_importers OvationHostedTests | wc -w | tr -d ' ')" "$(hosted_swift_count)"
 
 harness_end
