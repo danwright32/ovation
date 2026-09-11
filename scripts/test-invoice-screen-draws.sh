@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 62
+harness_begin "invoice screen rendering checks" 63
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -327,5 +327,12 @@ check "a file that is not there is refused rather than passed" \
     "$(status_on "$WORK/no-such-file.html")" "2"
 check "and a browser that is not there answers cannot measure" \
     "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "3"
+# AND IT SAYS SO IN THE WORDS, not only in its exit code (ovation#214). Every
+# other rendering check prints CANNOT MEASURE on this branch and this one printed
+# a bare sentence, so a reader of the output could not tell a run that measured
+# nothing from one that measured and found nothing (L11, L98). Found by the
+# output privacy suite, which had to ask which path a run had taken.
+check "and it says so in the words the other rendering checks use" \
+    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" 2>&1 | grep -ci 'cannot measure')" "1"
 
 harness_end

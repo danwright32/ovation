@@ -18,7 +18,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ci workflow tests" 17
+harness_begin "ci workflow tests" 26
 
 TARGET="scripts/check-ci-workflow.sh"
 require_target "$TARGET"
@@ -139,5 +139,114 @@ check "and it says what an unparseable workflow actually does" \
 # cannot read like one that parsed and found nothing wrong (L98).
 check "a good workflow says which parser judged it" \
     "$(run_check "$G" | grep -ci 'parsed with:')" "1"
+
+# ---------------------------------------------------------------------------
+# WHAT A WORKFLOW RUNS, AGAINST WHAT THE INVENTORY SAYS RUNS IT (ovation#214).
+#
+# scripts/lib/script-roles.tsv declares for every script what watches it, and
+# scripts/test-preconditions.sh already asserts ONE direction of that: every
+# script declared `workflow` is named by a workflow file. Nothing asserted the
+# reverse, and six scripts sat on the wrong side of it for as long as that was
+# true. The six rendering checks are run by .github/workflows/ci.yml and were
+# declared `tool`, which the inventory defines as "Run by a person on demand",
+# each carrying a reason that was true when it was written and had since been
+# answered by gate_check's three outcomes (ovation#135). So each entry read as a
+# considered decision while describing a state that had changed (L346).
+#
+# A ONE DIRECTIONAL COMPARISON IS NOT A COMPARISON: it can only find the entries
+# somebody remembered to declare, which was never the half that went wrong. Both
+# sides have to be enumerated from their own source and held against each other
+# (L582, L41).
+#
+# THIS IS WHERE IT LIVES rather than in a guard of its own, because it is the
+# same question this file already exists to ask: a workflow file carries
+# decisions nothing else in the repository reads, and a check a workflow runs is
+# one of them.
+
+# A workflow that names one check script in a step, and is otherwise everything
+# the cases above demand: a timeout, a pinned action, the documented command.
+workflow_naming() {
+    # workflow_naming <dir> <script name>
+    mkdir -p "$1"
+    cat > "$1/ci.yml" <<YML
+name: CI
+jobs:
+  shell-suites:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: python3 scripts/$2
+      - run: bash scripts/build-products.sh && bash scripts/run-tests.sh
+YML
+}
+
+# A fixture inventory in the real one's three column shape, so a divergence can
+# be planted without touching the file the repository actually runs on (L2).
+inventory_with() {
+    # inventory_with <file> <script name> <role>
+    printf '# A fixture inventory.\n%s\t%s\tA staged reason.\n' "$2" "$3" > "$1"
+}
+
+run_with_inventory() {
+    OVATION_SCRIPT_ROLES_TSV="$2" OVATION_WORKFLOW_DIR="$1" "./$TARGET" 2>&1
+}
+status_with_inventory() { run_with_inventory "$1" "$2" >/dev/null 2>&1; printf '%s' "$?"; }
+
+WF_NAMES="$WORK/wf-names-a-check"; workflow_naming "$WF_NAMES" "check-design-draws.sh"
+
+# THE PASSING CASE FIRST, or every refusal below is satisfied by a rule that
+# refuses everything it is shown (L159).
+INV_WORKFLOW="$WORK/inv-workflow.tsv"
+inventory_with "$INV_WORKFLOW" "check-design-draws.sh" "workflow"
+check "a check a workflow runs, declared as run by a workflow, passes" \
+    "$(status_with_inventory "$WF_NAMES" "$INV_WORKFLOW")" "0"
+
+# The divergence itself: the same workflow, the same check, declared as
+# something a PERSON runs when a workflow is running it.
+INV_TOOL="$WORK/inv-tool.tsv"
+inventory_with "$INV_TOOL" "check-design-draws.sh" "tool"
+check "the same check declared as run by a person on demand is refused" \
+    "$(status_with_inventory "$WF_NAMES" "$INV_TOOL")" "1"
+check "and the refusal names the script and the role it carries" \
+    "$(run_with_inventory "$WF_NAMES" "$INV_TOOL" | grep -c "check-design-draws\.sh.*'tool'")" "1"
+
+# A check a workflow runs that the inventory says nothing at all about. It is a
+# different fact from a wrong role and gets its own sentence (L11).
+INV_SILENT="$WORK/inv-silent.tsv"
+printf '# A fixture inventory that declares something else entirely.\nrun-tests.sh\ttool\tA staged reason.\n' > "$INV_SILENT"
+check "a check a workflow runs that no inventory entry declares is refused" \
+    "$(status_with_inventory "$WF_NAMES" "$INV_SILENT")" "1"
+check "and it says there is no entry, rather than quoting a role it did not find" \
+    "$(run_with_inventory "$WF_NAMES" "$INV_SILENT" | grep -ci 'no inventory entry')" "1"
+
+# ONE SIDE OF A COMPARISON MISSING IS NOT A PASS (L345, L98). An inventory that
+# cannot be read leaves the question unanswered, and answering it anyway is a
+# tick over a comparison that never happened.
+check "an inventory that is not there is refused rather than passed over" \
+    "$(status_with_inventory "$WF_NAMES" "$WORK/no-such-inventory.tsv")" "1"
+
+# A NAME IN A COMMENT IS NOT A CHECK BEING RUN (L135). Both workflow files
+# explain themselves at length and name scripts while doing it, so a rule reading
+# the whole file would refuse on a sentence about a check rather than on a step
+# that runs one.
+WF_COMMENT="$WORK/wf-comment"; mkdir -p "$WF_COMMENT"
+good_workflow "$WF_COMMENT"
+sed_in_place "$WF_COMMENT/ci.yml" \
+    's|^name: CI$|# Why check-design-draws.sh is not run here, at length.\nname: CI|'
+check "a check named only in a comment is not treated as one a workflow runs" \
+    "$(status_with_inventory "$WF_COMMENT" "$INV_SILENT")" "0"
+
+# IT SAYS HOW MANY IT COMPARED, because a comparison that found nothing to
+# compare passes exactly like one that compared eight and agreed (L100, L98).
+check "it says how many check scripts the workflows name" \
+    "$(run_with_inventory "$WF_NAMES" "$INV_WORKFLOW" | grep -cE '[0-9]+ check script')" "1"
+
+# AND THE REAL TREE HAS SOMETHING FOR IT TO JUDGE. Asserted as a floor rather
+# than a count, because the count is meant to grow and a test pinned to today's
+# would fail on the next check a workflow gains (L63).
+REAL_NAMED="$(run_check ".github/workflows" | grep -oE '[0-9]+ check script' | grep -oE '^[0-9]+' | head -1)"
+check "this repository's own workflows name checks for the rule to judge" \
+    "$([ "${REAL_NAMED:-0}" -ge 1 ] && echo named || echo none)" "named"
 
 harness_end
