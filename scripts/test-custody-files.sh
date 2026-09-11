@@ -31,7 +31,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "custody verifier tests" 20
+harness_begin "custody verifier tests" 24
 
 TARGET="scripts/check-custody-files.sh"
 require_target "$TARGET"
@@ -62,6 +62,21 @@ note_entry() {
         printf '| Captured | 2026-09-06 |\n\n'
     } >> "$1"
 }
+# A section naming a LIVE path: one that legitimately changes, so it can never
+# carry a hash and must not be verified as though it could (ovation#208). It
+# excludes itself BY ITS REASON rather than by its name, so the next such path is
+# covered by the same row instead of needing its own exemption (L362).
+note_live_entry() {
+    # note_live_entry <note> <name> <path>
+    {
+        printf '## %s\n\n' "$2"
+        printf 'Prose about a file something else writes.\n\n'
+        printf '| Field | Value |\n| --- | --- |\n'
+        printf '| Path | `%s` |\n' "$3"
+        printf '| Not a custody file | it is rewritten by another app, so a hash would fail on every correct read |\n\n'
+    } >> "$1"
+}
+
 # A trailing section that is NOT a file. The real note ends with exactly this
 # shape, and a parser that treats every `##` as a file would invent one.
 note_tail() {
@@ -164,5 +179,32 @@ check "and it names the entry it could not check" "$(says "$OUT_HALF" "e.json")"
 # ---------------------------------------------------------------------------
 check "no custody file's contents reach the output" \
     "$(says "$OUT_GOOD$OUT_ABSENT$OUT_MM" "Zzyzx")" "no"
+
+
+# ---------------------------------------------------------------------------
+# A LIVE PATH IS NOT A CUSTODY FILE (ovation#208). Ovation reads Downbeat's
+# export at a path Downbeat rewrites on every launch. It belongs in the note,
+# because the note is where the paths outside this repository are recorded, and
+# it can never have a hash. Reported as unverifiable it would put a permanent
+# line in every run that is correct by design, which is how a whole category of
+# finding comes to be skimmed past (L36, L233).
+# ---------------------------------------------------------------------------
+make_file c.json
+LIVE="$WORK/live.md"; note_header "$LIVE"
+note_entry "$LIVE" c.json "$FILES/c.json" "$(hash_of c.json)"
+note_live_entry "$LIVE" "The live export" "$FILES/never-written.json"
+note_tail "$LIVE"
+
+OUT_LIVE="$(run_check "$LIVE")"
+check "a section declaring itself not a custody file is a pass" \
+    "$(status_of "$LIVE")" "0"
+check "and it is NOT reported as having no recorded hash" \
+    "$(says "$OUT_LIVE" 'NO RECORDED HASH')" "no"
+check "and its absence is NOT reported as a missing custody file" \
+    "$(says "$OUT_LIVE" 'never-written.json')" "no"
+# SAID OUT LOUD RATHER THAN SILENTLY DROPPED. An exclusion nothing reports is one
+# nobody can audit, and the count is what makes it visible (L98, L233).
+check "and the run says how many it excluded, rather than dropping them quietly" \
+    "$(says "$OUT_LIVE" 'not custody files')" "yes"
 
 harness_end
