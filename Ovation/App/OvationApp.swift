@@ -179,7 +179,7 @@ struct OvationApp: App {
         .commands {
             CommandGroup(after: .newItem) {
                 Button(YearEndExportCommand.title) { runExport() }
-                    .disabled(!exportCommand.mayRun || opened == nil)
+                    .disabled(whyTheExportCannotRun != nil)
                 if let why = whyTheExportCannotRun {
                     Text(why).font(.footnote)
                 }
@@ -189,18 +189,20 @@ struct OvationApp: App {
 
     /// Why the menu item would do nothing, in Dan's words rather than the code's
     /// (L399). A disabled control with no reason is a dead control (L109).
+    ///
+    /// WHETHER IT IS DISABLED AND WHAT IT SAYS COME FROM THIS ONE ANSWER. They
+    /// were two conditions written beside each other, and two conditions about
+    /// one thing are two things that can disagree (L70).
     private var whyTheExportCannotRun: String? {
-        if opened == nil {
-            return "There is no open store to export from on this launch."
-        }
-        return exportCommand.whyItCannotRun
+        exportCommand.whyItCannotRun(container: opened)
     }
 
     /// Runs one export through the command, which is the one place that marks a
     /// run started and finished and reports what it came to.
     private func runExport() {
-        guard let container = opened else { return }
-        exportCommand.press(now: Date(), container: container, problems: store) {
+        // NO GUARD THAT RETURNS SILENTLY. A press with no open store is a refusal
+        // the command states, not a press that quietly does nothing (L109).
+        exportCommand.press(now: Date(), container: opened, problems: store) {
             presenter.refresh()
         }
     }

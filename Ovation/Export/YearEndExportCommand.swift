@@ -107,8 +107,18 @@ final class YearEndExportCommand {
     ///
     /// A DISABLED CONTROL WITH NO REASON IS A DEAD CONTROL (L109). Each cause is
     /// worded differently because the work each needs is different: one waits for
-    /// a run to finish, the other cannot happen on this launch at all (L11).
-    var whyItCannotRun: String? {
+    /// a run to finish, one cannot happen on this launch at all, and one means
+    /// there is no store open to read (L11).
+    ///
+    /// IT TAKES THE STORE, so that whether the control is enabled and what it
+    /// says when it is not are ONE derivation read twice rather than two that can
+    /// disagree (L70). The view used to hold its own copy of the no store
+    /// sentence beside its own copy of the condition.
+    func whyItCannotRun(container: ModelContainer?) -> String? {
+        if container == nil {
+            return "There is no store open on this launch, so there is nothing to "
+                + "export from. The launch sequence either refused or has not run."
+        }
         if case .running(let since) = progress {
             return "An export started at \(BusinessCalendar.dayKey(for: since)) is still "
                 + "running. Two at once would write the same three files over each other."
@@ -161,14 +171,21 @@ final class YearEndExportCommand {
     /// and belong to the context that fetched them, so the read AND the export
     /// both happen inside the task and only the outcome, which is a value,
     /// returns.
-    func press(now: Date, container: ModelContainer, problems: ProblemsStore,
+    func press(now: Date, container: ModelContainer?, problems: ProblemsStore,
                afterwards: @escaping @MainActor () -> Void = {}) {
-        guard mayRun, let directory, let runRecord else {
-            if let why = whyItCannotRun {
-                _ = problems.raise(kind: .exportCouldNotBeRun, subject: "year-end-export",
-                                   sentence: why, now: now)
-                afterwards()
-            }
+        guard let container, mayRun, let directory, let runRecord else {
+            // ALWAYS SAYS SOMETHING, and the fallback is a sentence rather than
+            // silence. This was written as "if there is a reason, say it", which
+            // is a control that does nothing and cannot be asked why the moment
+            // that reason is ever nil (L109, L622). The reasons and this guard
+            // are meant to cover the same cases; if they ever stop agreeing, the
+            // person hears about THAT rather than nothing at all.
+            let why = whyItCannotRun(container: container)
+                ?? "Ovation could not run the year end export and cannot say why, "
+                 + "which is a fault in Ovation rather than in the export."
+            _ = problems.raise(kind: .exportCouldNotBeRun, subject: "year-end-export",
+                               sentence: why, now: now)
+            afterwards()
             return
         }
         began(at: now)

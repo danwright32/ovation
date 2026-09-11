@@ -151,7 +151,27 @@ struct YearEndExportCommandTests {
         // indistinguishable from one that worked (plan 1.9, L2, L98).
         let command = YearEndExportCommand(directory: nil, runRecord: nil)
         #expect(command.mayRun == false)
-        #expect(command.whyItCannotRun != nil)
+        #expect(command.whyItCannotRun(container: nil) != nil)
+    }
+
+    // MARK: a press that cannot run always says so
+
+    @MainActor
+    @Test("a press that cannot run raises a problem rather than doing nothing")
+    func arefusalIsNeverSilent() {
+        // THE CONTROL MUST NEVER JUST NOT WORK. This branch used to be written as
+        // "if there is a reason, say it", which is a control that does nothing
+        // and cannot be asked why the moment that reason is ever nil (L109).
+        let command = YearEndExportCommand(directory: nil, runRecord: nil)
+        let problems = ProblemsStore(journal: InMemoryProblemsJournal())
+        var cameBack = false
+
+        command.press(now: Self.now, container: nil, problems: problems) { cameBack = true }
+
+        #expect(problems.open.count == 1)
+        #expect(problems.open.first?.kind == .exportCouldNotBeRun)
+        // AND THE CALLER IS TOLD, or a screen waiting on this refresh never does.
+        #expect(cameBack)
     }
 
     // MARK: the sentence a run in flight shows

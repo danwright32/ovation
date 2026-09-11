@@ -23,16 +23,24 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode project regeneration tests" 16
+harness_begin "xcode project regeneration tests" 23
 
 TARGET="scripts/regenerate-xcode-project.sh"
 require_target "$TARGET"
 harness_temp_dir WORK
 
 # A generator that records that it ran, and answers however the case wants.
+# A generator that records that it ran and answers however the case wants. It
+# writes a project ONLY when it succeeds, which is what a real generator does and
+# what the restore case below depends on.
 stub_generator() {
-    printf '#!/bin/bash\necho "GENERATED" > "%s/generated.txt"\nmkdir -p "%s"\nexit %s\n' \
-        "$WORK" "$WORK/tree/Ovation.xcodeproj" "$1" > "$WORK/xcodegen"
+    if [ "$1" = "0" ]; then
+        printf '#!/bin/bash\necho "GENERATED" > "%s/generated.txt"\nmkdir -p "%s"\nexit 0\n' \
+            "$WORK" "$WORK/tree/Ovation.xcodeproj" > "$WORK/xcodegen"
+    else
+        printf '#!/bin/bash\necho "GENERATED" > "%s/generated.txt"\nexit %s\n' \
+            "$WORK" "$1" > "$WORK/xcodegen"
+    fi
     chmod +x "$WORK/xcodegen"
 }
 
@@ -101,6 +109,55 @@ OUT="$(run_it)"; RC=$?
 check "a generator that failed is refused" "$RC" "2"
 check "and the lock is still released, so a failure does not block the machine" \
     "$([ -d "$WORK/lock" ] && echo held || echo free)" "free"
+
+# 5b. AND THE OLD PROJECT SURVIVES A FAILED GENERATION. This is the half that
+#     matters: deleting the project and then finding the generator cannot make a
+#     new one leaves the tree with NO project at all, which is destroying good
+#     state before its replacement is verified to exist (L5). The old one is
+#     moved aside and put back.
+fresh_tree; stub_generator 3
+mkdir -p "$WORK/tree/Ovation.xcodeproj"
+printf 'the project that was already here\n' > "$WORK/tree/Ovation.xcodeproj/marker.txt"
+OUT="$(run_it)"; RC=$?
+check "a failed generation is still refused" "$RC" "2"
+check "and the project that was there is STILL there" \
+    "$(cat "$WORK/tree/Ovation.xcodeproj/marker.txt" 2>/dev/null)" "the project that was already here"
+case "$OUT" in
+    *"put back"*|*"still there"*) check "and it says the old one was kept" "yes" "yes" ;;
+    *) check "and it says the old one was kept" "$OUT" "should say the old project was kept" ;;
+esac
+
+# 5c. A SUCCESSFUL RUN LEAVES NOTHING ASIDE. A copy kept beside the project would
+#     be a second Ovation.xcodeproj in the tree for every later build to find.
+fresh_tree; stub_generator 0
+mkdir -p "$WORK/tree/Ovation.xcodeproj"
+printf 'old\n' > "$WORK/tree/Ovation.xcodeproj/marker.txt"
+run_it >/dev/null
+check "a successful run leaves no copy of the old project behind" \
+    "$(find "$WORK/tree" -maxdepth 1 -name 'Ovation.xcodeproj*' | wc -l | tr -d ' ')" "1"
+
+# 5d. AN EMPTY PATH IS REFUSED BEFORE ANY DELETE. This script deletes things, and
+#     a recursive delete built from an empty variable is not the place to trust
+#     that a caller set its seam (L5).
+#
+#     THE SEAMS HONOUR AN EMPTY VALUE RATHER THAN SUBSTITUTING THE DEFAULT, which
+#     is what makes this reachable at all. Written with `:-` an empty
+#     OVATION_XCODE_PROJECT silently became the REAL project path, so a caller who
+#     deliberately pointed this at nothing would have had it point at everything,
+#     and the guard could never fire (L29).
+fresh_tree; stub_generator 0
+OUT="$(OVATION_REPO_ROOT="$WORK/tree" OVATION_XCODE_PROJECT="" \
+       OVATION_XCODEGEN="$WORK/xcodegen" OVATION_DIR_LOCK="$WORK/lock" \
+       "./$TARGET" 2>&1)"
+check "an empty project path is refused" "$?" "3"
+check "and nothing was generated" \
+    "$([ -f "$WORK/generated.txt" ] && echo yes || echo no)" "no"
+
+fresh_tree; stub_generator 0
+OUT="$(OVATION_REPO_ROOT="$WORK/tree" OVATION_XCODE_PROJECT="$WORK/tree/Ovation.xcodeproj" \
+       OVATION_XCODEGEN="$WORK/xcodegen" OVATION_DIR_LOCK="" \
+       "./$TARGET" 2>&1)"
+check "an empty lock path is refused too" "$?" "3"
 
 # 6. NOTHING TO GENERATE FROM is its own outcome.
 fresh_tree; stub_generator 0; rm -f "$WORK/tree/project.yml"

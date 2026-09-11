@@ -49,12 +49,26 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="${OVATION_REPO_ROOT:-$(dirname "${HERE}")}"
-PROJECT="${OVATION_XCODE_PROJECT:-${REPO_ROOT}/Ovation.xcodeproj}"
+# THE TWO PATHS THIS DELETES HONOUR AN EMPTY VALUE, with `-` rather than `:-`, so
+# a caller who sets one to nothing gets the refusal below rather than the default.
+# Written the usual way an empty OVATION_XCODE_PROJECT silently became the REAL
+# project path, so pointing this at nothing pointed it at everything and the
+# guard could never fire: a check that cannot be reached is not a check (L29).
+PROJECT="${OVATION_XCODE_PROJECT-${REPO_ROOT}/Ovation.xcodeproj}"
+DIR_LOCK="${OVATION_DIR_LOCK-/tmp/xcodebuild-tests.lock}"
 XCODEGEN="${OVATION_XCODEGEN:-$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)}"
-DIR_LOCK="${OVATION_DIR_LOCK:-/tmp/xcodebuild-tests.lock}"
 
 # shellcheck source=lib/dir-lock.sh
 . "${HERE}/lib/dir-lock.sh"
+
+# GUARDED BEFORE ANY DELETE. Both of these come from seams, and a recursive
+# delete built from an empty variable is not the place to rely on a caller having
+# set one (L5).
+if [ -z "${PROJECT}" ] || [ -z "${DIR_LOCK}" ]; then
+    echo "REFUSED: this was given an empty project path or an empty lock path, and" >&2
+    echo "         it deletes things. Nothing was touched." >&2
+    exit 3
+fi
 
 SPEC="${REPO_ROOT}/project.yml"
 if [ ! -f "${SPEC}" ]; then
@@ -83,15 +97,42 @@ fi
 # RELEASED ON EVERY EXIT PATH, including a generator that failed. A mkdir lock is
 # not released by the kernel when its holder dies, so one left planted blocks
 # every build on this machine until somebody finds the directory by hand (L409).
-release() { rm -rf "${DIR_LOCK}" 2>/dev/null || true; }
+# THE OLD PROJECT IS MOVED ASIDE, NEVER DELETED, until the new one exists.
+#
+# It used to be `rm -rf "${PROJECT}"` followed by a generate, so a generator that
+# failed left the tree with NO project at all: good state destroyed before its
+# replacement was verified to exist (L5). The refusal said so, which is honest
+# and is not the same as not doing it. Moving it aside makes the failure
+# recoverable rather than merely well described.
+ASIDE="${PROJECT}.previous.$$"
+
+release() {
+    # THE ASIDE COPY IS PUT BACK ON EVERY PATH THAT DID NOT REPLACE IT, including
+    # an interrupt, because a run killed between the move and the generate would
+    # otherwise leave the project under a name nothing looks for (L514, L515).
+    if [ -e "${ASIDE}" ]; then
+        rm -rf "${PROJECT}" 2>/dev/null || true
+        mv "${ASIDE}" "${PROJECT}" 2>/dev/null || true
+    fi
+    rm -rf "${DIR_LOCK}" 2>/dev/null || true
+}
 trap release EXIT INT TERM
 
-rm -rf "${PROJECT}"
-if ! ( cd "${REPO_ROOT}" && "${XCODEGEN}" generate ) >/dev/null 2>&1; then
-    echo "REFUSED: xcodegen could not generate ${PROJECT} from ${SPEC}." >&2
-    echo "         The old project has already been removed, so the tree now has none." >&2
-    echo "         Fix project.yml and run this again." >&2
+if [ -e "${PROJECT}" ] && ! mv "${PROJECT}" "${ASIDE}"; then
+    echo "REFUSED: ${PROJECT} could not be moved aside, so nothing was regenerated." >&2
+    echo "         It is still there, untouched." >&2
     exit 2
 fi
+
+if ! ( cd "${REPO_ROOT}" && "${XCODEGEN}" generate ) >/dev/null 2>&1; then
+    echo "REFUSED: xcodegen could not generate ${PROJECT} from ${SPEC}." >&2
+    echo "         The project that was there has been put back, so the tree still" >&2
+    echo "         builds. Fix project.yml and run this again." >&2
+    exit 2
+fi
+
+# THE NEW ONE EXISTS, so the old one is no longer wanted. Dropped here rather
+# than left for the trap, which would put it back over the new project.
+rm -rf "${ASIDE}" 2>/dev/null || true
 
 echo "OK: regenerated ${PROJECT} from ${SPEC}, under ${DIR_LOCK}."
