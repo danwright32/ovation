@@ -485,7 +485,18 @@ else
 
       if [ "${HOSTED_STATUS}" -ne 0 ]; then
         STATUS="${HOSTED_STATUS}"
-      elif ! printf '%s' "${HOSTED_OUTPUT}" | grep -qE 'Test run with [1-9][0-9]* test'; then
+      # A HERE STRING, NOT A PIPE (ovation#241). This asked
+      # `printf ... | grep -qE ...`, and under the `set -o pipefail` at the top of
+      # this file that is a false failure waiting for a big enough output:
+      # `grep -q` exits at the first match and closes the pipe, `printf` is killed
+      # writing the rest, and the pipeline takes printf's status, so the negation
+      # reports "executed NO tests" about a run that executed plenty (L183).
+      #
+      # Measured 2026-09-12 on CI: one of two identical jobs failed with
+      # `printf: write error: Broken pipe` straight after `** TEST SUCCEEDED **`
+      # and a hosted run of 26 tests. A here string is a file rather than a pipe,
+      # so there is no producer left to kill.
+      elif ! grep -qE 'Test run with [1-9][0-9]* test' <<<"${HOSTED_OUTPUT}"; then
         echo "Error: the hosted run reported success and executed NO tests." >&2
         echo "       A -only-testing: path that matches nothing does exactly this." >&2
         echo "       Nothing about the launch surface was verified." >&2
