@@ -102,7 +102,7 @@ struct OvationApp: App {
                     let service = BackupService(
                         dataDirectory: storeURL.deletingLastPathComponent(),
                         backupsDirectory: folder,
-                        dailyKeep: 14,
+                        dailyKeep: BackupService.defaultDailyKeep,
                         referencedDocuments: {
                             try StoreDocumentReferences.read(storeURL: storeURL)
                         })
@@ -120,7 +120,7 @@ struct OvationApp: App {
                     let service = BackupService(
                         dataDirectory: storeURL.deletingLastPathComponent(),
                         backupsDirectory: folder,
-                        dailyKeep: 14,
+                        dailyKeep: BackupService.defaultDailyKeep,
                         referencedDocuments: {
                             try StoreDocumentReferences.read(storeURL: storeURL)
                         })

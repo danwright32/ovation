@@ -811,6 +811,15 @@ final class BackupService {
 
     // MARK: plumbing
 
+    /// How many of the most recent archives are kept whatever their date.
+    ///
+    /// ONE PLACE, so the Settings pane's sentence about what Ovation will do is
+    /// COMPOSED from the rule rather than typed beside it: a consequence sentence
+    /// enumerating what an action does is a second copy of that action's list, and
+    /// the day the policy changes it stays true and goes incomplete, with every
+    /// word still in it correct (L679, ovation#231).
+    static let defaultDailyKeep = 14
+
     static let archivePrefix = "Ovation-backup-"
 
     /// Where an archive is built, and deliberately NOT starting with
