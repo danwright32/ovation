@@ -143,21 +143,48 @@ struct OvationApp: App {
                     // The Debug build is given no folder at all, decided in
                     // `BackupFolderSetting.folderToBackUpInto` where both branches
                     // are testable (ovation#228).
-                    guard let folder = BackupFolderSetting.liveBackupsDirectory else {
-                        // Saying so through the Problems store is honest, where a
-                        // silent no-op would leave the sequence reporting a backup
-                        // it never took (L98). ovation#231 is the screen that
-                        // lets Dan answer it.
-                        throw BackupError.couldNotWrite("no backup folder has been chosen yet")
+                    //
+                    // OFF THE MAIN ACTOR (ovation#246). Copying and hashing
+                    // everything Ovation holds is the slowest thing a launch
+                    // does, and on a folder that syncs to a NAS it is one to two
+                    // orders of magnitude slower per file than the local disk the
+                    // only measurement was taken on (L522). Run on the main actor
+                    // it would leave the window up and frozen, which is a
+                    // different defect from the one showing a window fixed.
+                    //
+                    // NOTHING CROSSES THE BOUNDARY but a URL and a Date: the
+                    // service is built INSIDE the task, so no non-Sendable value
+                    // has to travel.
+                    //
+                    // THROUGH BlockingWork, NOT Task.detached. The cooperative
+                    // pool is about one thread per core and does not grow, so
+                    // work that BLOCKS a thread never gives it back and enough of
+                    // them starve every other await (L241). Copying and hashing a
+                    // whole data directory is exactly that shape.
+                    // `check-forbidden-constructs.sh` refuses the wrong one, and
+                    // it caught this in the writing.
+                    let attempt = await BlockingWork.run {
+                        guard let folder = BackupFolderSetting.liveBackupsDirectory else {
+                            // Saying so through the Problems store is honest,
+                            // where a silent no-op would leave the sequence
+                            // reporting a backup it never took (L98). ovation#231
+                            // is the screen that lets Dan answer it.
+                            throw BackupError.couldNotWrite(
+                                "no backup folder has been chosen yet")
+                        }
+                        let service = BackupService(
+                            dataDirectory: storeURL.deletingLastPathComponent(),
+                            backupsDirectory: folder,
+                            dailyKeep: BackupService.defaultDailyKeep,
+                            referencedDocuments: {
+                                try StoreDocumentReferences.read(storeURL: storeURL)
+                            })
+                        return try service.takeBackupIfDueToday(now: now)
                     }
-                    let service = BackupService(
-                        dataDirectory: storeURL.deletingLastPathComponent(),
-                        backupsDirectory: folder,
-                        dailyKeep: BackupService.defaultDailyKeep,
-                        referencedDocuments: {
-                            try StoreDocumentReferences.read(storeURL: storeURL)
-                        })
-                    return try service.takeBackupIfDueToday(now: now)
+                    // The three outcomes are turned into what the sequence
+                    // expects in LaunchBackupOutcome, where both translations can
+                    // be driven by a test (ovation#246).
+                    return try LaunchBackupOutcome.attempt(from: attempt)
                 },
                 // ovation#230. Whether the archives have kept up with the store,
                 // read from the folder Dan chose. A build that never backs up has
@@ -184,17 +211,24 @@ struct OvationApp: App {
                 // months old archive is found rather than assumed. A build with no
                 // folder has nothing to check.
                 reverifyAnArchive: { now in
-                    guard let folder = BackupFolderSetting.liveBackupsDirectory else {
-                        return .nothingToCheck
+                    // OFF THE MAIN ACTOR, for the same reason as the backup
+                    // above: re-verifying reads and hashes every file in an
+                    // archive, which is the same cost over the same network
+                    // volume (ovation#246).
+                    let checked = await BlockingWork.run {
+                        guard let folder = BackupFolderSetting.liveBackupsDirectory else {
+                            return BackupService.Reverification.nothingToCheck
+                        }
+                        let service = BackupService(
+                            dataDirectory: storeURL.deletingLastPathComponent(),
+                            backupsDirectory: folder,
+                            dailyKeep: BackupService.defaultDailyKeep,
+                            referencedDocuments: {
+                                try StoreDocumentReferences.read(storeURL: storeURL)
+                            })
+                        return (try? service.reverifyOneArchive(now: now)) ?? .nothingToCheck
                     }
-                    let service = BackupService(
-                        dataDirectory: storeURL.deletingLastPathComponent(),
-                        backupsDirectory: folder,
-                        dailyKeep: BackupService.defaultDailyKeep,
-                        referencedDocuments: {
-                            try StoreDocumentReferences.read(storeURL: storeURL)
-                        })
-                    return (try? service.reverifyOneArchive(now: now)) ?? .nothingToCheck
+                    return LaunchBackupOutcome.reverification(from: checked)
                 },
                 openContainer: { try OvationSchema.container(at: $0) },
                 identify: {

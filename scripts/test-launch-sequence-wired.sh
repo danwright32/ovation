@@ -172,6 +172,10 @@ struct OvationApp: App {
                     if let storeURL = StoreLocation.liveStoreURL() {
                         var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
                         sequence.onOpened = { opened.container = $0 }
+                        sequence.takeBackup = { now in
+                            _ = await BlockingWork.run { true }
+                            return .taken(storeURL)
+                        }
                         await sequence.run(now: Date())
                     }
                 }
@@ -248,6 +252,10 @@ struct OvationApp: App {
                     if let storeURL = StoreLocation.liveStoreURL() {
                         var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
                         sequence.onOpened = { opened.container = $0 }
+                        sequence.takeBackup = { now in
+                            _ = await BlockingWork.run { true }
+                            return .taken(storeURL)
+                        }
                         await sequence.run(now: Date())
                     }
                 }
@@ -257,7 +265,35 @@ struct OvationApp: App {
 SWIFT
 # And the control, so the two refusals above are not bought by refusing
 # everything (L159).
-check "a guarded launch from a task passes" 0 \
+cat > "${WORK}/heavy-on-the-main-actor.swift" <<'SWIFT'
+@main
+struct OvationApp: App {
+    @State private var hasLaunched = false
+    init() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let verdict = SecondInstance.check(executablePath: "x", runningPIDs: { _ in [] })
+        _ = verdict.mayRun
+    }
+    var body: some Scene {
+        Window("x", id: "x") {
+            RootView()
+                .task {
+                    guard !hasLaunched else { return }
+                    hasLaunched = true
+                    if let storeURL = StoreLocation.liveStoreURL() {
+                        var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
+                        sequence.onOpened = { opened.container = $0 }
+                        await sequence.run(now: Date())
+                    }
+                }
+        }
+    }
+}
+SWIFT
+check "a launch whose heavy work stays on the main actor is refused" 6 \
+    "$(run_on "${WORK}/heavy-on-the-main-actor.swift")"
+
+check "a guarded launch that sends the heavy work away passes" 0 \
     "$(run_on "${WORK}/task-guarded.swift")"
 
 echo "launch sequence wiring tests: ${PASSED} passed, ${FAILED} failed"
