@@ -80,6 +80,37 @@ enum BusinessCalendar {
         formatter.string(from: instant)
     }
 
+    /// Which business day an instant fell on, as an ORDERED NUMBER.
+    ///
+    /// The same fact as `dayKey`, spelled so it can be compared and rotated on.
+    /// It exists because `BackupService.reverifyOneArchive` needs to pick one
+    /// archive per day and was dividing seconds by 86,400 in UTC, which is a
+    /// SECOND notion of "day" in a product that has one on purpose (L39,
+    /// ovation#248). That boundary was not the one the backup trigger, the
+    /// staleness rule and the archive names all use: late evening in New York is
+    /// already tomorrow in UTC.
+    ///
+    /// Counted from the same reference date as `Date` itself, so the number is
+    /// stable across launches and its differences are days.
+    static func dayNumber(for instant: Date) -> Int {
+        let reference = calendar.startOfDay(for: Date(timeIntervalSinceReferenceDate: 0))
+        let start = calendar.startOfDay(for: instant)
+        if let days = calendar.dateComponents([.day], from: reference, to: start).day {
+            return days
+        }
+        // NO SILENT ZERO. `.day` is typed optional and is populated for any two
+        // real dates, so this is unreachable in practice, and a `?? 0` here would
+        // collapse the rotation onto the first archive FOR EVER if it ever were
+        // reached: a failure landing on a plausible value that compares fine
+        // against everything (L50).
+        //
+        // The fallback counts whole days between the same two START OF DAY
+        // instants, so it is still the business day rather than a second notion
+        // of one, and it cannot be constant.
+        return Int((start.timeIntervalSinceReferenceDate
+                        - reference.timeIntervalSinceReferenceDate) / 86_400)
+    }
+
     /// Which business year an instant fell in.
     static func year(for instant: Date) -> Int {
         calendar.component(.year, from: instant)

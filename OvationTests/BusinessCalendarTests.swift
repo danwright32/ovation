@@ -182,4 +182,71 @@ struct BusinessCalendarTests {
         #expect(TimeZone.current.secondsFromGMT() != BusinessCalendar.timeZone.secondsFromGMT())
         body()
     }
+
+    // MARK: which day, as a number (ovation#248)
+
+    /// A ROTATION NEEDS AN ORDERED DAY, and until now the one place that wanted
+    /// it divided seconds by 86,400 in UTC
+    /// (`BackupService.reverifyOneArchive`). That works and is deterministic, and
+    /// it is a SECOND notion of "day" in a product that has one on purpose (L39).
+    /// The boundary it used was not the boundary the backup trigger, the
+    /// staleness rule and the archive names all use.
+    @Test("two instants on the same business day are the same day number")
+    func sameDaySameNumber() {
+        let morning = BusinessCalendarTests.instant(2026, 4, 4, hour: 7)
+        let evening = BusinessCalendarTests.instant(2026, 4, 4, hour: 22)
+
+        #expect(BusinessCalendar.dayNumber(for: morning)
+                == BusinessCalendar.dayNumber(for: evening))
+    }
+
+    @Test("consecutive business days are consecutive numbers")
+    func consecutiveDays() {
+        let first = BusinessCalendarTests.instant(2026, 4, 4, hour: 12)
+        let second = BusinessCalendarTests.instant(2026, 4, 5, hour: 12)
+
+        #expect(BusinessCalendar.dayNumber(for: second)
+                - BusinessCalendar.dayNumber(for: first) == 1)
+    }
+
+    /// THE CASE THE RAW DIVISION GETS WRONG. Late evening in New York is already
+    /// the next day in UTC, so counting UTC days puts this instant on a different
+    /// day from the one every other part of the product calls it.
+    @Test("late evening belongs to the business day it is, not the UTC one")
+    func lateEveningStaysOnItsBusinessDay() {
+        let evening = BusinessCalendarTests.instant(2026, 4, 4, hour: 21)
+        let noon = BusinessCalendarTests.instant(2026, 4, 4, hour: 12)
+
+        #expect(BusinessCalendar.dayNumber(for: evening)
+                == BusinessCalendar.dayNumber(for: noon))
+        // And the raw arithmetic disagrees, which is the whole reason for this.
+        let rawNoon = Int(noon.timeIntervalSinceReferenceDate / 86_400)
+        let rawEvening = Int(evening.timeIntervalSinceReferenceDate / 86_400)
+        #expect(rawNoon != rawEvening,
+                "the fixture no longer straddles a UTC boundary, so it proves nothing")
+    }
+
+    /// It agrees with the day key, which is the same fact spelled two ways.
+    @Test("the day number and the day key change together")
+    func theNumberAndTheKeyAgree() {
+        let first = BusinessCalendarTests.instant(2026, 4, 4, hour: 12)
+        let second = BusinessCalendarTests.instant(2026, 4, 5, hour: 12)
+
+        #expect((BusinessCalendar.dayKey(for: first) == BusinessCalendar.dayKey(for: second))
+                == (BusinessCalendar.dayNumber(for: first)
+                    == BusinessCalendar.dayNumber(for: second)))
+    }
+
+    /// An instant in Dan's own timezone, so a case reads as the moment it is
+    /// about rather than as an offset from a reference date.
+    static func instant(_ year: Int, _ month: Int, _ day: Int, hour: Int) -> Date {
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = hour
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = BusinessCalendar.timeZone
+        return calendar.date(from: components) ?? Date(timeIntervalSinceReferenceDate: 0)
+    }
 }

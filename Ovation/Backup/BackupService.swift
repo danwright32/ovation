@@ -197,8 +197,12 @@ final class BackupService {
         }
         guard !existing.isEmpty else { return .nothingToCheck }
 
-        let daysSinceReference = Int(now.timeIntervalSinceReferenceDate / 86_400)
-        let index = ((daysSinceReference % existing.count) + existing.count) % existing.count
+        // THE DAY THE REST OF THE PRODUCT MEANS (ovation#248). This divided
+        // seconds by 86,400 in UTC, which is deterministic and correct in
+        // isolation and was a SECOND notion of "day" beside the one the trigger,
+        // the staleness rule and the archive names all use (L39).
+        let day = BusinessCalendar.dayNumber(for: now)
+        let index = ((day % existing.count) + existing.count) % existing.count
         let archive = existing[index]
 
         let report: BackupReport
