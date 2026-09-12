@@ -298,6 +298,41 @@ struct StoreLaunchSequenceTests {
         #expect(!world.store.open.contains { $0.kind.rawValue.hasPrefix("backup.") })
     }
 
+    /// THE STANDING CONDITION CLEARS ITSELF AT LAUNCH, not only when the Settings
+    /// pane happens to be used (L33). The pane does two writes, remembering the
+    /// folder and resolving the notice, and anything between them leaves the
+    /// folder set and the notice open FOR EVER, because nothing else retracts it
+    /// and `ProblemsStore` never retracts on its own. A launch that took a backup
+    /// is proof a folder exists, so it settles the question every time rather
+    /// than once.
+    @Test("a launch that backed up clears any standing no folder notice")
+    func aBackupClearsTheStandingCondition() throws {
+        let world = try World()
+        _ = world.store.raise(kind: .backupFolderNotChosen, subject: "backups",
+                              sentence: "No backup folder has been chosen yet.",
+                              now: world.instant)
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(!world.store.open.contains { $0.kind == .backupFolderNotChosen })
+    }
+
+    /// AND A LAUNCH WITH NO FOLDER LEAVES IT STANDING, because it is still true
+    /// (L98).
+    @Test("a launch that could not back up leaves the standing notice alone")
+    func aFailedBackupLeavesTheStandingCondition() throws {
+        let world = try World(backup: { _ in
+            throw BackupError.couldNotWrite("no backup folder has been chosen yet")
+        })
+        _ = world.store.raise(kind: .backupFolderNotChosen, subject: "backups",
+                              sentence: "No backup folder has been chosen yet.",
+                              now: world.instant)
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(world.store.open.contains { $0.kind == .backupFolderNotChosen })
+    }
+
     // MARK: are the backups behind the data (ovation#230)
 
     @Test("a folder holding no backups at all is said out loud")

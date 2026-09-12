@@ -184,6 +184,20 @@ struct StoreLaunchSequence {
                 try prepareDataDirectory()
                 switch try takeBackup(now) {
                 case .taken, .alreadyTakenToday:
+                    // A BACKUP HAPPENING IS PROOF A FOLDER EXISTS, so the standing
+                    // "no folder chosen" notice is settled here rather than only
+                    // where it is chosen (L33). The Settings pane does two writes,
+                    // remembering the folder and resolving that notice, and
+                    // anything between them would otherwise leave the folder set
+                    // and the notice open for ever: nothing else retracts it, and
+                    // `ProblemsStore` never retracts on its own. Doing it every
+                    // launch makes it self healing rather than a single chance.
+                    for standing in problems.open
+                    where standing.kind == .backupFolderNotChosen {
+                        _ = problems.resolve(standing.id,
+                                             because: "a backup was taken, so a folder exists",
+                                             now: now)
+                    }
                     // Nothing to say. A notice on the commonest case is one Dan
                     // learns to click past (L36).
                     break
