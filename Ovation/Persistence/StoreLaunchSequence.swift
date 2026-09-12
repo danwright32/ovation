@@ -64,6 +64,10 @@ struct StoreLaunchSequence {
     /// ovation#230. Whether the archives have kept up with the store, asked after
     /// the backup so that today's counts. Injected like every other step.
     let backupCurrency: @Sendable (Date) -> BackupService.Currency
+    /// ovation#233. One OLDER archive, checked again. Nothing looked at an archive
+    /// after the day it was written, while monthly keepers are kept indefinitely
+    /// on a folder that may sync to a NAS (L336, L557).
+    let reverifyAnArchive: @Sendable (Date) -> BackupService.Reverification
     let openContainer: @Sendable (URL) throws -> ModelContainer
     let identify: @Sendable (URL) -> StoreSchemaGuard.Verdict
     /// ovation#107. Puts PRD 5.4's starting service types into a store that has
@@ -240,6 +244,20 @@ struct StoreLaunchSequence {
                     kind: .backupCurrencyCouldNotBeJudged, subject: storeURL.path,
                     sentence: "Whether the backups are up to date could not be judged: "
                         + "\(detail).", now: now)
+            }
+
+            // ONE OLDER ARCHIVE, CHECKED AGAIN (ovation#233). Its own kind,
+            // because nothing is wrong with today's backup: what has gone is an
+            // older one, and the action is about the folder rather than about
+            // Ovation. A re-check that examined nothing, or could not read one,
+            // says nothing: neither is a finding Dan can act on, and the archives
+            // it did not reach come round on later launches.
+            if case .failed(let name, let failures) = reverifyAnArchive(now) {
+                _ = problems.raise(
+                    kind: .archiveNoLongerVerifies, subject: name,
+                    sentence: "The backup \(name) verified when it was written and "
+                        + "does not now: \(failures.count) problem(s) with what is in it. "
+                        + "Today's backup is unaffected.", now: now)
             }
         }
 

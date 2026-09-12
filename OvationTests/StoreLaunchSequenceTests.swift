@@ -25,7 +25,7 @@ struct StoreLaunchSequenceTests {
         let outcome = world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
-        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "currency", "open", "version", "seed", "import-clients", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "currency", "reverify", "open", "version", "seed", "import-clients", "export-notices"])
         #expect(world.store.open.isEmpty)
     }
 
@@ -166,7 +166,7 @@ struct StoreLaunchSequenceTests {
         // The claim is unchanged; the kind it names is the one that now carries
         // this cause.
         #expect(world.store.open.contains { $0.kind == .backupCouldNotBeWritten })
-        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "currency", "open", "version", "seed", "import-clients", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "currency", "reverify", "open", "version", "seed", "import-clients", "export-notices"])
     }
 
     @Test("the backup failure names which half failed")
@@ -381,6 +381,38 @@ struct StoreLaunchSequenceTests {
         #expect(!world.store.open.contains { $0.kind.rawValue.hasPrefix("backup.") })
     }
 
+    // MARK: an older archive is checked again (ovation#233)
+
+    @Test("an older archive that no longer verifies is said out loud, by name")
+    func aDamagedOlderArchiveIsSaid() throws {
+        let world = try World(reverify: { _ in
+            .failed("Ovation-backup-2026-03-02-090000",
+                    [.init(path: "Ovation.store", verdict: .absent)])
+        })
+
+        _ = world.sequence.run(now: world.instant)
+
+        let problem = try #require(
+            world.store.open.first { $0.kind == .archiveNoLongerVerifies })
+        #expect(problem.sentence.contains("Ovation-backup-2026-03-02-090000"))
+        // IT SAYS TODAY'S BACKUP IS FINE, because it is, and a notice that reads
+        // like the backups are broken when one old one is damaged sends Dan
+        // looking in the wrong place (L11).
+        #expect(problem.sentence.contains("Today's backup is unaffected"))
+    }
+
+    /// A RE-CHECK THAT FOUND NOTHING TO CHECK SAYS NOTHING, and neither does one
+    /// that could not read an archive: neither is a finding Dan can act on, and
+    /// the archives it did not reach come round on later launches (L36).
+    @Test("a re-check with nothing to check raises nothing")
+    func aQuietReverificationRaisesNothing() throws {
+        let world = try World(reverify: { _ in .nothingToCheck })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(!world.store.open.contains { $0.kind == .archiveNoLongerVerifies })
+    }
+
     // MARK: what is true about the export is said at launch (ovation#64)
 
     @Test("an export notice is raised through the one launch presenter")
@@ -587,6 +619,7 @@ struct StoreLaunchSequenceTests {
              backup: (@Sendable (Date) throws -> BackupService.Attempt)? = nil,
              prepareDataDirectory: (@Sendable () throws -> Void)? = nil,
              backupCurrency: (@Sendable (Date) -> BackupService.Currency)? = nil,
+             reverify: (@Sendable (Date) -> BackupService.Reverification)? = nil,
              seed: (@Sendable (ModelContainer) throws -> Int)? = nil,
              recordVersion: (@Sendable (URL) throws -> Void)? = nil,
              exportNotices: (@Sendable (ModelContainer, Date) -> [ExportNotice])? = nil,
@@ -648,6 +681,10 @@ struct StoreLaunchSequenceTests {
                 backupCurrency: { now in
                     recorder.record("currency")
                     return backupCurrency?(now) ?? .current
+                },
+                reverifyAnArchive: { now in
+                    recorder.record("reverify")
+                    return reverify?(now) ?? .nothingToCheck
                 },
                 openContainer: { url in
                     recorder.record("open")

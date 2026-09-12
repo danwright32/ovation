@@ -129,6 +129,22 @@ struct OvationApp: App {
                         dataChanged: BackupService.dataChangedAt(storeURL: storeURL),
                         now: now)
                 },
+                // ovation#233. One older archive, checked again, so bit rot in a
+                // months old archive is found rather than assumed. A build with no
+                // folder has nothing to check.
+                reverifyAnArchive: { now in
+                    guard let folder = BackupFolderSetting.liveBackupsDirectory else {
+                        return .nothingToCheck
+                    }
+                    let service = BackupService(
+                        dataDirectory: storeURL.deletingLastPathComponent(),
+                        backupsDirectory: folder,
+                        dailyKeep: BackupService.defaultDailyKeep,
+                        referencedDocuments: {
+                            try StoreDocumentReferences.read(storeURL: storeURL)
+                        })
+                    return (try? service.reverifyOneArchive(now: now)) ?? .nothingToCheck
+                },
                 openContainer: { try OvationSchema.container(at: $0) },
                 identify: {
                     StoreSchemaGuard.inspect(

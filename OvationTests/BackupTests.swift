@@ -629,6 +629,125 @@ struct BackupTests {
         return calendar.date(from: components) ?? Date(timeIntervalSinceReferenceDate: 0)
     }
 
+    // MARK: an archive is checked again, long after it was written (ovation#233)
+
+    /// NOTHING LOOKED AT AN ARCHIVE AGAIN after the day it was written, while
+    /// monthly keepers are kept indefinitely on a folder that may sync to a NAS.
+    /// A check satisfied by proof it already passed never runs again, so it
+    /// catches a change in its inputs and never drift in what it depends on
+    /// (L336, L557). `BackupService`'s own header states the stake: a backup whose
+    /// store opens fine and whose receipts are missing fails in an audit, quietly,
+    /// months later.
+    @Test("an archive that still verifies is reported as checked")
+    func anArchiveThatStillVerifiesIsChecked() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant)
+
+        let outcome = try world.service.reverifyOneArchive(now: world.instant)
+
+        #expect(outcome == .verified(archive.lastPathComponent))
+    }
+
+    /// THE CASE IT EXISTS FOR. Bit rot, a sync that dropped a file, a folder
+    /// somebody tidied: the archive was fine when it was written and is not now.
+    @Test("an archive that has been damaged since is reported, by name")
+    func aDamagedArchiveIsReported() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant)
+        try FileManager.default.removeItem(
+            at: archive.appendingPathComponent("Ovation.store"))
+
+        let outcome = try world.service.reverifyOneArchive(now: world.instant)
+
+        guard case .failed(let name, let failures) = outcome else {
+            Issue.record("a damaged archive verified, got \(outcome)")
+            return
+        }
+        #expect(name == archive.lastPathComponent)
+        #expect(!failures.isEmpty)
+    }
+
+    /// AN EMPTY FOLDER IS ITS OWN ANSWER, never a pass. A re-check that examined
+    /// nothing must not read like one that found nothing wrong (L98).
+    @Test("a folder with no archives says it checked nothing")
+    func nothingToCheckIsItsOwnAnswer() throws {
+        let world = try World()
+
+        #expect(try world.service.reverifyOneArchive(now: world.instant) == .nothingToCheck)
+    }
+
+    /// EVERY ARCHIVE COMES ROUND WITHIN A BOUNDED TIME, and the rotation is
+    /// derived from the day rather than from a stored cursor: a cursor is a second
+    /// source of truth that can disagree with the folder, and one that is lost
+    /// restarts the rotation for ever (L58, L70).
+    @Test("the archive checked moves with the day, so every one comes round")
+    func theRotationCoversEveryArchive() throws {
+        let world = try World()
+        for day in 0..<3 {
+            _ = try world.service.takeBackup(
+                now: world.instant.addingTimeInterval(Double(day) * 86_400))
+        }
+
+        var checked: Set<String> = []
+        for day in 0..<3 {
+            let outcome = try world.service.reverifyOneArchive(
+                now: world.instant.addingTimeInterval(Double(day) * 86_400))
+            if case .verified(let name) = outcome { checked.insert(name) }
+        }
+
+        #expect(checked.count == 3, "the rotation checked \(checked.count) of 3 archives")
+    }
+
+    // MARK: the folder holds three growing things, not one (ovation#233)
+
+    /// PRE RESTORE SNAPSHOTS AND FAILED BACKUP EVIDENCE ARE OUTSIDE RETENTION.
+    /// Both are full copies of everything Ovation holds, both accumulate one per
+    /// event, and neither is an archive, so the rule that governs archives never
+    /// looked at them. A bad week of failing backups is a full copy per launch,
+    /// on a volume that may be a NAS, at the moment something is already wrong.
+    @Test("old failed backup evidence is rotated too, and the newest is kept")
+    func evidenceIsRotated() throws {
+        let world = try World(dailyKeep: 1)
+        for index in 0..<5 {
+            world.plantArchive(named: String(format: "%@2026-04-%02d-090000",
+                                             BackupService.unverifiedPrefix, index + 1))
+        }
+
+        let outcome = try world.service.rotate(now: world.april(10))
+
+        #expect(outcome.deleted.count == 2,
+                "expected the oldest evidence to go, got \(outcome.deleted)")
+        #expect(outcome.kept.contains("\(BackupService.unverifiedPrefix)2026-04-05-090000"))
+    }
+
+    /// AND THE SAME FOR THE SNAPSHOT TAKEN BEFORE A RESTORE, which nothing has
+    /// ever removed.
+    @Test("pre restore snapshots are rotated too")
+    func snapshotsAreRotated() throws {
+        let world = try World(dailyKeep: 1)
+        for index in 0..<5 {
+            world.plantArchive(named: String(format: "%@2026-04-%02d-090000",
+                                             BackupService.snapshotPrefix, index + 1))
+        }
+
+        let outcome = try world.service.rotate(now: world.april(10))
+
+        #expect(outcome.deleted.count == 2)
+    }
+
+    /// WHAT THE FOLDER COSTS, measured rather than assumed. Every archive is a
+    /// full uncompressed copy, so the number grows with the receipts, and the
+    /// only honest way to set a ceiling is to know the figure first.
+    @Test("the folder can say how much disk it is using")
+    func theFolderSaysWhatItCosts() throws {
+        let world = try World()
+        _ = try world.service.takeBackup(now: world.instant)
+
+        let bytes = try world.service.folderBytes()
+
+        #expect(bytes > 0)
+    }
+
     // MARK: a refusal carries its cause (ovation#229)
 
     /// `BackupService` caught the underlying file system error and threw the PATH

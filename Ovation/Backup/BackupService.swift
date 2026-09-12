@@ -161,6 +161,78 @@ final class BackupService {
         self.fileManager = fileManager
     }
 
+    // MARK: an archive is checked again, long after it was written (ovation#233)
+
+    /// What one re-check found.
+    enum Reverification: Equatable {
+        /// There was nothing to check. NOT a pass: a re-check that examined
+        /// nothing must not read like one that found nothing wrong (L98).
+        case nothingToCheck
+        case verified(String)
+        case failed(String, [BackupReport.Failure])
+        case couldNotRead(String)
+    }
+
+    /// Check ONE older archive, chosen by the day so every one comes round.
+    ///
+    /// NOTHING LOOKED AT AN ARCHIVE AGAIN after the day it was written, while the
+    /// monthly keepers are kept indefinitely on a folder that may sync to a NAS.
+    /// A check satisfied by proof it already passed never runs again, so it
+    /// catches a change in its inputs and never drift in what it depends on
+    /// (L336, L557). The stake is in this file's own header: a backup whose store
+    /// opens fine and whose receipts are missing fails in an audit, quietly,
+    /// months later.
+    ///
+    /// THE ROTATION IS DERIVED FROM THE DAY, not from a stored cursor. A cursor is
+    /// a second source of truth that can disagree with the folder, and one that is
+    /// lost restarts the rotation for ever (L58, L70). One a launch means every
+    /// archive is re-checked within as many days as there are archives, which for
+    /// fourteen dailies plus a monthly each is a bounded and knowable period.
+    func reverifyOneArchive(now: Date) throws -> Reverification {
+        let existing: [URL]
+        do {
+            existing = try archives()
+        } catch {
+            return .couldNotRead("\(backupsDirectory.path): \(error)")
+        }
+        guard !existing.isEmpty else { return .nothingToCheck }
+
+        let daysSinceReference = Int(now.timeIntervalSinceReferenceDate / 86_400)
+        let index = ((daysSinceReference % existing.count) + existing.count) % existing.count
+        let archive = existing[index]
+
+        let report: BackupReport
+        do {
+            report = try verify(archive: archive)
+        } catch {
+            return .couldNotRead("\(archive.lastPathComponent): \(error)")
+        }
+        guard report.isVerified else {
+            return .failed(archive.lastPathComponent, report.failures)
+        }
+        return .verified(archive.lastPathComponent)
+    }
+
+    /// How much disk the whole folder is using, archives, snapshots and evidence
+    /// together.
+    ///
+    /// MEASURED RATHER THAN ASSUMED. Every archive is a full uncompressed copy of
+    /// everything Ovation holds, so the figure grows with the receipts, and the
+    /// only honest way to set a ceiling is to know the number first. No threshold
+    /// is invented here: one picked before the figure exists is a number nobody
+    /// measured (L172, L353).
+    func folderBytes() throws -> Int {
+        guard let walker = fileManager.enumerator(
+            at: backupsDirectory, includingPropertiesForKeys: [.fileSizeKey]) else {
+            throw BackupError.couldNotRead(backupsDirectory.path)
+        }
+        var total = 0
+        for case let url as URL in walker {
+            total += (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        }
+        return total
+    }
+
     // MARK: are the backups behind the data (ovation#230)
 
     /// Whether the archives have kept up with the store.
@@ -736,6 +808,21 @@ final class BackupService {
             return outcome
         }
 
+        // THE FOLDER HOLDS THREE GROWING THINGS, not one (ovation#233). Pre
+        // restore snapshots and failed backup evidence are both full copies of
+        // everything Ovation holds, both accumulate one per event, and neither is
+        // an archive, so the rule that governs archives never looked at them. A
+        // bad week of failing backups is a full copy per launch, on a volume that
+        // may be a NAS, at the moment something is already wrong.
+        //
+        // They keep the most recent few and nothing older. They are evidence and a
+        // safety net rather than history, so the newest are the ones worth having.
+        for prefix in [Self.unverifiedPrefix, Self.snapshotPrefix] {
+            let kept = try rotateSidePile(prefix: prefix, keeping: Self.sideKeep,
+                                          into: &outcome)
+            outcome.kept += kept
+        }
+
         var dated: [(url: URL, date: Date)] = []
         for archive in existing {
             let name = archive.lastPathComponent
@@ -784,6 +871,50 @@ final class BackupService {
         }
         outcome.kept += outcome.keptUnreadable
         return outcome
+    }
+
+    /// How many of the side piles are kept. Small on purpose: three of each is
+    /// enough to see a pattern in what went wrong, and each one is a full copy.
+    static let sideKeep = 3
+
+    /// Rotate one of the side piles, the failed backup evidence or the pre restore
+    /// snapshots, keeping the most recent few.
+    ///
+    /// SAME REPORTING AS THE ARCHIVES. A deletion that fails is named rather than
+    /// swallowed, and a name that cannot be read as a date is kept rather than
+    /// deleted, because a failed parse otherwise lands on the permissive side and
+    /// here that side is deletion (L50, L12).
+    private func rotateSidePile(prefix: String, keeping: Int,
+                                into outcome: inout RotationOutcome) throws -> [String] {
+        let names: [String]
+        do {
+            names = try fileManager.contentsOfDirectory(atPath: backupsDirectory.path)
+        } catch {
+            throw BackupError.couldNotRead(backupsDirectory.path)
+        }
+        var dated: [(name: String, date: Date)] = []
+        var kept: [String] = []
+        for name in names where name.hasPrefix(prefix) {
+            let stamp = String(name.dropFirst(prefix.count))
+            guard let date = Self.instant(fromArchiveNamed: Self.archivePrefix + stamp) else {
+                outcome.keptUnreadable.append(name)
+                continue
+            }
+            dated.append((name, date))
+        }
+        dated.sort { $0.date < $1.date }
+        guard dated.count > keeping else { return dated.map(\.name) }
+        for entry in dated.prefix(dated.count - keeping) {
+            let url = backupsDirectory.appendingPathComponent(entry.name, isDirectory: true)
+            do {
+                try fileManager.removeItem(at: url)
+                outcome.deleted.append(entry.name)
+            } catch {
+                outcome.couldNotDelete.append(entry.name)
+            }
+        }
+        kept = dated.suffix(keeping).map(\.name)
+        return kept
     }
 
     /// The instant an archive's name carries, or nil when the name is not one
