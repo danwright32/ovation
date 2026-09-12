@@ -57,6 +57,19 @@ HONOURS_SECOND_COPY = re.compile(r"\bmayRun\b")
 # Without this wiring the menu item is there and does nothing, which is the same
 # shape as building the sequence and never running it.
 TAKES_THE_OPENED_STORE = re.compile(r"\.onOpened\s*=")
+# ovation#246. The sequence now runs from a task once the window exists, so a
+# launch can SAY what it is doing. Two things have to be true and neither is
+# visible to any test, because this file is the one the pure target cannot
+# compile:
+#
+#   it runs from a task     if it went back into init, the window would be absent
+#                           again while it works, and a slow backup and an app
+#                           that will not start would look identical (L98)
+#   it runs ONCE            a re-entered launch opens a second container over one
+#                           file, which is two writers: the exact thing the second
+#                           copy check above exists to prevent (ovation#84)
+RUNS_FROM_A_TASK = re.compile(r"\.task\s*\{")
+RUNS_ONLY_ONCE = re.compile(r"\bhasLaunched\b")
 
 
 def fail(code, message):
@@ -112,8 +125,20 @@ def main():
                 "does nothing, and opening a second container instead would be a "
                 "second writer over one file." % ENTRY)
 
-    print("OK: the entry point builds the launch sequence, runs it, stands aside for "
-          "a second running copy, and takes the store it opened.")
+    if not RUNS_FROM_A_TASK.search(code):
+        fail(6, "%s runs the launch sequence without a task, so it is back inside "
+                "init and the window does not exist while it works. A slow backup "
+                "and an app that will not start then look identical, and there is "
+                "nowhere to say which it is (ovation#246)." % ENTRY)
+
+    if not RUNS_ONLY_ONCE.search(code):
+        fail(6, "%s runs the launch from a task and nothing stops it running twice. "
+                "A second run opens a second container over one file, which is two "
+                "writers of Dan's invoices: the thing the second copy check exists "
+                "to prevent, arriving from inside one process (ovation#84)." % ENTRY)
+
+    print("OK: the entry point builds the launch sequence, runs it once from a task, "
+          "stands aside for a second running copy, and takes the store it opened.")
 
 
 main()

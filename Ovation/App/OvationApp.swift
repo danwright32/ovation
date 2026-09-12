@@ -27,6 +27,14 @@ struct OvationApp: App {
     /// the client list could not be read, which raises its own problem.
     @State private var roster: RosterPresenter?
     @State private var shell: ShellPresenter?
+    /// ovation#246. What the window shows while the launch runs behind it.
+    @State private var progress = LaunchProgress()
+    /// Whether the second copy check said this one may run, carried from init so
+    /// the launch can read it once the window exists.
+    @State private var secondInstance: SecondInstance.Verdict = .theOnlyCopy
+    /// IT RUNS EXACTLY ONCE. A re-entered launch would open a second container
+    /// over one file, which is two writers (ovation#84).
+    @State private var hasLaunched = false
 
     init() {
         // A disposable launch gets a journal that writes nowhere, so nothing a
@@ -75,6 +83,49 @@ struct OvationApp: App {
         // command can read the store Dan is actually looking at (ovation#162).
         let openedStore = OpenedStore()
 
+        let presenter = LaunchPresenter(store: store)
+        presenter.refresh()
+
+        _store = State(initialValue: store)
+        _presenter = State(initialValue: presenter)
+        // NOTHING IS OPEN YET, and that is the change ovation#246 made. The
+        // launch sequence used to run HERE, before any window existed, so a slow
+        // backup and a failure to start looked identical and there was no surface
+        // to tell them apart. It now runs from a task once the window is up, in
+        // the same order, and these are filled in when it finishes.
+        _opened = State(initialValue: nil)
+        _roster = State(initialValue: nil)
+        _shell = State(initialValue: nil)
+        _secondInstance = State(initialValue: secondInstance)
+        // THE COMMAND IS BUILT EVEN WHEN THERE IS NOWHERE TO WRITE, and answers
+        // why rather than being absent. A menu item that vanishes on a throwaway
+        // launch teaches nothing; one that is there and says what is missing is
+        // the difference between a dead control and a refusal (L109).
+        _exportCommand = State(initialValue: YearEndExportCommand.forThisLaunch())
+    }
+
+
+    /// THE LAUNCH, RUN ONCE THE WINDOW EXISTS (ovation#246).
+    ///
+    /// The ORDER is unchanged and is still the requirement: identify,
+    /// checkpoint, prepare, back up, check the backups, then open. What changed
+    /// is only WHEN it starts: before, it ran inside `init`, so nothing was on
+    /// screen while it worked and a slow backup was indistinguishable from an app
+    /// that would not start. Dan's standing rule wants started, still alive and
+    /// failed to be three different things, and none of them can be shown from a
+    /// place with no window.
+    ///
+    /// IT RUNS EXACTLY ONCE. `.task` is tied to the view's lifetime and a
+    /// re-entered launch would open a second container over one file, which is
+    /// two writers (ovation#84).
+    @MainActor
+    private func startLaunch() async {
+        guard !hasLaunched else { return }
+        hasLaunched = true
+
+        let store = self.store
+        let secondInstance = self.secondInstance
+        let openedStore = OpenedStore()
         if secondInstance.mayRun, let storeURL = StoreLocation.liveStoreURL() {
             var sequence = StoreLaunchSequence(
                 storeURL: storeURL,
@@ -260,7 +311,8 @@ struct OvationApp: App {
                 }
             )
             sequence.onOpened = { openedStore.container = $0 }
-            sequence.run(now: Date())
+            sequence.onStep = { [progress] step in progress.stepStarted(step) }
+            progress.finished(await sequence.run(now: Date()))
         }
 
         // ovation#40. The roster is read BEFORE the presenter refreshes, so that
@@ -280,20 +332,10 @@ struct OvationApp: App {
                 problems: store,
                 now: Date())
         }
-
-        let presenter = LaunchPresenter(store: store)
+        opened = openedStore.container
+        roster = rosterPair?.roster
+        shell = rosterPair?.shell
         presenter.refresh()
-
-        _store = State(initialValue: store)
-        _presenter = State(initialValue: presenter)
-        _opened = State(initialValue: openedStore.container)
-        _roster = State(initialValue: rosterPair?.roster)
-        _shell = State(initialValue: rosterPair?.shell)
-        // THE COMMAND IS BUILT EVEN WHEN THERE IS NOWHERE TO WRITE, and answers
-        // why rather than being absent. A menu item that vanishes on a throwaway
-        // launch teaches nothing; one that is there and says what is missing is
-        // the difference between a dead control and a refusal (L109).
-        _exportCommand = State(initialValue: YearEndExportCommand.forThisLaunch())
     }
 
     /// A box, because the launch sequence's hook is `@Sendable` and this runs
@@ -305,7 +347,11 @@ struct OvationApp: App {
     var body: some Scene {
         Window(OvationBuild.displayName, id: OvationBuild.mainWindowID) {
             RootView(presenter: presenter, store: store, exportCommand: exportCommand,
-                     roster: roster, shell: shell)
+                     roster: roster, shell: shell, progress: progress)
+                // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
+                // order inside the launch is unchanged; what changed is that
+                // there is now somewhere for it to say what it is doing.
+                .task { await startLaunch() }
         }
         // ovation#162. THE CONTROL THE STALENESS NOTICE NAMES. Until this existed
         // `YearEndExport.run` was called by nothing, so that notice named a

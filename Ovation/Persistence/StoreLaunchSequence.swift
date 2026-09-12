@@ -60,14 +60,14 @@ struct StoreLaunchSequence {
     /// SKIPPED because today's backup was already taken was indistinguishable
     /// from one that backed up, and a folder that could not be read looked like
     /// either (L98, L11).
-    let takeBackup: @Sendable (Date) throws -> BackupService.Attempt
+    let takeBackup: @Sendable (Date) async throws -> BackupService.Attempt
     /// ovation#230. Whether the archives have kept up with the store, asked after
     /// the backup so that today's counts. Injected like every other step.
     let backupCurrency: @Sendable (Date) -> BackupService.Currency
     /// ovation#233. One OLDER archive, checked again. Nothing looked at an archive
     /// after the day it was written, while monthly keepers are kept indefinitely
     /// on a folder that may sync to a NAS (L336, L557).
-    let reverifyAnArchive: @Sendable (Date) -> BackupService.Reverification
+    let reverifyAnArchive: @Sendable (Date) async -> BackupService.Reverification
     let openContainer: @Sendable (URL) throws -> ModelContainer
     let identify: @Sendable (URL) -> StoreSchemaGuard.Verdict
     /// ovation#107. Puts PRD 5.4's starting service types into a store that has
@@ -84,13 +84,13 @@ struct StoreLaunchSequence {
     /// INJECTED WITH NO DEFAULT, like every other step. A default of "no notices"
     /// would be indistinguishable from a healthy export history, which is this
     /// feature's own failure mode (L168, L98).
-    let exportNotices: @Sendable (ModelContainer, Date) -> [ExportNotice]
+    let exportNotices: @MainActor @Sendable (ModelContainer, Date) -> [ExportNotice]
     /// ovation#208. Brings Downbeat's client roster across, and says what it did.
     ///
     /// INJECTED WITH NO DEFAULT, like every other step. A default of "no notices"
     /// would be indistinguishable from an import that ran and correctly found
     /// nothing to do, which is this feature's own commonest outcome (L168, L98).
-    let importClients: @Sendable (ModelContainer) -> [ClientImportNotice]
+    let importClients: @MainActor @Sendable (ModelContainer) -> [ClientImportNotice]
 
     /// ovation#162. Hands the opened store to whoever has to act on it later.
     ///
@@ -107,9 +107,46 @@ struct StoreLaunchSequence {
     /// It defaults to doing nothing, which is what every test wants.
     var onOpened: @Sendable (ModelContainer) -> Void = { _ in }
 
+    /// Told as each step STARTS, so something can say what is happening
+    /// (ovation#246). Nil where nobody is watching, which is every test that
+    /// predates it.
+    ///
+    /// IT REPORTS THE START, NOT THE FINISH. A surface that only hears about
+    /// completed steps says nothing during the one that is slow, which is the
+    /// only one worth saying anything about.
+    var onStep: (@MainActor (Step) -> Void)?
+
+    /// What the launch is doing, in the order it does it. Each case is a thing a
+    /// person can be told, in their words rather than the code's.
+    enum Step: String, Equatable, CaseIterable {
+        case identifying
+        case checkpointing
+        case preparing
+        case backingUp
+        case checkingBackups
+        case opening
+        case seeding
+        case readingClients
+
+        /// What to say while it is happening. Domain, never interface (L604).
+        var sentence: String {
+            switch self {
+            case .identifying: return "Checking the database is Ovation's"
+            case .checkpointing: return "Settling the database"
+            case .preparing: return "Preparing the data folder"
+            case .backingUp: return "Backing up"
+            case .checkingBackups: return "Checking the backups"
+            case .opening: return "Opening the database"
+            case .seeding: return "Setting up"
+            case .readingClients: return "Reading your clients"
+            }
+        }
+    }
+
     @discardableResult
-    func run(now: Date) -> Outcome {
+    func run(now: Date) async -> Outcome {
         // 1. IDENTIFY.
+        onStep?(.identifying)
         let verdict = identify(storeURL)
         if !StoreSchemaGuard.mayOpenForWriting(verdict) {
             let sentence = StoreSchemaGuard.refusalSentence(for: verdict, at: storeURL.path)
@@ -129,6 +166,7 @@ struct StoreLaunchSequence {
         // second time: two lookups can disagree, and a check whose two sides come
         // from one lookup is the only kind that cannot (L70).
         var thereIsAStoreFile = true
+        onStep?(.checkpointing)
         switch checkpoint(storeURL) {
         case .checkpointed:
             break
@@ -185,8 +223,10 @@ struct StoreLaunchSequence {
                 // backup anyway would raise a SECOND problem under the same kind
                 // and subject, and `ProblemsStore.raise` merges those into one
                 // record whose sentence is whichever spoke last (L53).
+                onStep?(.preparing)
                 try prepareDataDirectory()
-                switch try takeBackup(now) {
+                onStep?(.backingUp)
+                switch try await takeBackup(now) {
                 case .taken, .alreadyTakenToday:
                     // A BACKUP HAPPENING IS PROOF A FOLDER EXISTS, so the standing
                     // "no folder chosen" notice is settled here rather than only
@@ -225,6 +265,7 @@ struct StoreLaunchSequence {
             // today's counts (ovation#230). It is a STANDING condition about the
             // folder rather than an event about this launch, which is why it is
             // asked every time rather than only when a backup was taken.
+            onStep?(.checkingBackups)
             switch backupCurrency(now) {
             case .current:
                 break
@@ -252,7 +293,7 @@ struct StoreLaunchSequence {
             // Ovation. A re-check that examined nothing, or could not read one,
             // says nothing: neither is a finding Dan can act on, and the archives
             // it did not reach come round on later launches.
-            if case .failed(let name, let failures) = reverifyAnArchive(now) {
+            if case .failed(let name, let failures) = await reverifyAnArchive(now) {
                 _ = problems.raise(
                     kind: .archiveNoLongerVerifies, subject: name,
                     sentence: "The backup \(name) verified when it was written and "
@@ -264,6 +305,7 @@ struct StoreLaunchSequence {
         // 4. OPEN.
         let container: ModelContainer
         do {
+            onStep?(.opening)
             container = try openContainer(storeURL)
         } catch {
             let sentence = "The store was identified as Ovation's and still would not open: "
@@ -310,6 +352,7 @@ struct StoreLaunchSequence {
         // the first, and a notice on the commonest case is one Dan learns to
         // click past (L36).
         do {
+            onStep?(.seeding)
             _ = try seed(container)
         } catch {
             _ = problems.raise(
@@ -336,6 +379,7 @@ struct StoreLaunchSequence {
         // A RUN THAT CHANGED NOTHING RAISES NOTHING, which is every launch after
         // the first. That decision lives in the runner rather than here, so the
         // rule has one home (L83).
+        onStep?(.readingClients)
         for notice in importClients(container) {
             _ = problems.raise(kind: notice.kind, subject: notice.subject,
                                sentence: notice.sentence, now: now)

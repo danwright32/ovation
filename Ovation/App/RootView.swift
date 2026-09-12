@@ -29,6 +29,11 @@ struct RootView: View {
     var roster: RosterPresenter?
     var shell: ShellPresenter?
 
+    /// ovation#246. What the launch is doing, while it is doing it. Nil in every
+    /// hosted test written before there was one, and in that case the window is
+    /// exactly what it has always been.
+    var progress: LaunchProgress?
+
     /// WHICH WINDOW DAN GETS, decided in ONE place.
     ///
     /// The shell owns the window exactly while the roster is in the rail, and it
@@ -46,7 +51,12 @@ struct RootView: View {
     }
 
     var body: some View {
-        if shellOwnsTheWindow, let shell, let roster {
+        // STARTING IS ITS OWN SCREEN (ovation#246). Until the launch finishes
+        // there is no store, no roster and nothing to show, and the old answer
+        // was to show nothing at all because the window did not exist yet.
+        if let progress, progress.phase == .preparing {
+            StartingView(progress: progress)
+        } else if shellOwnsTheWindow, let shell, let roster {
             ShellView(shell: shell, roster: roster, problems: store)
         } else {
             problemsWindow
@@ -165,5 +175,40 @@ struct RunningExportView: View {
             return "\(YearEndExportCommand.title) has finished."
         }
         return "Exporting the year. \(Int(seconds.rounded()))s so far."
+    }
+}
+
+/// ovation#246. What Ovation shows while it is starting.
+///
+/// THREE STATES, VISIBLY DIFFERENT, which is the standing rule this exists for.
+/// STARTED is the window being here at all with a sentence in it. STILL ALIVE is
+/// that sentence changing as the launch moves, and a second line once one step
+/// has been going long enough to be worth mentioning. FAILED is the refusal,
+/// which replaces both rather than sitting beside them.
+///
+/// IT SAYS WHAT IS HAPPENING TO DAN'S RECORDS, never what a function is called
+/// (L604): "Backing up", not "runBackupStep".
+struct StartingView: View {
+    @Bindable var progress: LaunchProgress
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(OvationBuild.displayName)
+                .font(.title2)
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(progress.sentence)
+            }
+            // THE SECOND SIGNAL OF LIFE. A step that is itself slow does not
+            // change, and a screen frozen on one sentence is the indefinite wait
+            // this whole surface exists to replace.
+            if progress.isTakingLongerThanExpected {
+                Text("This is taking longer than usual. Ovation is still working.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 360, alignment: .leading)
     }
 }

@@ -149,7 +149,46 @@ check "an entry point that never takes the opened store is refused" 5 \
     "$(run_on "${WORK}/never-takes-the-store.swift")"
 
 # And one that does, so the rule above is not bought by refusing everything (L1).
+#
+# RETARGETED IN ovation#246, NOT WEAKENED. This fixture ran the sequence inside
+# init, which the guard now refuses: the launch runs from a task once the window
+# exists. The claim it makes, that taking the opened store passes, is unchanged,
+# so the fixture moves to the shape the entry point actually has (L430).
 cat > "${WORK}/takes-the-store.swift" <<'SWIFT'
+@main
+struct OvationApp: App {
+    @State private var hasLaunched = false
+    init() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let verdict = SecondInstance.check(executablePath: "x", runningPIDs: { _ in [] })
+        _ = verdict.mayRun
+    }
+    var body: some Scene {
+        Window("x", id: "x") {
+            RootView()
+                .task {
+                    guard !hasLaunched else { return }
+                    hasLaunched = true
+                    if let storeURL = StoreLocation.liveStoreURL() {
+                        var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
+                        sequence.onOpened = { opened.container = $0 }
+                        await sequence.run(now: Date())
+                    }
+                }
+        }
+    }
+}
+SWIFT
+check "and one that takes it passes" 0 \
+    "$(run_on "${WORK}/takes-the-store.swift")"
+
+# ---------------------------------------------------------------------------
+# IT RUNS FROM A TASK, AND ONCE (ovation#246). The sequence used to run inside
+# init, before any window existed, so a slow backup and an app that would not
+# start looked identical and there was nowhere to say which. Both halves live in
+# the one file no test can compile, which is why they are checked here.
+# ---------------------------------------------------------------------------
+cat > "${WORK}/runs-in-init.swift" <<'SWIFT'
 @main
 struct OvationApp: App {
     init() {
@@ -163,8 +202,63 @@ struct OvationApp: App {
     }
 }
 SWIFT
-check "and one that takes it passes" 0 \
-    "$(run_on "${WORK}/takes-the-store.swift")"
+check "an entry point that runs the launch in init, with no window, is refused" 6 \
+    "$(run_on "${WORK}/runs-in-init.swift")"
+
+cat > "${WORK}/task-with-no-guard.swift" <<'SWIFT'
+@main
+struct OvationApp: App {
+    init() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let verdict = SecondInstance.check(executablePath: "x", runningPIDs: { _ in [] })
+        _ = verdict.mayRun
+    }
+    var body: some Scene {
+        Window("x", id: "x") {
+            RootView()
+                .task {
+                    if let storeURL = StoreLocation.liveStoreURL() {
+                        var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
+                        sequence.onOpened = { opened.container = $0 }
+                        await sequence.run(now: Date())
+                    }
+                }
+        }
+    }
+}
+SWIFT
+check "a launch that can run twice is refused, because that is two writers" 6 \
+    "$(run_on "${WORK}/task-with-no-guard.swift")"
+
+cat > "${WORK}/task-guarded.swift" <<'SWIFT'
+@main
+struct OvationApp: App {
+    @State private var hasLaunched = false
+    init() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let verdict = SecondInstance.check(executablePath: "x", runningPIDs: { _ in [] })
+        _ = verdict.mayRun
+    }
+    var body: some Scene {
+        Window("x", id: "x") {
+            RootView()
+                .task {
+                    guard !hasLaunched else { return }
+                    hasLaunched = true
+                    if let storeURL = StoreLocation.liveStoreURL() {
+                        var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
+                        sequence.onOpened = { opened.container = $0 }
+                        await sequence.run(now: Date())
+                    }
+                }
+        }
+    }
+}
+SWIFT
+# And the control, so the two refusals above are not bought by refusing
+# everything (L159).
+check "a guarded launch from a task passes" 0 \
+    "$(run_on "${WORK}/task-guarded.swift")"
 
 echo "launch sequence wiring tests: ${PASSED} passed, ${FAILED} failed"
 [[ "${FAILED}" -eq 0 ]]

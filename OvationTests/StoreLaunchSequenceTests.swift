@@ -19,10 +19,10 @@ struct StoreLaunchSequenceTests {
     // MARK: the order is the requirement
 
     @Test("a clean launch runs all four steps, in order, and opens")
-    func theHappyPathRunsEverything() throws {
+    func theHappyPathRunsEverything() async throws {
         let world = try World()
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
         #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "currency", "reverify", "open", "version", "seed", "import-clients", "export-notices"])
@@ -30,7 +30,7 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("a foreign store REFUSES, and nothing after the identify step runs")
-    func aForeignStoreStopsTheSequence() throws {
+    func aForeignStoreStopsTheSequence() async throws {
         // The failure the guard exists for, and the reason the order matters.
         // Core Data does not throw on a foreign file: it creates its missing
         // tables inside whatever it is handed and opens what looks like an empty
@@ -39,7 +39,7 @@ struct StoreLaunchSequenceTests {
         let world = try World()
         try world.writeForeignStore()
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         guard case .refused = outcome else {
             Issue.record("a foreign store was not refused, it returned \(outcome)")
@@ -50,11 +50,11 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("the refusal says what was found and that nothing was touched")
-    func theRefusalIsSpecific() throws {
+    func theRefusalIsSpecific() async throws {
         let world = try World()
         try world.writeForeignStore()
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         let problem = try #require(world.store.open.first { $0.kind == .foreignStore })
         // A message may claim only what its check actually measured (L11), and
@@ -64,7 +64,7 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("a checkpoint that could not complete stops the sequence BEFORE the backup")
-    func aFailedCheckpointStopsTheBackup() throws {
+    func aFailedCheckpointStopsTheBackup() async throws {
         // This is the whole reason the checkpoint sits where it does. Backing up
         // a store whose log still holds the rows produces an archive that
         // restores an empty database and verifies clean, so carrying on past a
@@ -72,7 +72,7 @@ struct StoreLaunchSequenceTests {
         // backup the verification cannot see (L63).
         let world = try World(checkpoint: { _ in .failed(detail: "a reader is holding it open") })
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         guard case .refused = outcome else {
             Issue.record("a failed checkpoint did not stop the sequence, it returned \(outcome)")
@@ -83,20 +83,20 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("a first launch with no store yet checkpoints nothing and still opens")
-    func aFirstLaunchIsOrdinary() throws {
+    func aFirstLaunchIsOrdinary() async throws {
         // A fresh install has no store. Treating that as a failed checkpoint
         // would raise a problem on every first run, which is a guard firing on
         // the commonest case rather than the dangerous one (L11).
         let world = try World(withStore: false)
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
         #expect(world.store.open.isEmpty)
     }
 
     @Test("a first launch with no store yet does not attempt a backup at all")
-    func aFirstLaunchDoesNotBackUp() throws {
+    func aFirstLaunchDoesNotBackUp() async throws {
         // ovation#137. `Ovation.store` is a REQUIRED member, so a backup taken
         // before the store exists throws `requiredMemberMissing` and the sequence
         // raises "the backup was refused because Ovation.store is missing" about
@@ -114,7 +114,7 @@ struct StoreLaunchSequenceTests {
         let world = try World(withStore: false,
                               backup: { _ in throw BackupError.requiredMemberMissing("Ovation.store") })
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
         #expect(!world.recorder.steps.contains("backup"))
@@ -123,7 +123,7 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("a store that IS there and cannot be backed up still says so")
-    func aMissingMemberBesideAStoreIsStillRaised() throws {
+    func aMissingMemberBesideAStoreIsStillRaised() async throws {
         // The positive control for the test above, and the case it must not
         // swallow. A required member missing while the store is present is the
         // genuinely alarming one: something was deleted from the data folder.
@@ -131,7 +131,7 @@ struct StoreLaunchSequenceTests {
         // (L159, L98).
         let world = try World(backup: { _ in throw BackupError.requiredMemberMissing("documents") })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(world.recorder.steps.contains("backup"))
         // RETARGETED IN ovation#229, NOT DELETED. This asserted `.backupFailed`
@@ -146,7 +146,7 @@ struct StoreLaunchSequenceTests {
     // MARK: a failed backup is reported, and does not lock Dan out
 
     @Test("a backup that fails is RAISED but the app still opens")
-    func aFailedBackupIsReportedNotFatal() throws {
+    func aFailedBackupIsReportedNotFatal() async throws {
         // Deliberate, and the reason is stated because the opposite is also
         // defensible. Refusing to open would leave Dan unable to invoice
         // because a folder on a Synology was unreachable, which is a worse
@@ -157,7 +157,7 @@ struct StoreLaunchSequenceTests {
         // backup can lose data rather than merely leave it unprotected.
         let world = try World(backup: { _ in throw BackupError.couldNotWrite("Backups") })
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
         // RETARGETED IN ovation#229, NOT DELETED. This asserted `.backupFailed`
@@ -170,13 +170,13 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("the backup failure names which half failed")
-    func theBackupFailureNamesItsHalf() throws {
+    func theBackupFailureNamesItsHalf() async throws {
         // ovation#87 asks for two labels, not one: an archive that could not be
         // WRITTEN and one that was written and did not VERIFY are different
         // failures needing different sentences (L11).
         let world = try World(backup: { _ in throw BackupError.couldNotWrite("Backups") })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         // RETARGETED IN ovation#229, NOT DELETED. This asserted `.backupFailed`
         // for every backup failure, which was the defect: one kind meant one
@@ -195,16 +195,16 @@ struct StoreLaunchSequenceTests {
     /// the same launch, and the second silently erased the first (L53, L260).
     /// Four sentences under one kind satisfies L11 and is not enough.
     @Test("an archive that could not be written and one that did not verify are different kinds")
-    func theTwoBackupFailuresAreDifferentKinds() throws {
+    func theTwoBackupFailuresAreDifferentKinds() async throws {
         let couldNotWrite = try World(backup: { _ in
             throw BackupError.couldNotWrite("/Volumes/Backups")
         })
-        _ = couldNotWrite.sequence.run(now: couldNotWrite.instant)
+        _ = await couldNotWrite.sequence.run(now: couldNotWrite.instant)
 
         let didNotVerify = try World(backup: { _ in
             throw BackupError.verificationFailed([])
         })
-        _ = didNotVerify.sequence.run(now: didNotVerify.instant)
+        _ = await didNotVerify.sequence.run(now: didNotVerify.instant)
 
         #expect(couldNotWrite.store.open.contains { $0.kind == .backupCouldNotBeWritten })
         #expect(!couldNotWrite.store.open.contains { $0.kind == .backupFailed })
@@ -216,10 +216,10 @@ struct StoreLaunchSequenceTests {
     /// leave TWO open problems, not one. Under a single kind the second call
     /// overwrote the first and the panel showed one card.
     @Test("two backup conditions in one launch leave two problems, not one")
-    func twoConditionsLeaveTwoProblems() throws {
+    func twoConditionsLeaveTwoProblems() async throws {
         let world = try World(backup: { _ in throw BackupError.couldNotWrite("/Volumes/Backups") })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
         // The second condition, raised the way a later phase will raise it.
         _ = world.store.raise(kind: .backupsAreStale, subject: world.storeURL.path,
                               sentence: "The newest archive is older than your data.",
@@ -235,12 +235,12 @@ struct StoreLaunchSequenceTests {
     /// sentence. Those are the three likeliest causes on this configuration and
     /// they need three different actions.
     @Test("a write failure carries the cause it was given")
-    func aWriteFailureCarriesItsCause() throws {
+    func aWriteFailureCarriesItsCause() async throws {
         let world = try World(backup: { _ in
             throw BackupError.couldNotWrite("/Volumes/Backups: the volume is not mounted")
         })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         let problem = try #require(world.store.open.first { $0.kind == .backupCouldNotBeWritten })
         #expect(problem.sentence.contains("the volume is not mounted"))
@@ -252,7 +252,7 @@ struct StoreLaunchSequenceTests {
     /// queue for ever and pushes every more urgent notice behind it. It is
     /// resolved when a folder is chosen.
     @Test("the standing no folder condition is resolved once a folder exists")
-    func theStandingConditionIsResolvable() throws {
+    func theStandingConditionIsResolvable() async throws {
         let world = try World()
         let raised = world.store.raise(
             kind: .backupFolderNotChosen, subject: "backups",
@@ -272,12 +272,12 @@ struct StoreLaunchSequenceTests {
     /// silence otherwise, and the silence is the one that means no backups are
     /// happening at all (L98).
     @Test("a backup folder that cannot be read is reported and the app still opens")
-    func anUnreachableFolderIsReported() throws {
+    func anUnreachableFolderIsReported() async throws {
         let world = try World(backup: { _ in
             .folderUnreachable("/Volumes/Backups: the volume is not mounted")
         })
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
         let problem = try #require(world.store.open.first { $0.kind == .backupCouldNotBeWritten })
@@ -288,12 +288,12 @@ struct StoreLaunchSequenceTests {
     /// same day. A notice there is one Dan learns to click past, and then the
     /// ones that matter go past with it (L36).
     @Test("a backup already taken today raises nothing")
-    func aSkipRaisesNothing() throws {
+    func aSkipRaisesNothing() async throws {
         let world = try World(backup: { _ in
             .alreadyTakenToday(URL(fileURLWithPath: "/dev/null"))
         })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(!world.store.open.contains { $0.kind.rawValue.hasPrefix("backup.") })
     }
@@ -306,13 +306,13 @@ struct StoreLaunchSequenceTests {
     /// is proof a folder exists, so it settles the question every time rather
     /// than once.
     @Test("a launch that backed up clears any standing no folder notice")
-    func aBackupClearsTheStandingCondition() throws {
+    func aBackupClearsTheStandingCondition() async throws {
         let world = try World()
         _ = world.store.raise(kind: .backupFolderNotChosen, subject: "backups",
                               sentence: "No backup folder has been chosen yet.",
                               now: world.instant)
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(!world.store.open.contains { $0.kind == .backupFolderNotChosen })
     }
@@ -320,7 +320,7 @@ struct StoreLaunchSequenceTests {
     /// AND A LAUNCH WITH NO FOLDER LEAVES IT STANDING, because it is still true
     /// (L98).
     @Test("a launch that could not back up leaves the standing notice alone")
-    func aFailedBackupLeavesTheStandingCondition() throws {
+    func aFailedBackupLeavesTheStandingCondition() async throws {
         let world = try World(backup: { _ in
             throw BackupError.couldNotWrite("no backup folder has been chosen yet")
         })
@@ -328,30 +328,88 @@ struct StoreLaunchSequenceTests {
                               sentence: "No backup folder has been chosen yet.",
                               now: world.instant)
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(world.store.open.contains { $0.kind == .backupFolderNotChosen })
+    }
+
+    // MARK: something can say what is happening (ovation#246)
+
+    /// THE WHOLE SEQUENCE RUNS BEFORE ANY WINDOW EXISTS, which is deliberate:
+    /// identify, checkpoint, back up, and only then open, because opening is the
+    /// risky moment. The consequence was that a launch had nowhere to say
+    /// anything, so a slow backup and a failure to start looked identical, and
+    /// Dan's standing rule wants started, still alive and failed to be three
+    /// different things.
+    ///
+    /// IT REPORTS THE START OF EACH STEP, not the finish. A surface told only
+    /// about completed steps says nothing during the one that is slow, which is
+    /// the only one worth saying anything about.
+    @Test("the launch says what it is doing, in the order it does it")
+    func theLaunchReportsItsSteps() async throws {
+        let world = try World()
+        final class Seen: @unchecked Sendable { var steps: [StoreLaunchSequence.Step] = [] }
+        let seen = Seen()
+        var sequence = world.sequence
+        sequence.onStep = { seen.steps.append($0) }
+
+        _ = await sequence.run(now: world.instant)
+
+        #expect(seen.steps.first == .identifying)
+        // EACH STEP IS REPORTED ONCE. A duplicate is not cosmetic: the progress
+        // surface restarts its "taking a while" clock on every step it is told
+        // about, so a step reported twice resets the one signal that says a slow
+        // step is still slow (ovation#246). Found by the push gate, which
+        // noticed a second `onStep?(.readingClients)` an edit had left behind.
+        #expect(seen.steps.count == Set(seen.steps).count,
+                "a step was reported more than once: \(seen.steps)")
+        let backingUp = try #require(seen.steps.firstIndex(of: .backingUp))
+        let opening = try #require(seen.steps.firstIndex(of: .opening))
+        // The backup must be reported before the open, because that is the order
+        // that protects the store.
+        #expect(backingUp < opening)
+    }
+
+    /// EVERY STEP HAS SOMETHING TO SAY, and it is about the DOMAIN rather than
+    /// the interface: a person is told what Ovation is doing to their records,
+    /// never what a function is called (L604).
+    @Test("every step has a sentence, and none of them names a function")
+    func everyStepHasASentence() {
+        for step in StoreLaunchSequence.Step.allCases {
+            #expect(!step.sentence.isEmpty, "\(step) has nothing to say")
+            #expect(step.sentence.first?.isUppercase == true,
+                    "\(step) does not read as a sentence: \(step.sentence)")
+        }
+    }
+
+    /// A LAUNCH NOBODY IS WATCHING IS UNCHANGED. The reporting is optional, and
+    /// every case in this file that predates it runs without one.
+    @Test("a launch with nobody watching still opens")
+    func aLaunchWithNoWatcherIsUnchanged() async throws {
+        let world = try World()
+
+        #expect(await world.sequence.run(now: world.instant) == .opened)
     }
 
     // MARK: are the backups behind the data (ovation#230)
 
     @Test("a folder holding no backups at all is said out loud")
-    func anEmptyFolderIsSaid() throws {
+    func anEmptyFolderIsSaid() async throws {
         let world = try World(backupCurrency: { _ in .noArchivesAtAll })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(world.store.open.contains { $0.kind == .backupFolderIsEmpty })
     }
 
     @Test("work that no backup has followed is said out loud, with both dates")
-    func staleBackupsAreSaid() throws {
+    func staleBackupsAreSaid() async throws {
         let worked = Date(timeIntervalSinceReferenceDate: 800_000_000)
         let world = try World(backupCurrency: { _ in
             .stale(newestArchive: worked.addingTimeInterval(-3 * 86_400), dataChangedOn: worked)
         })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         let problem = try #require(world.store.open.first { $0.kind == .backupsAreStale })
         #expect(problem.sentence.contains(BusinessCalendar.dayKey(for: worked)))
@@ -361,10 +419,10 @@ struct StoreLaunchSequenceTests {
     /// report a pass, and it must not claim staleness either, which is something
     /// it did not measure (L11).
     @Test("backups whose currency could not be judged say so, as their own thing")
-    func currencyThatCouldNotBeJudgedIsSaid() throws {
+    func currencyThatCouldNotBeJudgedIsSaid() async throws {
         let world = try World(backupCurrency: { _ in .cannotTell("the store's dates") })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(world.store.open.contains { $0.kind == .backupCurrencyCouldNotBeJudged })
         #expect(!world.store.open.contains { $0.kind == .backupsAreStale })
@@ -373,10 +431,10 @@ struct StoreLaunchSequenceTests {
     /// AND A HEALTHY LAUNCH SAYS NOTHING, which is the commonest case by far
     /// (L36).
     @Test("backups that have kept up raise nothing")
-    func currentBackupsRaiseNothing() throws {
+    func currentBackupsRaiseNothing() async throws {
         let world = try World(backupCurrency: { _ in .current })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(!world.store.open.contains { $0.kind.rawValue.hasPrefix("backup.") })
     }
@@ -384,13 +442,13 @@ struct StoreLaunchSequenceTests {
     // MARK: an older archive is checked again (ovation#233)
 
     @Test("an older archive that no longer verifies is said out loud, by name")
-    func aDamagedOlderArchiveIsSaid() throws {
+    func aDamagedOlderArchiveIsSaid() async throws {
         let world = try World(reverify: { _ in
             .failed("Ovation-backup-2026-03-02-090000",
                     [.init(path: "Ovation.store", verdict: .absent)])
         })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         let problem = try #require(
             world.store.open.first { $0.kind == .archiveNoLongerVerifies })
@@ -405,10 +463,10 @@ struct StoreLaunchSequenceTests {
     /// that could not read an archive: neither is a finding Dan can act on, and
     /// the archives it did not reach come round on later launches (L36).
     @Test("a re-check with nothing to check raises nothing")
-    func aQuietReverificationRaisesNothing() throws {
+    func aQuietReverificationRaisesNothing() async throws {
         let world = try World(reverify: { _ in .nothingToCheck })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(!world.store.open.contains { $0.kind == .archiveNoLongerVerifies })
     }
@@ -416,13 +474,13 @@ struct StoreLaunchSequenceTests {
     // MARK: what is true about the export is said at launch (ovation#64)
 
     @Test("an export notice is raised through the one launch presenter")
-    func exportNoticesReachTheProblemsStore() throws {
+    func exportNoticesReachTheProblemsStore() async throws {
         // Both notices reach Dan through this presenter rather than as
         // independent alerts (L242), and they are derived at launch rather than
         // stored as a conclusion (L175).
         let world = try World(exportNotices: { _, _ in [.stale(days: 41)] })
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
         let problem = try #require(world.store.open.first { $0.kind == .exportStale })
@@ -430,19 +488,19 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("with nothing to say it raises nothing, because that is every ordinary launch")
-    func noExportNoticeRaisesNothing() throws {
+    func noExportNoticeRaisesNothing() async throws {
         let world = try World(exportNotices: { _, _ in [] })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(world.store.open.isEmpty)
     }
 
     @Test("the notices are asked for AFTER the store opened, because one is about its contents")
-    func exportNoticesComeAfterTheOpen() throws {
+    func exportNoticesComeAfterTheOpen() async throws {
         let world = try World(exportNotices: { _, _ in [] })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         let steps = world.recorder.steps
         let open = try #require(steps.firstIndex(of: "open"))
@@ -451,14 +509,14 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("a store refused at IDENTIFY is never asked about its export history")
-    func arefusedStoreRaisesNoExportNotice() throws {
+    func arefusedStoreRaisesNoExportNotice() async throws {
         // Asking would mean reading a store the sequence has just refused to
         // open, and answering "nobody has exported" about a database Ovation
         // could not identify is a claim the check never measured (L11).
         let world = try World(exportNotices: { _, _ in [.stale(days: 99)] })
         try world.writeForeignStore()
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(!world.recorder.steps.contains("export-notices"))
         #expect(world.store.open.allSatisfy { $0.kind != .exportStale })
@@ -473,13 +531,13 @@ struct StoreLaunchSequenceTests {
     // MARK: recording the version, which is what makes the next launch safe
 
     @Test("the version is recorded straight after the open that established it")
-    func theversionIsRecordedAfterOpening() throws {
+    func theversionIsRecordedAfterOpening() async throws {
         // ovation#116. It must be written by whatever ESTABLISHES the version
         // rather than by a surface that happens to notice (L319), and it goes
         // before the seed so a store that opened is marked even if seeding fails.
         let world = try World()
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         let steps = world.recorder.steps
         // REQUIRED RATHER THAN FORCE UNWRAPPED. A `!` here does not fail the
@@ -499,25 +557,25 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("a store refused at IDENTIFY has no version recorded")
-    func arefusedLaunchRecordsNoVersion() throws {
+    func arefusedLaunchRecordsNoVersion() async throws {
         // Writing beside a file that is not ours is still writing beside somebody
         // else's file.
         let world = try World()
         try world.writeForeignStore()
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(!world.recorder.steps.contains("version"))
     }
 
     @Test("a version that could not be written is RAISED and the app still opens")
-    func afailedVersionRecordIsReported() throws {
+    func afailedVersionRecordIsReported() async throws {
         // The store is open and correct. What is lost is the ability to refuse a
         // downgrade NEXT time, which is worth saying and is not worth refusing to
         // open over (L10).
         let world = try World(recordVersion: { _ in throw VersionFailure.refused })
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
         let problem = try #require(world.store.open.first {
@@ -531,14 +589,14 @@ struct StoreLaunchSequenceTests {
     // MARK: seeding, which happens AFTER the store is open
 
     @Test("the starting service types are seeded, and only after the store opened")
-    func seedingRunsLast() throws {
+    func seedingRunsLast() async throws {
         // ovation#107. It cannot run before `open`, because there is no container
         // to write into until then, and it must not run before the BACKUP either:
         // seeding writes, and a write before the backup is a write the backup
         // does not carry.
         let world = try World()
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         // Asserted as the two ORDERINGS this test is about rather than as "seed
         // is last", which was only ever a proxy for them: ovation#64 added a step
@@ -556,20 +614,20 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("a store that refuses at IDENTIFY is never seeded")
-    func arefusedLaunchSeedsNothing() throws {
+    func arefusedLaunchSeedsNothing() async throws {
         // Seeding is a WRITE, and the whole reason identify comes first is that
         // every later step writes. A foreign file must not gain three service
         // types.
         let world = try World()
         try world.writeForeignStore()
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(!world.recorder.steps.contains("seed"))
     }
 
     @Test("a seed that fails is RAISED and the app still opens")
-    func afailedSeedIsReportedRatherThanFatal() throws {
+    func afailedSeedIsReportedRatherThanFatal() async throws {
         // Same choice as the backup, for a weaker reason and so a weaker
         // consequence: an empty service type picker is an annoyance Dan can fix
         // by typing a name, where refusing to open would leave him unable to
@@ -578,7 +636,7 @@ struct StoreLaunchSequenceTests {
         // rather than as a step that failed (L10).
         let world = try World(seed: { _ in throw SeedFailure.refused })
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
         let problem = try #require(
@@ -588,12 +646,12 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("a launch that seeded nothing raises nothing, because that is the ordinary case")
-    func asecondLaunchIsQuiet() throws {
+    func asecondLaunchIsQuiet() async throws {
         // Every launch after the first seeds zero, and a notice on that would
         // fire forever on the commonest case.
         let world = try World(seed: { _ in 0 })
 
-        _ = world.sequence.run(now: world.instant)
+        _ = await world.sequence.run(now: world.instant)
 
         #expect(world.store.open.isEmpty)
     }
@@ -761,10 +819,10 @@ struct StoreLaunchSequenceTests {
     /// `BackupPlan` requires, and until something ran it a backup of the real
     /// data directory refused on its first member.
     @Test("the launch prepares the data directory before it backs up")
-    func theLaunchPreparesBeforeBackingUp() throws {
+    func theLaunchPreparesBeforeBackingUp() async throws {
         let world = try World()
 
-        world.sequence.run(now: world.instant)
+        await world.sequence.run(now: world.instant)
 
         let steps = world.recorder.steps
         let prepareIndex = try #require(steps.firstIndex(of: "prepare"))
@@ -777,11 +835,11 @@ struct StoreLaunchSequenceTests {
     /// beside a store that turned out to be somebody else's would make that
     /// sentence false (L11).
     @Test("a foreign store is refused before anything is created beside it")
-    func aForeignStoreIsRefusedBeforePreparing() throws {
+    func aForeignStoreIsRefusedBeforePreparing() async throws {
         let world = try World()
         try world.writeForeignStore()
 
-        world.sequence.run(now: world.instant)
+        await world.sequence.run(now: world.instant)
 
         #expect(!world.recorder.steps.contains("prepare"))
     }
@@ -791,12 +849,12 @@ struct StoreLaunchSequenceTests {
     /// problem under the same kind and subject, which `ProblemsStore.raise`
     /// merges into one whose sentence is whichever spoke last (L53).
     @Test("a preparation that fails stops the backup and says so once")
-    func aFailedPreparationIsReportedOnce() throws {
+    func aFailedPreparationIsReportedOnce() async throws {
         let world = try World(prepareDataDirectory: {
             throw BackupError.couldNotWrite("/nowhere/documents")
         })
 
-        let outcome = world.sequence.run(now: world.instant)
+        let outcome = await world.sequence.run(now: world.instant)
 
         #expect(!world.recorder.steps.contains("backup"))
         let raised = world.store.open.filter { $0.kind == .backupCouldNotBeWritten }
@@ -811,7 +869,7 @@ struct StoreLaunchSequenceTests {
     // MARK: the opened store is handed on (ovation#162)
 
     @Test("a sequence that opened hands the store it opened to whoever needs it")
-    func handsOnTheOpenedStore() throws {
+    func handsOnTheOpenedStore() async throws {
         // A control that runs after launch cannot open its own container: two
         // containers over one file are two writers, which is what the second
         // instance check exists to prevent (ovation#84). So the one already open
@@ -824,12 +882,12 @@ struct StoreLaunchSequenceTests {
         var sequence = world.sequence
         sequence.onOpened = { _ in box.count += 1 }
 
-        #expect(sequence.run(now: world.instant) == .opened)
+        #expect(await sequence.run(now: world.instant) == .opened)
         #expect(box.count == 1)
     }
 
     @Test("a sequence that refused hands on nothing, because nothing opened")
-    func handsOnNothingWhenItRefused() throws {
+    func handsOnNothingWhenItRefused() async throws {
         // Handing on a store the sequence refused to open would give the control
         // a container nobody checked, which is the opposite of what the sequence
         // is for (L98).
@@ -842,7 +900,7 @@ struct StoreLaunchSequenceTests {
         var sequence = world.sequence
         sequence.onOpened = { _ in box.count += 1 }
 
-        #expect(sequence.run(now: world.instant) != .opened)
+        #expect(await sequence.run(now: world.instant) != .opened)
         #expect(box.count == 0)
     }
 
@@ -852,9 +910,9 @@ struct StoreLaunchSequenceTests {
     /// running them, which is why this whole sequence exists, so the import gets
     /// the same assertion: that the launch actually calls it.
     @Test("the launch runs the client import")
-    func theLaunchRunsTheClientImport() throws {
+    func theLaunchRunsTheClientImport() async throws {
         let world = try World()
-        world.sequence.run(now: world.instant)
+        await world.sequence.run(now: world.instant)
         #expect(world.recorder.steps.contains("import-clients"))
     }
 
@@ -862,9 +920,9 @@ struct StoreLaunchSequenceTests {
     /// the import WRITES, and a write made before the backup is a write the backup
     /// does not carry (L5). Same reason the seed runs where it does.
     @Test("the import runs after the store is open and backed up")
-    func theImportRunsAfterTheBackup() throws {
+    func theImportRunsAfterTheBackup() async throws {
         let world = try World()
-        world.sequence.run(now: world.instant)
+        await world.sequence.run(now: world.instant)
         let steps = world.recorder.steps
         let importIndex = try #require(steps.firstIndex(of: "import-clients"))
         let backupIndex = try #require(steps.firstIndex(of: "backup"))
@@ -874,9 +932,9 @@ struct StoreLaunchSequenceTests {
     }
 
     @Test("what the import has to say reaches Dan through the one presenter")
-    func importNoticesAreRaised() throws {
+    func importNoticesAreRaised() async throws {
         let world = try World(importClients: { _ in [.broughtAcross(count: 31)] })
-        world.sequence.run(now: world.instant)
+        await world.sequence.run(now: world.instant)
         #expect(world.store.open.contains { $0.kind == .clientImportBroughtClientsAcross })
     }
 
@@ -884,9 +942,9 @@ struct StoreLaunchSequenceTests {
     /// after the first. A notice on the commonest case is one Dan learns to click
     /// past, and then the ones that matter go past with it (L36).
     @Test("an import with nothing to say raises nothing")
-    func aQuietImportRaisesNothing() throws {
+    func aQuietImportRaisesNothing() async throws {
         let world = try World(importClients: { _ in [] })
-        world.sequence.run(now: world.instant)
+        await world.sequence.run(now: world.instant)
         #expect(!world.store.open.contains { $0.kind == .clientImportBroughtClientsAcross })
         #expect(!world.store.open.contains { $0.kind == .clientImportNeedsAnAnswer })
     }
@@ -895,11 +953,11 @@ struct StoreLaunchSequenceTests {
     /// annoyance; refusing to open would leave Dan unable to invoice at all, which
     /// is the same weighing the seed step already made, for the same reason.
     @Test("an import that cannot read the export still lets the app open")
-    func aFailedImportStillOpens() throws {
+    func aFailedImportStillOpens() async throws {
         let world = try World(importClients: { _ in
             [.exportMissing(file: "downbeat-export.json")]
         })
-        #expect(world.sequence.run(now: world.instant) == .opened)
+        #expect(await world.sequence.run(now: world.instant) == .opened)
         #expect(world.store.open.contains { $0.kind == .clientImportExportMissing })
     }
 }
