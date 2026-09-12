@@ -108,6 +108,27 @@ struct OvationApp: App {
                         })
                     return try service.takeBackupIfDueToday(now: now)
                 },
+                // ovation#230. Whether the archives have kept up with the store,
+                // read from the folder Dan chose. A build that never backs up has
+                // nothing to judge, and neither does a launch with no folder, so
+                // both answer `current` rather than raising a notice about a
+                // feature that is not on.
+                backupCurrency: { now in
+                    guard let folder = BackupFolderSetting.liveBackupsDirectory else {
+                        return .current
+                    }
+                    let service = BackupService(
+                        dataDirectory: storeURL.deletingLastPathComponent(),
+                        backupsDirectory: folder,
+                        dailyKeep: 14,
+                        referencedDocuments: {
+                            try StoreDocumentReferences.read(storeURL: storeURL)
+                        })
+                    return BackupService.currency(
+                        newestArchive: try? service.newestArchiveCreatedAt(),
+                        dataChanged: BackupService.dataChangedAt(storeURL: storeURL),
+                        now: now)
+                },
                 openContainer: { try OvationSchema.container(at: $0) },
                 identify: {
                     StoreSchemaGuard.inspect(
