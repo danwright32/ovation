@@ -25,7 +25,7 @@ struct StoreLaunchSequenceTests {
         let outcome = world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
-        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed", "import-clients", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "open", "version", "seed", "import-clients", "export-notices"])
         #expect(world.store.open.isEmpty)
     }
 
@@ -156,7 +156,7 @@ struct StoreLaunchSequenceTests {
 
         #expect(outcome == .opened)
         #expect(world.store.open.contains { $0.kind == .backupFailed })
-        #expect(world.recorder.steps == ["identify", "checkpoint", "backup", "open", "version", "seed", "import-clients", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "open", "version", "seed", "import-clients", "export-notices"])
     }
 
     @Test("the backup failure names which half failed")
@@ -376,6 +376,7 @@ struct StoreLaunchSequenceTests {
         init(withStore: Bool = true,
              checkpoint: (@Sendable (URL) -> StoreCheckpoint.Outcome)? = nil,
              backup: (@Sendable (Date) throws -> URL)? = nil,
+             prepareDataDirectory: (@Sendable () throws -> Void)? = nil,
              seed: (@Sendable (ModelContainer) throws -> Int)? = nil,
              recordVersion: (@Sendable (URL) throws -> Void)? = nil,
              exportNotices: (@Sendable (ModelContainer, Date) -> [ExportNotice])? = nil,
@@ -424,6 +425,10 @@ struct StoreLaunchSequenceTests {
                 checkpoint: { url in
                     recorder.record("checkpoint")
                     return checkpoint?(url) ?? StoreCheckpoint.run(storeURL: url)
+                },
+                prepareDataDirectory: {
+                    recorder.record("prepare")
+                    if let prepareDataDirectory { return try prepareDataDirectory() }
                 },
                 takeBackup: { now in
                     recorder.record("backup")
@@ -499,6 +504,59 @@ struct StoreLaunchSequenceTests {
     enum FixtureFailure: Error {
         case couldNotBuildForeignStore
     }
+    // MARK: the data directory is prepared before the backup (ovation#222)
+
+    /// BUILT IS NOT WIRED (L3). `DataDirectory.prepare` makes the directories
+    /// `BackupPlan` requires, and until something ran it a backup of the real
+    /// data directory refused on its first member.
+    @Test("the launch prepares the data directory before it backs up")
+    func theLaunchPreparesBeforeBackingUp() throws {
+        let world = try World()
+
+        world.sequence.run(now: world.instant)
+
+        let steps = world.recorder.steps
+        let prepareIndex = try #require(steps.firstIndex(of: "prepare"))
+        let backupIndex = try #require(steps.firstIndex(of: "backup"))
+        #expect(prepareIndex < backupIndex)
+    }
+
+    /// AFTER IDENTIFY AND CHECKPOINT, never before them. The identify step's
+    /// refusal says "Nothing has been opened or changed", and making directories
+    /// beside a store that turned out to be somebody else's would make that
+    /// sentence false (L11).
+    @Test("a foreign store is refused before anything is created beside it")
+    func aForeignStoreIsRefusedBeforePreparing() throws {
+        let world = try World()
+        try world.writeForeignStore()
+
+        world.sequence.run(now: world.instant)
+
+        #expect(!world.recorder.steps.contains("prepare"))
+    }
+
+    /// A PREPARATION THAT FAILED MEANS NO BACKUP, so the backup is not attempted
+    /// after it: attempting it would fail for the same cause and raise a second
+    /// problem under the same kind and subject, which `ProblemsStore.raise`
+    /// merges into one whose sentence is whichever spoke last (L53).
+    @Test("a preparation that fails stops the backup and says so once")
+    func aFailedPreparationIsReportedOnce() throws {
+        let world = try World(prepareDataDirectory: {
+            throw BackupError.couldNotWrite("/nowhere/documents")
+        })
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        #expect(!world.recorder.steps.contains("backup"))
+        let raised = world.store.open.filter { $0.kind == .backupFailed }
+        #expect(raised.count == 1)
+        #expect(raised.first?.sentence.contains("/nowhere/documents") == true)
+        // THE APP STILL OPENS. A missing backup is a thing to fix; refusing to
+        // open would leave Dan unable to invoice, which is the same weighing the
+        // seed and import steps already made.
+        #expect(outcome == .opened)
+    }
+
     // MARK: the opened store is handed on (ovation#162)
 
     @Test("a sequence that opened hands the store it opened to whoever needs it")

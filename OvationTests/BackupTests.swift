@@ -118,14 +118,25 @@ struct BackupTests {
         // The whole reason the members are enumerated. Silently skipping one
         // gives an archive that reads as complete and fails in an audit.
         let world = try World()
+        // THE SUBJECT CHANGED IN ovation#222, AND THE CLAIM DID NOT. This removed
+        // `problems.jsonl`, which stopped being required: it is written when the
+        // first problem is raised, so an installation where nothing has gone
+        // wrong legitimately has none. The rule being asserted is unchanged, so
+        // the case is retargeted rather than deleted (L430).
+        //
+        // `documents` IS THE RIGHT SUBJECT NOW, and it is the one that makes the
+        // decision behind ovation#222 testable: the directory is CREATED at
+        // launch rather than having its expectation softened, precisely so that
+        // its absence once receipts exist still refuses instead of reading as
+        // legitimate for ever (L63).
         try FileManager.default.removeItem(at: world.dataDirectory
-            .appendingPathComponent("problems.jsonl"))
+            .appendingPathComponent("documents"))
 
         // ASSERTED BY NAME, not merely that something threw. Planting "skip the
         // missing member" left this green when it only checked for any error:
         // the archive was then refused a step later by the verification, for a
         // different reason, and the test could not tell the two apart (L140).
-        #expect(throws: BackupError.requiredMemberMissing("problems.jsonl")) {
+        #expect(throws: BackupError.requiredMemberMissing("documents")) {
             try world.service.takeBackup(now: world.instant)
         }
     }
