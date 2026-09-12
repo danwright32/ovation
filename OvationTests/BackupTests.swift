@@ -396,9 +396,8 @@ struct BackupTests {
         // rotates: an archive missing a receipt must never evict the one that
         // still has it (L5).
         let world = try World()
-        let ghost = DocumentReference(relativePath: "de/adbeef.pdf",
-                                      sha256: String(repeating: "d", count: 64),
-                                      byteCount: 9)
+        let ghost = ReferencedDocument(relativePath: "de/adbeef.pdf",
+                                       sha256: String(repeating: "d", count: 64))
         let service = world.service(referencing: [world.receiptReference, ghost])
 
         #expect(throws: BackupError.verificationFailed(
@@ -468,7 +467,7 @@ struct BackupTests {
         let backupsDirectory: URL
         let service: BackupService
         let receiptPath: String
-        let receiptReference: DocumentReference
+        let receiptReference: ReferencedDocument
         let keep: Int
         let instant = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
@@ -508,9 +507,11 @@ struct BackupTests {
                 .relativePath
 
             let receiptBytes = Data("a receipt".utf8)
-            receiptReference = DocumentReference(relativePath: receiptPath,
-                                                 sha256: DocumentStore.hash(of: receiptBytes),
-                                                 byteCount: receiptBytes.count)
+            // ovation#224. What the STORE records about a document is its path
+            // and its hash; the byte count is DocumentStore's, from the moment it
+            // wrote the file, and no reader before the open can know it.
+            receiptReference = ReferencedDocument(relativePath: receiptPath,
+                                                  sha256: DocumentStore.hash(of: receiptBytes))
             self.keep = keep
             // The default service references exactly what the fixture filed, so
             // the existing tests stay about what they were about.
@@ -529,7 +530,7 @@ struct BackupTests {
         /// instead would answer a different question, namely whether the files
         /// that are there are intact, and say nothing about the ones that are
         /// not (ovation#104).
-        func service(referencing documents: [DocumentReference]) -> BackupService {
+        func service(referencing documents: [ReferencedDocument]) -> BackupService {
             BackupService(dataDirectory: dataDirectory,
                           backupsDirectory: backupsDirectory,
                           keep: keep,
