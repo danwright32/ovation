@@ -61,6 +61,9 @@ struct StoreLaunchSequence {
     /// from one that backed up, and a folder that could not be read looked like
     /// either (L98, L11).
     let takeBackup: @Sendable (Date) throws -> BackupService.Attempt
+    /// ovation#230. Whether the archives have kept up with the store, asked after
+    /// the backup so that today's counts. Injected like every other step.
+    let backupCurrency: @Sendable (Date) -> BackupService.Currency
     let openContainer: @Sendable (URL) throws -> ModelContainer
     let identify: @Sendable (URL) -> StoreSchemaGuard.Verdict
     /// ovation#107. Puts PRD 5.4's starting service types into a store that has
@@ -198,6 +201,31 @@ struct StoreLaunchSequence {
                 let condition = Self.backupCondition(for: error)
                 _ = problems.raise(kind: condition.kind, subject: storeURL.path,
                                    sentence: condition.sentence, now: now)
+            }
+
+            // WHETHER THE ARCHIVES HAVE KEPT UP, asked after the backup so that
+            // today's counts (ovation#230). It is a STANDING condition about the
+            // folder rather than an event about this launch, which is why it is
+            // asked every time rather than only when a backup was taken.
+            switch backupCurrency(now) {
+            case .current:
+                break
+            case .noArchivesAtAll:
+                _ = problems.raise(
+                    kind: .backupFolderIsEmpty, subject: storeURL.path,
+                    sentence: "A backup folder is chosen and holds no backups at all. "
+                        + "Nothing has been copied out of Ovation yet.", now: now)
+            case .stale(let newest, let changed):
+                _ = problems.raise(
+                    kind: .backupsAreStale, subject: storeURL.path,
+                    sentence: "Your work on \(BusinessCalendar.dayKey(for: changed)) is in no "
+                        + "backup: the newest was taken on "
+                        + "\(BusinessCalendar.dayKey(for: newest)).", now: now)
+            case .cannotTell(let detail):
+                _ = problems.raise(
+                    kind: .backupCurrencyCouldNotBeJudged, subject: storeURL.path,
+                    sentence: "Whether the backups are up to date could not be judged: "
+                        + "\(detail).", now: now)
             }
         }
 

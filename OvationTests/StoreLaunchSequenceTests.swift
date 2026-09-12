@@ -25,7 +25,7 @@ struct StoreLaunchSequenceTests {
         let outcome = world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
-        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "open", "version", "seed", "import-clients", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "currency", "open", "version", "seed", "import-clients", "export-notices"])
         #expect(world.store.open.isEmpty)
     }
 
@@ -166,7 +166,7 @@ struct StoreLaunchSequenceTests {
         // The claim is unchanged; the kind it names is the one that now carries
         // this cause.
         #expect(world.store.open.contains { $0.kind == .backupCouldNotBeWritten })
-        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "open", "version", "seed", "import-clients", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "currency", "open", "version", "seed", "import-clients", "export-notices"])
     }
 
     @Test("the backup failure names which half failed")
@@ -292,6 +292,54 @@ struct StoreLaunchSequenceTests {
         let world = try World(backup: { _ in
             .alreadyTakenToday(URL(fileURLWithPath: "/dev/null"))
         })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(!world.store.open.contains { $0.kind.rawValue.hasPrefix("backup.") })
+    }
+
+    // MARK: are the backups behind the data (ovation#230)
+
+    @Test("a folder holding no backups at all is said out loud")
+    func anEmptyFolderIsSaid() throws {
+        let world = try World(backupCurrency: { _ in .noArchivesAtAll })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(world.store.open.contains { $0.kind == .backupFolderIsEmpty })
+    }
+
+    @Test("work that no backup has followed is said out loud, with both dates")
+    func staleBackupsAreSaid() throws {
+        let worked = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let world = try World(backupCurrency: { _ in
+            .stale(newestArchive: worked.addingTimeInterval(-3 * 86_400), dataChangedOn: worked)
+        })
+
+        _ = world.sequence.run(now: world.instant)
+
+        let problem = try #require(world.store.open.first { $0.kind == .backupsAreStale })
+        #expect(problem.sentence.contains(BusinessCalendar.dayKey(for: worked)))
+    }
+
+    /// COULD NOT TELL IS NOT FINE (L98). A check that cannot measure must not
+    /// report a pass, and it must not claim staleness either, which is something
+    /// it did not measure (L11).
+    @Test("backups whose currency could not be judged say so, as their own thing")
+    func currencyThatCouldNotBeJudgedIsSaid() throws {
+        let world = try World(backupCurrency: { _ in .cannotTell("the store's dates") })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(world.store.open.contains { $0.kind == .backupCurrencyCouldNotBeJudged })
+        #expect(!world.store.open.contains { $0.kind == .backupsAreStale })
+    }
+
+    /// AND A HEALTHY LAUNCH SAYS NOTHING, which is the commonest case by far
+    /// (L36).
+    @Test("backups that have kept up raise nothing")
+    func currentBackupsRaiseNothing() throws {
+        let world = try World(backupCurrency: { _ in .current })
 
         _ = world.sequence.run(now: world.instant)
 
@@ -503,6 +551,7 @@ struct StoreLaunchSequenceTests {
              checkpoint: (@Sendable (URL) -> StoreCheckpoint.Outcome)? = nil,
              backup: (@Sendable (Date) throws -> BackupService.Attempt)? = nil,
              prepareDataDirectory: (@Sendable () throws -> Void)? = nil,
+             backupCurrency: (@Sendable (Date) -> BackupService.Currency)? = nil,
              seed: (@Sendable (ModelContainer) throws -> Int)? = nil,
              recordVersion: (@Sendable (URL) throws -> Void)? = nil,
              exportNotices: (@Sendable (ModelContainer, Date) -> [ExportNotice])? = nil,
@@ -560,6 +609,10 @@ struct StoreLaunchSequenceTests {
                     recorder.record("backup")
                     if let backup { return try backup(now) }
                     return .taken(URL(fileURLWithPath: "/dev/null"))
+                },
+                backupCurrency: { now in
+                    recorder.record("currency")
+                    return backupCurrency?(now) ?? .current
                 },
                 openContainer: { url in
                     recorder.record("open")

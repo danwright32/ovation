@@ -493,6 +493,142 @@ struct BackupTests {
         #expect(!detail.isEmpty)
     }
 
+    // MARK: are the backups behind the data (ovation#230)
+
+    /// Dan's answer, 2026-09-11: stale means the newest archive is older than the
+    /// DATA, never older than N days. Quiet fortnights are normal here, and a
+    /// notice that fires on the ordinary case is one he learns to dismiss, after
+    /// which the ones that matter go past with it (L36).
+    ///
+    /// THE RULE IS IN DAY KEYS, which IS the once a day cadence rather than a
+    /// literal beside it (L401, L614). A backup runs BEFORE the store opens, so
+    /// an archive taken on day D holds the work up to the start of D: day D's own
+    /// work is carried by the archive of D+1 or later. So the data is protected
+    /// when some archive is NEWER, by day, than the last change, and it is worth
+    /// saying so only once a day has passed since that change.
+    ///
+    /// The first draft of this rule compared instants and was true on every
+    /// healthy launch, because the sequence writes the store four times AFTER
+    /// backing up.
+    @Test("a launch that backed up and then wrote is not stale")
+    func aHealthyLaunchIsNotStale() {
+        let day = BackupTests.noon(2026, 4, 4)
+        // The backup, then the store writes the sequence makes right after it.
+        let currency = BackupService.currency(newestArchive: day,
+                                              dataChanged: day.addingTimeInterval(30),
+                                              now: day.addingTimeInterval(60))
+        #expect(currency == .current)
+    }
+
+    @Test("a second launch the same day, after a day's work, is not stale")
+    func aSecondLaunchTheSameDayIsNotStale() {
+        let morning = BackupTests.noon(2026, 4, 4).addingTimeInterval(-3 * 3600)
+        let evening = BackupTests.noon(2026, 4, 4).addingTimeInterval(6 * 3600)
+        #expect(BackupService.currency(newestArchive: morning,
+                                       dataChanged: evening,
+                                       now: evening) == .current)
+    }
+
+    /// YESTERDAY'S WORK IS CARRIED BY TODAY'S BACKUP, so a launch today after
+    /// working yesterday is current the moment the backup lands.
+    @Test("today's backup carries yesterday's work")
+    func todaysBackupCarriesYesterdaysWork() {
+        let yesterday = BackupTests.noon(2026, 4, 4)
+        let today = BackupTests.noon(2026, 4, 5)
+        #expect(BackupService.currency(newestArchive: today,
+                                       dataChanged: yesterday,
+                                       now: today) == .current)
+    }
+
+    /// THE CASE IT EXISTS FOR: work happened, and no backup has followed it. That
+    /// is what "the backups have stopped" looks like from the outside.
+    @Test("work with no backup after it, a day later, is stale")
+    func workWithNoBackupAfterItIsStale() {
+        let worked = BackupTests.noon(2026, 4, 4)
+        let archive = BackupTests.noon(2026, 4, 2)
+        let now = BackupTests.noon(2026, 4, 6)
+
+        guard case .stale = BackupService.currency(newestArchive: archive,
+                                                   dataChanged: worked,
+                                                   now: now) else {
+            Issue.record("work that no backup followed was not reported as stale")
+            return
+        }
+    }
+
+    /// A CHOSEN FOLDER HOLDING NOTHING CANNOT BE EXPRESSED AS STALENESS: there is
+    /// no newest archive to compare against, so the two would be one silence
+    /// (L98). `StoreLaunchSequence` already promises in writing that this is
+    /// raised from the FOLDER, where it stays true on every later launch.
+    @Test("a folder with no archives at all is its own answer")
+    func anEmptyFolderIsItsOwnAnswer() {
+        #expect(BackupService.currency(newestArchive: nil,
+                                       dataChanged: BackupTests.noon(2026, 4, 4),
+                                       now: BackupTests.noon(2026, 4, 6))
+                == .noArchivesAtAll)
+    }
+
+    /// AND A STORE WHOSE DATES COULD NOT BE READ IS A THIRD ANSWER, never
+    /// "current". A check that cannot measure must not report a pass (L98).
+    @Test("a store whose dates could not be read is not reported as current")
+    func unreadableDatesAreNotCurrent() {
+        guard case .cannotTell = BackupService.currency(
+            newestArchive: BackupTests.noon(2026, 4, 4),
+            dataChanged: nil,
+            now: BackupTests.noon(2026, 4, 6)) else {
+            Issue.record("a store with no readable dates was judged")
+            return
+        }
+    }
+
+    /// THE ARCHIVE'S OWN RECORDED INSTANT, not its file date. A sync client
+    /// rewrites mtimes, so a three month old archive can read as minutes old
+    /// (L414). The manifest carries `createdAt`, written when the archive was.
+    @Test("the newest archive's date comes from its manifest")
+    func theArchiveDateComesFromItsManifest() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant)
+        // Push the file dates far into the future, the way a sync client would.
+        try FileManager.default.setAttributes(
+            [.modificationDate: world.instant.addingTimeInterval(500_000)],
+            ofItemAtPath: archive.path)
+
+        let newest = try #require(try world.service.newestArchiveCreatedAt())
+
+        #expect(abs(newest.timeIntervalSince(world.instant)) < 1)
+    }
+
+    /// THE STORE'S CHANGE READS THE LOG TOO. SQLite writes land in
+    /// `Ovation.store-wal` first, so the store file's own date under-reports what
+    /// has changed (L63).
+    @Test("the store's last change counts its write ahead log")
+    func theStoreChangeCountsTheLog() throws {
+        let world = try World()
+        let log = world.dataDirectory.appendingPathComponent("Ovation.store-wal")
+        try Data("pages".utf8).write(to: log)
+        let later = Date(timeIntervalSinceReferenceDate: 900_000_000)
+        try FileManager.default.setAttributes([.modificationDate: later],
+                                              ofItemAtPath: log.path)
+
+        let changed = try #require(BackupService.dataChangedAt(
+            storeURL: world.dataDirectory.appendingPathComponent("Ovation.store")))
+
+        #expect(abs(changed.timeIntervalSince(later)) < 1)
+    }
+
+    /// Noon on a given day in Ovation's own timezone, so a case reads as the day
+    /// it is about and a trip cannot move it into a neighbouring one.
+    static func noon(_ year: Int, _ month: Int, _ day: Int) -> Date {
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = 12
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = BusinessCalendar.timeZone
+        return calendar.date(from: components) ?? Date(timeIntervalSinceReferenceDate: 0)
+    }
+
     // MARK: a refusal carries its cause (ovation#229)
 
     /// `BackupService` caught the underlying file system error and threw the PATH
