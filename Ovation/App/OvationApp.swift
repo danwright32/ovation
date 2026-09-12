@@ -85,12 +85,28 @@ struct OvationApp: App {
                 // the real data directory had no `documents` at all, and nothing
                 // in the app created one until a receipt is filed (ovation#78).
                 prepareDataDirectory: { try DataDirectory.prepare(storeURL.deletingLastPathComponent()) },
-                takeBackup: { _ in
-                    // ovation#87 chooses the folder and schedules this. Until it
-                    // does there is nowhere to write, and saying so through the
-                    // Problems store is honest, where a silent no-op would leave
-                    // the sequence reporting a backup it never took (L98).
-                    throw BackupError.couldNotWrite("no backup folder has been chosen yet")
+                takeBackup: { now in
+                    // ovation#225 and ovation#228. The folder Dan chose, and one
+                    // backup a day taken from it.
+                    //
+                    // The Debug build is given no folder at all, decided in
+                    // `BackupFolderSetting.folderToBackUpInto` where both branches
+                    // are testable (ovation#228).
+                    guard let folder = BackupFolderSetting.liveBackupsDirectory else {
+                        // Saying so through the Problems store is honest, where a
+                        // silent no-op would leave the sequence reporting a backup
+                        // it never took (L98). ovation#231 is the screen that
+                        // lets Dan answer it.
+                        throw BackupError.couldNotWrite("no backup folder has been chosen yet")
+                    }
+                    let service = BackupService(
+                        dataDirectory: storeURL.deletingLastPathComponent(),
+                        backupsDirectory: folder,
+                        dailyKeep: 14,
+                        referencedDocuments: {
+                            try StoreDocumentReferences.read(storeURL: storeURL)
+                        })
+                    return try service.takeBackupIfDueToday(now: now)
                 },
                 openContainer: { try OvationSchema.container(at: $0) },
                 identify: {

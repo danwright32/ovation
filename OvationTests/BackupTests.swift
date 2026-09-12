@@ -398,6 +398,101 @@ struct BackupTests {
         #expect(try world.service.archives().contains(good))
     }
 
+    // MARK: at most once a day, keyed on an archive that verified (ovation#228)
+
+    /// Dan's answer, 2026-09-11: a backup runs at launch, at most once a day. At
+    /// launch because the backup goes BEFORE the store is opened, which is the
+    /// whole reason it is worth having; once a day because five launches in one
+    /// day would otherwise make the rolling set five copies of today and evict
+    /// yesterday.
+    @Test("the first backup of the day is taken")
+    func theFirstBackupOfTheDayIsTaken() throws {
+        let world = try World()
+
+        let outcome = try world.service.takeBackupIfDueToday(now: world.instant)
+
+        guard case .taken(let archive) = outcome else {
+            Issue.record("expected a backup to be taken, got \(outcome)")
+            return
+        }
+        #expect(try world.service.archives() == [archive])
+    }
+
+    @Test("a second launch the same day takes nothing")
+    func aSecondLaunchTheSameDayTakesNothing() throws {
+        let world = try World()
+        let first = try world.service.takeBackup(now: world.instant)
+
+        let outcome = try world.service.takeBackupIfDueToday(
+            now: world.instant.addingTimeInterval(3600))
+
+        #expect(outcome == .alreadyTakenToday(first))
+        #expect(try world.service.archives() == [first])
+    }
+
+    /// A SKIP IS A THIRD OUTCOME, not a silent success and not a failure. The
+    /// seam it reaches was `(Date) throws -> URL`, which has exactly two states
+    /// and an exception, so a launch that skipped was indistinguishable from one
+    /// that backed up (L98).
+    @Test("the day after, a backup is taken again")
+    func theDayAfterTakesAnother() throws {
+        let world = try World()
+        _ = try world.service.takeBackup(now: world.instant)
+
+        let outcome = try world.service.takeBackupIfDueToday(
+            now: world.instant.addingTimeInterval(24 * 3600))
+
+        guard case .taken = outcome else {
+            Issue.record("expected a new backup the next day, got \(outcome)")
+            return
+        }
+        #expect(try world.service.archives().count == 2)
+    }
+
+    /// THE CASE THE WHOLE RULE TURNS ON. A backup that FAILED this morning left
+    /// a directory carrying today's stamp until ovation#226, and a gate asking
+    /// "is there something dated today" would see the wreckage and skip. The one
+    /// day the backup broke is the one day nothing tries again (L121, L421).
+    @Test("this morning's FAILED backup does not count as today's")
+    func wreckageDoesNotSatisfyTheDay() throws {
+        let world = try World()
+        world.service.willVerify = { archive in
+            try FileManager.default.removeItem(
+                at: archive.appendingPathComponent("Ovation.store"))
+        }
+        #expect(throws: BackupError.self) {
+            try world.service.takeBackup(now: world.instant)
+        }
+        world.service.willVerify = nil
+
+        let outcome = try world.service.takeBackupIfDueToday(
+            now: world.instant.addingTimeInterval(3600))
+
+        guard case .taken = outcome else {
+            Issue.record("a failed backup satisfied the day, got \(outcome)")
+            return
+        }
+    }
+
+    /// A FOLDER IT CANNOT READ CANNOT ANSWER THE QUESTION, and that is a fourth
+    /// outcome with its own sentence rather than a silent skip. "There is no
+    /// archive for today" and "I could not look" are the same silence otherwise
+    /// (L98, L11).
+    @Test("a folder that cannot be read is its own outcome, not a skip")
+    func anUnreachableFolderIsItsOwnOutcome() throws {
+        let world = try World()
+        try FileManager.default.removeItem(at: world.backupsDirectory)
+        try Data("a file where the folder was".utf8).write(to: world.backupsDirectory)
+
+        let outcome = try world.service.takeBackupIfDueToday(now: world.instant)
+
+        guard case .folderUnreachable(let detail) = outcome else {
+            Issue.record("expected a named refusal, got \(outcome)")
+            return
+        }
+        #expect(!detail.isEmpty)
+    }
+
     // MARK: a refusal carries its cause (ovation#229)
 
     /// `BackupService` caught the underlying file system error and threw the PATH
