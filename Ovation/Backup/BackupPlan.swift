@@ -53,7 +53,27 @@ enum BackupPlan {
     /// archive AND in the verification, so the two cannot drift (L41).
     static let members: [BackupMember] = [
         // Built.
-        .init(path: "problems.jsonl", kind: .file, expectation: .required),
+        //
+        // THE PROBLEMS JOURNAL IS NOT REQUIRED, and the reason is the same shape
+        // as the export run log's below (ovation#222). `AppendOnlyLineFile`
+        // writes it when the FIRST problem is raised, so an installation where
+        // nothing has gone wrong legitimately has no file, and requiring it
+        // refused every healthy backup until something broke. It is deliberately
+        // NOT answered by creating an empty one at launch: for a journal, absent
+        // and empty are one fact, and manufacturing the file to satisfy a check
+        // is a green tick over a member nobody wrote (L98).
+        .init(path: "problems.jsonl", kind: .file,
+              expectation: .presentSometimes(
+                reason: "absent until the first problem has been recorded")),
+        // THESE TWO ARE CREATED BY `DataDirectory.prepare` (ovation#222), which
+        // the launch sequence runs immediately before the backup. Until it
+        // existed nothing created either, `DocumentStore` makes `documents` on
+        // the first byte written through it and nothing writes one until
+        // ovation#78, so a backup of the real data directory could not succeed at
+        // all. They stay REQUIRED rather than becoming presentSometimes because
+        // `documents` absent once receipts exist is genuinely alarming, and the
+        // softer expectation would make that state read as legitimate for ever
+        // (L63).
         .init(path: "documents", kind: .directory, expectation: .required),
         .init(path: "custody", kind: .directory, expectation: .required),
 

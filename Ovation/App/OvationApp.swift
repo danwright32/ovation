@@ -80,6 +80,11 @@ struct OvationApp: App {
                 storeURL: storeURL,
                 problems: store,
                 checkpoint: { StoreCheckpoint.run(storeURL: $0) },
+                // ovation#222. The directories BackupPlan requires, made before
+                // the backup that refuses without them. Measured on this Mac:
+                // the real data directory had no `documents` at all, and nothing
+                // in the app created one until a receipt is filed (ovation#78).
+                prepareDataDirectory: { try DataDirectory.prepare(storeURL.deletingLastPathComponent()) },
                 takeBackup: { _ in
                     // ovation#87 chooses the folder and schedules this. Until it
                     // does there is nowhere to write, and saying so through the

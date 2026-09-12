@@ -52,6 +52,10 @@ struct StoreLaunchSequence {
     let storeURL: URL
     let problems: ProblemsStore
     let checkpoint: @Sendable (URL) -> StoreCheckpoint.Outcome
+    /// ovation#222. Makes the directories `BackupPlan` requires, immediately
+    /// before the backup that refuses without them. Injected like every other
+    /// step, so a test can make it fail without damaging anything (L196).
+    let prepareDataDirectory: @Sendable () throws -> Void
     let takeBackup: @Sendable (Date) throws -> URL
     let openContainer: @Sendable (URL) throws -> ModelContainer
     let identify: @Sendable (URL) -> StoreSchemaGuard.Verdict
@@ -160,6 +164,17 @@ struct StoreLaunchSequence {
         // the launch where it is least informative.
         if thereIsAStoreFile {
             do {
+                // PREPARE FIRST, INSIDE THE SAME ATTEMPT (ovation#222). The
+                // directories `BackupPlan` requires were created by nothing, so a
+                // backup of the real data directory refused on its first member,
+                // for ever, on a machine where no receipt has been filed yet.
+                //
+                // It is one step with the backup rather than two, because the two
+                // fail for one reason. Preparing, failing, and then attempting the
+                // backup anyway would raise a SECOND problem under the same kind
+                // and subject, and `ProblemsStore.raise` merges those into one
+                // record whose sentence is whichever spoke last (L53).
+                try prepareDataDirectory()
                 _ = try takeBackup(now)
             } catch {
                 _ = problems.raise(kind: .backupFailed, subject: storeURL.path,
