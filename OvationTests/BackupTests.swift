@@ -245,18 +245,136 @@ struct BackupTests {
 
     // MARK: rotation
 
+    /// RETARGETED IN ovation#227, NOT DELETED. This asserted "keep the newest N
+    /// and evict the rest", which Dan reversed on 2026-09-11 in favour of
+    /// fourteen by count plus the last archive of every calendar month. The claim
+    /// that rotation evicts something is unchanged, so the case is aimed at the
+    /// rule that now decides (L430).
     @Test("rotation keeps the newest and evicts the oldest")
     func rotationKeepsTheNewest() throws {
-        let world = try World(keep: 2)
+        let world = try World(dailyKeep: 2)
         let first = try world.service.takeBackup(now: world.instant)
         let second = try world.service.takeBackup(now: world.instant.addingTimeInterval(60))
         let third = try world.service.takeBackup(now: world.instant.addingTimeInterval(120))
 
         let remaining = try world.service.archives()
+        // All three are in one calendar month, so the last of that month is the
+        // third, which is also the newest: the monthly keeper protects nothing
+        // extra here and the daily count decides.
         #expect(remaining.count == 2)
         #expect(remaining.contains(second))
         #expect(remaining.contains(third))
         #expect(!remaining.contains(first))
+    }
+
+    // MARK: fourteen by count, plus the last of each month (ovation#227)
+
+    /// THE MONTHLY KEEPER IS THE LAST OF THE MONTH, and this is the case the
+    /// original plan got backwards. The first archive of a month is taken before
+    /// anything in that month has happened, so it holds the previous month's
+    /// state: keeping it would delete every snapshot containing a month's own
+    /// invoices and keep the one containing none of them (L334, L648).
+    @Test("the archive kept from an older month is its last, not its first")
+    func theMonthlyKeeperIsTheLastOfTheMonth() throws {
+        let world = try World(dailyKeep: 1)
+        world.plantArchive(named: "Ovation-backup-2026-03-02-090000")
+        world.plantArchive(named: "Ovation-backup-2026-03-17-090000")
+        world.plantArchive(named: "Ovation-backup-2026-03-28-090000")
+        world.plantArchive(named: "Ovation-backup-2026-04-04-090000")
+
+        let outcome = try world.service.rotate(now: world.april(10))
+
+        #expect(outcome.deleted.sorted() == ["Ovation-backup-2026-03-02-090000",
+                                             "Ovation-backup-2026-03-17-090000"])
+        #expect(outcome.kept.contains("Ovation-backup-2026-03-28-090000"))
+        #expect(outcome.kept.contains("Ovation-backup-2026-04-04-090000"))
+    }
+
+    /// FOURTEEN BY COUNT, NOT A WINDOW OF DAYS. Used three days a week, a
+    /// fourteen day window keeps six archives while reporting that it satisfies
+    /// fourteen (L63). Fifteen archives an hour apart are all within one day, and
+    /// exactly one of them may go.
+    @Test("fourteen archives survive by count however close together they are")
+    func fourteenSurviveByCount() throws {
+        let world = try World(dailyKeep: 14)
+        for hour in 0..<15 {
+            world.plantArchive(named: String(format: "Ovation-backup-2026-04-04-%02d0000", hour))
+        }
+
+        let outcome = try world.service.rotate(now: world.april(10))
+
+        // The oldest goes; it is not the last of its month, because fourteen
+        // later archives share that month.
+        #expect(outcome.deleted == ["Ovation-backup-2026-04-04-000000"])
+        #expect(outcome.kept.count == 14)
+    }
+
+    /// THE NEWEST IS NEVER DELETED, whatever the arithmetic says (L5). Driven
+    /// with a keep of zero, which is the only way to ask the question.
+    @Test("the newest archive survives even when nothing else would keep it")
+    func theNewestAlwaysSurvives() throws {
+        let world = try World(dailyKeep: 0)
+        world.plantArchive(named: "Ovation-backup-2026-04-04-090000")
+
+        let outcome = try world.service.rotate(now: world.april(10))
+
+        #expect(outcome.deleted.isEmpty)
+        #expect(outcome.kept == ["Ovation-backup-2026-04-04-090000"])
+    }
+
+    /// A NAME THAT IS NOT A DATE IS KEPT AND REPORTED, never deleted. A failed
+    /// parse otherwise lands on the permissive side, and here that side is
+    /// deletion (L50). A Synology conflict copy is exactly this shape.
+    @Test("an archive whose name is not a date is kept and named")
+    func anUnreadableNameIsKept() throws {
+        let world = try World(dailyKeep: 0)
+        world.plantArchive(named: "Ovation-backup-2026-04-04-090000")
+        world.plantArchive(named: "Ovation-backup-2026-03-01-090000 (conflicted copy)")
+
+        let outcome = try world.service.rotate(now: world.april(10))
+
+        #expect(outcome.keptUnreadable == ["Ovation-backup-2026-03-01-090000 (conflicted copy)"])
+        #expect(outcome.deleted.isEmpty)
+    }
+
+    /// A DATE THAT CANNOT BE TRUE is treated the same way. A future dated archive
+    /// sorts newest for ever: staleness never fires again, the daily trigger
+    /// thinks it has backed up, and every genuine archive becomes old enough to
+    /// evict in one pass while "never delete the newest" protects the impostor.
+    @Test("an archive dated in the future is kept, named, and is not the newest")
+    func aFutureDatedArchiveIsNotTheNewest() throws {
+        let world = try World(dailyKeep: 1)
+        world.plantArchive(named: "Ovation-backup-2099-01-01-090000")
+        world.plantArchive(named: "Ovation-backup-2026-03-02-090000")
+        world.plantArchive(named: "Ovation-backup-2026-03-17-090000")
+
+        let outcome = try world.service.rotate(now: world.april(10))
+
+        #expect(outcome.keptUnreadable == ["Ovation-backup-2099-01-01-090000"])
+        // The real newest is still protected, and the real older one still goes.
+        #expect(outcome.kept.contains("Ovation-backup-2026-03-17-090000"))
+        #expect(outcome.deleted == ["Ovation-backup-2026-03-02-090000"])
+    }
+
+    /// AN INCOMPLETE ENUMERATION DELETES NOTHING (L211). `contentsOfDirectory`
+    /// succeeds and returns fewer entries while a folder is mid sync, and a
+    /// cleanup acting on a short read turns incompleteness into permanent
+    /// deletion. The check is independent of the read it is judging (L70): the
+    /// archive just created is known to exist, so a listing without it is short.
+    @Test("a listing that cannot see the archive just written deletes nothing")
+    func aShortReadRefusesToDelete() throws {
+        let world = try World(dailyKeep: 0)
+        world.plantArchive(named: "Ovation-backup-2026-03-02-090000")
+        world.plantArchive(named: "Ovation-backup-2026-04-04-090000")
+
+        let outcome = try world.service.rotate(
+            now: world.april(10),
+            mustSurvive: world.backupsDirectory
+                .appendingPathComponent("Ovation-backup-2026-04-09-090000", isDirectory: true))
+
+        #expect(outcome.refusedOnAShortRead)
+        #expect(outcome.deleted.isEmpty)
+        #expect(try world.service.archives().count == 2)
     }
 
     @Test("a backup that does not verify evicts NOTHING")
@@ -264,7 +382,7 @@ struct BackupTests {
         // L5: never destroy good state before its replacement is verified to
         // exist. A run that produced an unverifiable archive must not also have
         // deleted the last good one.
-        let world = try World(keep: 1)
+        let world = try World(dailyKeep: 1)
         let good = try world.service.takeBackup(now: world.instant)
         // The seam is named for what it is: a hook that runs after staging and
         // before verification. The test uses it to damage the archive, which is
@@ -278,6 +396,100 @@ struct BackupTests {
             try world.service.takeBackup(now: world.instant.addingTimeInterval(60))
         }
         #expect(try world.service.archives().contains(good))
+    }
+
+    // MARK: an archive is tellable from the wreckage of one (ovation#226)
+
+    /// THE LIST OF ARCHIVES IS WHAT THREE LATER RULES READ: the once a day
+    /// trigger, the staleness notice and retention. Until now `takeBackup` built
+    /// straight into the final name and every throw after the first line left a
+    /// directory carrying today's stamp behind, with the verification failure
+    /// path leaving one DELIBERATELY, as evidence. So one failed backup
+    /// suppressed its own retry for the rest of the day, silenced staleness, and
+    /// could become the permanent monthly keeper (L121, L421, L334).
+    @Test("an archive that did not verify is not one of the archives")
+    func wreckageIsNotAnArchive() throws {
+        let world = try World()
+        world.service.willVerify = { archive in
+            try FileManager.default.removeItem(
+                at: archive.appendingPathComponent("Ovation.store"))
+        }
+
+        #expect(throws: BackupError.self) {
+            try world.service.takeBackup(now: world.instant)
+        }
+
+        #expect(try world.service.archives().isEmpty)
+    }
+
+    /// AND THE EVIDENCE SURVIVES, under its own name. The archive that failed is
+    /// the only record of what went wrong, so it is kept and merely stops
+    /// counting as a backup. Deleting it would answer the first case by
+    /// destroying the diagnosis (L277).
+    @Test("the archive that did not verify is kept, under a name of its own")
+    func wreckageIsKeptSeparately() throws {
+        let world = try World()
+        world.service.willVerify = { archive in
+            try FileManager.default.removeItem(
+                at: archive.appendingPathComponent("Ovation.store"))
+        }
+
+        #expect(throws: BackupError.self) {
+            try world.service.takeBackup(now: world.instant)
+        }
+
+        let left = try FileManager.default.contentsOfDirectory(
+            atPath: world.backupsDirectory.path)
+        #expect(left.contains { $0.hasPrefix(BackupService.unverifiedPrefix) })
+    }
+
+    /// A FAILURE BEFORE THE MANIFEST LEAVES NOTHING TO ACCUMULATE. There is no
+    /// diagnosis inside a half copied directory that the thrown error does not
+    /// already carry, and a leftover per failed launch is an unbounded leak into
+    /// the folder Dan chose.
+    @Test("a backup that failed before it could verify leaves nothing behind")
+    func aFailureBeforeVerifyingLeavesNothing() throws {
+        let world = try World()
+        try FileManager.default.removeItem(at: world.dataDirectory
+            .appendingPathComponent("documents"))
+
+        #expect(throws: BackupError.requiredMemberMissing("documents")) {
+            try world.service.takeBackup(now: world.instant)
+        }
+
+        let left = try FileManager.default.contentsOfDirectory(
+            atPath: world.backupsDirectory.path)
+        #expect(left.isEmpty)
+    }
+
+    /// A DIRECTORY WEARING THE NAME IS NOT AN ARCHIVE. A Synology conflict copy,
+    /// a half finished sync, or anything else that lands in the folder with the
+    /// right prefix must not be able to answer for a backup that was never taken
+    /// (L100, L412).
+    @Test("a directory carrying the prefix and no manifest is not an archive")
+    func aDirectoryWithNoManifestIsNotAnArchive() throws {
+        let world = try World()
+        let impostor = world.backupsDirectory
+            .appendingPathComponent("Ovation-backup-2099-01-01-000000 (conflicted copy)",
+                                    isDirectory: true)
+        try FileManager.default.createDirectory(at: impostor,
+                                                withIntermediateDirectories: true)
+
+        #expect(try world.service.archives().isEmpty)
+    }
+
+    /// THE CONTROL. Without it every assertion above is satisfied by a service
+    /// that never produces an archive at all (L159).
+    @Test("a backup that verified IS one of the archives, and leaves no staging behind")
+    func aGoodBackupIsAnArchive() throws {
+        let world = try World()
+
+        let archive = try world.service.takeBackup(now: world.instant)
+
+        #expect(try world.service.archives() == [archive])
+        let left = try FileManager.default.contentsOfDirectory(
+            atPath: world.backupsDirectory.path)
+        #expect(!left.contains { $0.hasPrefix(BackupService.stagingPrefix) })
     }
 
     // MARK: restoring
@@ -468,10 +680,10 @@ struct BackupTests {
         let service: BackupService
         let receiptPath: String
         let receiptReference: ReferencedDocument
-        let keep: Int
+        let dailyKeep: Int
         let instant = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
-        init(keep: Int = 3) throws {
+        init(dailyKeep: Int = 3) throws {
             root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("ovation-backup-\(UUID().uuidString)", isDirectory: true)
             dataDirectory = root.appendingPathComponent("Ovation", isDirectory: true)
@@ -512,7 +724,7 @@ struct BackupTests {
             // wrote the file, and no reader before the open can know it.
             receiptReference = ReferencedDocument(relativePath: receiptPath,
                                                   sha256: DocumentStore.hash(of: receiptBytes))
-            self.keep = keep
+            self.dailyKeep = dailyKeep
             // The default service references exactly what the fixture filed, so
             // the existing tests stay about what they were about.
             // Bound to a local rather than to self: the closure is @Sendable and
@@ -521,7 +733,7 @@ struct BackupTests {
             let reference = receiptReference
             service = BackupService(dataDirectory: dataDirectory,
                                     backupsDirectory: backupsDirectory,
-                                    keep: keep,
+                                    dailyKeep: dailyKeep,
                                     referencedDocuments: { [reference] })
         }
 
@@ -533,8 +745,33 @@ struct BackupTests {
         func service(referencing documents: [ReferencedDocument]) -> BackupService {
             BackupService(dataDirectory: dataDirectory,
                           backupsDirectory: backupsDirectory,
-                          keep: keep,
+                          dailyKeep: dailyKeep,
                           referencedDocuments: { documents })
+        }
+
+        /// Plants an archive directory carrying a manifest, so a retention case
+        /// can put twenty archives across several months on disk without paying
+        /// for twenty real backups. It is what `archives()` recognises: a
+        /// directory with the prefix AND a manifest.
+        func plantArchive(named name: String) {
+            let archive = backupsDirectory.appendingPathComponent(name, isDirectory: true)
+            try? FileManager.default.createDirectory(at: archive,
+                                                     withIntermediateDirectories: true)
+            try? Data("{}".utf8).write(
+                to: archive.appendingPathComponent(BackupManifest.filename))
+        }
+
+        /// A day in April 2026, in Ovation's own timezone, so a case reads as the
+        /// date it is about rather than as an interval from a reference instant.
+        func april(_ day: Int) -> Date {
+            var components = DateComponents()
+            components.year = 2026
+            components.month = 4
+            components.day = day
+            components.hour = 12
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = BusinessCalendar.timeZone
+            return calendar.date(from: components) ?? Date(timeIntervalSinceReferenceDate: 0)
         }
 
         func manifest(of archive: URL) throws -> BackupManifest {

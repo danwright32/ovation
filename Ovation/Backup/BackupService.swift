@@ -116,7 +116,19 @@ enum BackupError: Error, Equatable {
 final class BackupService {
     let dataDirectory: URL
     let backupsDirectory: URL
-    let keep: Int
+    /// HOW MANY OF THE MOST RECENT ARCHIVES ARE KEPT WHATEVER THEIR DATE, on top
+    /// of the monthly keepers below (ovation#227). Dan's answer, 2026-09-11:
+    /// fourteen daily, plus one per month for good.
+    ///
+    /// BY COUNT, NOT BY A WINDOW OF DAYS. "Everything from the last fourteen
+    /// days" is the same thing only if Ovation is launched every day; used three
+    /// days a week it keeps six archives while reporting that it satisfies
+    /// fourteen (L63).
+    ///
+    /// It replaces `keep`, which asked a question the date rule now decides, and
+    /// it is renamed rather than reused so no reader is left answering the
+    /// superseded one (L428).
+    let dailyKeep: Int
 
     /// Runs after an archive is staged and BEFORE it is verified. The seam exists
     /// so the failure path can be reached without corrupting a disk.
@@ -139,12 +151,12 @@ final class BackupService {
 
     private let fileManager: FileManager
 
-    init(dataDirectory: URL, backupsDirectory: URL, keep: Int,
+    init(dataDirectory: URL, backupsDirectory: URL, dailyKeep: Int,
          referencedDocuments: @escaping @Sendable () throws -> [ReferencedDocument],
          fileManager: FileManager = .default) {
         self.dataDirectory = dataDirectory
         self.backupsDirectory = backupsDirectory
-        self.keep = keep
+        self.dailyKeep = dailyKeep
         self.referencedDocuments = referencedDocuments
         self.fileManager = fileManager
     }
@@ -153,11 +165,35 @@ final class BackupService {
 
     @discardableResult
     func takeBackup(now: Date) throws -> URL {
+        // STAGED UNDER A NAME THE ARCHIVE PREFIX DOES NOT MATCH, and renamed only
+        // once it has verified (ovation#226).
+        //
+        // This used to build straight into the final name, so every throw after
+        // the first line left a directory carrying today's stamp in the folder,
+        // and the verification failure path left one DELIBERATELY, as evidence.
+        // Three later rules read that list: the once a day trigger, the staleness
+        // notice and retention. So one failed backup suppressed its own retry for
+        // the rest of the day, silenced staleness, and could become the permanent
+        // monthly keeper (L121, L421, L334).
+        //
+        // The rename is also what makes an archive appear ATOMICALLY, so a sync
+        // client never starts uploading a half written one.
+        let staging = url(ofArchiveNamed: Self.stagingPrefix + Self.stamp(for: now))
         let archive = url(ofArchiveNamed: Self.archiveName(for: now))
+        try? fileManager.removeItem(at: staging)
         do {
-            try fileManager.createDirectory(at: archive, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
         } catch {
-            throw BackupError.couldNotWrite(archive.path)
+            throw BackupError.couldNotWrite(staging.path)
+        }
+        // A FAILURE BEFORE THE MANIFEST LEAVES NOTHING BEHIND. There is no
+        // diagnosis inside a half copied directory that the thrown error does not
+        // already carry, and one leftover per failed launch is an unbounded leak
+        // into the folder Dan chose. The verification failure below is the one
+        // case with evidence worth keeping, and it keeps it under its own name.
+        var stagingSurvives = false
+        defer {
+            if !stagingSurvives { try? fileManager.removeItem(at: staging) }
         }
 
         var members: [BackupManifest.MemberRecord] = []
@@ -181,14 +217,14 @@ final class BackupService {
 
             do {
                 try fileManager.copyItem(at: source,
-                                         to: archive.appendingPathComponent(member.path))
+                                         to: staging.appendingPathComponent(member.path))
             } catch {
                 throw BackupError.couldNotWrite(member.path)
             }
             members.append(.init(path: member.path, status: .copied, issue: nil))
         }
 
-        let staged = try walk(archive)
+        let staged = try walk(staging)
         // Defence in depth: the credential store is not a member, so it should
         // never be here. Checked anyway, because "should never" is not a check.
         if let excluded = staged.first(where: {
@@ -198,7 +234,7 @@ final class BackupService {
         }
 
         let files = try staged.map { path -> BackupManifest.FileRecord in
-            let data = try readFile(archive.appendingPathComponent(path))
+            let data = try readFile(staging.appendingPathComponent(path))
             return .init(path: path, sha256: DocumentStore.hash(of: data), byteCount: data.count)
         }
 
@@ -206,18 +242,38 @@ final class BackupService {
                                       dayKey: BusinessCalendar.dayKey(for: now),
                                       members: members,
                                       files: files)
-        try write(manifest, to: archive)
+        try write(manifest, to: staging)
 
-        try willVerify?(archive)
+        try willVerify?(staging)
 
-        let report = try verify(archive: archive)
+        let report = try verify(archive: staging)
         guard report.isVerified else {
-            // Nothing is evicted. The archive itself is LEFT where it is, because
-            // it is the evidence of what went wrong.
+            // Nothing is evicted, and the archive that failed is KEPT, because it
+            // is the only record of what went wrong (L277). It is kept under its
+            // own prefix, so it stops answering for a backup that was never
+            // taken while staying there to be read.
+            let evidence = url(ofArchiveNamed: Self.unverifiedPrefix + Self.stamp(for: now))
+            try? fileManager.removeItem(at: evidence)
+            if (try? fileManager.moveItem(at: staging, to: evidence)) != nil {
+                stagingSurvives = true
+            }
             throw BackupError.verificationFailed(report.failures)
         }
 
-        try rotate()
+        // THE ARCHIVE EXISTS FROM HERE, and not before. A rename is atomic, so
+        // nothing ever sees a partly built archive under a name the rules read.
+        do {
+            try? fileManager.removeItem(at: archive)
+            try fileManager.moveItem(at: staging, to: archive)
+            stagingSurvives = true
+        } catch {
+            throw BackupError.couldNotWrite(archive.path)
+        }
+
+        // The archive just created is handed to the rotation as the thing that
+        // MUST be in the listing, so an incomplete enumeration refuses instead of
+        // deleting on it (L211).
+        _ = try rotate(now: now, mustSurvive: archive)
         return archive
     }
 
@@ -460,27 +516,175 @@ final class BackupService {
         // symlinked prefix and a trailing slash while naming the same directory,
         // and two spellings of one identity is how a caller ends up unable to
         // find what it just created (L15).
+        // A DIRECTORY WEARING THE NAME IS NOT AN ARCHIVE (ovation#226). A
+        // Synology conflict copy, a half finished sync, or anything else that
+        // lands here with the right prefix must not be able to answer for a
+        // backup that was never taken (L100). An archive is a directory carrying
+        // its own manifest, which is also the only thing `verify` can judge.
         return names
             .filter { $0.hasPrefix(Self.archivePrefix) }
             .sorted()
             .map { url(ofArchiveNamed: $0) }
+            .filter { carriesAManifest($0) }
+    }
+
+    private func carriesAManifest(_ archive: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: archive.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return false }
+        return fileManager.fileExists(
+            atPath: archive.appendingPathComponent(BackupManifest.filename).path)
     }
 
     private func url(ofArchiveNamed name: String) -> URL {
         backupsDirectory.appendingPathComponent(name, isDirectory: true).standardizedFileURL
     }
 
-    private func rotate() throws {
+    /// What one rotation did, so a caller can SAY it (ovation#227).
+    ///
+    /// The old rotation deleted with `try?` and reported nothing, so a delete
+    /// that failed and one that succeeded were the same silence, and "which
+    /// archives has Ovation removed" was unanswerable (L12, L338). This is an
+    /// automatic deletion policy over the only archived copies of Dan's records,
+    /// so every outcome it can have is named.
+    struct RotationOutcome: Equatable, Sendable {
+        /// Archives that survive, newest last.
+        var kept: [String] = []
+        /// Archives this run removed.
+        var deleted: [String] = []
+        /// Archives it decided to remove and could not. Its own list, because a
+        /// folder where deletes fail grows silently otherwise.
+        var couldNotDelete: [String] = []
+        /// Archives kept because their name could not be read as a date, or
+        /// carried one that cannot be true. Kept and REPORTED, never deleted: a
+        /// failed parse otherwise lands on the permissive side, and here that
+        /// side is deletion (L50).
+        var keptUnreadable: [String] = []
+        /// True when the folder could not be enumerated completely, in which case
+        /// NOTHING was deleted.
+        var refusedOnAShortRead: Bool = false
+    }
+
+    /// Fourteen by count, plus the LAST archive of every calendar month, for good.
+    ///
+    /// EVERY MONTH, INCLUDING THE ONE IN PROGRESS. ovation#227 says "each
+    /// completed calendar month", and this keeps the current month's last archive
+    /// too. Almost always the same archive, since that one is usually the newest
+    /// and protected anyway; where it differs it keeps one more rather than one
+    /// fewer, which is the harmless direction for a rule that deletes the only
+    /// archived copies of Dan's records (L648). Said here so the code and the
+    /// issue do not quietly disagree.
+    ///
+    /// THE LAST OF THE MONTH, NOT THE FIRST. The first archive of a month is
+    /// taken before anything in that month has happened, so it holds the previous
+    /// month's state: keeping it would permanently delete every snapshot
+    /// containing a month's own invoices and keep the one containing none of them
+    /// (L334, L648). Dan chose the last on 2026-09-11, after the first was
+    /// proposed and the fault was found.
+    ///
+    /// THE NEWEST IS NEVER DELETED, whatever the arithmetic says (L5).
+    @discardableResult
+    func rotate(now: Date, mustSurvive: URL? = nil) throws -> RotationOutcome {
+        var outcome = RotationOutcome()
         let existing = try archives()
-        guard existing.count > keep else { return }
-        for archive in existing.prefix(existing.count - keep) {
-            try? fileManager.removeItem(at: archive)
+
+        // A SHORT READ REFUSES (L211). `contentsOfDirectory` succeeds and returns
+        // fewer entries while a folder is mid sync, and a cleanup that deletes
+        // whatever its read did not mention turns incompleteness into permanent
+        // deletion. The check is independent of the read rather than derived from
+        // it (L70): the archive this run just created is known to exist, so an
+        // enumeration that cannot see it is not a complete enumeration.
+        if let mustSurvive, !existing.contains(where: { $0.standardizedFileURL == mustSurvive.standardizedFileURL }) {
+            outcome.refusedOnAShortRead = true
+            outcome.kept = existing.map { $0.lastPathComponent }
+            return outcome
         }
+
+        var dated: [(url: URL, date: Date)] = []
+        for archive in existing {
+            let name = archive.lastPathComponent
+            guard let date = Self.instant(fromArchiveNamed: name) else {
+                outcome.keptUnreadable.append(name)
+                continue
+            }
+            // A DATE THAT CANNOT BE TRUE is treated exactly like one that cannot
+            // be parsed. A future dated archive sorts newest for ever, which
+            // silences staleness, satisfies the daily trigger, and makes every
+            // genuine archive old enough to evict in one pass, with "never delete
+            // the newest" protecting only the impostor (ovation#227's comment).
+            guard date <= now else {
+                outcome.keptUnreadable.append(name)
+                continue
+            }
+            dated.append((archive, date))
+        }
+        dated.sort { $0.date < $1.date }
+
+        var survivors = Set<String>()
+        for entry in dated.suffix(dailyKeep) { survivors.insert(entry.url.lastPathComponent) }
+        if let newest = dated.last { survivors.insert(newest.url.lastPathComponent) }
+        // The last archive of each calendar month, in Ovation's own timezone so a
+        // trip cannot move an archive into a neighbouring month.
+        var lastOfMonth: [String: (url: URL, date: Date)] = [:]
+        for entry in dated {
+            let key = Self.monthKey(for: entry.date)
+            if let held = lastOfMonth[key], held.date >= entry.date { continue }
+            lastOfMonth[key] = entry
+        }
+        for entry in lastOfMonth.values { survivors.insert(entry.url.lastPathComponent) }
+
+        for entry in dated {
+            let name = entry.url.lastPathComponent
+            if survivors.contains(name) {
+                outcome.kept.append(name)
+                continue
+            }
+            do {
+                try fileManager.removeItem(at: entry.url)
+                outcome.deleted.append(name)
+            } catch {
+                outcome.couldNotDelete.append(name)
+            }
+        }
+        outcome.kept += outcome.keptUnreadable
+        return outcome
+    }
+
+    /// The instant an archive's name carries, or nil when the name is not one
+    /// this wrote. Parsing is the inverse of `stamp(for:)`, through the same
+    /// timezone and calendar, so the two cannot disagree.
+    static func instant(fromArchiveNamed name: String) -> Date? {
+        guard name.hasPrefix(archivePrefix) else { return nil }
+        let stamp = String(name.dropFirst(archivePrefix.count))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = BusinessCalendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        return formatter.date(from: stamp)
+    }
+
+    private static func monthKey(for instant: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = BusinessCalendar.timeZone
+        formatter.dateFormat = "yyyy-MM"
+        return formatter.string(from: instant)
     }
 
     // MARK: plumbing
 
     static let archivePrefix = "Ovation-backup-"
+
+    /// Where an archive is built, and deliberately NOT starting with
+    /// `archivePrefix`, so nothing reading the archives can see one mid build
+    /// (ovation#226).
+    static let stagingPrefix = "Ovation-staging-"
+
+    /// Where an archive that did not verify is kept. Its own prefix, so it
+    /// survives as the evidence of what went wrong without counting as a backup.
+    static let unverifiedPrefix = "Ovation-unverified-"
 
     /// Named in Ovation's own timezone, not the host's, so two archives taken
     /// either side of a trip are still in order.
