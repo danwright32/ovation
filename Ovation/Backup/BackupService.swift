@@ -125,16 +125,22 @@ final class BackupService {
     /// What the STORE points at, read from the store rather than by walking the
     /// documents folder (ovation#104).
     ///
+    /// `ReferencedDocument` rather than `DocumentReference` (ovation#224): the
+    /// store records a path and a hash and no byte count, so the wider type could
+    /// only be filled by inventing one, and an invented number presented as a
+    /// recorded fact is worse than a missing field (L192). Nothing in `verify`
+    /// reads a byte count.
+    ///
     /// REQUIRED, with no default. A default of "no documents" would be
     /// indistinguishable from a store that references none, so a caller who
     /// forgot it would get a verification that silently checks nothing and
     /// reports clean, which is this check's own failure mode (L168, L98).
-    private let referencedDocuments: @Sendable () throws -> [DocumentReference]
+    private let referencedDocuments: @Sendable () throws -> [ReferencedDocument]
 
     private let fileManager: FileManager
 
     init(dataDirectory: URL, backupsDirectory: URL, keep: Int,
-         referencedDocuments: @escaping @Sendable () throws -> [DocumentReference],
+         referencedDocuments: @escaping @Sendable () throws -> [ReferencedDocument],
          fileManager: FileManager = .default) {
         self.dataDirectory = dataDirectory
         self.backupsDirectory = backupsDirectory

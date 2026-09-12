@@ -159,7 +159,7 @@ struct BackupCostTests {
         let dataDirectory: URL
         let service: BackupService
         let instant = Date(timeIntervalSinceReferenceDate: 800_000_000)
-        private let references: [DocumentReference]
+        private let references: [ReferencedDocument]
 
         init(documents count: Int) throws {
             root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -184,7 +184,7 @@ struct BackupCostTests {
 
             let store = DocumentStore(
                 root: dataDirectory.appendingPathComponent("documents", isDirectory: true))
-            var built: [DocumentReference] = []
+            var built: [ReferencedDocument] = []
             built.reserveCapacity(count)
             for index in 0..<count {
                 // DISTINCT BYTES PER DOCUMENT, because the path is the content
@@ -192,7 +192,12 @@ struct BackupCostTests {
                 // measure deduplication rather than scale (L48).
                 var bytes = Data(repeating: UInt8(index % 251), count: BackupCostTests.documentBytes)
                 bytes.replaceSubrange(0..<8, with: withUnsafeBytes(of: index) { Data($0) })
-                built.append(try store.store(bytes, extension: "pdf"))
+                // ovation#224. DocumentStore knows the byte count because it
+                // just wrote the file; the STORE records only the path and the
+                // hash, and the seam now carries what the store can answer.
+                let written = try store.store(bytes, extension: "pdf")
+                built.append(ReferencedDocument(relativePath: written.relativePath,
+                                                sha256: written.sha256))
             }
             references = built
             let fixed = built

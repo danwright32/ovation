@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import SwiftData
 import Testing
 
@@ -496,5 +497,153 @@ struct SwiftDataBehaviourTests {
         #expect(after.number == nil,
                 "the stale context wrote its own nil back over 1123, silently")
         #expect(after.noteToClient == "thank you", "and its own edit did land")
+    }
+
+    // MARK: Q6, what a Codable enum looks like to a reader that is not SwiftData
+
+    /// ovation#223. THE QUESTION THE BACKUP ORDERING DEPENDS ON.
+    ///
+    /// `BackupService.verify` enumerates the documents the STORE references
+    /// (ovation#104), and the backup runs BEFORE the store is opened, because
+    /// opening can migrate and a migration is the moment the only copy of Dan's
+    /// invoices is at risk (`StoreLaunchSequence`). So whatever reads those
+    /// references cannot have a `ModelContainer`: it has to read the file the way
+    /// `StoreSchemaGuard` and `StoreCheckpoint` already do, with raw SQLite.
+    ///
+    /// Whether that is even possible was unknown. `Expense.receipt` is a Codable
+    /// enum with associated values, and nobody had looked at what SwiftData puts
+    /// in the column. If it were an opaque encoding, the only route left would be
+    /// opening a container before the backup, which weakens the ordering the
+    /// backup exists for.
+    ///
+    /// WHAT THIS OS ACTUALLY DOES, measured 2026-09-11 on macOS (Darwin 25.6.0):
+    /// SwiftData does not store the enum as a blob at all. It FLATTENS it into
+    /// one column per associated value plus one column per payload free case:
+    ///
+    ///     Z_PK  Z_ENT  Z_OPT  ZLABEL  ZSHA256  ZRELATIVEPATH  ZNONERECORDED  ZIMPORTEDWITHOUTONE
+    ///
+    /// A `.file` row carries its two values in `ZSHA256` and `ZRELATIVEPATH` with
+    /// both case columns NULL; a `.noneRecorded` row carries the text
+    /// `noneRecorded` in `ZNONERECORDED` with the rest NULL. So a reader outside
+    /// SwiftData can select the references directly, and `ZRELATIVEPATH IS NOT
+    /// NULL` is exactly "this expense has a receipt file".
+    ///
+    /// THE NAMES COME FROM THE LABELS AND THE CASES, not from the property. The
+    /// column is `ZRELATIVEPATH`, not `ZRECEIPT` and not `ZRECEIPTRELATIVEPATH`.
+    /// That is what this test pins: renaming an associated value renames a column
+    /// that a reader outside SwiftData is selecting by name, with nothing else in
+    /// the repository saying so.
+    ///
+    /// If this ever flips to an opaque encoding, the reader in ovation#224 stops
+    /// working and the fallback is to copy the store to a scratch location and
+    /// open the COPY read only, which is a mechanism rather than a comment
+    /// (L407). Say so there rather than deleting this.
+    enum ProbeReceipt: Codable, Equatable, Hashable, Sendable {
+        case file(sha256: String, relativePath: String)
+        case noneRecorded
+        case importedWithoutOne
+    }
+
+    @Model
+    final class ProbeReceipted {
+        var label: String = ""
+        var receipt: ProbeReceipt = ProbeReceipt.noneRecorded
+        init(label: String, receipt: ProbeReceipt) {
+            self.label = label
+            self.receipt = receipt
+        }
+    }
+
+    @Test("a Codable enum is flattened into columns a reader outside SwiftData can select")
+    func aCodableEnumIsReadableWithoutSwiftData() throws {
+        let directory = URL.temporaryDirectory
+            .appending(path: "ovation-column-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let storeURL = directory.appending(path: "Probe.store")
+        let schema = Schema([ProbeReceipted.self])
+        let container = try ModelContainer(
+            for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
+        let context = ModelContext(container)
+        context.insert(ProbeReceipted(label: "with a receipt",
+                                      receipt: .file(sha256: "abc123",
+                                                     relativePath: "ab/abc123.pdf")))
+        context.insert(ProbeReceipted(label: "without one", receipt: .noneRecorded))
+        try context.save()
+
+        // The rows live in the write ahead log until something checkpoints, which
+        // the test above this one measures. The launch sequence checkpoints
+        // before the backup for exactly this reason, so the reader under design
+        // will always meet a checkpointed file; this does the same.
+        var attempts = 0
+        while attempts < 200, StoreCheckpoint.run(storeURL: storeURL) != .checkpointed {
+            attempts += 1
+        }
+
+        let columns = try Self.columnNames(of: "ZPROBERECEIPTED", in: storeURL)
+        // NAMED EXACTLY, not merely "contains something". A test satisfied by any
+        // column would pass against an opaque blob column too, which is the
+        // answer that would rule out the whole route (L140).
+        #expect(columns.contains("ZSHA256"))
+        #expect(columns.contains("ZRELATIVEPATH"))
+        #expect(columns.contains("ZNONERECORDED"))
+        #expect(!columns.contains("ZRECEIPT"),
+                "the enum is stored under one column after all, so it may be an opaque value")
+
+        let references = try Self.textColumn("ZRELATIVEPATH",
+                                             of: "ZPROBERECEIPTED", in: storeURL)
+        #expect(references == ["ab/abc123.pdf"])
+    }
+
+    // MARK: reading the store file the way something outside SwiftData must
+
+    /// The column names of one table, read with raw SQLite.
+    private static func columnNames(of table: String, in storeURL: URL) throws -> [String] {
+        try rows("PRAGMA table_info(\(table));", in: storeURL).compactMap { $0.count > 1 ? $0[1] : nil }
+    }
+
+    /// One text column of one table, skipping nulls.
+    private static func textColumn(_ column: String, of table: String,
+                                   in storeURL: URL) throws -> [String] {
+        try rows("SELECT \(column) FROM \(table) WHERE \(column) IS NOT NULL;", in: storeURL)
+            .compactMap { $0.first }
+    }
+
+    private static func rows(_ sql: String, in storeURL: URL) throws -> [[String]] {
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(storeURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let database else {
+            sqlite3_close(database)
+            throw ProbeFailure.couldNotOpen(storeURL.path)
+        }
+        defer { sqlite3_close(database) }
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            sqlite3_finalize(statement)
+            throw ProbeFailure.couldNotRead(String(cString: sqlite3_errmsg(database)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var out: [[String]] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            var row: [String] = []
+            for index in 0..<sqlite3_column_count(statement) {
+                if let text = sqlite3_column_text(statement, index) {
+                    row.append(String(cString: text))
+                } else {
+                    row.append("")
+                }
+            }
+            out.append(row)
+        }
+        return out
+    }
+
+    enum ProbeFailure: Error {
+        case couldNotOpen(String)
+        case couldNotRead(String)
     }
 }
