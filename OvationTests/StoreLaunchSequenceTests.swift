@@ -25,7 +25,7 @@ struct StoreLaunchSequenceTests {
         let outcome = world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
-        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "open", "version", "seed", "import-clients", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "currency", "open", "version", "seed", "import-clients", "export-notices"])
         #expect(world.store.open.isEmpty)
     }
 
@@ -166,7 +166,7 @@ struct StoreLaunchSequenceTests {
         // The claim is unchanged; the kind it names is the one that now carries
         // this cause.
         #expect(world.store.open.contains { $0.kind == .backupCouldNotBeWritten })
-        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "open", "version", "seed", "import-clients", "export-notices"])
+        #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "currency", "open", "version", "seed", "import-clients", "export-notices"])
     }
 
     @Test("the backup failure names which half failed")
@@ -265,6 +265,120 @@ struct StoreLaunchSequenceTests {
 
         #expect(resolved)
         #expect(!world.store.open.contains { $0.id == raised.id })
+    }
+
+    /// A FOLDER THAT COULD NOT BE READ IS REPORTED (ovation#228). It is not a
+    /// skip: "there is no archive for today" and "I could not look" are the same
+    /// silence otherwise, and the silence is the one that means no backups are
+    /// happening at all (L98).
+    @Test("a backup folder that cannot be read is reported and the app still opens")
+    func anUnreachableFolderIsReported() throws {
+        let world = try World(backup: { _ in
+            .folderUnreachable("/Volumes/Backups: the volume is not mounted")
+        })
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        let problem = try #require(world.store.open.first { $0.kind == .backupCouldNotBeWritten })
+        #expect(problem.sentence.contains("the volume is not mounted"))
+    }
+
+    /// A SKIP SAYS NOTHING, which is the commonest case: a second launch on the
+    /// same day. A notice there is one Dan learns to click past, and then the
+    /// ones that matter go past with it (L36).
+    @Test("a backup already taken today raises nothing")
+    func aSkipRaisesNothing() throws {
+        let world = try World(backup: { _ in
+            .alreadyTakenToday(URL(fileURLWithPath: "/dev/null"))
+        })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(!world.store.open.contains { $0.kind.rawValue.hasPrefix("backup.") })
+    }
+
+    /// THE STANDING CONDITION CLEARS ITSELF AT LAUNCH, not only when the Settings
+    /// pane happens to be used (L33). The pane does two writes, remembering the
+    /// folder and resolving the notice, and anything between them leaves the
+    /// folder set and the notice open FOR EVER, because nothing else retracts it
+    /// and `ProblemsStore` never retracts on its own. A launch that took a backup
+    /// is proof a folder exists, so it settles the question every time rather
+    /// than once.
+    @Test("a launch that backed up clears any standing no folder notice")
+    func aBackupClearsTheStandingCondition() throws {
+        let world = try World()
+        _ = world.store.raise(kind: .backupFolderNotChosen, subject: "backups",
+                              sentence: "No backup folder has been chosen yet.",
+                              now: world.instant)
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(!world.store.open.contains { $0.kind == .backupFolderNotChosen })
+    }
+
+    /// AND A LAUNCH WITH NO FOLDER LEAVES IT STANDING, because it is still true
+    /// (L98).
+    @Test("a launch that could not back up leaves the standing notice alone")
+    func aFailedBackupLeavesTheStandingCondition() throws {
+        let world = try World(backup: { _ in
+            throw BackupError.couldNotWrite("no backup folder has been chosen yet")
+        })
+        _ = world.store.raise(kind: .backupFolderNotChosen, subject: "backups",
+                              sentence: "No backup folder has been chosen yet.",
+                              now: world.instant)
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(world.store.open.contains { $0.kind == .backupFolderNotChosen })
+    }
+
+    // MARK: are the backups behind the data (ovation#230)
+
+    @Test("a folder holding no backups at all is said out loud")
+    func anEmptyFolderIsSaid() throws {
+        let world = try World(backupCurrency: { _ in .noArchivesAtAll })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(world.store.open.contains { $0.kind == .backupFolderIsEmpty })
+    }
+
+    @Test("work that no backup has followed is said out loud, with both dates")
+    func staleBackupsAreSaid() throws {
+        let worked = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let world = try World(backupCurrency: { _ in
+            .stale(newestArchive: worked.addingTimeInterval(-3 * 86_400), dataChangedOn: worked)
+        })
+
+        _ = world.sequence.run(now: world.instant)
+
+        let problem = try #require(world.store.open.first { $0.kind == .backupsAreStale })
+        #expect(problem.sentence.contains(BusinessCalendar.dayKey(for: worked)))
+    }
+
+    /// COULD NOT TELL IS NOT FINE (L98). A check that cannot measure must not
+    /// report a pass, and it must not claim staleness either, which is something
+    /// it did not measure (L11).
+    @Test("backups whose currency could not be judged say so, as their own thing")
+    func currencyThatCouldNotBeJudgedIsSaid() throws {
+        let world = try World(backupCurrency: { _ in .cannotTell("the store's dates") })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(world.store.open.contains { $0.kind == .backupCurrencyCouldNotBeJudged })
+        #expect(!world.store.open.contains { $0.kind == .backupsAreStale })
+    }
+
+    /// AND A HEALTHY LAUNCH SAYS NOTHING, which is the commonest case by far
+    /// (L36).
+    @Test("backups that have kept up raise nothing")
+    func currentBackupsRaiseNothing() throws {
+        let world = try World(backupCurrency: { _ in .current })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(!world.store.open.contains { $0.kind.rawValue.hasPrefix("backup.") })
     }
 
     // MARK: what is true about the export is said at launch (ovation#64)
@@ -470,8 +584,9 @@ struct StoreLaunchSequenceTests {
         @MainActor
         init(withStore: Bool = true,
              checkpoint: (@Sendable (URL) -> StoreCheckpoint.Outcome)? = nil,
-             backup: (@Sendable (Date) throws -> URL)? = nil,
+             backup: (@Sendable (Date) throws -> BackupService.Attempt)? = nil,
              prepareDataDirectory: (@Sendable () throws -> Void)? = nil,
+             backupCurrency: (@Sendable (Date) -> BackupService.Currency)? = nil,
              seed: (@Sendable (ModelContainer) throws -> Int)? = nil,
              recordVersion: (@Sendable (URL) throws -> Void)? = nil,
              exportNotices: (@Sendable (ModelContainer, Date) -> [ExportNotice])? = nil,
@@ -528,7 +643,11 @@ struct StoreLaunchSequenceTests {
                 takeBackup: { now in
                     recorder.record("backup")
                     if let backup { return try backup(now) }
-                    return URL(fileURLWithPath: "/dev/null")
+                    return .taken(URL(fileURLWithPath: "/dev/null"))
+                },
+                backupCurrency: { now in
+                    recorder.record("currency")
+                    return backupCurrency?(now) ?? .current
                 },
                 openContainer: { url in
                     recorder.record("open")

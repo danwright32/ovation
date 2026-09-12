@@ -56,7 +56,14 @@ struct StoreLaunchSequence {
     /// before the backup that refuses without them. Injected like every other
     /// step, so a test can make it fail without damaging anything (L196).
     let prepareDataDirectory: @Sendable () throws -> Void
-    let takeBackup: @Sendable (Date) throws -> URL
+    /// FOUR OUTCOMES, NOT TWO AND AN EXCEPTION (ovation#228). A launch that
+    /// SKIPPED because today's backup was already taken was indistinguishable
+    /// from one that backed up, and a folder that could not be read looked like
+    /// either (L98, L11).
+    let takeBackup: @Sendable (Date) throws -> BackupService.Attempt
+    /// ovation#230. Whether the archives have kept up with the store, asked after
+    /// the backup so that today's counts. Injected like every other step.
+    let backupCurrency: @Sendable (Date) -> BackupService.Currency
     let openContainer: @Sendable (URL) throws -> ModelContainer
     let identify: @Sendable (URL) -> StoreSchemaGuard.Verdict
     /// ovation#107. Puts PRD 5.4's starting service types into a store that has
@@ -175,11 +182,64 @@ struct StoreLaunchSequence {
                 // and subject, and `ProblemsStore.raise` merges those into one
                 // record whose sentence is whichever spoke last (L53).
                 try prepareDataDirectory()
-                _ = try takeBackup(now)
+                switch try takeBackup(now) {
+                case .taken, .alreadyTakenToday:
+                    // A BACKUP HAPPENING IS PROOF A FOLDER EXISTS, so the standing
+                    // "no folder chosen" notice is settled here rather than only
+                    // where it is chosen (L33). The Settings pane does two writes,
+                    // remembering the folder and resolving that notice, and
+                    // anything between them would otherwise leave the folder set
+                    // and the notice open for ever: nothing else retracts it, and
+                    // `ProblemsStore` never retracts on its own. Doing it every
+                    // launch makes it self healing rather than a single chance.
+                    for standing in problems.open
+                    where standing.kind == .backupFolderNotChosen {
+                        _ = problems.resolve(standing.id,
+                                             because: "a backup was taken, so a folder exists",
+                                             now: now)
+                    }
+                    // Nothing to say. A notice on the commonest case is one Dan
+                    // learns to click past (L36).
+                    break
+                case .folderUnreachable(let detail):
+                    // The same KIND as a write that could not happen, because the
+                    // remedy is the same: make the folder reachable. A different
+                    // sentence, because the cause is not (L11).
+                    _ = problems.raise(
+                        kind: .backupCouldNotBeWritten, subject: storeURL.path,
+                        sentence: "The backup folder could not be read: \(detail). "
+                            + "Ovation opened anyway, so nothing is lost, "
+                            + "but there is no backup from today.", now: now)
+                }
             } catch {
                 let condition = Self.backupCondition(for: error)
                 _ = problems.raise(kind: condition.kind, subject: storeURL.path,
                                    sentence: condition.sentence, now: now)
+            }
+
+            // WHETHER THE ARCHIVES HAVE KEPT UP, asked after the backup so that
+            // today's counts (ovation#230). It is a STANDING condition about the
+            // folder rather than an event about this launch, which is why it is
+            // asked every time rather than only when a backup was taken.
+            switch backupCurrency(now) {
+            case .current:
+                break
+            case .noArchivesAtAll:
+                _ = problems.raise(
+                    kind: .backupFolderIsEmpty, subject: storeURL.path,
+                    sentence: "A backup folder is chosen and holds no backups at all. "
+                        + "Nothing has been copied out of Ovation yet.", now: now)
+            case .stale(let newest, let changed):
+                _ = problems.raise(
+                    kind: .backupsAreStale, subject: storeURL.path,
+                    sentence: "Your work on \(BusinessCalendar.dayKey(for: changed)) is in no "
+                        + "backup: the newest was taken on "
+                        + "\(BusinessCalendar.dayKey(for: newest)).", now: now)
+            case .cannotTell(let detail):
+                _ = problems.raise(
+                    kind: .backupCurrencyCouldNotBeJudged, subject: storeURL.path,
+                    sentence: "Whether the backups are up to date could not be judged: "
+                        + "\(detail).", now: now)
             }
         }
 

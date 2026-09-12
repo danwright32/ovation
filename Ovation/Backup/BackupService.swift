@@ -161,6 +161,136 @@ final class BackupService {
         self.fileManager = fileManager
     }
 
+    // MARK: are the backups behind the data (ovation#230)
+
+    /// Whether the archives have kept up with the store.
+    ///
+    /// FOUR ANSWERS, because "there is no archive at all", "I could not read the
+    /// dates" and "the backups have stopped" need different things from Dan and
+    /// none of them may be reported as current (L98, L11).
+    enum Currency: Equatable {
+        case current
+        /// A folder is chosen and holds no archives. It cannot be expressed as
+        /// staleness: there is no newest archive to compare against, so the two
+        /// would be one silence.
+        case noArchivesAtAll
+        case stale(newestArchive: Date, dataChangedOn: Date)
+        case cannotTell(String)
+    }
+
+    /// Dan's answer, 2026-09-11: stale means the newest archive is older than the
+    /// DATA, never older than N days. Quiet fortnights are normal here, and a
+    /// notice that fires on the ordinary case is one he learns to dismiss, after
+    /// which the ones that matter go past with it (L36).
+    ///
+    /// THE RULE IS IN DAY KEYS, which IS the once a day cadence rather than a
+    /// literal beside it (L401, L614). A backup runs BEFORE the store opens, so an
+    /// archive taken on day D holds the work up to the start of D, and day D's own
+    /// work is carried by the archive of D+1 or later. The data is protected when
+    /// some archive is NEWER, by day, than the last change; it is worth saying so
+    /// only once a day has passed since that change, because within the same day
+    /// the next launch will carry it.
+    ///
+    /// A FIRST DRAFT COMPARED INSTANTS and was true on every healthy launch: the
+    /// sequence writes the store four times AFTER backing up, so the store is
+    /// always newer than the newest archive by the end of a launch that worked.
+    /// A monitor whose signal the app itself moves one step earlier fires on the
+    /// commonest case (L144, L36).
+    static func currency(newestArchive: Date?, dataChanged: Date?, now: Date) -> Currency {
+        guard let newestArchive else { return .noArchivesAtAll }
+        guard let dataChanged else {
+            return .cannotTell("the store's own dates could not be read")
+        }
+        let archiveDay = BusinessCalendar.dayKey(for: newestArchive)
+        let changedDay = BusinessCalendar.dayKey(for: dataChanged)
+        let today = BusinessCalendar.dayKey(for: now)
+        guard archiveDay <= changedDay, today > changedDay else { return .current }
+        return .stale(newestArchive: newestArchive, dataChangedOn: dataChanged)
+    }
+
+    /// When the newest archive was taken, read from its own MANIFEST rather than
+    /// from its file date. A sync client rewrites mtimes, so a three month old
+    /// archive can read as minutes old, and mtime records when a file was WRITTEN
+    /// rather than when its contents were made (L414).
+    func newestArchiveCreatedAt() throws -> Date? {
+        for archive in try archives().reversed() {
+            if let created = try? readManifest(at: archive).createdAt { return created }
+        }
+        return nil
+    }
+
+    /// When the store last changed.
+    ///
+    /// IT COUNTS THE WRITE AHEAD LOG. SQLite writes land in `Ovation.store-wal`
+    /// first, so the store file's own date under-reports what has changed, and a
+    /// comparison built on it would call a busy store untouched (L63).
+    static func dataChangedAt(storeURL: URL,
+                              fileManager: FileManager = .default) -> Date? {
+        let candidates = [storeURL,
+                          URL(fileURLWithPath: storeURL.path + "-wal"),
+                          URL(fileURLWithPath: storeURL.path + "-shm")]
+        let dates = candidates.compactMap { url -> Date? in
+            (try? fileManager.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        }
+        return dates.max()
+    }
+
+    // MARK: at most once a day (ovation#228)
+
+    /// What one launch's backup attempt did.
+    ///
+    /// FOUR OUTCOMES, NOT TWO AND AN EXCEPTION. The seam this reaches was
+    /// `(Date) throws -> URL`, so a launch that SKIPPED because one had already
+    /// been taken was indistinguishable from one that backed up, and a folder
+    /// that could not be read looked like either (L98, L11).
+    enum Attempt: Equatable {
+        /// A backup was taken just now.
+        case taken(URL)
+        /// One had already been taken today, and here it is.
+        case alreadyTakenToday(URL)
+        /// The folder could not be read, so the question could not be answered.
+        /// NOT a skip: "there is no archive for today" and "I could not look" are
+        /// the same silence otherwise.
+        case folderUnreachable(String)
+    }
+
+    /// Take today's backup, unless today's has already been taken.
+    ///
+    /// Dan's answer, 2026-09-11: at launch, at most once a day. At launch because
+    /// the backup runs BEFORE the store is opened, which is the whole reason it is
+    /// worth having. Once a day because five launches in one day would otherwise
+    /// make the rolling set five copies of today and evict yesterday.
+    ///
+    /// IT ASKS WHETHER A VERIFIED ARCHIVE EXISTS FOR TODAY, which is only a
+    /// question worth asking because ovation#226 made the archive list mean
+    /// something: a directory only gets the archive prefix after it has verified,
+    /// so anything answering here passed. Before that, this morning's FAILED
+    /// backup left a directory carrying today's stamp, and a gate asking "is there
+    /// something dated today" would see the wreckage and skip, so the one day the
+    /// backup broke was the one day nothing tried again (L121, L421).
+    ///
+    /// IT ASKS THE FOLDER RATHER THAN A STORED FLAG, so there is no second source
+    /// of truth that can disagree with the files (L58, L70).
+    func takeBackupIfDueToday(now: Date) throws -> Attempt {
+        let existing: [URL]
+        do {
+            existing = try archives()
+        } catch {
+            return .folderUnreachable("\(backupsDirectory.path): \(error)")
+        }
+
+        let today = BusinessCalendar.dayKey(for: now)
+        if let already = existing.last(where: { archive in
+            guard let instant = Self.instant(fromArchiveNamed: archive.lastPathComponent)
+            else { return false }
+            return BusinessCalendar.dayKey(for: instant) == today
+        }) {
+            return .alreadyTakenToday(already)
+        }
+
+        return .taken(try takeBackup(now: now))
+    }
+
     // MARK: taking one
 
     @discardableResult
@@ -680,6 +810,15 @@ final class BackupService {
     }
 
     // MARK: plumbing
+
+    /// How many of the most recent archives are kept whatever their date.
+    ///
+    /// ONE PLACE, so the Settings pane's sentence about what Ovation will do is
+    /// COMPOSED from the rule rather than typed beside it: a consequence sentence
+    /// enumerating what an action does is a second copy of that action's list, and
+    /// the day the policy changes it stays true and goes incomplete, with every
+    /// word still in it correct (L679, ovation#231).
+    static let defaultDailyKeep = 14
 
     static let archivePrefix = "Ovation-backup-"
 

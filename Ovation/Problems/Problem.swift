@@ -93,6 +93,15 @@ extension ProblemKind {
     /// an older one, and the action is about the folder rather than about Ovation.
     static let archiveNoLongerVerifies = ProblemKind("backup.archive-no-longer-verifies")
 
+    /// Whether the backups are behind the data could not be judged (ovation#230),
+    /// because the store's own dates could not be read.
+    ///
+    /// ITS OWN KIND rather than folded into `backupsAreStale`, which would be a
+    /// message claiming something its check did not measure (L11), and rather
+    /// than silence, which would make "could not tell" and "everything is fine"
+    /// the same outcome (L98).
+    static let backupCurrencyCouldNotBeJudged = ProblemKind("backup.currency-unknown")
+
     /// Retention decided to remove an archive and could not (ovation#227). Its own
     /// kind because a folder where deletions fail grows silently, and one failed
     /// eviction and a systemic one otherwise arrive on the same path and are

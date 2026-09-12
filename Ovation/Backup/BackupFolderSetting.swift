@@ -139,6 +139,26 @@ struct BackupFolderSetting {
         return .chosen(folder.standardizedFileURL)
     }
 
+    /// The folder to back up into, or nil when this build must not.
+    ///
+    /// A PURE FUNCTION TAKING THE BUILD FLAG, so both branches are testable from
+    /// the always-Debug test bundle. `StoreLocation` already factors its own
+    /// Debug and Release decision this way for exactly that reason, and the
+    /// alternative is a rule living only in `OvationApp`, which is the one file
+    /// no test here can compile (ovation#88).
+    ///
+    /// THE DEBUG BUILD NEVER BACKS UP (Dan, 2026-09-11). Its store is throwaway,
+    /// so backing it up protects nothing, and nothing stops the same folder being
+    /// chosen in both builds while `archives()` filters on the name prefix alone:
+    /// a Debug rotation would enumerate and DELETE the Release build's archives of
+    /// real invoices (L8, L369). Refusing outright removes that hazard rather than
+    /// managing it.
+    static func folderToBackUpInto(isDebugBuild: Bool, resolution: Resolution) -> URL? {
+        guard !isDebugBuild else { return nil }
+        if case .chosen(let folder) = resolution { return folder }
+        return nil
+    }
+
     /// THE LIVE ONE, and the only place `.standard` is named (plan 1.9,
     /// ovation#58). `LiveDataFloor` reads this, `scripts/check-isolation-floor.sh`
     /// requires every `live...` resolver to be declared there, and the name has
@@ -152,8 +172,8 @@ struct BackupFolderSetting {
         let setting = BackupFolderSetting(
             defaults: .standard,
             isDisposableLaunch: { AppEnvironment.isDisposableLaunch() })
-        if case .chosen(let folder) = setting.resolve() { return folder }
-        return nil
+        return folderToBackUpInto(isDebugBuild: StoreLocation.isDebugBuild,
+                                  resolution: setting.resolve())
     }
 
     /// What identifies the volume a folder sits on, or nil when the system does

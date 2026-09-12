@@ -119,6 +119,41 @@ struct BackupFolderSettingTests {
         #expect(BackupFolderSetting.liveBackupsDirectory == nil)
     }
 
+    // MARK: which build may back up at all (ovation#228)
+
+    /// THE DEBUG BUILD NEVER BACKS UP (Dan, 2026-09-11). Its store is throwaway,
+    /// so backing it up protects nothing, and nothing stops the same folder being
+    /// chosen in both builds while `archives()` filters on the name prefix alone:
+    /// a Debug rotation would delete the Release build's archives of real
+    /// invoices (L8, L369).
+    ///
+    /// TAKEN AS A PARAMETER rather than read from the build, so BOTH branches are
+    /// testable from a bundle that is always Debug. `StoreLocation` factors its
+    /// own Debug decision the same way and for the same reason.
+    @Test("a development build is given no folder to back up into, even when one is chosen")
+    func aDebugBuildNeverBacksUp() throws {
+        let folder = URL(fileURLWithPath: "/tmp/somewhere")
+
+        #expect(BackupFolderSetting.folderToBackUpInto(
+            isDebugBuild: true, resolution: .chosen(folder)) == nil)
+    }
+
+    /// THE CONTROL. Without it the rule above is satisfied by a function that
+    /// always answers nothing, which would stop backups entirely (L159).
+    @Test("the shipping build is given the folder that was chosen")
+    func theShippingBuildGetsTheFolder() throws {
+        let folder = URL(fileURLWithPath: "/tmp/somewhere")
+
+        #expect(BackupFolderSetting.folderToBackUpInto(
+            isDebugBuild: false, resolution: .chosen(folder)) == folder)
+    }
+
+    @Test("a shipping build with nothing chosen is given nothing")
+    func nothingChosenGivesNothing() throws {
+        #expect(BackupFolderSetting.folderToBackUpInto(
+            isDebugBuild: false, resolution: .notChosen) == nil)
+    }
+
     // MARK: the volume it was chosen on
 
     /// WHEN A SHARE DETACHES, ITS MOUNT POINT OFTEN SURVIVES as an empty local

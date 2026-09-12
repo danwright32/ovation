@@ -63,7 +63,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 86
+harness_begin "test runner lock tests" 88
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -337,6 +337,26 @@ hosted_run() {
     "$TARGET" 2>&1
 }
 hosted_status() { hosted_run "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+
+# A LONG HOSTED OUTPUT IS STILL JUDGED CORRECTLY (ovation#241).
+#
+# The check asked `printf '%s' "$OUTPUT" | grep -qE 'Test run with [1-9]...'`.
+# Under `set -o pipefail`, which this runner sets, `grep -q` EXITS at the first
+# match and closes the pipe, `printf` is killed writing the rest, and the
+# pipeline takes printf's failure: the negation then reports "executed NO tests"
+# about a run that executed plenty (L183).
+#
+# IT ONLY HAPPENS WHEN THE OUTPUT IS BIG ENOUGH that printf is still writing
+# when grep quits, which is why it passed here for weeks and failed on a runner:
+# measured 2026-09-12 on CI, one of two identical jobs failed with
+# `printf: write error: Broken pipe` immediately after `** TEST SUCCEEDED **`
+# and a hosted run of 26 tests. So the fixture is deliberately LARGE, and the
+# match is deliberately at the TOP, which is the arrangement that kills printf.
+LONG_HOSTED_OUTPUT='echo "Test run with 26 tests in 4 suites passed"; for i in $(seq 1 20000); do echo "a line of ordinary xcodebuild chatter, number $i"; done'
+check "a hosted run with a long output is not reported as having run nothing" \
+    "$(hosted_status "$LONG_HOSTED_OUTPUT")" "0"
+check "and it does not complain about a broken pipe" \
+    "$(hosted_run "$LONG_HOSTED_OUTPUT" | grep -c 'Broken pipe' || true)" "0"
 
 # THE PURE SUITE IS JUDGED BY ITS COUNT, NOT ONLY ITS EXIT CODE (ovation#106).
 # It is 289 of the 294 tests, and until now it was judged by exit code alone
