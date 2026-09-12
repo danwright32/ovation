@@ -398,6 +398,54 @@ struct BackupTests {
         #expect(try world.service.archives().contains(good))
     }
 
+    // MARK: a refusal carries its cause (ovation#229)
+
+    /// `BackupService` caught the underlying file system error and threw the PATH
+    /// alone, so a volume that is gone, a disk that is full and a permission macOS
+    /// withdrew all rendered one sentence through
+    /// `StoreLaunchSequence.backupCondition(for:)`. Those are the three likeliest
+    /// causes on this configuration and they need three different actions from
+    /// Dan, so a refusal that names none of them is a refusal he cannot act on
+    /// (L11, L148).
+    ///
+    /// DRIVEN AGAINST A REAL FAILURE, not an injected error. A case that threw
+    /// `couldNotWrite` at a seam would assert the sentence and say nothing about
+    /// whether anything ever puts a cause in it (L52).
+    @Test("a backup that cannot create its staging directory says WHY")
+    func aWriteRefusalCarriesTheUnderlyingCause() throws {
+        let world = try World()
+        // A FILE standing where the backups directory belongs, so the real
+        // `createDirectory` fails for a real reason the system describes.
+        let blocked = world.root.appendingPathComponent("Blocked", isDirectory: false)
+        try Data("not a directory".utf8).write(to: blocked)
+        let service = BackupService(dataDirectory: world.dataDirectory,
+                                    backupsDirectory: blocked,
+                                    dailyKeep: 3,
+                                    referencedDocuments: { [] })
+
+        var thrown: BackupError?
+        do {
+            _ = try service.takeBackup(now: world.instant)
+        } catch let error as BackupError {
+            thrown = error
+        }
+
+        guard case .couldNotWrite(let detail) = try #require(thrown) else {
+            Issue.record("expected couldNotWrite, got \(String(describing: thrown))")
+            return
+        }
+        // THE EXACT BARE PATH, computed rather than guessed, so the assertion can
+        // only pass when something was appended to it. A first version asserted
+        // that the detail was merely LONGER than the folder name, which a full
+        // temp path satisfies on its own: it passed with the cause stripped out,
+        // which is the shape of an assertion that measures nothing (L140).
+        let bare = blocked.appendingPathComponent(
+            BackupService.stagingPrefix + BackupService.stamp(for: world.instant),
+            isDirectory: true).standardizedFileURL.path
+        #expect(detail.hasPrefix(bare), "the refusal no longer names the path: \(detail)")
+        #expect(detail != bare, "the refusal names the path and nothing about why")
+    }
+
     // MARK: an archive is tellable from the wreckage of one (ovation#226)
 
     /// THE LIST OF ARCHIVES IS WHAT THREE LATER RULES READ: the once a day

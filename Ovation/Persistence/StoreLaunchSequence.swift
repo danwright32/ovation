@@ -177,8 +177,9 @@ struct StoreLaunchSequence {
                 try prepareDataDirectory()
                 _ = try takeBackup(now)
             } catch {
-                _ = problems.raise(kind: .backupFailed, subject: storeURL.path,
-                                   sentence: Self.backupSentence(for: error), now: now)
+                let condition = Self.backupCondition(for: error)
+                _ = problems.raise(kind: condition.kind, subject: storeURL.path,
+                                   sentence: condition.sentence, now: now)
             }
         }
 
@@ -279,20 +280,39 @@ struct StoreLaunchSequence {
         return .opened
     }
 
-    /// Two labels, not one (ovation#87). An archive that could not be WRITTEN and
-    /// one that was written and did not VERIFY are different failures, and the
-    /// person reading them does different things about each.
-    static func backupSentence(for error: Error) -> String {
+    /// A KIND AND A SENTENCE, not a sentence alone (ovation#229).
+    ///
+    /// ovation#87 asked for two labels, not one, and distinct sentences under ONE
+    /// kind is not two labels: `ProblemsStore.raise` keys a record on kind plus
+    /// subject and overwrites its sentence, so two backup conditions true in one
+    /// launch were one record whose text was whichever spoke last (L53, L260).
+    ///
+    /// The person reading these does different things about each: a write that
+    /// could not happen is about reaching the folder, a verification that failed
+    /// is about what landed in it, and a required member missing is about the data
+    /// directory rather than the backup folder at all.
+    static func backupCondition(for error: Error) -> (kind: ProblemKind, sentence: String) {
+        let tail = "Ovation opened anyway, so nothing is lost, "
+            + "but there is no backup from today."
         switch error {
-        case BackupError.couldNotWrite(let path):
-            return "The backup could not be written to \(path). "
-                + "Ovation opened anyway, so nothing is lost, but there is no backup from today."
+        case BackupError.couldNotWrite(let detail):
+            // The detail carries the CAUSE where the thrower had one, because a
+            // volume that is gone, a disk that is full and a permission macOS
+            // withdrew need three different actions and rendered one sentence
+            // until now (L11).
+            return (.backupCouldNotBeWritten,
+                    "The backup could not be written to \(detail). " + tail)
         case BackupError.requiredMemberMissing(let path):
-            return "The backup was refused because \(path) is missing from the data folder. "
-                + "Ovation opened anyway, so nothing is lost, but there is no backup from today."
+            return (.backupCouldNotBeWritten,
+                    "The backup was refused because \(path) is missing from the data folder. "
+                        + tail)
+        case BackupError.verificationFailed:
+            return (.backupFailed,
+                    "The backup was written and did NOT verify, so it is not a backup. "
+                        + "It has been kept as the evidence of what went wrong. " + tail)
         default:
-            return "The backup did not complete: \(error.localizedDescription). "
-                + "Ovation opened anyway, so nothing is lost, but there is no backup from today."
+            return (.backupFailed,
+                    "The backup did not complete: \(error.localizedDescription). " + tail)
         }
     }
 

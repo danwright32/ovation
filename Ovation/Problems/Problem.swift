@@ -49,8 +49,61 @@ extension ProblemKind {
     /// that is already open.
     static let secondRunningCopy = ProblemKind("app.second-running-copy")
 
-    /// The backup could not be verified (ovation#57).
+    /// An archive was WRITTEN and did not verify (ovation#57, narrowed by
+    /// ovation#229).
+    ///
+    /// IT NAMED EVERY BACKUP FAILURE UNTIL NOW, and that was the defect.
+    /// `ProblemsStore.raise` keys a record on kind plus subject and OVERWRITES
+    /// its sentence, so several conditions under one kind were one record whose
+    /// text was whichever spoke last. On a launch where verification fails, "the
+    /// archive did not verify" and "the backups are stale" are both true, and the
+    /// second silently erased the first (L53, L260). Four sentences under one
+    /// kind satisfies L11 and is not enough.
     static let backupFailed = ProblemKind("backup.failed")
+
+    /// The archive could not be WRITTEN at all: the folder is not there, the disk
+    /// is full, or macOS has withdrawn the permission. Its own kind because the
+    /// remedy differs from an archive that was written and failed to verify. One
+    /// is about reaching the folder, the other about what landed in it.
+    static let backupCouldNotBeWritten = ProblemKind("backup.could-not-be-written")
+
+    /// No backup folder has been chosen yet (ovation#225). A STANDING condition,
+    /// restated on every launch until it is answered, and RESOLVED when a folder
+    /// is chosen: `ProblemsStore` never retracts on its own, `raise` clears
+    /// `acknowledgedAt`, and the presenter shows the oldest first, so a condition
+    /// re-raised for ever sits at the head of the queue and pushes every more
+    /// urgent notice behind it.
+    static let backupFolderNotChosen = ProblemKind("backup.no-folder-chosen")
+
+    /// A folder IS chosen and holds no archives at all (ovation#228).
+    /// `StoreLaunchSequence` already promises in writing that this is raised from
+    /// the backup FOLDER, where it stays true on every later launch, rather than
+    /// from the one launch that skipped the first backup.
+    ///
+    /// It cannot be expressed as staleness: there is no newest archive to compare
+    /// against, so the two would be one silence (L98).
+    static let backupFolderIsEmpty = ProblemKind("backup.folder-is-empty")
+
+    /// The backups are behind the data (ovation#230): the newest archive predates
+    /// the last change to the store, on a day the trigger should have fired.
+    static let backupsAreStale = ProblemKind("backup.stale")
+
+    /// An archive that verified when it was written no longer does (ovation#233).
+    /// Its own kind because nothing is wrong with today's backup: what has gone is
+    /// an older one, and the action is about the folder rather than about Ovation.
+    static let archiveNoLongerVerifies = ProblemKind("backup.archive-no-longer-verifies")
+
+    /// Retention decided to remove an archive and could not (ovation#227). Its own
+    /// kind because a folder where deletions fail grows silently, and one failed
+    /// eviction and a systemic one otherwise arrive on the same path and are
+    /// indistinguishable for exactly as long as the second lasts (L77).
+    static let archiveCouldNotBeRemoved = ProblemKind("backup.archive-could-not-be-removed")
+
+    /// Retention did not run at all, because the folder could not be enumerated
+    /// completely (ovation#227). A DIFFERENT fact from a deletion that failed:
+    /// nothing was removed and nothing was judged, and acting on a short read is
+    /// how incompleteness becomes permanent deletion (L211).
+    static let retentionCouldNotRun = ProblemKind("backup.retention-could-not-run")
 
     /// The starting service types could not be written into a fresh store
     /// (ovation#107). Its own kind, because the remedy is not the store's: the

@@ -49,7 +49,7 @@ enum DataDirectory {
     /// with `withIntermediateDirectories` is both of those.
     ///
     /// IT REFUSES IN THE BACKUP'S OWN VOCABULARY, so the sentence Dan reads is
-    /// the one `StoreLaunchSequence.backupSentence(for:)` already writes for a
+    /// the one `StoreLaunchSequence.backupCondition(for:)` already writes for a
     /// backup that could not be written (L11). A data directory that cannot hold
     /// directories is a backup that cannot happen; calling it anything else would
     /// be a second name for one condition.

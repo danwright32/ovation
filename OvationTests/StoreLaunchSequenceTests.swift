@@ -134,7 +134,12 @@ struct StoreLaunchSequenceTests {
         _ = world.sequence.run(now: world.instant)
 
         #expect(world.recorder.steps.contains("backup"))
-        let problem = try #require(world.store.open.first { $0.kind == .backupFailed })
+        // RETARGETED IN ovation#229, NOT DELETED. This asserted `.backupFailed`
+        // for every backup failure, which was the defect: one kind meant one
+        // record whose sentence was whichever condition spoke last (L53, L430).
+        // The claim is unchanged; the kind it names is the one that now carries
+        // this cause.
+        let problem = try #require(world.store.open.first { $0.kind == .backupCouldNotBeWritten })
         #expect(problem.sentence.contains("documents"))
     }
 
@@ -155,7 +160,12 @@ struct StoreLaunchSequenceTests {
         let outcome = world.sequence.run(now: world.instant)
 
         #expect(outcome == .opened)
-        #expect(world.store.open.contains { $0.kind == .backupFailed })
+        // RETARGETED IN ovation#229, NOT DELETED. This asserted `.backupFailed`
+        // for every backup failure, which was the defect: one kind meant one
+        // record whose sentence was whichever condition spoke last (L53, L430).
+        // The claim is unchanged; the kind it names is the one that now carries
+        // this cause.
+        #expect(world.store.open.contains { $0.kind == .backupCouldNotBeWritten })
         #expect(world.recorder.steps == ["identify", "checkpoint", "prepare", "backup", "open", "version", "seed", "import-clients", "export-notices"])
     }
 
@@ -168,8 +178,93 @@ struct StoreLaunchSequenceTests {
 
         _ = world.sequence.run(now: world.instant)
 
-        let problem = try #require(world.store.open.first { $0.kind == .backupFailed })
+        // RETARGETED IN ovation#229, NOT DELETED. This asserted `.backupFailed`
+        // for every backup failure, which was the defect: one kind meant one
+        // record whose sentence was whichever condition spoke last (L53, L430).
+        // The claim is unchanged; the kind it names is the one that now carries
+        // this cause.
+        let problem = try #require(world.store.open.first { $0.kind == .backupCouldNotBeWritten })
         #expect(problem.sentence.lowercased().contains("could not be written"))
+    }
+
+    // MARK: one kind per backup condition (ovation#229)
+
+    /// `ProblemsStore.raise` keys a record on kind PLUS subject and OVERWRITES
+    /// its sentence, so several backup conditions under one kind were ONE record
+    /// whose text was whichever spoke last. Two backup conditions can be true in
+    /// the same launch, and the second silently erased the first (L53, L260).
+    /// Four sentences under one kind satisfies L11 and is not enough.
+    @Test("an archive that could not be written and one that did not verify are different kinds")
+    func theTwoBackupFailuresAreDifferentKinds() throws {
+        let couldNotWrite = try World(backup: { _ in
+            throw BackupError.couldNotWrite("/Volumes/Backups")
+        })
+        _ = couldNotWrite.sequence.run(now: couldNotWrite.instant)
+
+        let didNotVerify = try World(backup: { _ in
+            throw BackupError.verificationFailed([])
+        })
+        _ = didNotVerify.sequence.run(now: didNotVerify.instant)
+
+        #expect(couldNotWrite.store.open.contains { $0.kind == .backupCouldNotBeWritten })
+        #expect(!couldNotWrite.store.open.contains { $0.kind == .backupFailed })
+        #expect(didNotVerify.store.open.contains { $0.kind == .backupFailed })
+        #expect(!didNotVerify.store.open.contains { $0.kind == .backupCouldNotBeWritten })
+    }
+
+    /// THE CASE THAT PROVES IT MATTERS. Two conditions raised in one launch must
+    /// leave TWO open problems, not one. Under a single kind the second call
+    /// overwrote the first and the panel showed one card.
+    @Test("two backup conditions in one launch leave two problems, not one")
+    func twoConditionsLeaveTwoProblems() throws {
+        let world = try World(backup: { _ in throw BackupError.couldNotWrite("/Volumes/Backups") })
+
+        _ = world.sequence.run(now: world.instant)
+        // The second condition, raised the way a later phase will raise it.
+        _ = world.store.raise(kind: .backupsAreStale, subject: world.storeURL.path,
+                              sentence: "The newest archive is older than your data.",
+                              now: world.instant)
+
+        let backupProblems = world.store.open.filter { $0.kind.rawValue.hasPrefix("backup.") }
+        #expect(backupProblems.count == 2)
+    }
+
+    /// A REFUSAL MAY CLAIM ONLY WHAT IT MEASURED (L11). `BackupService` threw
+    /// `couldNotWrite(path)` with the underlying error discarded, so a volume that
+    /// is gone, a disk that is full and a permission macOS withdrew rendered one
+    /// sentence. Those are the three likeliest causes on this configuration and
+    /// they need three different actions.
+    @Test("a write failure carries the cause it was given")
+    func aWriteFailureCarriesItsCause() throws {
+        let world = try World(backup: { _ in
+            throw BackupError.couldNotWrite("/Volumes/Backups: the volume is not mounted")
+        })
+
+        _ = world.sequence.run(now: world.instant)
+
+        let problem = try #require(world.store.open.first { $0.kind == .backupCouldNotBeWritten })
+        #expect(problem.sentence.contains("the volume is not mounted"))
+    }
+
+    /// THE STANDING CONDITION HAS AN EXIT. `ProblemsStore` never retracts on its
+    /// own, `raise` clears `acknowledgedAt`, and the presenter shows the oldest
+    /// first, so a condition re-raised on every launch sits at the head of the
+    /// queue for ever and pushes every more urgent notice behind it. It is
+    /// resolved when a folder is chosen.
+    @Test("the standing no folder condition is resolved once a folder exists")
+    func theStandingConditionIsResolvable() throws {
+        let world = try World()
+        let raised = world.store.raise(
+            kind: .backupFolderNotChosen, subject: "backups",
+            sentence: "No backup folder has been chosen yet.", now: world.instant)
+        #expect(world.store.open.contains { $0.id == raised.id })
+
+        let resolved = world.store.resolve(raised.id,
+                                           because: "a backup folder was chosen",
+                                           now: world.instant)
+
+        #expect(resolved)
+        #expect(!world.store.open.contains { $0.id == raised.id })
     }
 
     // MARK: what is true about the export is said at launch (ovation#64)
@@ -548,7 +643,7 @@ struct StoreLaunchSequenceTests {
         let outcome = world.sequence.run(now: world.instant)
 
         #expect(!world.recorder.steps.contains("backup"))
-        let raised = world.store.open.filter { $0.kind == .backupFailed }
+        let raised = world.store.open.filter { $0.kind == .backupCouldNotBeWritten }
         #expect(raised.count == 1)
         #expect(raised.first?.sentence.contains("/nowhere/documents") == true)
         // THE APP STILL OPENS. A missing backup is a thing to fix; refusing to
