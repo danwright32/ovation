@@ -267,6 +267,37 @@ struct StoreLaunchSequenceTests {
         #expect(!world.store.open.contains { $0.id == raised.id })
     }
 
+    /// A FOLDER THAT COULD NOT BE READ IS REPORTED (ovation#228). It is not a
+    /// skip: "there is no archive for today" and "I could not look" are the same
+    /// silence otherwise, and the silence is the one that means no backups are
+    /// happening at all (L98).
+    @Test("a backup folder that cannot be read is reported and the app still opens")
+    func anUnreachableFolderIsReported() throws {
+        let world = try World(backup: { _ in
+            .folderUnreachable("/Volumes/Backups: the volume is not mounted")
+        })
+
+        let outcome = world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        let problem = try #require(world.store.open.first { $0.kind == .backupCouldNotBeWritten })
+        #expect(problem.sentence.contains("the volume is not mounted"))
+    }
+
+    /// A SKIP SAYS NOTHING, which is the commonest case: a second launch on the
+    /// same day. A notice there is one Dan learns to click past, and then the
+    /// ones that matter go past with it (L36).
+    @Test("a backup already taken today raises nothing")
+    func aSkipRaisesNothing() throws {
+        let world = try World(backup: { _ in
+            .alreadyTakenToday(URL(fileURLWithPath: "/dev/null"))
+        })
+
+        _ = world.sequence.run(now: world.instant)
+
+        #expect(!world.store.open.contains { $0.kind.rawValue.hasPrefix("backup.") })
+    }
+
     // MARK: what is true about the export is said at launch (ovation#64)
 
     @Test("an export notice is raised through the one launch presenter")
@@ -470,7 +501,7 @@ struct StoreLaunchSequenceTests {
         @MainActor
         init(withStore: Bool = true,
              checkpoint: (@Sendable (URL) -> StoreCheckpoint.Outcome)? = nil,
-             backup: (@Sendable (Date) throws -> URL)? = nil,
+             backup: (@Sendable (Date) throws -> BackupService.Attempt)? = nil,
              prepareDataDirectory: (@Sendable () throws -> Void)? = nil,
              seed: (@Sendable (ModelContainer) throws -> Int)? = nil,
              recordVersion: (@Sendable (URL) throws -> Void)? = nil,
@@ -528,7 +559,7 @@ struct StoreLaunchSequenceTests {
                 takeBackup: { now in
                     recorder.record("backup")
                     if let backup { return try backup(now) }
-                    return URL(fileURLWithPath: "/dev/null")
+                    return .taken(URL(fileURLWithPath: "/dev/null"))
                 },
                 openContainer: { url in
                     recorder.record("open")

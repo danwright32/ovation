@@ -161,6 +161,62 @@ final class BackupService {
         self.fileManager = fileManager
     }
 
+    // MARK: at most once a day (ovation#228)
+
+    /// What one launch's backup attempt did.
+    ///
+    /// FOUR OUTCOMES, NOT TWO AND AN EXCEPTION. The seam this reaches was
+    /// `(Date) throws -> URL`, so a launch that SKIPPED because one had already
+    /// been taken was indistinguishable from one that backed up, and a folder
+    /// that could not be read looked like either (L98, L11).
+    enum Attempt: Equatable {
+        /// A backup was taken just now.
+        case taken(URL)
+        /// One had already been taken today, and here it is.
+        case alreadyTakenToday(URL)
+        /// The folder could not be read, so the question could not be answered.
+        /// NOT a skip: "there is no archive for today" and "I could not look" are
+        /// the same silence otherwise.
+        case folderUnreachable(String)
+    }
+
+    /// Take today's backup, unless today's has already been taken.
+    ///
+    /// Dan's answer, 2026-09-11: at launch, at most once a day. At launch because
+    /// the backup runs BEFORE the store is opened, which is the whole reason it is
+    /// worth having. Once a day because five launches in one day would otherwise
+    /// make the rolling set five copies of today and evict yesterday.
+    ///
+    /// IT ASKS WHETHER A VERIFIED ARCHIVE EXISTS FOR TODAY, which is only a
+    /// question worth asking because ovation#226 made the archive list mean
+    /// something: a directory only gets the archive prefix after it has verified,
+    /// so anything answering here passed. Before that, this morning's FAILED
+    /// backup left a directory carrying today's stamp, and a gate asking "is there
+    /// something dated today" would see the wreckage and skip, so the one day the
+    /// backup broke was the one day nothing tried again (L121, L421).
+    ///
+    /// IT ASKS THE FOLDER RATHER THAN A STORED FLAG, so there is no second source
+    /// of truth that can disagree with the files (L58, L70).
+    func takeBackupIfDueToday(now: Date) throws -> Attempt {
+        let existing: [URL]
+        do {
+            existing = try archives()
+        } catch {
+            return .folderUnreachable("\(backupsDirectory.path): \(error)")
+        }
+
+        let today = BusinessCalendar.dayKey(for: now)
+        if let already = existing.last(where: { archive in
+            guard let instant = Self.instant(fromArchiveNamed: archive.lastPathComponent)
+            else { return false }
+            return BusinessCalendar.dayKey(for: instant) == today
+        }) {
+            return .alreadyTakenToday(already)
+        }
+
+        return .taken(try takeBackup(now: now))
+    }
+
     // MARK: taking one
 
     @discardableResult
