@@ -203,7 +203,7 @@ struct BackupCostTests {
             let fixed = built
 
             service = BackupService(
-                dataDirectory: dataDirectory, backupsDirectory: backups, keep: 3,
+                dataDirectory: dataDirectory, backupsDirectory: backups, dailyKeep: 3,
                 referencedDocuments: { fixed })
         }
 

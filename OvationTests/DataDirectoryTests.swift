@@ -171,7 +171,7 @@ struct DataDirectoryTests {
 
             service = BackupService(dataDirectory: dataDirectory,
                                     backupsDirectory: backupsDirectory,
-                                    keep: 3,
+                                    dailyKeep: 3,
                                     referencedDocuments: { [] })
         }
     }
