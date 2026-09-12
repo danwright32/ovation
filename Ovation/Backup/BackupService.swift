@@ -184,7 +184,12 @@ final class BackupService {
         do {
             try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
         } catch {
-            throw BackupError.couldNotWrite(staging.path)
+            // THE CAUSE TRAVELS WITH IT (ovation#229). A volume that is gone, a
+            // disk that is full and a permission macOS withdrew are the three
+            // likeliest causes on this configuration, they need three different
+            // actions, and discarding the error rendered one sentence for all
+            // three (L11).
+            throw BackupError.couldNotWrite("\(staging.path): \(error.localizedDescription)")
         }
         // A FAILURE BEFORE THE MANIFEST LEAVES NOTHING BEHIND. There is no
         // diagnosis inside a half copied directory that the thrown error does not
@@ -219,7 +224,8 @@ final class BackupService {
                 try fileManager.copyItem(at: source,
                                          to: staging.appendingPathComponent(member.path))
             } catch {
-                throw BackupError.couldNotWrite(member.path)
+                throw BackupError.couldNotWrite(
+                    "\(member.path): \(error.localizedDescription)")
             }
             members.append(.init(path: member.path, status: .copied, issue: nil))
         }
