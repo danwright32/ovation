@@ -63,6 +63,8 @@ build-install.sh	tool	Builds and installs the app. Dan runs the installs himself
 build-products.sh	tool	Takes minutes to build both configurations, so no push may wait on it. It is the command CI will call when CI exists, and until then it is run by a person. test-build-products.sh covers it.
 check-app-icon-current.sh	gated	A repo wide guard.
 check-booking-queue.sh	gated	A repo wide guard.
+check-backup-grant.sh	gated	Whether anybody has ever proved the backup folder grant survives a relaunch, and when (ovation#232). A PRECONDITION rather than a push gate: it asks about something outside the repository that only Dan can establish, by relaunching a real installed build, and a gate refusing until a person did that is one people learn to skip (L378). It answers CANNOT MEASURE while nothing has been recorded, so an unanswered question stays visible without blocking anything (L98). test-backup-grant.sh drives every outcome against an injected record path.
+record-backup-grant-check.sh	tool	Writes what a relaunch actually showed into docs/backup-grant-checks.tsv, run by Dan from docs/BACKUP-GRANT-CHECK.md and by nothing automatic, because the whole point is that a person relaunched a real installed build and looked (ovation#232). It records a date and a verdict and no path: this repository is public and where Dan's records are copied to is his business. test-backup-grant.sh covers it, including that it refuses a verdict its reader would not understand.
 check-ci-workflow.sh	gated	A repo wide guard.
 check-ci-liveness.sh	workflow	Run by .github/workflows/ci-liveness.yml on a schedule and on every push to main. It judges whether a commit has landed that no successful CI run has followed; test-ci-liveness.sh drives it with dates rather than by pushing and waiting (ovation#155).
 check-clients-screen-draws.sh	workflow	Renders docs/design/clients.html in a headless browser, PRESSES the name rows and reads back what moved, which is the only way to see the rule ovation#98 settled: the held money figure is drawn on every row that has one except the row whose box is open beside it, so what is drawn depends on the selection and no reading of the source can check it. Run by .github/workflows/ci.yml's Linux job, and by its sibling test-clients-screen-draws.sh against the committed file on every test run, which is what makes a push judge it; that suite answers CANNOT MEASURE rather than passing when there is no browser. Not gated, for the reason written once under `workflow` above.
@@ -118,6 +120,7 @@ setup-signing.sh	tool	Configures code signing on a machine. Run once per machine
 smoke-launch.sh	tool	Launches the built app and counts its windows, so it opens a REAL window on Dan's screen and no push may run it. test-smoke-launch.sh drives every verdict against a stub.
 test-app-icon-current.sh	suite	
 test-booking-queue.sh	suite	
+test-backup-grant.sh	suite	
 test-build-install.sh	suite	
 test-build-products.sh	suite	
 test-built-bundle-icon.sh	suite	

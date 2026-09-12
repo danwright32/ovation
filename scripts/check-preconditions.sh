@@ -44,7 +44,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # The situational checks, and the list the partition test in
 # scripts/test-preconditions.sh holds to what is actually on disk, so a new
 # check script cannot end up run by nothing (L96).
-DEFAULT_CHECKS="${REPO_ROOT}/scripts/check-custody-files.sh ${REPO_ROOT}/scripts/check-sibling-installs.sh ${REPO_ROOT}/scripts/check-booking-queue.sh"
+DEFAULT_CHECKS="${REPO_ROOT}/scripts/check-custody-files.sh ${REPO_ROOT}/scripts/check-sibling-installs.sh ${REPO_ROOT}/scripts/check-booking-queue.sh ${REPO_ROOT}/scripts/check-backup-grant.sh"
 CHECKS="${OVATION_PRECONDITION_CHECKS-$DEFAULT_CHECKS}"
 
 echo "Preconditions, run at $(date '+%Y-%m-%d %H:%M:%S %Z'). Nothing is recorded; re-run to ask again."

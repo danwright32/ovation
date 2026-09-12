@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 72
+harness_begin "output privacy tests" 74
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -768,6 +768,20 @@ OUT="$(./scripts/check-clients-screen-draws.sh "$DESIGN/staged.html" 2>&1)"
 check "the clients screen check prints no identity" "$(leaks_in "$OUT")" "clean"
 check "and the clients screen check took the path this machine can reach" \
     "$(verdict_of "$OUT")" "$RENDER_PATH"
+
+# ---------------------------------------------------------------------------
+# THE BACKUP GRANT RECORD (ovation#232). It prints dates and verdicts, and the
+# record it reads deliberately carries no path, because this repository is
+# public and where Dan's records are copied to is his business. Covered like
+# every other gated script, because the rule is that every one is checked, not
+# every one somebody thought was risky (L129, L96).
+# ---------------------------------------------------------------------------
+GRANT="$WORK/grant.tsv"
+printf '# header\n2026-09-12\tlapsed\t%s at %s\n' "$CLIENT" "$VENUE" > "$GRANT"
+check "the backup grant check prints no identity, even from a record somebody edited" \
+    "$(leaks_in "$(OVATION_GRANT_RECORD="$GRANT" ./scripts/check-backup-grant.sh 2>&1)")" "clean"
+check "and it really did report a verdict, so the case reached the line that prints" \
+    "$(OVATION_GRANT_RECORD="$GRANT" ./scripts/check-backup-grant.sh 2>&1 | grep -c 'BLOCKED')" "1"
 
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever
