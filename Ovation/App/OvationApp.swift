@@ -27,6 +27,14 @@ struct OvationApp: App {
     /// the client list could not be read, which raises its own problem.
     @State private var roster: RosterPresenter?
     @State private var shell: ShellPresenter?
+    /// ovation#246. What the window shows while the launch runs behind it.
+    @State private var progress = LaunchProgress()
+    /// Whether the second copy check said this one may run, carried from init so
+    /// the launch can read it once the window exists.
+    @State private var secondInstance: SecondInstance.Verdict = .theOnlyCopy
+    /// IT RUNS EXACTLY ONCE. A re-entered launch would open a second container
+    /// over one file, which is two writers (ovation#84).
+    @State private var hasLaunched = false
 
     init() {
         // A disposable launch gets a journal that writes nowhere, so nothing a
@@ -75,6 +83,49 @@ struct OvationApp: App {
         // command can read the store Dan is actually looking at (ovation#162).
         let openedStore = OpenedStore()
 
+        let presenter = LaunchPresenter(store: store)
+        presenter.refresh()
+
+        _store = State(initialValue: store)
+        _presenter = State(initialValue: presenter)
+        // NOTHING IS OPEN YET, and that is the change ovation#246 made. The
+        // launch sequence used to run HERE, before any window existed, so a slow
+        // backup and a failure to start looked identical and there was no surface
+        // to tell them apart. It now runs from a task once the window is up, in
+        // the same order, and these are filled in when it finishes.
+        _opened = State(initialValue: nil)
+        _roster = State(initialValue: nil)
+        _shell = State(initialValue: nil)
+        _secondInstance = State(initialValue: secondInstance)
+        // THE COMMAND IS BUILT EVEN WHEN THERE IS NOWHERE TO WRITE, and answers
+        // why rather than being absent. A menu item that vanishes on a throwaway
+        // launch teaches nothing; one that is there and says what is missing is
+        // the difference between a dead control and a refusal (L109).
+        _exportCommand = State(initialValue: YearEndExportCommand.forThisLaunch())
+    }
+
+
+    /// THE LAUNCH, RUN ONCE THE WINDOW EXISTS (ovation#246).
+    ///
+    /// The ORDER is unchanged and is still the requirement: identify,
+    /// checkpoint, prepare, back up, check the backups, then open. What changed
+    /// is only WHEN it starts: before, it ran inside `init`, so nothing was on
+    /// screen while it worked and a slow backup was indistinguishable from an app
+    /// that would not start. Dan's standing rule wants started, still alive and
+    /// failed to be three different things, and none of them can be shown from a
+    /// place with no window.
+    ///
+    /// IT RUNS EXACTLY ONCE. `.task` is tied to the view's lifetime and a
+    /// re-entered launch would open a second container over one file, which is
+    /// two writers (ovation#84).
+    @MainActor
+    private func startLaunch() async {
+        guard !hasLaunched else { return }
+        hasLaunched = true
+
+        let store = self.store
+        let secondInstance = self.secondInstance
+        let openedStore = OpenedStore()
         if secondInstance.mayRun, let storeURL = StoreLocation.liveStoreURL() {
             var sequence = StoreLaunchSequence(
                 storeURL: storeURL,
@@ -92,21 +143,48 @@ struct OvationApp: App {
                     // The Debug build is given no folder at all, decided in
                     // `BackupFolderSetting.folderToBackUpInto` where both branches
                     // are testable (ovation#228).
-                    guard let folder = BackupFolderSetting.liveBackupsDirectory else {
-                        // Saying so through the Problems store is honest, where a
-                        // silent no-op would leave the sequence reporting a backup
-                        // it never took (L98). ovation#231 is the screen that
-                        // lets Dan answer it.
-                        throw BackupError.couldNotWrite("no backup folder has been chosen yet")
+                    //
+                    // OFF THE MAIN ACTOR (ovation#246). Copying and hashing
+                    // everything Ovation holds is the slowest thing a launch
+                    // does, and on a folder that syncs to a NAS it is one to two
+                    // orders of magnitude slower per file than the local disk the
+                    // only measurement was taken on (L522). Run on the main actor
+                    // it would leave the window up and frozen, which is a
+                    // different defect from the one showing a window fixed.
+                    //
+                    // NOTHING CROSSES THE BOUNDARY but a URL and a Date: the
+                    // service is built INSIDE the task, so no non-Sendable value
+                    // has to travel.
+                    //
+                    // THROUGH BlockingWork, NOT Task.detached. The cooperative
+                    // pool is about one thread per core and does not grow, so
+                    // work that BLOCKS a thread never gives it back and enough of
+                    // them starve every other await (L241). Copying and hashing a
+                    // whole data directory is exactly that shape.
+                    // `check-forbidden-constructs.sh` refuses the wrong one, and
+                    // it caught this in the writing.
+                    let attempt = await BlockingWork.run {
+                        guard let folder = BackupFolderSetting.liveBackupsDirectory else {
+                            // Saying so through the Problems store is honest,
+                            // where a silent no-op would leave the sequence
+                            // reporting a backup it never took (L98). ovation#231
+                            // is the screen that lets Dan answer it.
+                            throw BackupError.couldNotWrite(
+                                "no backup folder has been chosen yet")
+                        }
+                        let service = BackupService(
+                            dataDirectory: storeURL.deletingLastPathComponent(),
+                            backupsDirectory: folder,
+                            dailyKeep: BackupService.defaultDailyKeep,
+                            referencedDocuments: {
+                                try StoreDocumentReferences.read(storeURL: storeURL)
+                            })
+                        return try service.takeBackupIfDueToday(now: now)
                     }
-                    let service = BackupService(
-                        dataDirectory: storeURL.deletingLastPathComponent(),
-                        backupsDirectory: folder,
-                        dailyKeep: BackupService.defaultDailyKeep,
-                        referencedDocuments: {
-                            try StoreDocumentReferences.read(storeURL: storeURL)
-                        })
-                    return try service.takeBackupIfDueToday(now: now)
+                    // The three outcomes are turned into what the sequence
+                    // expects in LaunchBackupOutcome, where both translations can
+                    // be driven by a test (ovation#246).
+                    return try LaunchBackupOutcome.attempt(from: attempt)
                 },
                 // ovation#230. Whether the archives have kept up with the store,
                 // read from the folder Dan chose. A build that never backs up has
@@ -133,17 +211,24 @@ struct OvationApp: App {
                 // months old archive is found rather than assumed. A build with no
                 // folder has nothing to check.
                 reverifyAnArchive: { now in
-                    guard let folder = BackupFolderSetting.liveBackupsDirectory else {
-                        return .nothingToCheck
+                    // OFF THE MAIN ACTOR, for the same reason as the backup
+                    // above: re-verifying reads and hashes every file in an
+                    // archive, which is the same cost over the same network
+                    // volume (ovation#246).
+                    let checked = await BlockingWork.run {
+                        guard let folder = BackupFolderSetting.liveBackupsDirectory else {
+                            return BackupService.Reverification.nothingToCheck
+                        }
+                        let service = BackupService(
+                            dataDirectory: storeURL.deletingLastPathComponent(),
+                            backupsDirectory: folder,
+                            dailyKeep: BackupService.defaultDailyKeep,
+                            referencedDocuments: {
+                                try StoreDocumentReferences.read(storeURL: storeURL)
+                            })
+                        return (try? service.reverifyOneArchive(now: now)) ?? .nothingToCheck
                     }
-                    let service = BackupService(
-                        dataDirectory: storeURL.deletingLastPathComponent(),
-                        backupsDirectory: folder,
-                        dailyKeep: BackupService.defaultDailyKeep,
-                        referencedDocuments: {
-                            try StoreDocumentReferences.read(storeURL: storeURL)
-                        })
-                    return (try? service.reverifyOneArchive(now: now)) ?? .nothingToCheck
+                    return LaunchBackupOutcome.reverification(from: checked)
                 },
                 openContainer: { try OvationSchema.container(at: $0) },
                 identify: {
@@ -260,7 +345,8 @@ struct OvationApp: App {
                 }
             )
             sequence.onOpened = { openedStore.container = $0 }
-            sequence.run(now: Date())
+            sequence.onStep = { [progress] step in progress.stepStarted(step) }
+            progress.finished(await sequence.run(now: Date()))
         }
 
         // ovation#40. The roster is read BEFORE the presenter refreshes, so that
@@ -280,20 +366,10 @@ struct OvationApp: App {
                 problems: store,
                 now: Date())
         }
-
-        let presenter = LaunchPresenter(store: store)
+        opened = openedStore.container
+        roster = rosterPair?.roster
+        shell = rosterPair?.shell
         presenter.refresh()
-
-        _store = State(initialValue: store)
-        _presenter = State(initialValue: presenter)
-        _opened = State(initialValue: openedStore.container)
-        _roster = State(initialValue: rosterPair?.roster)
-        _shell = State(initialValue: rosterPair?.shell)
-        // THE COMMAND IS BUILT EVEN WHEN THERE IS NOWHERE TO WRITE, and answers
-        // why rather than being absent. A menu item that vanishes on a throwaway
-        // launch teaches nothing; one that is there and says what is missing is
-        // the difference between a dead control and a refusal (L109).
-        _exportCommand = State(initialValue: YearEndExportCommand.forThisLaunch())
     }
 
     /// A box, because the launch sequence's hook is `@Sendable` and this runs
@@ -305,7 +381,11 @@ struct OvationApp: App {
     var body: some Scene {
         Window(OvationBuild.displayName, id: OvationBuild.mainWindowID) {
             RootView(presenter: presenter, store: store, exportCommand: exportCommand,
-                     roster: roster, shell: shell)
+                     roster: roster, shell: shell, progress: progress)
+                // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
+                // order inside the launch is unchanged; what changed is that
+                // there is now somewhere for it to say what it is doing.
+                .task { await startLaunch() }
         }
         // ovation#162. THE CONTROL THE STALENESS NOTICE NAMES. Until this existed
         // `YearEndExport.run` was called by nothing, so that notice named a
