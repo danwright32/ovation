@@ -63,7 +63,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 88
+harness_begin "test runner lock tests" 101
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -90,20 +90,27 @@ mkdir -p "$STANDIN_PROJECT"
 
 # The runner is driven with a trivial command instead of xcodebuild, so these
 # cases measure the LOCKING and not a three minute build (L2, L291).
+#
+# THE COMMAND A LOCK CASE STAGES IS THE HOSTED ONE (ovation#271). The locks wrap
+# the hosted suite alone, so a case asking "does the lock stop it" has to hand
+# the runner a hosted command; a pure one now runs whatever is held. It prints a
+# count because a hosted run that executed nothing is refused (ovation#59).
+HOSTED_PASSES='echo "Test run with 5 tests in 1 suite passed"'
 run_runner() {
     OVATION_DIR_LOCK="$DIR_LOCK" \
     OVATION_FILE_LOCK="$FILE_LOCK" \
     OVATION_LOCK_TIMEOUT="${TIMEOUT_OVERRIDE:-2}" \
     OVATION_LOCK_POLL_INTERVAL="${POLL_OVERRIDE:-0.05}" \
     OVATION_FLOCK_BIN="${FLOCK_OVERRIDE:-$SUITE_FLOCK}" \
-    OVATION_TEST_COMMAND="${1:-true}" \
+    OVATION_TEST_COMMAND="${PURE_OVERRIDE:-true}" \
+    OVATION_HOSTED_TEST_COMMAND="${1:-$HOSTED_PASSES}" \
     OVATION_UNLOCKED_COMMAND="${2:-true}" \
     OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "./$TARGET" 2>&1
 }
 
 # 1. Nothing held: it runs, and it runs the command it was given.
-OUT1="$(run_runner "echo THE-COMMAND-RAN")"; ST1=$?
+OUT1="$(run_runner "echo THE-COMMAND-RAN; $HOSTED_PASSES")"; ST1=$?
 check "with neither lock held the runner succeeds" "$ST1" "0"
 check "and it actually ran the command" \
     "$(printf '%s' "$OUT1" | grep -c "THE-COMMAND-RAN")" "1"
@@ -266,6 +273,66 @@ rmdir "$DIR_LOCK"
     wait "$RUNNER" 2>/dev/null || true
     check "and neither lock is left behind afterwards" \
         "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
+
+# ---------------------------------------------------------------------------
+# 12. THE PURE SUITE DOES NOT WAIT FOR THE SIBLINGS (ovation#271).
+#
+#     MEASURED, NOT REASONED. On 2026-09-13, 516 Ovation runs were measured, 406
+#     of them beside real Overture and Downbeat suites. The pure suite opens no
+#     windows, and no
+#     sibling failure ever coincided with it. The hosted suite orders its own
+#     windows front, which moves key window status, and all 21 failures of an
+#     Overture test that counts rows while focus can move (overture#3876) landed
+#     while it was testing. Two Ovation pure suites at once passed 40 of 40. So
+#     the locks wrap the hosted suite alone, and the pure suite is not queued
+#     behind a sibling's build.
+PURE_RAN='echo PURE-SUITE-RAN'
+HOSTED_RAN="echo HOSTED-SUITE-RAN; $HOSTED_PASSES"
+line_of() { printf '%s\n' "$1" | grep -n "$2" | head -1 | cut -d: -f1; }
+
+# 12a. Downbeat's lock held: the pure suite runs and the hosted suite waits.
+mkdir -p "$DIR_LOCK"
+OUT12A="$(PURE_OVERRIDE="$PURE_RAN" TIMEOUT_OVERRIDE=1 run_runner "$HOSTED_RAN")"; ST12A=$?
+check "with Downbeat's lock held the pure suite still runs" \
+    "$(mentions "$OUT12A" "PURE-SUITE-RAN")" "yes"
+check "and the hosted suite does not" "$(mentions "$OUT12A" "HOSTED-SUITE-RAN")" "no"
+check "and the run fails on the lock rather than passing without the hosted suite" \
+    "$([ "$ST12A" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+rmdir "$DIR_LOCK"
+
+# 12b. Overture's lock held, by the other mechanism: the same answer.
+    : > "$FILE_LOCK"
+    HOLD_SENTINEL3="$WORK/hold-3"; : > "$HOLD_SENTINEL3"
+    ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL3" ) &
+    HOLDER3=$!
+    waited=0
+    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
+        waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
+    done
+    OUT12B="$(PURE_OVERRIDE="$PURE_RAN" TIMEOUT_OVERRIDE=1 run_runner "$HOSTED_RAN")"
+    check "with Overture's lock held the pure suite still runs" \
+        "$(mentions "$OUT12B" "PURE-SUITE-RAN")" "yes"
+    check "and the hosted suite does not" "$(mentions "$OUT12B" "HOSTED-SUITE-RAN")" "no"
+    rm -f "$HOLD_SENTINEL3"; wait "$HOLDER3" 2>/dev/null || true
+
+# 12c. With nothing held, the ORDER is the design: pure suite, then the locks,
+#      then the hosted suite inside them. Asserted on the output, so a runner
+#      that took the locks first and ran both inside would fail it.
+OUT12C="$(PURE_OVERRIDE="$PURE_RAN" run_runner "$HOSTED_RAN")"; ST12C=$?
+check "with nothing held both suites run and the run passes" "$ST12C" "0"
+check "the pure suite runs before the locks are even asked for" \
+    "$([ "$(line_of "$OUT12C" PURE-SUITE-RAN)" -lt "$(line_of "$OUT12C" 'Waiting for both test locks')" ] 2>/dev/null && echo pure-first || echo locks-first)" "pure-first"
+check "and the hosted suite runs only once both locks are held" \
+    "$([ "$(line_of "$OUT12C" 'Holding both locks')" -lt "$(line_of "$OUT12C" HOSTED-SUITE-RAN)" ] 2>/dev/null && echo held-first || echo ran-first)" "held-first"
+
+# 12d. A FAILING PURE SUITE NEVER ASKS FOR THE LOCKS. Nothing after a real failure
+#      is worth queueing behind a sibling for, which is the same rule the shell
+#      suites already follow.
+OUT12D="$(PURE_OVERRIDE='echo "Test run with 5 tests in 1 suite failed"; exit 65' run_runner "$HOSTED_RAN")"; ST12D=$?
+check "a failing pure suite fails the run with its own status" "$ST12D" "65"
+check "and it never asks for the sibling locks" \
+    "$(mentions "$OUT12D" "Waiting for both test locks")" "no"
+check "and the hosted suite does not run" "$(mentions "$OUT12D" "HOSTED-SUITE-RAN")" "no"
 
 
 # ---------------------------------------------------------------------------
@@ -832,6 +899,7 @@ lister_run() {
     OVATION_LOCK_TIMEOUT=2 OVATION_LOCK_POLL_INTERVAL=0.05 \
     OVATION_FLOCK_BIN="$SUITE_FLOCK" \
     OVATION_TEST_COMMAND="true" OVATION_UNLOCKED_COMMAND="true" \
+    OVATION_HOSTED_TEST_COMMAND="$HOSTED_PASSES" \
     OVATION_XCODEBUILD_LISTER="$1" \
     OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "./$TARGET" 2>&1
@@ -851,6 +919,27 @@ check "a quiet machine says nothing about other builds" \
     "$(mentions "$OUT156B" "started outside them")" "no"
 check "and it still ran, so the quiet case is not a skipped run" \
     "$(mentions "$OUT156B" "Holding both locks")" "yes"
+
+# AND ANOTHER WORKTREE'S PURE SUITE IS NOT ACCUSED (ovation#271). It takes no
+# sibling lock by design now, so it is outside them legitimately, and a warning
+# that fires on the designed case is one people learn to read past (L36).
+#
+# A REAL PROCESS carrying the pure scheme's command line, so the runner is judged
+# on what `ps` reports rather than on a string this suite hands it. It is killed
+# by this suite, not left to a timer (L290).
+( exec -a "xcodebuild -project Ovation.xcodeproj -scheme OvationCore -destination platform=macOS test" sleep 300 ) &
+FAKE_PURE=$!
+waited=0
+until ps -o command= -p "$FAKE_PURE" 2>/dev/null | grep -q 'scheme OvationCore'; do
+    waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
+done
+OUT156C="$(lister_run "printf '%s\n' $FAKE_PURE")"
+check "another Ovation pure suite building is not reported as outside the locks" \
+    "$(mentions "$OUT156C" "started outside them")" "no"
+OUT156D="$(lister_run "printf '%s\n' $FAKE_PURE 4321")"
+check "but any other xcodebuild beside it still is" \
+    "$(mentions "$OUT156D" "1 xcodebuild")" "yes"
+kill "$FAKE_PURE" 2>/dev/null; wait "$FAKE_PURE" 2>/dev/null || true
 
 
 # EVERY INVOCATION OF THE REAL RUNNER SETS BOTH MACHINE SEAMS (ovation#152).

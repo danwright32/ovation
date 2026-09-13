@@ -6,9 +6,10 @@
 # separately from the harness level gates, which only see pushes made through
 # Claude Code.
 #
-# It runs through scripts/run-tests.sh, so a push takes both siblings' locks
-# exactly as an ordinary test run does and cannot corrupt a Downbeat or Overture
-# run that is already going (ovation#12).
+# It runs through scripts/run-tests.sh, so a push locks exactly as an ordinary
+# test run does (ovation#12): the pure suite runs without waiting for Downbeat or
+# Overture, and both siblings' locks are taken around the hosted suite, the half
+# measured to disturb a sibling's run (ovation#271).
 #
 # JUDGED BY EXIT CODE, never by a line of output. A tool's final line is
 # routinely a different measurement than its verdict, and usually the more
