@@ -160,12 +160,13 @@ gate_check check-custody-not-staged.sh "custody data reached git."
 # including in files .gitignore excludes, and it prints paths and counts only.
 gate_check check-identity-leaks.sh "a real identity appears in the tree."
 
-# Money is Int64 minor units and hours are tenths (plan 1.4). `Money` carries no
-# floating point constructor, which makes the mistake impossible INSIDE the money
-# type and says nothing about a `Double` declared anywhere else, so this refuses
-# one anywhere in the app's sources. Fast: it walks Swift files and prints paths,
+# The constructs Ovation has ruled out: floating point money (plan 1.4), the
+# ambient calendar (plan 1.5), blocking work on the cooperative pool (plan 1.9),
+# and disk work in the code that draws a screen (ovation#255). The scanner's own
+# output names which rule fired and why, so this line does not repeat one of them
+# as though it were the only one. Fast: it walks Swift files and prints paths,
 # line numbers and type names only.
-gate_check check-forbidden-constructs.sh "a floating point type reached the app sources."
+gate_check check-forbidden-constructs.sh "a construct the app rules out reached its sources."
 
 # Every resolver that can reach live data is registered in LiveDataFloor, and
 # this is what makes the register true (ovation#58, plan 1.9). A guard driven by

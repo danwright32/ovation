@@ -42,6 +42,40 @@ WHY IT MATTERS HERE SPECIFICALLY, in the plan's own words: "Ovation runs Vision
 on every receipt, so this defect is otherwise pre-ordained." Vision on a receipt
 image blocks, and so does a keychain read (ovation#76).
 
+RULE FOUR, DISK WORK WHILE DRAWING (ovation#255). Written after the same mistake
+was made twice in one file in one evening, in the Settings window (ovation#247):
+the archive list, which VERIFIES every backup by hashing every file in it, was
+read from a view's body, and an archive's manifest was read from a confirmation
+dialog's message. A body is re-evaluated constantly, on the main thread, so both
+put disk work on the drawing thread on every redraw, which on a folder that syncs
+to a NAS is a frozen window: the defect ovation#246 exists to prevent. Neither
+was caught by anything, and the class reads as harmless at every call site,
+because a body "just describes the screen" and a read there looks like a getter.
+
+It is the one rule with a SCOPE rather than a token list, because the same call
+is right in one place and wrong in another. It applies only in a file declaring
+a SwiftUI view, and only inside the code that DRAWS: `body`, anything declared
+to return `some View`, anything marked `@ViewBuilder`, and every computed
+property, since those are what a body reads. Inside that, the closures a press
+or an appearance runs are NOT drawing and are skipped: a Button's action,
+`.task`, `.onAppear`, `.onDisappear`, `.onChange`, `.onReceive`, `.onSubmit`,
+`.onTapGesture`, `.refreshable`, and anything passed as `action:`. A Button's
+label still is drawing.
+
+It names the READERS rather than every filesystem call: Ovation's own backup
+and store readers, which are short, live here and are what actually cost
+something, plus `FileManager` and a read `contentsOf:` a URL. Every reader in
+its pattern has a call in `DRAWING_RULE["readers"]`, which the suite writes into
+a body (refused) and into an action (allowed), so the scope is seen to fail in
+both directions before it is trusted (L1).
+
+Its known gaps, stated rather than discovered: a plain `func` a body calls is not
+followed into; an extension of a view that does not restate the conformance is
+not recognised as a view; a computed property on some OTHER type in a file that
+also declares a view is treated as drawing; and a multi line string literal
+holding a brace can end a region early. The alternative to all four is a Swift
+parser.
+
 WHAT IT NEVER PRINTS: the source line. It reports the file, the line number and
 the type name only. Printing the line would put whatever that line says into
 transcripts and terminal scrollback, and a comment on a money line is exactly
@@ -111,6 +145,62 @@ RULES = (
             "year boundary decided by it moves when Dan travels."
         ),
     },
+)
+
+# RULE FOUR, which is scoped rather than tokenised (see the header). `readers` is
+# one call per reader, written the way it appears in code, and the suite puts each
+# into a body and into an action. A reader added to the pattern belongs here too,
+# or it is forbidden by a check nothing exercises (L217).
+DRAWING_RULE = {
+    "name": "disk work while drawing",
+    "readers": (
+        "restore.archives()",
+        "service.verify(archive: url)",
+        "service.manifest(of: url)",
+        "restore.consequence(of: name)",
+        "restore.restore(name)",
+        "service.takeBackup(now: now)",
+        "service.reverifyOneArchive(now: now)",
+        "service.folderBytes()",
+        "service.preRestoreSnapshots()",
+        "FileManager.default.fileExists(atPath: path)",
+        "Data(contentsOf: url)",
+        "String(contentsOf: url)",
+        "StoreDocumentReferences.read(from: store)",
+    ),
+    "pattern": re.compile(
+        r"\.(archives|verify|manifest|consequence|restore|takeBackup|reverifyOneArchive"
+        r"|folderBytes|preRestoreSnapshots)\s*\("
+        r"|\b(FileManager)\b"
+        r"|\b(Data|String)\s*\(\s*contentsOf\s*:"
+        r"|\b(StoreDocumentReferences)\b"
+    ),
+    "because": (
+        "A SwiftUI body, anything returning some View, and the computed properties a "
+        "body reads are evaluated on every redraw, on the main thread. Reading files "
+        "or verifying backups there freezes the window, and worst on a folder that "
+        "syncs to a NAS (ovation#255, ovation#246). Do the work once, where a press "
+        "or an appearance starts it, off the main actor where it is heavy, and draw "
+        "what it stored."
+    ),
+}
+
+VIEW_TYPE = re.compile(r"\b(?:struct|class|extension)\s+\w+[^{]*?:\s*[^{]*?\bView\b[^{]*\{")
+DRAWING_REGIONS = (
+    re.compile(r"\bvar\s+\w+\s*:\s*some\s+View\s*\{"),
+    re.compile(r"\bfunc\s+\w+\s*\([^{]*?\)\s*->\s*some\s+View\s*\{"),
+    re.compile(r"@ViewBuilder\s+(?:(?:private|fileprivate|internal|public)\s+)?(?:var|func)\s[^{]*\{"),
+    # A computed property of any other type in a view is read by the body.
+    re.compile(r"\bvar\s+\w+\s*:\s*[^={}\n]+\{"),
+)
+# The closures a press or an appearance runs. Each ends at the brace that opens
+# the closure, and everything from there to its matching brace is skipped.
+ACTION_OPENERS = re.compile(
+    r"(?:\bButton\s*(?:\((?:[^()]|\([^()]*\))*\))?\s*"
+    r"|\.(?:task|onAppear|onDisappear|onSubmit|onTapGesture|refreshable)"
+    r"\s*(?:\((?:[^()]|\([^()]*\))*\))?\s*"
+    r"|\.(?:onChange|onReceive)\s*\((?:[^()]|\([^()]*\))*\)\s*"
+    r"|\baction\s*:\s*)\{"
 )
 
 # CGFloat IS DELIBERATELY NOT IN THE FIRST RULE. It is a layout quantity, SwiftUI
@@ -196,6 +286,78 @@ def strip_comments(lines):
         yield number, text
 
 
+def blank_strings(code):
+    """The same text with every single line string literal's contents blanked, so
+    a brace inside a string is not counted, and every offset still lines up."""
+    out = []
+    in_string = False
+    escaped = False
+    for ch in code:
+        if in_string:
+            if escaped:
+                escaped = False
+                out.append(" ")
+            elif ch == "\\":
+                escaped = True
+                out.append(" ")
+            elif ch == '"' or ch == "\n":
+                in_string = False
+                out.append(ch)
+            else:
+                out.append(" ")
+        else:
+            if ch == '"':
+                in_string = True
+            out.append(ch)
+    return "".join(out)
+
+
+def matching_brace(text, open_index):
+    depth = 0
+    for index in range(open_index, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return len(text) - 1
+
+
+def drawing_findings(lines):
+    """(line number, reader) for every reader inside code that draws, in a file
+    declaring a view. Nothing at all for a file that declares none."""
+    code = blank_strings("\n".join(text for _, text in strip_comments(lines)))
+    if not VIEW_TYPE.search(code):
+        return []
+
+    regions = []
+    for pattern in DRAWING_REGIONS:
+        for match in pattern.finditer(code):
+            start = match.end() - 1
+            regions.append((start, matching_brace(code, start)))
+    regions.sort()
+    outermost = []
+    for start, end in regions:
+        if outermost and start <= outermost[-1][1]:
+            continue
+        outermost.append((start, end))
+
+    findings = []
+    for start, end in outermost:
+        drawn = list(code[start:end + 1])
+        text = "".join(drawn)
+        for opener in ACTION_OPENERS.finditer(text):
+            brace = opener.end() - 1
+            for index in range(brace, matching_brace(text, brace) + 1):
+                if drawn[index] != "\n":
+                    drawn[index] = " "
+        for reader in DRAWING_RULE["pattern"].finditer("".join(drawn)):
+            token = next(group for group in reader.groups() if group)
+            findings.append((code.count("\n", 0, start + reader.start()) + 1, token))
+    return findings
+
+
 def parse_allowlist(entries, root, problems):
     allowed = set()
     for entry in entries:
@@ -222,6 +384,10 @@ def main(argv):
         for rule in RULES:
             for token in rule["tokens"]:
                 print(token)
+        return 0
+    if "--list-drawing" in argv:
+        for reader in DRAWING_RULE["readers"]:
+            print(reader)
         return 0
 
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -259,6 +425,8 @@ def main(argv):
                 for rule in RULES:
                     for match in rule["pattern"].finditer(code):
                         findings.append((relative, number, match.group(1), rule["name"]))
+            for number, token in drawing_findings(lines):
+                findings.append((relative, number, token, DRAWING_RULE["name"]))
 
     if scanned == 0:
         print(f"CANNOT SCAN: no Swift files under {root}.")
@@ -273,7 +441,8 @@ def main(argv):
         # A sentence per rule that actually fired, because two rules forbidding
         # different things for different reasons are two findings, not one
         # (L11). A rule nobody tripped says nothing.
-        fired = [rule for rule in RULES if any(f[3] == rule["name"] for f in findings)]
+        fired = [rule for rule in RULES + (DRAWING_RULE,)
+                 if any(f[3] == rule["name"] for f in findings)]
         for rule in fired:
             print(f"{rule['name']}: {rule['because']}")
         print(f"{len(findings)} occurrence(s). If one of these is genuinely outside the")
