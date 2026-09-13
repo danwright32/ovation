@@ -97,6 +97,8 @@ regenerate-xcode-project.sh	tool	Rewrites Ovation.xcodeproj from project.yml, un
 check-ported-artifacts.sh	gated	A repo wide guard.
 check-preconditions.sh	gated	The entry point for the checks a push does not run. It is itself a check, and it runs the others.
 check-schema-registered.sh	gated	A repo wide guard.
+check-problem-kinds-raised.sh	gated	A repo wide guard.
+test-problem-kinds-raised.sh	suite
 check-sibling-installs.sh	gated	A repo wide guard.
 embed-web-fonts.py	tool	Embeds a typeface into a design file. Run once per design file by a person, against a URL nobody can supply on a schedule. Reads no record of Dan's. test-embed-web-fonts.sh covers it.
 install-git-hooks.sh	tool	Installs the push gate into .git/hooks. Run once per checkout by a person, because a repository cannot install its own hooks. test-git-hooks.sh covers it.
