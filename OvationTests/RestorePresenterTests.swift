@@ -233,8 +233,7 @@ struct RestorePresenterTests {
         let world = try World()
         let archive = try world.service.takeBackup(now: world.instant)
         // `documents` is the first member put back here and `custody` the second.
-        let presenter = presenter(for: world, writingThrough:
-            RefusingFileManager(refusing: "custody", in: world.dataDirectory))
+        let presenter = presenter(for: world, refusingCopyOf: "custody")
 
         let outcome = presenter.restore(archive.lastPathComponent)
 
@@ -248,17 +247,23 @@ struct RestorePresenterTests {
         #expect(!detail.contains("Nothing in Ovation has been changed"))
     }
 
-    /// A presenter over the fixture's folders that writes through the given file
-    /// manager, so one write can be refused without damaging a disk.
-    private func presenter(for world: World,
-                           writingThrough refusing: RefusingFileManager) -> RestorePresenter {
+    /// A presenter over the fixture's folders whose file manager refuses one copy
+    /// into the data folder, so one write can be refused without damaging a disk.
+    ///
+    /// THE FILE MANAGER IS MADE INSIDE THE CLOSURE, never captured by it. A
+    /// `FileManager` is not Sendable, and CI's compiler refused a closure that
+    /// captured one even with `@unchecked Sendable` declared on the subclass,
+    /// while the local one let it through (L376). Only the name and the folder
+    /// cross, and both are Sendable.
+    private func presenter(for world: World, refusingCopyOf name: String) -> RestorePresenter {
         let clock = world.instant
-        return RestorePresenter(dataDirectory: world.dataDirectory,
+        let dataDirectory = world.dataDirectory
+        return RestorePresenter(dataDirectory: dataDirectory,
                                 backupsDirectory: world.backupsDirectory,
                                 dailyKeep: BackupService.defaultDailyKeep,
                                 referencedDocuments: { [] },
                                 now: { clock },
-                                fileManager: { refusing })
+                                fileManager: { RefusingFileManager(refusing: name, in: dataDirectory) })
     }
 
     private struct World {

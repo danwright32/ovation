@@ -9,7 +9,11 @@ import Testing
 /// backups directory, is not refused by accident. Every other operation is the
 /// real one. Shared by `RestorePresenterTests`, which is in this target, rather
 /// than copied there.
-final class RefusingFileManager: FileManager, @unchecked Sendable {
+///
+/// NOT DECLARED SENDABLE. `FileManager` is not, and CI's compiler ignores an
+/// `@unchecked Sendable` claim on a subclass of it, so a closure that must be
+/// Sendable creates one of these inside itself instead of capturing one.
+final class RefusingFileManager: FileManager {
     private let refusedName: String
     private let refusedParent: URL
 
