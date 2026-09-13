@@ -21,8 +21,13 @@ TARGET="scripts/check-forbidden-constructs.sh"
 # the two numbers cannot drift (L70).
 FORBIDDEN="$([ -x "./$TARGET" ] && "./$TARGET" --list 2>/dev/null)"
 FORBIDDEN_COUNT="$(printf '%s\n' "$FORBIDDEN" | grep -c .)"
+# The drawing rule's readers are a SECOND list, one call per line as it would be
+# written, because that rule only applies inside the code that draws a screen and
+# a bare token in a struct is exactly where it must NOT fire (ovation#255).
+DRAWING="$([ -x "./$TARGET" ] && "./$TARGET" --list-drawing 2>/dev/null)"
+DRAWING_COUNT="$(printf '%s\n' "$DRAWING" | grep -c .)"
 
-harness_begin "forbidden construct tests" $((24 + FORBIDDEN_COUNT))
+harness_begin "forbidden construct tests" $((24 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT))
 require_target "$TARGET"
 harness_temp_dir WORK
 
@@ -33,6 +38,176 @@ status_on() {
     OVATION_CONSTRUCT_SCAN_ROOT="$1" OVATION_CONSTRUCT_ALLOWLIST="${2-}" "./$TARGET" >/dev/null 2>&1
     printf '%s' "$?"
 }
+
+# ---------------------------------------------------------------------------
+# DISK WORK WHILE DRAWING (ovation#255).
+#
+# Written after the same mistake was made twice in one file in one evening, in
+# the Settings window (ovation#247): the archive list, which VERIFIES every
+# backup by hashing every file in it, was read from a view's body, and an
+# archive's manifest was read from a confirmation dialog's message. A body is
+# re-evaluated constantly, so both put disk work on the drawing thread on every
+# redraw, which on a folder that syncs to a NAS is a frozen window. Neither was
+# caught by anything; both were found by reading the code back (L27).
+#
+# THE LINE IS WHERE THE CODE RUNS, not what file it is in. An action closure runs
+# once per press, which is where this work belongs, so the same call is refused in
+# a body and allowed in a Button action, and every case below is one of the two.
+# ---------------------------------------------------------------------------
+check "the drawing rule still names the archive list" \
+    "$(printf '%s\n' "$DRAWING" | grep -c 'archives()')" "1"
+check "the drawing rule still names the manifest read behind a confirmation" \
+    "$(printf '%s\n' "$DRAWING" | grep -c 'consequence(of:')" "1"
+
+n=0
+while IFS= read -r SNIPPET; do
+    [ -n "$SNIPPET" ] || continue
+    n=$((n + 1))
+    INBODY="$WORK/drawing-body-$n"
+    INACTION="$WORK/drawing-action-$n"
+    mkdir -p "$INBODY" "$INACTION"
+    printf 'import SwiftUI\nstruct Pane: View {\n    var body: some View {\n        let _ = %s\n        Text("pane")\n    }\n}\n' \
+        "$SNIPPET" > "$INBODY/Pane.swift"
+    printf 'import SwiftUI\nstruct Pane: View {\n    var body: some View {\n        Button("Go") {\n            _ = %s\n        }\n    }\n}\n' \
+        "$SNIPPET" > "$INACTION/Pane.swift"
+    check "$SNIPPET in a view's body is refused" "$(status_on "$INBODY")" "1"
+    check "$SNIPPET in a Button's action is allowed" "$(status_on "$INACTION")" "0"
+done <<< "$DRAWING"
+
+# The two real instances, in the shapes they were written in.
+LISTED="$WORK/drawing-listed"
+mkdir -p "$LISTED"
+cat > "$LISTED/Settings.swift" <<'SWIFT'
+import SwiftUI
+struct Settings: View {
+    var restore: Restore?
+    var body: some View {
+        ForEach((try? restore?.archives()) ?? []) { row in
+            Text(row.name)
+        }
+    }
+}
+SWIFT
+check "the archive list read while drawing is refused" "$(status_on "$LISTED")" "1"
+check "and the refusal names the file and the line" \
+    "$(run_on "$LISTED" | grep -c 'Settings.swift:5')" "1"
+check "and names the rule, which forbids something the others do not" \
+    "$(run_on "$LISTED" | grep -c '^disk work while drawing: ')" "1"
+check "and does not print the source line" \
+    "$(run_on "$LISTED" | grep -c 'ForEach')" "0"
+
+DIALOG="$WORK/drawing-dialog"
+mkdir -p "$DIALOG"
+cat > "$DIALOG/Settings.swift" <<'SWIFT'
+import SwiftUI
+struct Settings: View {
+    var restore: Restore
+    @State private var confirming: String?
+    var body: some View {
+        Text("pane")
+            .confirmationDialog("Put this back?", isPresented: .constant(true),
+                                presenting: confirming) { name in
+                Button("Restore", role: .destructive) { restore.restore(name) }
+            } message: { name in
+                Text((try? restore.consequence(of: name)) ?? "")
+            }
+    }
+}
+SWIFT
+check "a manifest read inside a dialog's message is refused, though its button's action is not" \
+    "$(run_on "$DIALOG" | grep -cE 'Settings.swift:[0-9]+: ')" "1"
+
+COMPUTED="$WORK/drawing-computed"
+mkdir -p "$COMPUTED"
+cat > "$COMPUTED/Pane.swift" <<'SWIFT'
+import SwiftUI
+struct Pane: View {
+    private var exists: Bool {
+        FileManager.default.fileExists(atPath: "/tmp")
+    }
+    var body: some View {
+        Text(exists ? "yes" : "no")
+    }
+}
+SWIFT
+check "a computed property the body reads is part of drawing" "$(status_on "$COMPUTED")" "1"
+
+BUILDER="$WORK/drawing-builder"
+mkdir -p "$BUILDER"
+cat > "$BUILDER/Pane.swift" <<'SWIFT'
+import SwiftUI
+struct Pane: View {
+    var body: some View { row(URL(fileURLWithPath: "/tmp")) }
+    private func row(_ url: URL) -> some View {
+        Text(String(decoding: (try? Data(contentsOf: url)) ?? Data(), as: UTF8.self))
+    }
+}
+SWIFT
+check "a function that returns some View is part of drawing" "$(status_on "$BUILDER")" "1"
+
+LABEL="$WORK/drawing-label"
+mkdir -p "$LABEL"
+cat > "$LABEL/Pane.swift" <<'SWIFT'
+import SwiftUI
+struct Pane: View {
+    var restore: Restore
+    var body: some View {
+        Button {
+            restore.restore("x")
+        } label: {
+            Text((try? restore.consequence(of: "x")) ?? "")
+        }
+    }
+}
+SWIFT
+check "a Button's LABEL is drawing even though its action is not" \
+    "$(run_on "$LABEL" | grep -cE 'Pane.swift:[0-9]+: ')" "1"
+
+BRACE="$WORK/drawing-brace"
+mkdir -p "$BRACE"
+cat > "$BRACE/Pane.swift" <<'SWIFT'
+import SwiftUI
+struct Pane: View {
+    var body: some View {
+        Text("}")
+        Text((try? String(contentsOf: URL(fileURLWithPath: "/tmp"))) ?? "")
+    }
+}
+SWIFT
+check "a brace inside a string does not end the body early" "$(status_on "$BRACE")" "1"
+
+for MODIFIER in 'task' 'onAppear' 'onChange(of: tick)'; do
+    SAFE="$WORK/drawing-$(printf '%s' "$MODIFIER" | tr -cd 'A-Za-z')"
+    mkdir -p "$SAFE"
+    printf 'import SwiftUI\nstruct Pane: View {\n    var tick: Int\n    var restore: Restore\n    var body: some View {\n        Text("pane")\n            .%s {\n                _ = try? restore.archives()\n            }\n    }\n}\n' \
+        "$MODIFIER" > "$SAFE/Pane.swift"
+    check "the same read inside .$MODIFIER runs once, not per redraw, so it is allowed" \
+        "$(status_on "$SAFE")" "0"
+done
+
+SERVICE="$WORK/drawing-service"
+mkdir -p "$SERVICE"
+cat > "$SERVICE/Reader.swift" <<'SWIFT'
+import Foundation
+struct Reader {
+    var body: Data? { try? Data(contentsOf: URL(fileURLWithPath: "/tmp")) }
+}
+SWIFT
+check "a file declaring no view is not drawing, whatever its members are called" \
+    "$(status_on "$SERVICE")" "0"
+
+MENTION="$WORK/drawing-mention"
+mkdir -p "$MENTION"
+cat > "$MENTION/Pane.swift" <<'SWIFT'
+import SwiftUI
+struct Pane: View {
+    var body: some View {
+        // Never call restore.archives() here: it verifies every backup.
+        Text("pane")
+    }
+}
+SWIFT
+check "a comment inside a body naming a reader is not a finding" "$(status_on "$MENTION")" "0"
 
 # ---------------------------------------------------------------------------
 # A clean tree.
