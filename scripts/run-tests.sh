@@ -47,7 +47,25 @@
 # gate people learn to skip (L378, L299).
 #
 # So: the unlocked work runs FIRST and fails fast, and the locks are taken only
-# around the xcodebuild run.
+# around the work that needs them.
+#
+# AND THAT IS NOW THE HOSTED SUITE ALONE, MEASURED RATHER THAN INHERITED
+# (ovation#271). ovation#12 decided HOW to share the siblings' locks, never
+# whether every xcodebuild run needed them. On 2026-09-13, 516 Ovation runs were
+# measured, 406 of them beside real Overture and Downbeat suites, and:
+#
+#   - Ovation's own suites never failed because a sibling was running. Two of its
+#     tests failed under load from anything, which is those tests (ovation#272).
+#   - An Overture test that counts rows while key focus can move failed 21 times,
+#     every one while Ovation's HOSTED suite was testing and ordering its own
+#     windows front, and never with nothing beside it (overture#3876).
+#   - No sibling failure ever coincided with the PURE suite, which opens no
+#     windows, and two Ovation pure suites run at once passed 40 of 40.
+#
+# So the pure suite runs without waiting for either sibling, and both locks are
+# taken, in the same fixed order, around the hosted suite only. The lock does not
+# make that Overture test safe from focus changes in general (anything taking
+# focus trips it, which is overture#3876's to fix); it stops Ovation being one.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -224,7 +242,8 @@ if [ -n "${SKIP_XCODE_PHASE}" ]; then
   echo "    no sibling lock was taken, and the Swift suites did not run."
 else
   # ---------------------------------------------------------------------------
-  # PHASE TWO, locked. Only xcodebuild needs to exclude the siblings.
+  # PHASE TWO. The pure suite runs without waiting for the siblings, and only the
+  # hosted suite takes their locks (ovation#271, measured; see the header).
   # ---------------------------------------------------------------------------
   # THE PROJECT IS GENERATED WHEN IT IS ABSENT, AND ONLY THEN (ovation#151).
   # The rule and the reasoning live in the shared helper, because build-install.sh
@@ -286,81 +305,11 @@ else
     printf 'held by pid %s' "${desc% }"
   }
 
-  echo "==> Waiting for both test locks, up to ${TIMEOUT}s"
-  echo "    ${DIR_LOCK}: $(describe_dir_holder)"
-  echo "    ${FILE_LOCK}: $(describe_file_holder)"
-  : > "${FILE_LOCK}" 2>/dev/null || true
-  # ELAPSED IS REAL TIME, NOT A COUNT OF ITERATIONS. It was `elapsed=$((elapsed+1))`
-  # against a timeout in seconds, which measures iterations and is only the same
-  # number while the poll interval happens to be one second, so any change to the
-  # interval silently rescaled the deadline (L226).
-  wait_started="$(date +%s)"
-  announced=0
-  while :; do
-    if dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}")" "$$"; then
-      DIR_LOCK_HELD=1
-      # Non blocking. If Overture has it, we do not queue holding Downbeat's.
-      exec 9>"${FILE_LOCK}" || { echo "Error: cannot open ${FILE_LOCK}" >&2; exit 3; }
-      if "${FLOCK_BIN}" -n 9; then
-        FLOCK_FD=9
-        break
-      fi
-      exec 9>&- 2>/dev/null || true
-      release_locks
-    fi
-    elapsed=$(( $(date +%s) - wait_started ))
-    # STILL ALIVE, said out loud every thirty seconds with who is holding it, so
-    # a long wait reads as a queue rather than as a hang.
-    if [ "$((elapsed / 30))" -gt "${announced}" ]; then
-      announced=$((elapsed / 30))
-      echo "    still waiting after ${elapsed}s of ${TIMEOUT}s: ${DIR_LOCK} $(describe_dir_holder), ${FILE_LOCK} $(describe_file_holder)"
-    fi
-    if [ "${elapsed}" -gt "${TIMEOUT}" ]; then
-      echo "Error: gave up waiting for the test locks after ${TIMEOUT}s." >&2
-      echo "       ${DIR_LOCK} is Downbeat's, ${FILE_LOCK} is Overture's." >&2
-      echo "       An Overture test run is holding it, or a previous run died." >&2
-      echo "       If nothing is running, remove ${DIR_LOCK} and try again." >&2
-      exit 3
-    fi
-    sleep "${POLL}"
-  done
-
-  echo "==> Holding both locks. Running Ovation's tests."
-
-  # AND IF SOMETHING IS ALREADY BUILDING, IT IS BUILDING OUTSIDE THE LOCK
-  # (ovation#156). The lock is voluntary: it lives in this script and in
-  # build-products.sh, so any invocation that reaches xcodebuild another way goes
-  # around it and neither run can tell. A rule that lives only in a comment plus
-  # whoever remembers is a hope (L27).
-  #
-  # THIS IS THE ONE MOMENT THE QUESTION IS CHEAP AND UNAMBIGUOUS. Both locks are
-  # held right now and this run has not started building yet, so any xcodebuild
-  # already running belongs to nobody's lock by definition. No polling, no
-  # background watcher, and no window in which a legitimate run looks guilty.
-  #
-  # IT REPORTS AND DOES NOT REFUSE. A false positive that blocked a push would be
-  # a gate people learn to skip, and the honest remedy is Dan's: stop the other
-  # build, or let both run and distrust the result. What it removes is the part
-  # that made this invisible.
-  #
-  # Xcode.app itself does NOT show up here: it builds through XCBBuildService
-  # rather than the xcodebuild binary, so a person working in the IDE is not
-  # accused. The lister is injectable so the suite can stage the finding without
-  # starting a real build (L196).
-  BUILDER_LISTER="${OVATION_XCODEBUILD_LISTER:-pgrep -x xcodebuild}"
-  OTHER_BUILDERS="$(bash -c "${BUILDER_LISTER}" 2>/dev/null | grep -v "^$$\$" || true)"
-  OTHER_BUILDER_COUNT="$(printf '%s' "${OTHER_BUILDERS}" | grep -c . || true)"
-  if [ "${OTHER_BUILDER_COUNT}" -gt 0 ]; then
-    echo "==> WARNING: ${OTHER_BUILDER_COUNT} xcodebuild process(es) are running while"
-    echo "    this run holds BOTH test locks, so they were started outside them:"
-    printf '%s\n' "${OTHER_BUILDERS}" | sed 's/^/        pid /'
-    echo "    Two xcodebuild runs on this Mac corrupt each other, which is what the"
-    echo "    locks exist to prevent (ovation#12). This run continues; the result"
-    echo "    it reports is worth less than usual."
-  fi
-
   # ---------------------------------------------------------------------------
   # BRACKET THE RUN AGAINST LIVE DATA (ovation#58, plan 1.9).
+  #
+  # Taken BEFORE the pure suite, which now runs outside the locks, so the bracket
+  # still spans everything that builds and tests (ovation#271).
   #
   # The resolvers refuse, and scripts/check-isolation-floor.sh refuses one that is
   # not registered. Both of those read the CODE. This measures the DISK, because
@@ -454,13 +403,14 @@ else
   rm -f "${PURE_OUTPUT}"
 
   # ---------------------------------------------------------------------------
-  # THE HOSTED SUITE, still under both locks.
+  # THE HOSTED SUITE, AND ONLY THE HOSTED SUITE, UNDER BOTH LOCKS (ovation#271).
   #
   # ovation#59 added OvationHostedTests, which renders real SwiftUI views and
   # therefore launches the app. It is a SECOND xcodebuild invocation rather than a
   # wider scheme, because the pure suite must stay in a scheme the app is not part
   # of: a broken app cannot then fail, slow, or even be needed by the run that
-  # reports on 100+ domain tests.
+  # reports on 100+ domain tests. That split is also what lets the locks wrap this
+  # half alone: it is the half that orders windows front and moves key focus.
   #
   # A NARROWED RUN THAT MATCHES NOTHING PRINTS SUCCESS. `-only-testing:` with a
   # path that resolves to no tests makes xcodebuild print ** TEST SUCCEEDED ** and
@@ -471,38 +421,135 @@ else
     if [ -n "${TEST_COMMAND}" ] && [ -z "${HOSTED_TEST_COMMAND}" ]; then
       # Said out loud rather than skipped silently: the runner is being measured
       # with an injected command, so the real hosted run would be meaningless here.
+      # No lock is taken for a suite that does not run.
       echo "==> Hosted suite skipped: the pure command was injected and no hosted one was."
     else
-      echo "==> Running the hosted suite (it launches the app)"
-      if [ -n "${HOSTED_TEST_COMMAND}" ]; then
-        HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1)"
-      else
-        HOSTED_OUTPUT="$(xcodebuild -project "${XCODE_PROJECT}" -scheme Ovation \
-          -destination 'platform=macOS' -only-testing:OvationHostedTests test 2>&1)"
-      fi
-      HOSTED_STATUS=$?
-      printf '%s\n' "${HOSTED_OUTPUT}"
-
-      if [ "${HOSTED_STATUS}" -ne 0 ]; then
-        STATUS="${HOSTED_STATUS}"
-      # A HERE STRING, NOT A PIPE (ovation#241). This asked
-      # `printf ... | grep -qE ...`, and under the `set -o pipefail` at the top of
-      # this file that is a false failure waiting for a big enough output:
-      # `grep -q` exits at the first match and closes the pipe, `printf` is killed
-      # writing the rest, and the pipeline takes printf's status, so the negation
-      # reports "executed NO tests" about a run that executed plenty (L183).
-      #
-      # Measured 2026-09-12 on CI: one of two identical jobs failed with
-      # `printf: write error: Broken pipe` straight after `** TEST SUCCEEDED **`
-      # and a hosted run of 26 tests. A here string is a file rather than a pipe,
-      # so there is no producer left to kill.
-      elif ! grep -qE 'Test run with [1-9][0-9]* test' <<<"${HOSTED_OUTPUT}"; then
-        echo "Error: the hosted run reported success and executed NO tests." >&2
-        echo "       A -only-testing: path that matches nothing does exactly this." >&2
-        echo "       Nothing about the launch surface was verified." >&2
-        STATUS=6
-      fi
+      echo "==> Waiting for both test locks, up to ${TIMEOUT}s"
+      echo "    ${DIR_LOCK}: $(describe_dir_holder)"
+      echo "    ${FILE_LOCK}: $(describe_file_holder)"
+      : > "${FILE_LOCK}" 2>/dev/null || true
+      # ELAPSED IS REAL TIME, NOT A COUNT OF ITERATIONS. It was `elapsed=$((elapsed+1))`
+      # against a timeout in seconds, which measures iterations and is only the same
+      # number while the poll interval happens to be one second, so any change to the
+      # interval silently rescaled the deadline (L226).
+      wait_started="$(date +%s)"
+      announced=0
+      while :; do
+        if dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}")" "$$"; then
+          DIR_LOCK_HELD=1
+          # Non blocking. If Overture has it, we do not queue holding Downbeat's.
+          exec 9>"${FILE_LOCK}" || { echo "Error: cannot open ${FILE_LOCK}" >&2; exit 3; }
+          if "${FLOCK_BIN}" -n 9; then
+            FLOCK_FD=9
+            break
+          fi
+          exec 9>&- 2>/dev/null || true
+          release_locks
+        fi
+        elapsed=$(( $(date +%s) - wait_started ))
+        # STILL ALIVE, said out loud every thirty seconds with who is holding it, so
+        # a long wait reads as a queue rather than as a hang.
+        if [ "$((elapsed / 30))" -gt "${announced}" ]; then
+          announced=$((elapsed / 30))
+          echo "    still waiting after ${elapsed}s of ${TIMEOUT}s: ${DIR_LOCK} $(describe_dir_holder), ${FILE_LOCK} $(describe_file_holder)"
+        fi
+        # GIVING UP ENDS THE WAIT, NOT THE RUN. It used to `exit 3` here, which was
+        # harmless while the live data bracket had not been opened yet. It now has:
+        # the pure suite ran before this wait, so the run has to reach the compare
+        # at the end, which a verdict of 3 still does.
+        if [ "${elapsed}" -gt "${TIMEOUT}" ]; then
+          echo "Error: gave up waiting for the test locks after ${TIMEOUT}s." >&2
+          echo "       ${DIR_LOCK} is Downbeat's, ${FILE_LOCK} is Overture's." >&2
+          echo "       An Overture test run is holding it, or a previous run died." >&2
+          echo "       If nothing is running, remove ${DIR_LOCK} and try again." >&2
+          STATUS=3
+          break
+        fi
+        sleep "${POLL}"
+      done
     fi
+  fi
+
+  if [ -n "${FLOCK_FD}" ]; then
+    echo "==> Holding both locks. Running the hosted suite (it launches the app)."
+
+    # AND IF SOMETHING IS ALREADY BUILDING, IT IS BUILDING OUTSIDE THE LOCK
+    # (ovation#156). The lock is voluntary: it lives in this script and in
+    # build-products.sh, so any invocation that reaches xcodebuild another way goes
+    # around it and neither run can tell. A rule that lives only in a comment plus
+    # whoever remembers is a hope (L27).
+    #
+    # THIS IS THE ONE MOMENT THE QUESTION IS CHEAP AND UNAMBIGUOUS. Both locks are
+    # held right now and the hosted suite has not started building yet, so any
+    # xcodebuild already running belongs to nobody's lock. No polling, no
+    # background watcher, and no window in which a legitimate run looks guilty.
+    #
+    # EXCEPT AN OVATION PURE SUITE, which takes no lock by design (ovation#271).
+    # Another worktree's pure run is outside the locks legitimately, and a warning
+    # that fires on the designed case is one people learn to read past (L36). It
+    # is recognised by what `ps` says it is running, so a pid that cannot be read
+    # is still reported rather than excused.
+    #
+    # IT REPORTS AND DOES NOT REFUSE. A false positive that blocked a push would be
+    # a gate people learn to skip, and the honest remedy is Dan's: stop the other
+    # build, or let both run and distrust the result. What it removes is the part
+    # that made this invisible.
+    #
+    # Xcode.app itself does NOT show up here: it builds through XCBBuildService
+    # rather than the xcodebuild binary, so a person working in the IDE is not
+    # accused. The lister is injectable so the suite can stage the finding without
+    # starting a real build (L196).
+    BUILDER_LISTER="${OVATION_XCODEBUILD_LISTER:-pgrep -x xcodebuild}"
+    OTHER_BUILDERS=""
+    for builder in $(bash -c "${BUILDER_LISTER}" 2>/dev/null | grep -v "^$$\$"); do
+      case "$(ps -o command= -p "${builder}" 2>/dev/null)" in
+        *"-scheme OvationCore"*) continue ;;
+      esac
+      OTHER_BUILDERS="${OTHER_BUILDERS}${builder}"$'\n'
+    done
+    OTHER_BUILDER_COUNT="$(printf '%s' "${OTHER_BUILDERS}" | grep -c . || true)"
+    if [ "${OTHER_BUILDER_COUNT}" -gt 0 ]; then
+      echo "==> WARNING: ${OTHER_BUILDER_COUNT} xcodebuild process(es) are running while"
+      echo "    this run holds BOTH test locks, so they were started outside them:"
+      printf '%s' "${OTHER_BUILDERS}" | sed 's/^/        pid /'
+      echo "    One of them landing beside the hosted suite is what the locks exist to"
+      echo "    prevent (ovation#12, ovation#271). This run continues; the result it"
+      echo "    reports is worth less than usual."
+    fi
+
+    if [ -n "${HOSTED_TEST_COMMAND}" ]; then
+      HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1)"
+    else
+      HOSTED_OUTPUT="$(xcodebuild -project "${XCODE_PROJECT}" -scheme Ovation \
+        -destination 'platform=macOS' -only-testing:OvationHostedTests test 2>&1)"
+    fi
+    HOSTED_STATUS=$?
+    printf '%s\n' "${HOSTED_OUTPUT}"
+
+    if [ "${HOSTED_STATUS}" -ne 0 ]; then
+      STATUS="${HOSTED_STATUS}"
+    # A HERE STRING, NOT A PIPE (ovation#241). This asked
+    # `printf ... | grep -qE ...`, and under the `set -o pipefail` at the top of
+    # this file that is a false failure waiting for a big enough output:
+    # `grep -q` exits at the first match and closes the pipe, `printf` is killed
+    # writing the rest, and the pipeline takes printf's status, so the negation
+    # reports "executed NO tests" about a run that executed plenty (L183).
+    #
+    # Measured 2026-09-12 on CI: one of two identical jobs failed with
+    # `printf: write error: Broken pipe` straight after `** TEST SUCCEEDED **`
+    # and a hosted run of 26 tests. A here string is a file rather than a pipe,
+    # so there is no producer left to kill.
+    elif ! grep -qE 'Test run with [1-9][0-9]* test' <<<"${HOSTED_OUTPUT}"; then
+      echo "Error: the hosted run reported success and executed NO tests." >&2
+      echo "       A -only-testing: path that matches nothing does exactly this." >&2
+      echo "       Nothing about the launch surface was verified." >&2
+      STATUS=6
+    fi
+
+    # LET GO THE MOMENT THE HOSTED SUITE IS DONE, rather than at exit: the live
+    # data compare below needs neither lock, and a sibling should not wait on it
+    # (L366). The trap still covers every path that never reaches this line.
+    release_locks
   fi
 
 fi
