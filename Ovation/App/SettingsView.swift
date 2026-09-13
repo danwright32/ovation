@@ -21,7 +21,14 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var backups: BackupSettingsPresenter
-    var restore: RestorePresenter?
+    /// HOW TO BUILD THE RESTORE CONTROL, not a built one.
+    ///
+    /// It only exists once a folder does, and on the launch where Dan first
+    /// chooses one there was none when this window was made. A fixed value here
+    /// meant the pane went on saying "choose a folder first" after he already
+    /// had, until he quit and reopened: derived state that does not re-derive
+    /// from the input that feeds it (L14).
+    var makeRestore: () -> RestorePresenter? = { nil }
 
     /// What the last press said, kept so an action SAYS it happened rather than
     /// leaving the pane looking unchanged (L608, L12).
@@ -47,6 +54,8 @@ struct SettingsView: View {
     /// either (L241, L110).
     @State private var rows: [RestorePresenter.Archive]?
     @State private var loadingArchives = true
+    /// The control as it stands now, rebuilt whenever the folder changes.
+    @State private var restore: RestorePresenter?
 
     var body: some View {
         TabView {
@@ -81,6 +90,9 @@ struct SettingsView: View {
                 switch backups.choose() {
                 case .chosen(let folder):
                     lastOutcome = "Backups will go to \(folder.path)."
+                    // THE REST OF THE PANE FOLLOWS THE CHOICE. Without this the
+                    // restore half goes on asking for a folder he just gave (L14).
+                    Task { await loadArchives() }
                 case .cancelled:
                     break
                 case .refusedInsideTheDataDirectory(let detail), .refused(let detail):
@@ -94,7 +106,11 @@ struct SettingsView: View {
     /// each needs a different thing from Dan (L11).
     /// Reads the archives once, off the main actor.
     private func loadArchives() async {
+        loadingArchives = true
+        // REBUILT EACH TIME, because the folder it reads may have just changed.
+        restore = makeRestore()
         guard let restore else {
+            rows = nil
             loadingArchives = false
             return
         }

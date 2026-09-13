@@ -38,9 +38,6 @@ struct OvationApp: App {
     /// ovation#231. The Backups pane's own state, built here because the window
     /// that shows it is a Scene rather than a view with a lifetime.
     @State private var backupSettings: BackupSettingsPresenter
-    /// ovation#247. Nil until a folder resolves, because there is nothing to
-    /// restore FROM until then, and an empty list would say the wrong thing.
-    @State private var restorePresenter: RestorePresenter?
 
     init() {
         // A disposable launch gets a journal that writes nowhere, so nothing a
@@ -115,7 +112,6 @@ struct OvationApp: App {
             problems: store,
             now: Date.init,
             askForAFolder: { SettingsFolderPanel.ask() }))
-        _restorePresenter = State(initialValue: Self.restorePresenter(for: store))
         // THE COMMAND IS BUILT EVEN WHEN THERE IS NOWHERE TO WRITE, and answers
         // why rather than being absent. A menu item that vanishes on a throwaway
         // launch teaches nothing; one that is there and says what is missing is
@@ -428,7 +424,11 @@ struct OvationApp: App {
         // EITHER, so a folder could not be chosen and no backup had ever been
         // taken: built is not wired (L3).
         Settings {
-            SettingsView(backups: backupSettings, restore: restorePresenter)
+            // A FACTORY, not a built one: the restore control only exists once a
+            // folder does, and on the launch where Dan first chooses one there
+            // was none when this window was made (ovation#247).
+            SettingsView(backups: backupSettings,
+                         makeRestore: { Self.restorePresenter(for: store) })
         }
         // ovation#162. THE CONTROL THE STALENESS NOTICE NAMES. Until this existed
         // `YearEndExport.run` was called by nothing, so that notice named a
