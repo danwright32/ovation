@@ -368,10 +368,15 @@ struct StoreLaunchSequenceTests {
             return .taken(URL(fileURLWithPath: "/dev/null"))
         })
 
-        _ = await world.sequence.run(now: world.instant)
+        let first = await world.sequence.run(now: world.instant)
+        #expect(first == .opened)
         #expect(world.store.open.contains { $0.kind == .backupFolderNotChosen })
 
-        _ = await world.sequence.run(now: world.instant.addingTimeInterval(86_400))
+        // THE SECOND LAUNCH HAS TO HAVE OPENED for the last line to mean anything.
+        // It was discarded, so a launch that REFUSED before it reached the backup
+        // left the notice open and read as the notice failing to clear.
+        let second = await world.sequence.run(now: world.instant.addingTimeInterval(86_400))
+        #expect(second == .opened)
         #expect(!world.store.open.contains { $0.kind == .backupFolderNotChosen })
     }
 
