@@ -182,6 +182,7 @@ struct SettingsView: View {
                 guard let restore else { return }
                 switch restore.restore(row.name) {
                 case .restored(let detail): lastOutcome = detail
+                case .partlyRestored(let detail): lastOutcome = detail
                 case .refused(let detail): lastOutcome = detail
                 }
                 confirming = nil

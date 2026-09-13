@@ -405,7 +405,8 @@ struct OvationApp: App {
             backupsDirectory: folder,
             dailyKeep: BackupService.defaultDailyKeep,
             referencedDocuments: { try StoreDocumentReferences.read(storeURL: storeURL) },
-            now: Date.init)
+            now: Date.init,
+            fileManager: { .default })
     }
 
     /// A box, because the launch sequence's hook is `@Sendable` and this runs

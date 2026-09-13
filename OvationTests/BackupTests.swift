@@ -1,6 +1,37 @@
 import Foundation
 import Testing
 
+/// A file manager that refuses ONE copy, so a restore can be made to fail partway
+/// without damaging a disk (ovation#258, L196).
+///
+/// It refuses by the destination's NAME and the folder it is going INTO, so the
+/// pre restore snapshot, which copies the same names into a folder under the
+/// backups directory, is not refused by accident. Every other operation is the
+/// real one. Shared by `RestorePresenterTests`, which is in this target, rather
+/// than copied there.
+///
+/// NOT DECLARED SENDABLE. `FileManager` is not, and CI's compiler ignores an
+/// `@unchecked Sendable` claim on a subclass of it, so a closure that must be
+/// Sendable creates one of these inside itself instead of capturing one.
+final class RefusingFileManager: FileManager {
+    private let refusedName: String
+    private let refusedParent: URL
+
+    init(refusing name: String, in parent: URL) {
+        refusedName = name
+        refusedParent = parent.standardizedFileURL
+        super.init()
+    }
+
+    override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+        if dstURL.lastPathComponent == refusedName,
+           dstURL.deletingLastPathComponent().standardizedFileURL == refusedParent {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.copyItem(at: srcURL, to: dstURL)
+    }
+}
+
 /// Plan 1.8, ovation#57. Dated backups, verified by enumerating every referenced
 /// document rather than by asking whether anything opens.
 struct BackupTests {
@@ -1122,6 +1153,74 @@ struct BackupTests {
 
     private func downbeatLedger(in world: World) -> URL {
         world.dataDirectory.appendingPathComponent("downbeat-queued-bookings.json")
+    }
+
+    // MARK: a restore that stops partway (ovation#258)
+    //
+    // Restore takes a snapshot of the data folder, then replaces members one at a
+    // time. A write failing after the first member has been replaced leaves the
+    // folder part restored, and it was reported exactly like a failure before
+    // anything was touched: "Nothing in Ovation has been changed".
+
+    @Test("a restore that stops partway names what it put back, where it stopped, and the snapshot")
+    func aRestoreThatStopsPartwaySaysHowFarItGot() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant)
+        let reference = world.receiptReference
+        // `problems.jsonl` is the first member put back and `documents` the second.
+        let service = BackupService(
+            dataDirectory: world.dataDirectory,
+            backupsDirectory: world.backupsDirectory,
+            dailyKeep: world.dailyKeep,
+            referencedDocuments: { [reference] },
+            fileManager: RefusingFileManager(refusing: "documents", in: world.dataDirectory))
+
+        var thrown: Error?
+        do {
+            try service.restore(from: archive, now: world.instant.addingTimeInterval(60))
+        } catch {
+            thrown = error
+        }
+
+        let snapshot = try #require(try world.service.preRestoreSnapshots().first)
+        #expect(thrown as? BackupError == .restoredPartway(replaced: ["problems.jsonl"],
+                                                             failedAt: "documents",
+                                                             snapshot: snapshot.lastPathComponent))
+    }
+
+    @Test("a restore whose snapshot cannot be taken changes nothing, and does not say otherwise")
+    func aRestoreWhoseSnapshotFailsChangesNothing() throws {
+        // The other half of the distinction (L151): "nothing has been changed" is
+        // TRUE when the snapshot itself fails, because nothing is replaced until
+        // it exists, and that must stay a different outcome from a partway stop.
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant)
+        let live = world.dataDirectory.appendingPathComponent("problems.jsonl")
+        try Data("the live state".utf8).write(to: live)
+        let when = world.instant.addingTimeInterval(60)
+        let snapshotFolder = world.backupsDirectory
+            .appendingPathComponent(BackupService.snapshotPrefix + BackupService.stamp(for: when),
+                                    isDirectory: true)
+        let reference = world.receiptReference
+        let service = BackupService(
+            dataDirectory: world.dataDirectory,
+            backupsDirectory: world.backupsDirectory,
+            dailyKeep: world.dailyKeep,
+            referencedDocuments: { [reference] },
+            fileManager: RefusingFileManager(refusing: "problems.jsonl", in: snapshotFolder))
+
+        var thrown: Error?
+        do {
+            try service.restore(from: archive, now: when)
+        } catch {
+            thrown = error
+        }
+
+        #expect(thrown is BackupError)
+        if case .restoredPartway = thrown as? BackupError {
+            Issue.record("a restore that never replaced anything was reported as partway")
+        }
+        #expect(try String(contentsOf: live, encoding: .utf8) == "the live state")
     }
 
     // MARK: what the STORE references, not what the backup copied (ovation#104)
