@@ -126,12 +126,27 @@ final class RestorePresenter {
     /// one nobody reads twice, so the sentence is built from the archive's own
     /// manifest rather than written once and reused (L180).
     func consequence(of name: String) throws -> String {
-        let manifest = try service.manifest(of: url(of: name))
-        let members = manifest.members.filter { $0.status == .copied }.map(\.path)
-        let list = members.sorted().joined(separator: ", ")
-        return "Restoring this backup replaces \(list) in Ovation's data folder "
-            + "with what they were when it was taken. Ovation keeps a copy of "
-            + "everything as it is now BEFORE it does, so this can be undone."
+        let archive = url(of: name)
+        let copied = try service.manifest(of: archive)
+            .members.filter { $0.status == .copied }.map(\.path)
+        let replaced = copied.filter { BackupPlan.restorePolicy(of: $0) == .replace }.sorted()
+        var sentence = "Restoring this backup replaces \(replaced.joined(separator: ", ")) "
+            + "in Ovation's data folder with what they were when it was taken."
+        // THE QUEUE IS ADDED TO, NOT REPLACED (ovation#253), and which of its two
+        // outcomes applies is decided by the same predicate the restore uses, so
+        // this cannot promise a booking back that the restore will hold (L16).
+        if copied.contains(where: { BackupPlan.restorePolicy(of: $0) == .addMissingBookings }) {
+            sentence += try service.holdsQueuedBookingsBack(restoring: archive)
+                ? " Any queued booking in it that is missing now is held back, because "
+                    + "Ovation cannot yet tell whether it was already invoiced."
+                : " Any queued booking in it that is missing now is added back, and no "
+                    + "booking already in the queue is removed or changed."
+        }
+        if copied.contains(where: { BackupPlan.restorePolicy(of: $0).isNeverRestored }) {
+            sentence += " Downbeat's own record of what it queued is left as it is."
+        }
+        return sentence + " Ovation keeps a copy of everything as it is now BEFORE it "
+            + "does, so this can be undone."
     }
 
     /// Put it back.
@@ -143,8 +158,9 @@ final class RestorePresenter {
     @discardableResult
     func restore(_ name: String) -> Outcome {
         let archive = url(of: name)
+        let result: BackupService.RestoreResult
         do {
-            try service.restore(from: archive, now: now())
+            result = try service.restore(from: archive, now: now())
         } catch BackupError.verificationFailed(let failures) {
             return .refused("\(name) does not verify, so it was NOT restored: "
                             + "\(failures.count) problem(s) with what is in it. "
@@ -154,11 +170,35 @@ final class RestorePresenter {
                             + "Nothing in Ovation has been changed.")
         }
         // SAID FROM THE FINISHED STATE, never from the path that got here (L78).
-        let restored = (try? service.manifest(of: archive))?
-            .members.filter { $0.status == .copied }.map(\.path).sorted() ?? []
-        return .restored("Ovation was restored from \(name): "
-                         + "\(restored.joined(separator: ", ")) put back. "
-                         + "A copy of what was there before is in the same folder.")
+        let copied = (try? service.manifest(of: archive))?
+            .members.filter { $0.status == .copied }.map(\.path) ?? []
+        let replaced = copied.filter { BackupPlan.restorePolicy(of: $0) == .replace }.sorted()
+        var detail = "Ovation was restored from \(name): "
+            + "\(replaced.joined(separator: ", ")) put back."
+        if copied.contains(where: { BackupPlan.restorePolicy(of: $0) == .addMissingBookings }) {
+            detail += " " + Self.whatHappenedToTheQueue(result)
+        }
+        return .restored(detail + " A copy of what was there before is in the same folder.")
+    }
+
+    /// The queue's own sentence, one per outcome, because a booking held back
+    /// needs something from Dan and a booking put back does not (L11).
+    private static func whatHappenedToTheQueue(_ result: BackupService.RestoreResult) -> String {
+        let held = result.bookingsHeldBack.count
+        let added = result.bookingsAddedBack.count
+        if held > 0 {
+            return "\(bookings(held)) held back, because Ovation cannot yet tell whether "
+                + "\(held == 1 ? "it was" : "they were") already invoiced. "
+                + "The backup still holds \(held == 1 ? "it" : "them")."
+        }
+        if added > 0 {
+            return "\(bookings(added)) added back."
+        }
+        return "Every queued booking in it is already in the queue."
+    }
+
+    private static func bookings(_ count: Int) -> String {
+        count == 1 ? "1 queued booking" : "\(count) queued bookings"
     }
 
     private func url(of name: String) -> URL {

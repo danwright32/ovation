@@ -637,27 +637,101 @@ final class BackupService {
     /// ever a response to something having been tampered with, the credential is
     /// the one thing NOT returned to a known state. The alternatives put to Dan
     /// were forcing a re-login on every restore, and asking at the time.
-    func restore(from archive: URL, now: Date, secrets: Set<String> = []) throws {
+    @discardableResult
+    func restore(from archive: URL, now: Date, secrets: Set<String> = []) throws -> RestoreResult {
         let report = try verify(archive: archive, secrets: secrets)
         guard report.isVerified else {
             throw BackupError.verificationFailed(report.failures)
         }
 
         let manifest = try readManifest(at: archive)
+        // DECIDED BEFORE ANYTHING IS WRITTEN. The archive's own consumed ledger,
+        // when it has one, replaces the live one below, so asking afterwards would
+        // get a different answer from the one this restore started with.
+        let holdBookingsBack = consumedBookingLedgerExists(alongside: manifest)
         try snapshotCurrentState(now: now)
 
+        var added: [String] = []
+        var heldBack: [String] = []
         for member in manifest.members where member.status == .copied {
             let source = archive.appendingPathComponent(member.path)
             let destination = dataDirectory.appendingPathComponent(member.path)
-            do {
-                if fileManager.fileExists(atPath: destination.path) {
-                    try fileManager.removeItem(at: destination)
+            switch BackupPlan.restorePolicy(of: member.path) {
+            case .neverRestored:
+                continue
+            case .addMissingBookings:
+                let missing = try bookingsMissing(from: destination, in: source)
+                if holdBookingsBack {
+                    heldBack += missing
+                    continue
                 }
-                try fileManager.copyItem(at: source, to: destination)
-            } catch {
-                throw BackupError.couldNotWrite(member.path)
+                do {
+                    try fileManager.createDirectory(at: destination,
+                                                    withIntermediateDirectories: true)
+                    for name in missing {
+                        try fileManager.copyItem(at: source.appendingPathComponent(name),
+                                                 to: destination.appendingPathComponent(name))
+                        added.append(name)
+                    }
+                } catch {
+                    throw BackupError.couldNotWrite(member.path)
+                }
+            case .replace:
+                do {
+                    if fileManager.fileExists(atPath: destination.path) {
+                        try fileManager.removeItem(at: destination)
+                    }
+                    try fileManager.copyItem(at: source, to: destination)
+                } catch {
+                    throw BackupError.couldNotWrite(member.path)
+                }
             }
         }
+        return RestoreResult(bookingsAddedBack: added.sorted(), bookingsHeldBack: heldBack.sorted())
+    }
+
+    /// What a restore did with the booking queue (ovation#253), so the surface can
+    /// say it: a booking held back must never read as one put back (L11).
+    struct RestoreResult: Equatable, Sendable {
+        let bookingsAddedBack: [String]
+        let bookingsHeldBack: [String]
+    }
+
+    /// WHETHER RESTORING THIS ARCHIVE HOLDS QUEUED BOOKINGS BACK (ovation#253).
+    ///
+    /// A booking the drain already invoiced, handed back to the drain, is a
+    /// second invoice to a client. Only the consumed booking ledger can say which
+    /// were invoiced, and its shape is ovation#31's to define, so while ANY ledger
+    /// exists, live or in the archive, every queued booking is held back rather
+    /// than guessed about (L42). NO ledger anywhere means the drain has never run,
+    /// because ovation#32 writes it in the same save as the invoice. When
+    /// ovation#31 lands, its reader goes here and this stops being all or nothing.
+    ///
+    /// ONE PREDICATE for the restore and for the sentence describing it
+    /// beforehand, so the confirmation cannot promise what the restore will not
+    /// do (L16, L180).
+    func holdsQueuedBookingsBack(restoring archive: URL) throws -> Bool {
+        consumedBookingLedgerExists(alongside: try readManifest(at: archive))
+    }
+
+    private func consumedBookingLedgerExists(alongside manifest: BackupManifest) -> Bool {
+        let path = BackupPlan.consumedBookingsPath
+        return fileManager.fileExists(atPath: dataDirectory.appendingPathComponent(path).path)
+            || manifest.members.contains { $0.path == path && $0.status == .copied }
+    }
+
+    /// The queued bookings an archive holds that the live queue does not.
+    private func bookingsMissing(from live: URL, in archived: URL) throws -> [String] {
+        let names: [String]
+        do {
+            names = try fileManager.contentsOfDirectory(atPath: archived.path)
+        } catch {
+            throw BackupError.couldNotRead(archived.path)
+        }
+        return names
+            .filter { !$0.hasPrefix(".") }
+            .filter { !fileManager.fileExists(atPath: live.appendingPathComponent($0).path) }
+            .sorted()
     }
 
     /// Every pre restore snapshot, oldest first.

@@ -92,6 +92,57 @@ struct RestorePresenterTests {
         #expect(detail.contains(archive.lastPathComponent))
     }
 
+    /// THE QUEUE IS ADDED TO, NOT REPLACED, and Downbeat's record is not put back
+    /// at all (ovation#253), so a sentence listing them among what is replaced
+    /// would describe a restore that does not happen (L180).
+    @Test("the confirmation says queued bookings are added back, not replaced")
+    func theConfirmationSaysWhatHappensToTheQueue() throws {
+        let world = try World()
+        try queue("0D5E7C21-5A3B-4C8E-9F10-000000000011", in: world)
+        try Data("{}".utf8).write(
+            to: world.dataDirectory.appendingPathComponent("downbeat-queued-bookings.json"))
+        let archive = try world.service.takeBackup(now: world.instant)
+
+        let sentence = try world.presenter.consequence(of: archive.lastPathComponent)
+
+        #expect(sentence.contains("queued booking"))
+        #expect(!sentence.contains("booking-queue"))
+        #expect(!sentence.contains("downbeat-queued-bookings.json"))
+    }
+
+    /// WHAT HAPPENED TO THE QUEUE IS SAID, both ways, because a booking held back
+    /// and a booking put back need different things from Dan (L11).
+    @Test("a restore says how many queued bookings it added back",
+          arguments: [false, true])
+    func restoreSaysWhatHappenedToTheQueue(heldBack: Bool) throws {
+        let world = try World()
+        let lost = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000012", in: world)
+        let archive = try world.service.takeBackup(now: world.instant)
+        try FileManager.default.removeItem(at: lost)
+        if heldBack {
+            try Data("{}\n".utf8).write(
+                to: world.dataDirectory.appendingPathComponent("consumed-bookings.jsonl"))
+        }
+
+        let outcome = world.presenter.restore(archive.lastPathComponent)
+
+        guard case .restored(let detail) = outcome else {
+            Issue.record("a good archive did not restore, got \(outcome)")
+            return
+        }
+        #expect(detail.contains(heldBack ? "1 queued booking held back"
+                                         : "1 queued booking added back"))
+    }
+
+    @discardableResult
+    private func queue(_ bookingId: String, in world: World) throws -> URL {
+        let queue = world.dataDirectory.appendingPathComponent("booking-queue", isDirectory: true)
+        try FileManager.default.createDirectory(at: queue, withIntermediateDirectories: true)
+        let file = queue.appendingPathComponent("\(bookingId).json")
+        try Data("a queued booking".utf8).write(to: file)
+        return file
+    }
+
     /// AN ARCHIVE THAT NO LONGER VERIFIES IS REFUSED, not restored with a
     /// warning. Replacing good state with an archive known to be damaged is the
     /// one mistake this whole milestone exists to prevent (L5).
