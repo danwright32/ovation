@@ -164,6 +164,7 @@ struct OvationApp: App {
         _ = verdict.mayRun
     }
     var body: some Scene {
+        Settings { SettingsView(backups: BackupSettingsPresenter()) }
         Window("x", id: "x") {
             RootView()
                 .task {
@@ -218,6 +219,7 @@ struct OvationApp: App {
         _ = verdict.mayRun
     }
     var body: some Scene {
+        Settings { SettingsView(backups: BackupSettingsPresenter()) }
         Window("x", id: "x") {
             RootView()
                 .task {
@@ -244,6 +246,7 @@ struct OvationApp: App {
         _ = verdict.mayRun
     }
     var body: some Scene {
+        Settings { SettingsView(backups: BackupSettingsPresenter()) }
         Window("x", id: "x") {
             RootView()
                 .task {
@@ -275,6 +278,7 @@ struct OvationApp: App {
         _ = verdict.mayRun
     }
     var body: some Scene {
+        Settings { SettingsView(backups: BackupSettingsPresenter()) }
         Window("x", id: "x") {
             RootView()
                 .task {
@@ -295,6 +299,77 @@ check "a launch whose heavy work stays on the main actor is refused" 6 \
 
 check "a guarded launch that sends the heavy work away passes" 0 \
     "$(run_on "${WORK}/task-guarded.swift")"
+
+# ---------------------------------------------------------------------------
+# THE SETTINGS PANE IS REACHABLE (ovation#231, ovation#247). Both presenters
+# shipped with passing tests and nothing presented either, so a folder could not
+# be chosen and no backup was ever taken. A surface nothing presents is invisible
+# to every test that is not about presenting it (L3, L546).
+# ---------------------------------------------------------------------------
+cat > "${WORK}/no-settings.swift" <<'SWIFT'
+@main
+struct OvationApp: App {
+    @State private var hasLaunched = false
+    init() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let verdict = SecondInstance.check(executablePath: "x", runningPIDs: { _ in [] })
+        _ = verdict.mayRun
+    }
+    var body: some Scene {
+        Window("x", id: "x") {
+            RootView()
+                .task {
+                    guard !hasLaunched else { return }
+                    hasLaunched = true
+                    if let storeURL = StoreLocation.liveStoreURL() {
+                        var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
+                        sequence.onOpened = { opened.container = $0 }
+                        sequence.takeBackup = { now in
+                            _ = await BlockingWork.run { true }
+                            return .taken(storeURL)
+                        }
+                        await sequence.run(now: Date())
+                    }
+                }
+        }
+    }
+}
+SWIFT
+check "an entry point with no Settings scene is refused" 7 \
+    "$(run_on "${WORK}/no-settings.swift")"
+
+cat > "${WORK}/settings-without-the-pane.swift" <<'SWIFT'
+@main
+struct OvationApp: App {
+    @State private var hasLaunched = false
+    init() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let verdict = SecondInstance.check(executablePath: "x", runningPIDs: { _ in [] })
+        _ = verdict.mayRun
+    }
+    var body: some Scene {
+        Settings { Text("nothing here") }
+        Window("x", id: "x") {
+            RootView()
+                .task {
+                    guard !hasLaunched else { return }
+                    hasLaunched = true
+                    if let storeURL = StoreLocation.liveStoreURL() {
+                        var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
+                        sequence.onOpened = { opened.container = $0 }
+                        sequence.takeBackup = { now in
+                            _ = await BlockingWork.run { true }
+                            return .taken(storeURL)
+                        }
+                        await sequence.run(now: Date())
+                    }
+                }
+        }
+    }
+}
+SWIFT
+check "a Settings scene that never builds the backups pane is refused too" 7 \
+    "$(run_on "${WORK}/settings-without-the-pane.swift")"
 
 echo "launch sequence wiring tests: ${PASSED} passed, ${FAILED} failed"
 [[ "${FAILED}" -eq 0 ]]

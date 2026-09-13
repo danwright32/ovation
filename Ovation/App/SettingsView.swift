@@ -1,0 +1,138 @@
+// ovation#231 and ovation#247. THE SETTINGS WINDOW, and the two controls that
+// make the backup milestone usable at all.
+//
+// REOPENED BECAUSE IT WAS NOT THERE. ovation#243 shipped BackupSettingsPresenter
+// with seven passing tests, and ovation#247 shipped RestorePresenter with seven
+// more, and NOTHING PRESENTED EITHER. A backup folder could not be chosen, so no
+// backup had ever been taken, so most of the milestone was inert. That is built
+// is not wired (L3), and it survived because a surface nothing presents is
+// invisible to every test that is not about presenting it (L546).
+//
+// IT IS THE APP'S SECOND WINDOW, which OvationApp is otherwise deliberately
+// without: a flag on shared state is presented once per SURFACE bound to it, so
+// a second window would put up a second copy of every launch notice and
+// dismissing one would leave the other standing (L238). This binds to the two
+// presenters and to nothing that PRESENTS a problem.
+//
+// Dan chose, 2026-09-12, to skip a design round on it and look at it when he
+// next installs a build, so it is plain and uses the palette the rail already
+// has.
+import SwiftUI
+
+struct SettingsView: View {
+    @Bindable var backups: BackupSettingsPresenter
+    var restore: RestorePresenter?
+
+    /// What the last press said, kept so an action SAYS it happened rather than
+    /// leaving the pane looking unchanged (L608, L12).
+    @State private var lastOutcome: String?
+    @State private var confirming: RestorePresenter.Archive?
+
+    var body: some View {
+        TabView {
+            backupsPane
+                .tabItem { Label("Backups", systemImage: "externaldrive") }
+        }
+        .frame(minWidth: 520, minHeight: 360)
+    }
+
+    private var backupsPane: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                folderSection
+                Divider()
+                restoreSection
+                if let lastOutcome {
+                    Text(lastOutcome).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var folderSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Where backups go").font(.headline)
+            Text(folderDescription)
+            // THE SENTENCE IS COMPOSED FROM THE RULE, not typed beside it (L679).
+            Text(backups.retentionSentence).font(.callout).foregroundStyle(.secondary)
+            Button("Choose a folder") {
+                switch backups.choose() {
+                case .chosen(let folder):
+                    lastOutcome = "Backups will go to \(folder.path)."
+                case .cancelled:
+                    break
+                case .refusedInsideTheDataDirectory(let detail), .refused(let detail):
+                    lastOutcome = detail
+                }
+            }
+        }
+    }
+
+    /// What the pane says about the folder, one sentence per outcome, because
+    /// each needs a different thing from Dan (L11).
+    private var folderDescription: String {
+        switch backups.resolution {
+        case .chosen(let folder): return folder.path
+        case .notChosen: return "No folder chosen yet, so Ovation is not backing up."
+        case .unresolvable(let detail): return "The folder cannot be reached: \(detail)"
+        case .onADifferentVolume(let detail): return detail
+        case .refusedUnderADisposableLaunch: return "Not available in this run."
+        }
+    }
+
+    @ViewBuilder
+    private var restoreSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Put a backup back").font(.headline)
+            if let restore, let rows = try? restore.archives(), !rows.isEmpty {
+                ForEach(rows) { row in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.takenAt.map(BusinessCalendar.dayKey(for:)) ?? row.name)
+                            // WHETHER IT VERIFIES NOW, said plainly, because an
+                            // archive that has rotted must not be offered as
+                            // though it were sound (L336).
+                            if !row.verifies {
+                                Text("This backup no longer checks out")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button("Restore") { confirming = row }
+                            .disabled(!row.verifies)
+                    }
+                }
+            } else {
+                // AN EMPTY STATE AND AN ERROR STATE ARE DIFFERENT SCREENS (L10).
+                Text(restore == nil
+                     ? "Choose a folder first, and Ovation will start backing up."
+                     : "There are no backups in that folder yet.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .confirmationDialog(
+            "Put this backup back?",
+            isPresented: .init(get: { confirming != nil },
+                               set: { if !$0 { confirming = nil } }),
+            presenting: confirming
+        ) { row in
+            Button("Restore, replacing what is there", role: .destructive) {
+                guard let restore else { return }
+                switch restore.restore(row.name) {
+                case .restored(let detail): lastOutcome = detail
+                case .refused(let detail): lastOutcome = detail
+                }
+                confirming = nil
+            }
+            Button("Cancel", role: .cancel) { confirming = nil }
+        } message: { row in
+            // THE CONSEQUENCE IS DERIVED FROM THE ARCHIVE, so it names what will
+            // be replaced rather than reading the same whatever it takes (L180).
+            Text((try? restore?.consequence(of: row.name))
+                 ?? "Ovation could not read what is in this backup.")
+        }
+    }
+}

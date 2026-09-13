@@ -82,6 +82,14 @@ RUNS_ONLY_ONCE = re.compile(r"\bhasLaunched\b")
 # await. `BlockingWork` is Downbeat's helper, ported for this, and it uses a
 # dispatch queue that DOES grow, under a deadline.
 HEAVY_WORK_LEAVES_THE_MAIN_ACTOR = re.compile(r"\bBlockingWork\.run\b")
+# ovation#231, ovation#247. BOTH SHIPPED WITH TESTS AND NOTHING PRESENTED EITHER.
+# BackupSettingsPresenter had seven passing cases and no window, so a backup
+# folder could not be chosen and no backup had ever been taken; RestorePresenter
+# had seven more and no view at all. That is built is not wired (L3), and it
+# survived because a surface nothing presents is invisible to every test that is
+# not about presenting it (L546). This is the only thing that can see it.
+OFFERS_SETTINGS = re.compile(r"\bSettings\s*\{")
+OFFERS_THE_BACKUP_PANE = re.compile(r"\bBackupSettingsPresenter\s*\(")
 
 
 def fail(code, message):
@@ -155,9 +163,19 @@ def main():
                 "and hashing everything Ovation holds is the slowest thing a launch "
                 "does, and the folder may be on a NAS (ovation#246)." % ENTRY)
 
+    if not OFFERS_SETTINGS.search(code):
+        fail(7, "%s has no Settings scene, so there is nowhere to choose a backup "
+                "folder. Without one no backup is ever taken and most of the "
+                "backup milestone is inert (ovation#231)." % ENTRY)
+
+    if not OFFERS_THE_BACKUP_PANE.search(code):
+        fail(7, "%s has a Settings scene that never builds the backups pane, so the "
+                "folder still cannot be chosen. The presenter passing its own tests "
+                "says nothing about whether anything presents it (L3, L546)." % ENTRY)
+
     print("OK: the entry point builds the launch sequence, runs it once from a task, "
           "keeps the heavy work off the main actor, stands aside for a second "
-          "running copy, and takes the store it opened.")
+          "running copy, takes the store it opened, and offers the backups pane.")
 
 
 main()
