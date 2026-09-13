@@ -700,6 +700,12 @@ final class BackupService {
         }
     }
 
+    /// One archive's manifest, for a caller that has to describe it before doing
+    /// anything to it (ovation#247).
+    func manifest(of archive: URL) throws -> BackupManifest {
+        try readManifest(at: archive)
+    }
+
     private func readManifest(at archive: URL) throws -> BackupManifest {
         let url = archive.appendingPathComponent(BackupManifest.filename)
         guard fileManager.fileExists(atPath: url.path) else {

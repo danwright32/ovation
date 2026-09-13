@@ -35,6 +35,9 @@ struct OvationApp: App {
     /// IT RUNS EXACTLY ONCE. A re-entered launch would open a second container
     /// over one file, which is two writers (ovation#84).
     @State private var hasLaunched = false
+    /// ovation#231. The Backups pane's own state, built here because the window
+    /// that shows it is a Scene rather than a view with a lifetime.
+    @State private var backupSettings: BackupSettingsPresenter
 
     init() {
         // A disposable launch gets a journal that writes nowhere, so nothing a
@@ -97,6 +100,18 @@ struct OvationApp: App {
         _roster = State(initialValue: nil)
         _shell = State(initialValue: nil)
         _secondInstance = State(initialValue: secondInstance)
+        // The Backups pane, built with the live setting and the real data
+        // directory, so the folder it refuses is the one it would damage.
+        let dataDirectory = StoreLocation.liveStoreURL()?.deletingLastPathComponent()
+            ?? StoreLocation.appSupport
+        _backupSettings = State(initialValue: BackupSettingsPresenter(
+            setting: BackupFolderSetting(
+                defaults: .standard,
+                isDisposableLaunch: { AppEnvironment.isDisposableLaunch() }),
+            dataDirectory: dataDirectory,
+            problems: store,
+            now: Date.init,
+            askForAFolder: { SettingsFolderPanel.ask() }))
         // THE COMMAND IS BUILT EVEN WHEN THERE IS NOWHERE TO WRITE, and answers
         // why rather than being absent. A menu item that vanishes on a throwaway
         // launch teaches nothing; one that is there and says what is missing is
@@ -372,6 +387,22 @@ struct OvationApp: App {
         presenter.refresh()
     }
 
+    /// The restore control, or nil when there is no folder to restore from.
+    ///
+    /// NIL RATHER THAN AN EMPTY LIST, because "no folder chosen" and "a folder
+    /// with nothing in it" are different things to say (L10).
+    @MainActor
+    private static func restorePresenter(for store: ProblemsStore) -> RestorePresenter? {
+        guard let storeURL = StoreLocation.liveStoreURL(),
+              let folder = BackupFolderSetting.liveBackupsDirectory else { return nil }
+        return RestorePresenter(
+            dataDirectory: storeURL.deletingLastPathComponent(),
+            backupsDirectory: folder,
+            dailyKeep: BackupService.defaultDailyKeep,
+            referencedDocuments: { try StoreDocumentReferences.read(storeURL: storeURL) },
+            now: Date.init)
+    }
+
     /// A box, because the launch sequence's hook is `@Sendable` and this runs
     /// before `self` exists.
     private final class OpenedStore: @unchecked Sendable {
@@ -386,6 +417,18 @@ struct OvationApp: App {
                 // order inside the launch is unchanged; what changed is that
                 // there is now somewhere for it to say what it is doing.
                 .task { await startLaunch() }
+        }
+
+        // ovation#231 and ovation#247. WHERE THE FOLDER IS CHOSEN AND A BACKUP IS
+        // PUT BACK. Both presenters existed with tests and NOTHING PRESENTED
+        // EITHER, so a folder could not be chosen and no backup had ever been
+        // taken: built is not wired (L3).
+        Settings {
+            // A FACTORY, not a built one: the restore control only exists once a
+            // folder does, and on the launch where Dan first chooses one there
+            // was none when this window was made (ovation#247).
+            SettingsView(backups: backupSettings,
+                         makeRestore: { Self.restorePresenter(for: store) })
         }
         // ovation#162. THE CONTROL THE STALENESS NOTICE NAMES. Until this existed
         // `YearEndExport.run` was called by nothing, so that notice named a
