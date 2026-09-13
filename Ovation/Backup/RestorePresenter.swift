@@ -40,12 +40,34 @@ final class RestorePresenter {
         case refused(String)
     }
 
-    private let service: BackupService
+    /// THE INGREDIENTS, NOT THE SERVICE, because `BackupService` holds a
+    /// `FileManager` and is not Sendable: reading the archives off the main actor
+    /// means building one INSIDE that work rather than carrying one across
+    /// (ovation#247). The main actor path uses the same recipe, so there is one
+    /// definition of what service this presenter talks to (L70).
+    private let dataDirectory: URL
+    private let backupsDirectory: URL
+    private let dailyKeep: Int
+    private let referencedDocuments: @Sendable () throws -> [ReferencedDocument]
     private let now: @MainActor () -> Date
 
-    init(service: BackupService, now: @escaping @MainActor () -> Date) {
-        self.service = service
+    init(dataDirectory: URL,
+         backupsDirectory: URL,
+         dailyKeep: Int,
+         referencedDocuments: @escaping @Sendable () throws -> [ReferencedDocument],
+         now: @escaping @MainActor () -> Date) {
+        self.dataDirectory = dataDirectory
+        self.backupsDirectory = backupsDirectory
+        self.dailyKeep = dailyKeep
+        self.referencedDocuments = referencedDocuments
         self.now = now
+    }
+
+    private var service: BackupService {
+        BackupService(dataDirectory: dataDirectory,
+                      backupsDirectory: backupsDirectory,
+                      dailyKeep: dailyKeep,
+                      referencedDocuments: referencedDocuments)
     }
 
     /// Every archive, newest first, each saying whether it is sound today.
@@ -60,6 +82,42 @@ final class RestorePresenter {
                            takenAt: manifest?.createdAt,
                            verifies: report?.isVerified ?? false)
         }
+    }
+
+    /// The same list, read OFF the main actor.
+    ///
+    /// `archives()` verifies each one, which reads and hashes every file in every
+    /// backup. That is the heaviest work in the app, and a surface that called it
+    /// on the drawing thread would freeze the window on a folder that syncs to a
+    /// NAS: the defect ovation#246 exists to prevent (L241). It goes through the
+    /// same helper the launch uses, under the same deadline, so a share that has
+    /// gone quiet cannot hang the window either (L110).
+    ///
+    /// AN EMPTY LIST IS WHAT A FAILURE ANSWERS WITH, and that is honest only
+    /// because the surface distinguishes "still looking" from "none": a pane that
+    /// showed an empty list while still reading would say the wrong thing (L10).
+    func archivesOffTheMainActor() async -> [Archive] {
+        let dataDirectory = self.dataDirectory
+        let backupsDirectory = self.backupsDirectory
+        let dailyKeep = self.dailyKeep
+        let referencedDocuments = self.referencedDocuments
+        let outcome = await BlockingWork.run { () -> [Archive] in
+            // Built HERE, from Sendable values, because the service itself cannot
+            // cross the boundary.
+            let service = BackupService(dataDirectory: dataDirectory,
+                                        backupsDirectory: backupsDirectory,
+                                        dailyKeep: dailyKeep,
+                                        referencedDocuments: referencedDocuments)
+            return try service.archives().reversed().map { url in
+                let manifest = try? service.manifest(of: url)
+                let report = try? service.verify(archive: url)
+                return Archive(name: url.lastPathComponent,
+                               takenAt: manifest?.createdAt,
+                               verifies: report?.isVerified ?? false)
+            }
+        }
+        if case .answered(let rows) = outcome { return rows }
+        return []
     }
 
     /// What restoring this archive will do, DERIVED from what it holds.
@@ -104,6 +162,6 @@ final class RestorePresenter {
     }
 
     private func url(of name: String) -> URL {
-        service.backupsDirectory.appendingPathComponent(name, isDirectory: true)
+        backupsDirectory.appendingPathComponent(name, isDirectory: true)
     }
 }

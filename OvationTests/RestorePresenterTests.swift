@@ -126,6 +126,50 @@ struct RestorePresenterTests {
         #expect(detail.contains("2099"))
     }
 
+    /// READING THE ARCHIVES MUST NOT HAPPEN ON THE DRAWING THREAD. `archives()`
+    /// verifies each one, which reads and hashes every file in every backup, and
+    /// a SwiftUI body is re-evaluated constantly: calling it there put the
+    /// heaviest work in the app on the main thread on every redraw, which on a
+    /// folder that syncs to a NAS is a frozen window. That is the defect
+    /// ovation#246 exists to prevent, written into the pane that fixes it, and
+    /// caught by reading the view back rather than by any test.
+    @Test("the archives are read off the main thread, not merely read correctly")
+    @MainActor
+    func archivesAreReadOffTheMainThread() async throws {
+        let world = try World()
+        _ = try world.service.takeBackup(now: world.instant)
+        // Taking the backup asks for the references too, on this thread, because
+        // the test called it directly. Only what happens after this counts.
+        world.forgetSetUp()
+
+        let rows = await world.presenter.archivesOffTheMainActor()
+
+        #expect(rows.count == 1)
+        #expect(rows.first?.verifies == true)
+        // THE POINT, ASSERTED DIRECTLY. A case that only checked the rows would
+        // pass just as well with the work back on the drawing thread, which is
+        // the defect rather than the feature (L63). `verify` calls
+        // `referencedDocuments` for every archive, so the fixture's closure is
+        // inside the work and can say which thread it ran on.
+        #expect(world.sawMainThread == false,
+                "the verification ran on the main thread, which is what this moved")
+        #expect(world.timesAsked > 0,
+                "nothing asked for the references, so the closure proves nothing")
+    }
+
+    /// AND IT ANSWERS THE SAME THING as the main actor path, or the surface would
+    /// show something different from what a restore would act on (L70).
+    @Test("both ways of reading the archives agree")
+    func bothWaysAgree() async throws {
+        let world = try World()
+        _ = try world.service.takeBackup(now: world.instant)
+
+        let onTheMainActor = try world.presenter.archives()
+        let offIt = await world.presenter.archivesOffTheMainActor()
+
+        #expect(onTheMainActor == offIt)
+    }
+
     // MARK: the fixture
 
     @MainActor
@@ -136,6 +180,32 @@ struct RestorePresenterTests {
         let service: BackupService
         let presenter: RestorePresenter
         let instant = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        /// Whether the verification ran on the main thread, and whether it ran at
+        /// all, recorded from INSIDE the work by the closure `verify` calls.
+        private let watcher = ThreadWatcher()
+        var sawMainThread: Bool { watcher.sawMainThread }
+        var timesAsked: Int { watcher.timesAsked }
+        func forgetSetUp() { watcher.forgetSetUp() }
+
+        final class ThreadWatcher: @unchecked Sendable {
+            private let lock = NSLock()
+            private var main = false
+            private var asked = 0
+            var sawMainThread: Bool { lock.withLock { main } }
+            var timesAsked: Int { lock.withLock { asked } }
+            func note() {
+                lock.withLock {
+                    asked += 1
+                    if Thread.isMainThread { main = true }
+                }
+            }
+
+            /// Forgets what the SETUP did. Taking the backup calls the same
+            /// closure, on the main thread, because the test calls it directly, so
+            /// without this the watcher reports the fixture rather than the thing
+            /// under test (L375).
+            func forgetSetUp() { lock.withLock { main = false; asked = 0 } }
+        }
 
         init() throws {
             root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -152,14 +222,20 @@ struct RestorePresenterTests {
                 .write(to: dataDirectory.appendingPathComponent("Ovation.store.version"))
             try DataDirectory.prepare(dataDirectory)
 
+            let watching = watcher
             service = BackupService(dataDirectory: dataDirectory,
                                     backupsDirectory: backupsDirectory,
                                     dailyKeep: BackupService.defaultDailyKeep,
-                                    referencedDocuments: { [] })
+                                    referencedDocuments: { watching.note(); return [] })
             // The clock is a local constant rather than the fixture's property,
             // because the closure is built before `self` exists.
             let clock = Date(timeIntervalSinceReferenceDate: 800_000_000)
-            presenter = RestorePresenter(service: service, now: { clock })
+            presenter = RestorePresenter(
+                dataDirectory: dataDirectory,
+                backupsDirectory: backupsDirectory,
+                dailyKeep: BackupService.defaultDailyKeep,
+                referencedDocuments: { watching.note(); return [] },
+                now: { clock })
         }
 
         func plant(_ name: String) {

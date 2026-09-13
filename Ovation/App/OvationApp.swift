@@ -400,11 +400,10 @@ struct OvationApp: App {
         guard let storeURL = StoreLocation.liveStoreURL(),
               let folder = BackupFolderSetting.liveBackupsDirectory else { return nil }
         return RestorePresenter(
-            service: BackupService(
-                dataDirectory: storeURL.deletingLastPathComponent(),
-                backupsDirectory: folder,
-                dailyKeep: BackupService.defaultDailyKeep,
-                referencedDocuments: { try StoreDocumentReferences.read(storeURL: storeURL) }),
+            dataDirectory: storeURL.deletingLastPathComponent(),
+            backupsDirectory: folder,
+            dailyKeep: BackupService.defaultDailyKeep,
+            referencedDocuments: { try StoreDocumentReferences.read(storeURL: storeURL) },
             now: Date.init)
     }
 

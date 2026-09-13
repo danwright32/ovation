@@ -27,6 +27,26 @@ struct SettingsView: View {
     /// leaving the pane looking unchanged (L608, L12).
     @State private var lastOutcome: String?
     @State private var confirming: RestorePresenter.Archive?
+    /// WHAT RESTORING THAT ONE WOULD DO, worked out WHEN THE BUTTON IS PRESSED
+    /// rather than while the dialog draws. `consequence(of:)` reads the archive's
+    /// manifest from disk, and a view builder is not a place to read files: it is
+    /// the same shape as the archive list this pane already had to move off the
+    /// drawing thread, smaller only by degree.
+    @State private var confirmingConsequence: String = ""
+
+    /// THE ARCHIVES, LOADED ONCE AND HELD, never read from the view's body.
+    ///
+    /// `archives()` VERIFIES each one, which reads and hashes every file in every
+    /// backup, and a SwiftUI body is re-evaluated constantly. Calling it there put
+    /// the heaviest work in the app on the drawing thread on every redraw, which
+    /// on a folder that syncs to a NAS is a frozen window: the exact defect
+    /// ovation#246 exists to prevent, written into the pane that fixes it.
+    ///
+    /// It loads off the main actor through the same helper the launch uses, under
+    /// the same deadline, so a share that has gone quiet cannot hang the window
+    /// either (L241, L110).
+    @State private var rows: [RestorePresenter.Archive]?
+    @State private var loadingArchives = true
 
     var body: some View {
         TabView {
@@ -72,6 +92,16 @@ struct SettingsView: View {
 
     /// What the pane says about the folder, one sentence per outcome, because
     /// each needs a different thing from Dan (L11).
+    /// Reads the archives once, off the main actor.
+    private func loadArchives() async {
+        guard let restore else {
+            loadingArchives = false
+            return
+        }
+        rows = await restore.archivesOffTheMainActor()
+        loadingArchives = false
+    }
+
     private var folderDescription: String {
         switch backups.resolution {
         case .chosen(let folder): return folder.path
@@ -86,7 +116,14 @@ struct SettingsView: View {
     private var restoreSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Put a backup back").font(.headline)
-            if let restore, let rows = try? restore.archives(), !rows.isEmpty {
+            if loadingArchives {
+                // STARTED, rather than an empty list that reads as "no backups"
+                // while it is still looking (L10).
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Looking at your backups")
+                }
+            } else if let rows, !rows.isEmpty {
                 ForEach(rows) { row in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -101,8 +138,13 @@ struct SettingsView: View {
                             }
                         }
                         Spacer()
-                        Button("Restore") { confirming = row }
-                            .disabled(!row.verifies)
+                        Button("Restore") {
+                            confirmingConsequence =
+                                (try? restore?.consequence(of: row.name))
+                                ?? "Ovation could not read what is in this backup."
+                            confirming = row
+                        }
+                        .disabled(!row.verifies)
                     }
                 }
             } else {
@@ -113,6 +155,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .task { await loadArchives() }
         .confirmationDialog(
             "Put this backup back?",
             isPresented: .init(get: { confirming != nil },
@@ -128,11 +171,11 @@ struct SettingsView: View {
                 confirming = nil
             }
             Button("Cancel", role: .cancel) { confirming = nil }
-        } message: { row in
+        } message: { _ in
             // THE CONSEQUENCE IS DERIVED FROM THE ARCHIVE, so it names what will
             // be replaced rather than reading the same whatever it takes (L180).
-            Text((try? restore?.consequence(of: row.name))
-                 ?? "Ovation could not read what is in this backup.")
+            // Read when the button was pressed, not here.
+            Text(confirmingConsequence)
         }
     }
 }
