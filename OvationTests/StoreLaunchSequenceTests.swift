@@ -317,12 +317,19 @@ struct StoreLaunchSequenceTests {
         #expect(!world.store.open.contains { $0.kind == .backupFolderNotChosen })
     }
 
-    /// AND A LAUNCH WITH NO FOLDER LEAVES IT STANDING, because it is still true
-    /// (L98).
-    @Test("a launch that could not back up leaves the standing notice alone")
+    /// AND A LAUNCH WHOSE BACKUP FAILED LEAVES IT STANDING, because a failure is
+    /// no proof a folder exists (L98).
+    ///
+    /// REWRITTEN IN ovation#262, NOT DELETED. It threw
+    /// `couldNotWrite("no backup folder has been chosen yet")`, the exact mislabel
+    /// the app threw, and raised the notice by hand first, so it passed while
+    /// nothing in the app ever raised that notice. Its claim is that a failed
+    /// backup must not settle the no folder question, so a genuine write failure
+    /// now drives it (L430).
+    @Test("a launch whose backup failed leaves the standing no folder notice alone")
     func aFailedBackupLeavesTheStandingCondition() async throws {
         let world = try World(backup: { _ in
-            throw BackupError.couldNotWrite("no backup folder has been chosen yet")
+            throw BackupError.couldNotWrite("/Volumes/Backups: the volume is not mounted")
         })
         _ = world.store.raise(kind: .backupFolderNotChosen, subject: "backups",
                               sentence: "No backup folder has been chosen yet.",
@@ -331,6 +338,60 @@ struct StoreLaunchSequenceTests {
         _ = await world.sequence.run(now: world.instant)
 
         #expect(world.store.open.contains { $0.kind == .backupFolderNotChosen })
+    }
+
+    /// A LAUNCH WITH NO FOLDER RAISES THE NO FOLDER NOTICE (ovation#262).
+    ///
+    /// It raised a write failure instead, under a kind nothing resolves, so the
+    /// notice from a first launch stayed open after a folder was chosen and after
+    /// backups worked, while both places built to clear the no folder notice
+    /// cleared a kind nothing ever raised.
+    @Test("a launch with no folder chosen raises the no folder notice, not a write failure")
+    func noFolderChosenRaisesItsOwnKind() async throws {
+        let world = try World(backup: { _ in throw BackupError.noFolderChosen })
+
+        let outcome = await world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        #expect(world.store.open.contains { $0.kind == .backupFolderNotChosen })
+        #expect(!world.store.open.contains { $0.kind == .backupCouldNotBeWritten })
+    }
+
+    /// THE WHOLE LIFE OF THE NOTICE, raised and cleared by the app alone. Every
+    /// earlier test raised this kind by hand before resolving it, which is exactly
+    /// how a kind nothing in the app raised went unseen (L159).
+    @Test("the no folder notice a launch raises is cleared by a later launch that backs up")
+    func theNoFolderNoticeClearsOnceABackupIsTaken() async throws {
+        let launches = LaunchCounter()
+        let world = try World(backup: { _ in
+            if launches.next() == 1 { throw BackupError.noFolderChosen }
+            return .taken(URL(fileURLWithPath: "/dev/null"))
+        })
+
+        _ = await world.sequence.run(now: world.instant)
+        #expect(world.store.open.contains { $0.kind == .backupFolderNotChosen })
+
+        _ = await world.sequence.run(now: world.instant.addingTimeInterval(86_400))
+        #expect(!world.store.open.contains { $0.kind == .backupFolderNotChosen })
+    }
+
+    /// THE SENTENCE NAMES WHERE THE ANSWER IS. A standing notice carrying no remedy
+    /// is one Dan can only dismiss (L111).
+    @Test("the no folder notice says where to choose a folder")
+    func theNoFolderNoticeNamesTheRemedy() {
+        let condition = StoreLaunchSequence.backupCondition(for: BackupError.noFolderChosen)
+
+        #expect(condition.kind == .backupFolderNotChosen)
+        #expect(condition.sentence.contains("Settings"))
+    }
+
+    /// Counts launches from inside the backup closure, so one fixture can play a
+    /// launch with no folder and then a launch that backs up against ONE problems
+    /// store.
+    private final class LaunchCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func next() -> Int { lock.withLock { count += 1; return count } }
     }
 
     // MARK: something can say what is happening (ovation#246)

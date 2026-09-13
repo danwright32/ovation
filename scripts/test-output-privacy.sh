@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 74
+harness_begin "output privacy tests" 76
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -782,6 +782,22 @@ check "the backup grant check prints no identity, even from a record somebody ed
     "$(leaks_in "$(OVATION_GRANT_RECORD="$GRANT" ./scripts/check-backup-grant.sh 2>&1)")" "clean"
 check "and it really did report a verdict, so the case reached the line that prints" \
     "$(OVATION_GRANT_RECORD="$GRANT" ./scripts/check-backup-grant.sh 2>&1 | grep -c 'BLOCKED')" "1"
+
+# ---------------------------------------------------------------------------
+# THE PROBLEM KINDS CHECK (ovation#262). It prints file names, line numbers and
+# kind names, never a source line, and the line it refuses here carries a client
+# and a venue, which is exactly where a sentence about a real booking would sit.
+# ---------------------------------------------------------------------------
+KINDS="$WORK/kinds"
+mkdir -p "$KINDS"
+printf 'extension ProblemKind {\n    static let folderMissing = ProblemKind("backup.folder-missing")\n}\n' \
+    > "$KINDS/Problem.swift"
+printf 'for p in problems.open where p.kind == .folderMissing { note("%s at %s") }\n' \
+    "$CLIENT" "$VENUE" > "$KINDS/Settings.swift"
+check "the problem kinds check prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_KINDS_SCAN_ROOT="$KINDS" ./scripts/check-problem-kinds-raised.sh 2>&1)")" "clean"
+check "and that refusal really did print a finding, so the case reached the line that prints" \
+    "$(OVATION_KINDS_SCAN_ROOT="$KINDS" ./scripts/check-problem-kinds-raised.sh 2>&1 | grep -c 'matched here, raised nowhere')" "1"
 
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever

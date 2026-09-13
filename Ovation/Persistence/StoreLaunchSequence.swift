@@ -417,6 +417,15 @@ struct StoreLaunchSequence {
         let tail = "Ovation opened anyway, so nothing is lost, "
             + "but there is no backup from today."
         switch error {
+        case BackupError.noFolderChosen:
+            // A STANDING CONDITION, not a failure of this launch (ovation#262). It
+            // is raised under the kind that choosing a folder and a launch that
+            // backs up both resolve, so the notice ends when its cause does. It
+            // names where the answer is, because a standing notice with no remedy
+            // in it is one Dan can only dismiss (L111).
+            return (.backupFolderNotChosen,
+                    "No backup folder has been chosen yet, so Ovation is not backing up. "
+                        + "Choose one in Ovation's Settings, under Backups.")
         case BackupError.couldNotWrite(let detail):
             // The detail carries the CAUSE where the thrower had one, because a
             // volume that is gone, a disk that is full and a permission macOS

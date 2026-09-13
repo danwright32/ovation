@@ -105,6 +105,8 @@ struct BackupReport: Equatable, Sendable {
 }
 
 enum BackupError: Error, Equatable {
+    /// No backup folder has been chosen yet (ovation#262).
+    case noFolderChosen
     case requiredMemberMissing(String)
     case excludedFilePresent(String)
     case noManifest(String)

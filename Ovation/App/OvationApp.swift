@@ -184,8 +184,13 @@ struct OvationApp: App {
                             // where a silent no-op would leave the sequence
                             // reporting a backup it never took (L98). ovation#231
                             // is the screen that lets Dan answer it.
-                            throw BackupError.couldNotWrite(
-                                "no backup folder has been chosen yet")
+                            //
+                            // ITS OWN ERROR, not a write failure (ovation#262).
+                            // This threw `couldNotWrite`, which raised a kind
+                            // nothing resolves, while both places built to clear
+                            // the no folder notice waited on a kind nothing
+                            // raised, so the notice never cleared.
+                            throw BackupError.noFolderChosen
                         }
                         let service = BackupService(
                             dataDirectory: storeURL.deletingLastPathComponent(),
