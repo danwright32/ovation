@@ -224,6 +224,43 @@ struct RestorePresenterTests {
     // MARK: the fixture
 
     @MainActor
+    /// A RESTORE THAT STOPS PARTWAY DOES NOT SAY NOTHING CHANGED (ovation#258).
+    /// By then the data folder is a mix of the backup and what was there, and
+    /// the way back is the snapshot taken first, so the sentence has to name it
+    /// (L11, L12).
+    @Test("a restore that stops partway says it was partly restored and names the saved copy")
+    func aPartlyRestoredArchiveSaysSo() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant)
+        // `documents` is the first member put back here and `custody` the second.
+        let presenter = presenter(for: world, writingThrough:
+            RefusingFileManager(refusing: "custody", in: world.dataDirectory))
+
+        let outcome = presenter.restore(archive.lastPathComponent)
+
+        guard case .partlyRestored(let detail) = outcome else {
+            Issue.record("a restore that stopped partway was reported as \(outcome)")
+            return
+        }
+        let snapshot = try #require(try world.service.preRestoreSnapshots().first)
+        #expect(detail.contains(snapshot.lastPathComponent))
+        #expect(detail.contains("custody"))
+        #expect(!detail.contains("Nothing in Ovation has been changed"))
+    }
+
+    /// A presenter over the fixture's folders that writes through the given file
+    /// manager, so one write can be refused without damaging a disk.
+    private func presenter(for world: World,
+                           writingThrough refusing: RefusingFileManager) -> RestorePresenter {
+        let clock = world.instant
+        return RestorePresenter(dataDirectory: world.dataDirectory,
+                                backupsDirectory: world.backupsDirectory,
+                                dailyKeep: BackupService.defaultDailyKeep,
+                                referencedDocuments: { [] },
+                                now: { clock },
+                                fileManager: { refusing })
+    }
+
     private struct World {
         let root: URL
         let dataDirectory: URL
@@ -258,6 +295,11 @@ struct RestorePresenterTests {
             func forgetSetUp() { lock.withLock { main = false; asked = 0 } }
         }
 
+        /// On the main actor, like the presenter it builds and every test that
+        /// uses it. ovation#258 gave the presenter a Sendable file manager maker,
+        /// and the compiler then refused to build the presenter from a
+        /// nonisolated initializer.
+        @MainActor
         init() throws {
             root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("ovation-restore-\(UUID().uuidString)",
@@ -286,7 +328,8 @@ struct RestorePresenterTests {
                 backupsDirectory: backupsDirectory,
                 dailyKeep: BackupService.defaultDailyKeep,
                 referencedDocuments: { watching.note(); return [] },
-                now: { clock })
+                now: { clock },
+                fileManager: { .default })
         }
 
         func plant(_ name: String) {

@@ -111,6 +111,10 @@ enum BackupError: Error, Equatable {
     case couldNotRead(String)
     case couldNotWrite(String)
     case verificationFailed([BackupReport.Failure])
+    /// A restore that had begun changing the data folder and could not finish
+    /// (ovation#258): what it had put back, what it was putting back when it
+    /// stopped, and the pre restore snapshot that holds everything as it was.
+    case restoredPartway(replaced: [String], failedAt: String, snapshot: String)
 }
 
 final class BackupService {
@@ -649,23 +653,33 @@ final class BackupService {
         // when it has one, replaces the live one below, so asking afterwards would
         // get a different answer from the one this restore started with.
         let holdBookingsBack = consumedBookingLedgerExists(alongside: manifest)
-        try snapshotCurrentState(now: now)
+        let snapshot = try snapshotCurrentState(now: now)
 
+        // FROM HERE ON SOMETHING MAY ALREADY HAVE CHANGED (ovation#258). Every
+        // failure before this line leaves the data folder untouched, and every
+        // failure after it may leave it part restored, so the whole remainder is
+        // ONE boundary: nothing past the snapshot can escape as an ordinary error
+        // and be reported with the sentence that is only true before it (L11). What
+        // was put back, what was being put back, and the snapshot that holds
+        // everything as it was travel with it, because the snapshot is the way back.
         var added: [String] = []
         var heldBack: [String] = []
-        for member in manifest.members where member.status == .copied {
-            let source = archive.appendingPathComponent(member.path)
-            let destination = dataDirectory.appendingPathComponent(member.path)
-            switch BackupPlan.restorePolicy(of: member.path) {
-            case .neverRestored:
-                continue
-            case .addMissingBookings:
-                let missing = try bookingsMissing(from: destination, in: source)
-                if holdBookingsBack {
-                    heldBack += missing
+        var putBack: [String] = []
+        var inProgress = ""
+        do {
+            for member in manifest.members where member.status == .copied {
+                inProgress = member.path
+                let source = archive.appendingPathComponent(member.path)
+                let destination = dataDirectory.appendingPathComponent(member.path)
+                switch BackupPlan.restorePolicy(of: member.path) {
+                case .neverRestored:
                     continue
-                }
-                do {
+                case .addMissingBookings:
+                    let missing = try bookingsMissing(from: destination, in: source)
+                    if holdBookingsBack {
+                        heldBack += missing
+                        continue
+                    }
                     try fileManager.createDirectory(at: destination,
                                                     withIntermediateDirectories: true)
                     for name in missing {
@@ -673,19 +687,19 @@ final class BackupService {
                                                  to: destination.appendingPathComponent(name))
                         added.append(name)
                     }
-                } catch {
-                    throw BackupError.couldNotWrite(member.path)
-                }
-            case .replace:
-                do {
+                    if !missing.isEmpty { putBack.append(member.path) }
+                case .replace:
                     if fileManager.fileExists(atPath: destination.path) {
                         try fileManager.removeItem(at: destination)
                     }
                     try fileManager.copyItem(at: source, to: destination)
-                } catch {
-                    throw BackupError.couldNotWrite(member.path)
+                    putBack.append(member.path)
                 }
             }
+        } catch {
+            throw BackupError.restoredPartway(replaced: putBack,
+                                              failedAt: inProgress,
+                                              snapshot: snapshot.lastPathComponent)
         }
         return RestoreResult(bookingsAddedBack: added.sorted(), bookingsHeldBack: heldBack.sorted())
     }
@@ -747,7 +761,9 @@ final class BackupService {
                 .standardizedFileURL }
     }
 
-    private func snapshotCurrentState(now: Date) throws {
+    /// Copies the data folder aside before a restore changes it, and answers WHERE,
+    /// so a restore that stops partway can name the way back (ovation#258).
+    private func snapshotCurrentState(now: Date) throws -> URL {
         let destination = backupsDirectory
             .appendingPathComponent(Self.snapshotPrefix + Self.stamp(for: now), isDirectory: true)
             .standardizedFileURL
@@ -772,6 +788,7 @@ final class BackupService {
                 throw BackupError.couldNotWrite(name)
             }
         }
+        return destination
     }
 
     /// One archive's manifest, for a caller that has to describe it before doing

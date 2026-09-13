@@ -37,6 +37,10 @@ final class RestorePresenter {
 
     enum Outcome: Equatable {
         case restored(String)
+        /// A restore that began changing Ovation's data and could not finish
+        /// (ovation#258). Its own case because neither of the others is true:
+        /// nothing was refused before a change, and nothing was fully put back.
+        case partlyRestored(String)
         case refused(String)
     }
 
@@ -50,24 +54,37 @@ final class RestorePresenter {
     private let dailyKeep: Int
     private let referencedDocuments: @Sendable () throws -> [ReferencedDocument]
     private let now: @MainActor () -> Date
+    /// What the restore writes through. INJECTED so a test can make a write fail
+    /// partway without damaging a disk (ovation#258, L196).
+    ///
+    /// A MAKER, NOT A FILE MANAGER, and REQUIRED. A `FileManager` is not Sendable
+    /// and this presenter is main actor isolated, so a stored one or a default
+    /// argument cannot be supplied from a caller off the main actor, which the
+    /// fixtures are. A Sendable closure crosses that boundary, and having no
+    /// default means no caller writes through a file manager it did not choose.
+    /// The off main actor read builds its own, and only reads.
+    private let fileManager: @Sendable () -> FileManager
 
     init(dataDirectory: URL,
          backupsDirectory: URL,
          dailyKeep: Int,
          referencedDocuments: @escaping @Sendable () throws -> [ReferencedDocument],
-         now: @escaping @MainActor () -> Date) {
+         now: @escaping @MainActor () -> Date,
+         fileManager: @escaping @Sendable () -> FileManager) {
         self.dataDirectory = dataDirectory
         self.backupsDirectory = backupsDirectory
         self.dailyKeep = dailyKeep
         self.referencedDocuments = referencedDocuments
         self.now = now
+        self.fileManager = fileManager
     }
 
     private var service: BackupService {
         BackupService(dataDirectory: dataDirectory,
                       backupsDirectory: backupsDirectory,
                       dailyKeep: dailyKeep,
-                      referencedDocuments: referencedDocuments)
+                      referencedDocuments: referencedDocuments,
+                      fileManager: fileManager())
     }
 
     /// Every archive, newest first, each saying whether it is sound today.
@@ -165,7 +182,22 @@ final class RestorePresenter {
             return .refused("\(name) does not verify, so it was NOT restored: "
                             + "\(failures.count) problem(s) with what is in it. "
                             + "Nothing in Ovation has been changed.")
+        } catch BackupError.restoredPartway(let replaced, let failedAt, let snapshot) {
+            // THE DATA FOLDER IS NOW A MIX (ovation#258), so this can never borrow
+            // the sentence below. It names what went back, what may be missing, and
+            // the snapshot, because the snapshot is the way back (L11, L12).
+            let done = replaced.isEmpty
+                ? "Nothing had been put back yet"
+                : "\(replaced.sorted().joined(separator: ", ")) had been put back"
+            return .partlyRestored(
+                "\(name) was only partly restored. \(done) when \(failedAt) could not be, "
+                    + "so \(failedAt) may now be missing or incomplete and Ovation's data "
+                    + "is a mix of the backup and what was there before. Everything as it "
+                    + "was just before the restore is in \(snapshot), in the backups folder.")
         } catch {
+            // ONLY A FAILURE BEFORE THE SNAPSHOT REACHES HERE, because the service
+            // turns every failure after it into `restoredPartway`, so this sentence
+            // is true wherever it is shown.
             return .refused("\(name) could not be restored: \(error). "
                             + "Nothing in Ovation has been changed.")
         }
