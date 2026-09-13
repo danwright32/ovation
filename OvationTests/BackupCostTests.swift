@@ -63,26 +63,47 @@ struct BackupCostTests {
     /// nothing about reading and hashing (L48).
     private static let documentBytes = 40_000
 
+    /// HOW MANY FRESH WORLDS OF EACH SIZE ARE TIMED (ovation#272). One timing of
+    /// tens of milliseconds is decided by whatever else the machine did in that
+    /// moment: a single stall pushed the ratio to 0.80 on one run and 3.40 on
+    /// another. Three, because a stall now has to land on every sample of one size
+    /// to move the fastest, and each sample adds to every pure suite run (L656).
+    private static let samplesPerSize = 3
+
+    /// The cost ratio, from the FASTEST sample of each size. The fastest is the
+    /// closest any sample got to the cost of the work alone, and a stall can only
+    /// make a sample slower, never faster.
+    static func costRatio(small: [Double], large: [Double]) -> Double {
+        (large.min() ?? 0) / max(small.min() ?? 0, 0.0001)
+    }
+
     @Test("a backup costs two reads of every document, and the cost is LINEAR in their number")
     func thecostIsLinearInTheDocumentCount() throws {
         let half = max(10, Self.documentCount / 2)
         let full = half * 2
 
-        let small = try World(documents: half)
-        defer { small.cleanUp() }
-        let large = try World(documents: full)
-        defer { large.cleanUp() }
-
-        // Both worlds are built before either is measured, so neither run pays
+        // SEVERAL FRESH WORLDS OF EACH SIZE, SMALL AND LARGE ALTERNATING, so a
+        // stall lands on both sizes rather than deciding one (ovation#272). Each
+        // pair of worlds is built before either is measured, so neither run pays
         // for the other's setup.
-        let smallCost = try small.timeOneBackupAndVerification()
-        let largeCost = try large.timeOneBackupAndVerification()
+        var smallCosts: [Double] = []
+        var largeCosts: [Double] = []
+        for _ in 0..<Self.samplesPerSize {
+            let small = try World(documents: half)
+            defer { small.cleanUp() }
+            let large = try World(documents: full)
+            defer { large.cleanUp() }
+            smallCosts.append(try small.timeOneBackupAndVerification())
+            largeCosts.append(try large.timeOneBackupAndVerification())
+        }
+        let smallCost = smallCosts.min() ?? 0
+        let largeCost = largeCosts.min() ?? 0
 
         let perDocumentSmall = smallCost / Double(half)
         let perDocumentLarge = largeCost / Double(full)
 
         print("""
-            BACKUP COST, measured in this run:
+            BACKUP COST, measured in this run, fastest of \(Self.samplesPerSize) per size:
               \(half) documents of \(Self.documentBytes) bytes: \
             \(String(format: "%.3f", smallCost))s, \
             \(String(format: "%.2f", perDocumentSmall * 1000))ms per document
@@ -97,7 +118,7 @@ struct BackupCostTests {
         // double the cost. The band is wide because it is measured on a machine
         // doing other things; what it rules out is quadratic growth, where
         // doubling would cost four times as much.
-        let ratio = largeCost / max(smallCost, 0.0001)
+        let ratio = Self.costRatio(small: smallCosts, large: largeCosts)
         #expect(ratio < 3.2,
                 Comment(rawValue: "doubling the documents multiplied the cost by "
                     + "\(String(format: "%.2f", ratio)), which is not linear. A backup whose "
@@ -106,6 +127,22 @@ struct BackupCostTests {
                 Comment(rawValue: "doubling the documents barely changed the cost "
                     + "(x\(String(format: "%.2f", ratio))), so this measured something other "
                     + "than the documents and the number above means nothing (L102)."))
+    }
+
+    /// THE RATIO IS TAKEN FROM THE FASTEST SAMPLE OF EACH SIZE, so one slow moment
+    /// on a busy machine cannot move it (L656). Fixed numbers, not timings, so this
+    /// case is about the rule and cannot itself flake.
+    @Test("one slow sample among several does not move the ratio")
+    func aSlowSampleDoesNotMoveTheRatio() {
+        // The shapes both real failures had: a stall landing on the SMALL run
+        // pushed the ratio under the floor, and one landing on the LARGE run
+        // pushed it over the ceiling.
+        let stalledSmall = BackupCostTests.costRatio(small: [0.044, 0.300, 0.045],
+                                                     large: [0.080, 0.082, 0.081])
+        let stalledLarge = BackupCostTests.costRatio(small: [0.044, 0.046, 0.045],
+                                                     large: [0.080, 0.400, 0.081])
+        #expect(abs(stalledSmall - 0.080 / 0.044) < 0.0001)
+        #expect(abs(stalledLarge - 0.080 / 0.044) < 0.0001)
     }
 
     @Test("every document is hashed for the manifest AND read again to verify")
