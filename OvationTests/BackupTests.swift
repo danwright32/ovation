@@ -42,8 +42,11 @@ struct BackupTests {
         // The two need opposite responses: one is normal, the other is a
         // reminder that the archive is short.
         let absent = manifest.members.filter { $0.status == .legitimatelyAbsent }
+        // The booking queue and Downbeat's record of it join this list (ovation#253):
+        // neither exists until Downbeat has queued its first booking.
         #expect(absent.map(\.path).sorted()
-                == ["Ovation.store-shm", "Ovation.store-wal", "export-runs.jsonl"])
+                == ["Ovation.store-shm", "Ovation.store-wal", "booking-queue",
+                    "downbeat-queued-bookings.json", "export-runs.jsonl"])
         #expect(absent.allSatisfy { $0.issue == nil })
     }
 
@@ -989,6 +992,136 @@ struct BackupTests {
         let snapshot = try #require(try world.service.preRestoreSnapshots().first)
         #expect(!FileManager.default.fileExists(
             atPath: snapshot.appendingPathComponent("gmail-tokens.json").path))
+    }
+
+    // MARK: the booking queue (ovation#253)
+    //
+    // From a week after a shoot until the drain runs, the queue file is the only
+    // record anywhere that the shoot happened and was meant to be billed: Downbeat
+    // deletes the booking after seven days and nothing but the drain deletes the
+    // file. It was in no archive, and the archive did not even say so.
+
+    @Test("an archive carries the booking queue and Downbeat's record of it")
+    func theQueueIsCarried() throws {
+        let world = try World()
+        let queued = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000001", "a queued booking", in: world)
+        try Data("{\"queued\":[]}".utf8).write(to: downbeatLedger(in: world))
+
+        let archive = try world.service.takeBackup(now: world.instant)
+
+        #expect(FileManager.default.fileExists(atPath: archive
+            .appendingPathComponent("booking-queue/\(queued.lastPathComponent)").path))
+        #expect(FileManager.default.fileExists(atPath: archive
+            .appendingPathComponent("downbeat-queued-bookings.json").path))
+        let members = try world.manifest(of: archive).members
+        #expect(members.first { $0.path == "booking-queue" }?.status == .copied)
+        #expect(members.first { $0.path == "downbeat-queued-bookings.json" }?.status == .copied)
+    }
+
+    @Test("a data folder Downbeat has never queued into still backs up, and says so")
+    func noQueueIsLegitimatelyAbsent() throws {
+        // Neither exists until Downbeat commits its first booking, so requiring
+        // them would refuse every backup on a fresh installation (L98).
+        let world = try World()
+
+        let archive = try world.service.takeBackup(now: world.instant)
+
+        let members = try world.manifest(of: archive).members
+        #expect(members.first { $0.path == "booking-queue" }?.status == .legitimatelyAbsent)
+        #expect(members.first { $0.path == "downbeat-queued-bookings.json" }?.status
+                == .legitimatelyAbsent)
+        #expect(try world.service.verify(archive: archive).isVerified)
+    }
+
+    @Test("restoring puts a lost booking back WITHOUT deleting or overwriting one that is there")
+    func restoringAddsQueuedBookingsAndDeletesNone() throws {
+        // Restore replaces a member by deleting what is there and copying the
+        // archive's copy in. For the queue that would delete every booking
+        // committed after the backup, each the only record of its shoot (L5). So
+        // the queue is ADDED TO, and a file already there is Downbeat's current
+        // record, never an older one to overwrite.
+        let world = try World()
+        let lost = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000002", "lost since the backup", in: world)
+        let rewritten = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000003", "as it was at the backup", in: world)
+        let archive = try world.service.takeBackup(now: world.instant)
+
+        try FileManager.default.removeItem(at: lost)
+        try Data("rewritten by Downbeat since".utf8).write(to: rewritten)
+        let since = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000004", "committed after the backup", in: world)
+
+        let result = try world.service.restore(from: archive,
+                                               now: world.instant.addingTimeInterval(60))
+
+        #expect(try String(contentsOf: lost, encoding: .utf8) == "lost since the backup")
+        #expect(try String(contentsOf: rewritten, encoding: .utf8) == "rewritten by Downbeat since")
+        #expect(try String(contentsOf: since, encoding: .utf8) == "committed after the backup")
+        #expect(result.bookingsAddedBack == [lost.lastPathComponent])
+        #expect(result.bookingsHeldBack.isEmpty)
+    }
+
+    @Test("Downbeat's record of what it queued is kept in the backup and never put back")
+    func downbeatsLedgerIsNeverRestored() throws {
+        // It is Downbeat's file, rewritten at every commit, so an older copy put
+        // back would erase every booking Downbeat recorded since, and the
+        // reconciliation reads it as its independent record of what was handed
+        // over (Dan, 2026-09-12).
+        let world = try World()
+        try Data("as Downbeat had it at the backup".utf8).write(to: downbeatLedger(in: world))
+        let archive = try world.service.takeBackup(now: world.instant)
+        // The positive half in the same fixture, so a ledger that never reached
+        // the archive cannot pass the half below (L159).
+        #expect(FileManager.default.fileExists(atPath: archive
+            .appendingPathComponent("downbeat-queued-bookings.json").path))
+        try Data("as Downbeat has it now".utf8).write(to: downbeatLedger(in: world))
+
+        try world.service.restore(from: archive, now: world.instant.addingTimeInterval(60))
+
+        #expect(try String(contentsOf: downbeatLedger(in: world), encoding: .utf8)
+                == "as Downbeat has it now")
+    }
+
+    @Test("a consumed booking ledger restore cannot read holds every booking back, wherever it is",
+          arguments: [true, false])
+    func aConsumedLedgerHoldsTheQueueBack(ledgerIsLive: Bool) throws {
+        // A booking the drain already invoiced, handed back to the drain, is a
+        // second invoice to a client. Only the consumed booking ledger can say
+        // which were invoiced, and its shape is ovation#31's to define, so a
+        // restore that finds one, in the data folder OR in the archive, holds the
+        // queue back rather than guessing (L42). None at all means the drain has
+        // never run, because it writes the ledger in the same save as the invoice
+        // (ovation#32).
+        let world = try World()
+        let ledger = world.dataDirectory.appendingPathComponent("consumed-bookings.jsonl")
+        let lost = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000005", "possibly already invoiced", in: world)
+        if !ledgerIsLive { try Data("{}\n".utf8).write(to: ledger) }
+        let archive = try world.service.takeBackup(now: world.instant)
+        try FileManager.default.removeItem(at: lost)
+        if ledgerIsLive {
+            try Data("{}\n".utf8).write(to: ledger)
+        } else {
+            try FileManager.default.removeItem(at: ledger)
+        }
+
+        let result = try world.service.restore(from: archive,
+                                               now: world.instant.addingTimeInterval(60))
+
+        #expect(!FileManager.default.fileExists(atPath: lost.path))
+        #expect(result.bookingsHeldBack == [lost.lastPathComponent])
+        #expect(result.bookingsAddedBack.isEmpty)
+    }
+
+    /// Writes one queue file the way Downbeat names it, into the fixture's own
+    /// data folder, never the real queue (PRD 29a).
+    private func queue(_ bookingId: String, _ contents: String, in world: World) throws -> URL {
+        let queue = world.dataDirectory.appendingPathComponent("booking-queue", isDirectory: true)
+        try FileManager.default.createDirectory(at: queue, withIntermediateDirectories: true)
+        let file = queue.appendingPathComponent("\(bookingId).json")
+        try Data(contents.utf8).write(to: file)
+        return file
+    }
+
+    private func downbeatLedger(in world: World) -> URL {
+        world.dataDirectory.appendingPathComponent("downbeat-queued-bookings.json")
     }
 
     // MARK: what the STORE references, not what the backup copied (ovation#104)

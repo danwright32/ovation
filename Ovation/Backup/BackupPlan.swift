@@ -46,6 +46,40 @@ struct BackupMember: Equatable, Sendable {
     let path: String
     let kind: Kind
     let expectation: Expectation
+    /// What a restore does with it.
+    let restore: RestorePolicy
+
+    /// What a restore does with a member (ovation#253).
+    ///
+    /// REPLACING IS THE DEFAULT because it is right for everything Ovation owns
+    /// outright: the archive's copy is the state being asked for. The other two
+    /// exist because replacing would DESTROY something, and a member of that kind
+    /// has to say so where it is declared rather than rely on restore knowing.
+    enum RestorePolicy: Equatable, Sendable {
+        /// What is there is deleted and the archive's copy put in its place.
+        case replace
+        /// A folder of queued bookings. Every file the archive holds that is
+        /// missing now is added back, and NOTHING that is there is deleted or
+        /// overwritten: each file is the only record of its shoot, one committed
+        /// after the backup is in no archive at all, and one already there is
+        /// Downbeat's newer record of it (L5).
+        case addMissingBookings
+        /// Carried in the archive so its history survives a lost disk, and never
+        /// written back. The reason is recorded rather than the bare case (L233).
+        case neverRestored(reason: String)
+
+        var isNeverRestored: Bool {
+            if case .neverRestored = self { return true }
+            return false
+        }
+    }
+
+    init(path: String, kind: Kind, expectation: Expectation, restore: RestorePolicy = .replace) {
+        self.path = path
+        self.kind = kind
+        self.expectation = expectation
+        self.restore = restore
+    }
 }
 
 enum BackupPlan {
@@ -124,11 +158,46 @@ enum BackupPlan {
         //
         // Declared now, built later. Each names the issue, so an archive can say
         // what it does not hold and why, rather than being quietly short.
-        .init(path: "consumed-bookings.jsonl", kind: .file,
+        .init(path: consumedBookingsPath, kind: .file,
               expectation: .notYetBuilt(issue: "ovation#31")),
         .init(path: "consumed-messages.jsonl", kind: .file,
               expectation: .notYetBuilt(issue: "ovation#79")),
+
+        // THE BOOKING QUEUE (ovation#253). Downbeat writes one file per committed
+        // booking, deletes the booking itself seven days after the shoot, and
+        // never deletes the file; only the drain does (ovation#32). So from a week
+        // after a shoot until the drain runs, this folder is the ONLY record
+        // anywhere that the shoot happened and was meant to be billed. It was in
+        // no archive and not even declared, so an archive did not say it was short.
+        //
+        // NOT REQUIRED, because nothing exists until Downbeat queues its first
+        // booking. And NEVER REPLACED on restore: see the policy.
+        .init(path: "booking-queue", kind: .directory,
+              expectation: .presentSometimes(
+                reason: "absent until Downbeat has queued its first booking"),
+              restore: .addMissingBookings),
+        // Downbeat's own record of what it queued, written beside the queue.
+        .init(path: "downbeat-queued-bookings.json", kind: .file,
+              expectation: .presentSometimes(
+                reason: "absent until Downbeat has queued its first booking"),
+              restore: .neverRestored(
+                reason: "Downbeat's own file, rewritten by Downbeat at every commit, so an "
+                    + "older copy put back would erase every booking it recorded since, "
+                    + "and the reconciliation reads it as its independent record of what "
+                    + "was handed over (Dan, 2026-09-12)")),
     ]
+
+    /// The consumed booking ledger's name, held once because restore has to find
+    /// it as well as back it up (ovation#253, L41).
+    static let consumedBookingsPath = "consumed-bookings.jsonl"
+
+    /// What a restore does with the member at this path.
+    ///
+    /// A path the plan no longer names, from an archive taken by an older build,
+    /// is replaced, which is what every restore did before policies existed.
+    static func restorePolicy(of path: String) -> BackupMember.RestorePolicy {
+        members.first { $0.path == path }?.restore ?? .replace
+    }
 
     /// Files that must NEVER reach an archive, by name.
     ///
