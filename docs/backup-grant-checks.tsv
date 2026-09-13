@@ -1,0 +1,10 @@
+# ovation#232. Whether a RELAUNCHED, installed build still writes into
+# the backup folder Dan chose. Appended to by
+# scripts/record-backup-grant-check.sh and read by
+# scripts/check-backup-grant.sh.
+#
+# A date, a verdict, and nothing else. No path: this repository is
+# public and where Dan's records are copied to is his business.
+#
+# date	verdict	note
+2026-09-13	survived	relaunched the installed Release app built from 83e5cb0; one archive dated today in the chosen folder, confirmed from the installed app's own records
