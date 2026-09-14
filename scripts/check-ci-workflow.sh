@@ -152,13 +152,11 @@ fi
 # READ FROM STEPS, NOT FROM THE WHOLE FILE. Both workflow files here explain
 # themselves at length and name scripts while doing it, and a rule reading every
 # line would refuse on a sentence ABOUT a check rather than on a step that runs
-# one (L135). Comment lines are dropped and nothing else is: a `run: |` block
-# puts its commands on the lines that follow, so narrowing this to lines carrying
-# `run:` would stop seeing most of what a workflow actually runs.
-NAMED_CHECKS="$(while IFS= read -r file; do
-    [ -n "$file" ] || continue
-    grep -v '^[[:space:]]*#' "$file" | grep -ohE 'check-[a-z0-9-]+\.(sh|py)'
-done <<< "$FILES" | sort -u)"
+# one (L135). What counts as a step's text is decided once, in
+# lib/workflow-text.sh, because scripts/test-preconditions.sh asks the reverse
+# question of the same files and two readers drift (ovation#221, L370).
+. "$REPO_ROOT/scripts/lib/workflow-text.sh"
+NAMED_CHECKS="$(workflow_step_text "$DIR" | grep -oE 'check-[a-z0-9-]+\.(sh|py)' | sort -u)"
 NAMED_COUNT="$(printf '%s' "$NAMED_CHECKS" | grep -c . || true)"
 
 if [ "$NAMED_COUNT" -gt 0 ] && [ ! -f "$SCRIPT_ROLES_TSV" ]; then
