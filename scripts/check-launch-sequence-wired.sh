@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse an entry point that does not run the store launch sequence.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse an entry point that does not run the store launch sequence.
 
 ovation#88. This guard exists because of exactly what it guards against.
 `StoreSchemaGuard` was written and fully tested by ovation#52 and then called by

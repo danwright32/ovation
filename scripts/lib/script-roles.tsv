@@ -170,7 +170,8 @@ test-prd-citations.sh	suite
 test-pr-closing-keywords.sh	suite
 test-select-xcode.sh	suite
 test-preconditions.sh	suite	
-test-project-configuration.sh	suite	
+test-project-configuration.sh	suite
+test-python-scripts-under-bash.sh	suite
 test-regenerate-xcode-project.sh	suite	
 test-run-tests.sh	suite	
 test-schema-registered.sh	suite	

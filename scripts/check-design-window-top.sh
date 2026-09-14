@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a design file whose window has slid too far down its page.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a design file whose window has slid too far down its page.
 
     check-design-window-top.sh [design file ...]
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a design record whose sidebar rail disagrees with itself.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a design record whose sidebar rail disagrees with itself.
 
     check-design-sidebar-card.sh [design file ...]
 

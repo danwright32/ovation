@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a second hand rolled copy of a component the design record shares.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a second hand rolled copy of a component the design record shares.
 
     check-design-shared-components.sh [design file ...]
 

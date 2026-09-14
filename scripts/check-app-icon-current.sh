@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a committed icon catalog that its source artwork does not produce.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a committed icon catalog that its source artwork does not produce.
 
 ovation#102. `Ovation/Assets.xcassets/AppIcon.appiconset` is DERIVED from
 `icon/ovation-app-icon.png` by `scripts/build-app-icon.sh`, and both the source

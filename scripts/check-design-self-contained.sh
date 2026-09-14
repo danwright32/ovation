@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a design file that reaches outside itself.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a design file that reaches outside itself.
 
 ovation#114. `docs/design/README.md` states, as the reason the design record is
 durable, that the design files make ZERO network requests: the typefaces are

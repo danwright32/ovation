@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Assert that a test run wrote nothing to Ovation's real data.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Assert that a test run wrote nothing to Ovation's real data.
 
 ovation#58, plan 1.9. Every live resolver refuses under a disposable launch, and
 `scripts/check-isolation-floor.sh` refuses a resolver that is not registered.

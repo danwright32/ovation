@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a construct Ovation has ruled out, anywhere in its app sources.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a construct Ovation has ruled out, anywhere in its app sources.
 
 ovation#53 (plan 1.4) and ovation#54 (plan 1.5). ONE scanner, several rules.
 The rules share the walk, the comment stripping, the word boundary matching, the

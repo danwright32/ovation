@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a design file carrying CSS for a screen it does not draw.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a design file carrying CSS for a screen it does not draw.
 
     check-design-dead-rules.sh [design file ...]
 

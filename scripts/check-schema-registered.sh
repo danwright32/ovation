@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a model type that the store's schema does not know about.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a model type that the store's schema does not know about.
 
 ovation#60. `OvationSchema.models` is the one list of what the store holds, and
 SwiftData does not complain about a type missing from it. It simply has no table

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a problem kind that the app matches on and never raises.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a problem kind that the app matches on and never raises.
 
 ovation#262. `backupFolderNotChosen` was declared, documented as the standing
 condition a launch with no backup folder raises, and resolved in two places:
