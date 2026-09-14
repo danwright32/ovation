@@ -483,8 +483,10 @@ function moneyBlock(inv) {
     r.append(mk("span", "num", v));
     m.append(r);
   }
-  /* PRD 8. The referral credit is its own block above the subtotal, as the
-     invoice screen draws it. When there is no credit the lines and the subtotal
+  /* PRD 8. The referral credit is its own block above the subtotal. On the PDF
+     that was Dan's choice over a line among the charges, made by looking at both
+     on this page (2026-09-14, ovation#131), rather than the invoice screen's
+     treatment carried over. When there is no credit the lines and the subtotal
      are the same number, and a figure stated twice is not drawn. The lines are
      totalled as Services (Dan, 2026-09-14, ovation#167), chosen by looking at the
      page beside Photography, Charges and Before credit: Photography is wrong on
