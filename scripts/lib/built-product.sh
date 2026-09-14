@@ -41,18 +41,21 @@ built_product_path() {
 # nobody can run leaves the reader facing the same refusal with no way out
 # (L148, L406).
 built_product_require() {
-    local config="$1" app="$2" reason
+    local config="$1" app="$2" reason code
     # The remedy names the command that fixes BOTH configurations, not just this
     # one. A refusal here almost always means neither has been built (a fresh
     # clone, cleared DerivedData, or a runner), so a remedy naming one leaves the
     # reader to hit the same wall again on the next configuration (L148, L406).
-    local build_it="bash scripts/build-products.sh   (builds Debug and Release under the sibling locks)"
-
+    # It comes from built_product_remedy, so the push gate and these suites give
+    # the same advice for the same outcome (L70).
     reason="$(built_product_absence "$config" "$app")"
-    case $? in
+    code=$?
+    case "$code" in
         0) ;;
-        1) harness_cannot_measure "$reason" "build it first: $build_it" ;;
-        *) harness_cannot_measure "$reason" "rebuild it: $build_it" ;;
+        1) harness_cannot_measure "$reason" "build it first: $(built_product_remedy 1)" ;;
+        2) harness_cannot_measure "$reason" "rebuild it: $(built_product_remedy 2)" ;;
+        3) harness_cannot_measure "$reason" "generate the project and build: $(built_product_remedy 3)" ;;
+        *) harness_cannot_measure "$reason" "regenerate the project and build: $(built_product_remedy "$code")" ;;
     esac
 }
 
@@ -71,9 +74,26 @@ BUILT_PRODUCT_CONFIGURATIONS="Debug Release"
 #
 # Prints nothing and answers 0 when the bundle is built. Otherwise prints the
 # reason and answers 1 for no bundle at all, 2 for a bundle with no executable,
-# because those want different words of remedy and nothing else.
+# 3 for no project to ask where the bundle is, and 4 for a project that did not
+# say, because each wants different words of remedy.
+#
+# THE LOCATION IS ASKED OF THE PROJECT, AND AN UNANSWERED QUESTION IS NOT A PLACE
+# (ovation#309). With no generated project, built_product_path answers nothing,
+# and every caller appends /Ovation.app to that nothing. This used to report no
+# product at "/Ovation.app", a location it never looked at, which hid the real
+# cause (L11). The optional third argument is the project that was asked, from the
+# caller that asked it; it defaults to the one built_product_path asks, relative
+# to the top of the tree where the suites run.
 built_product_absence() {
-    local config="$1" app="$2"
+    local config="$1" app="$2" project="${3:-Ovation.xcodeproj}"
+    if [ -z "${app%/Ovation.app}" ]; then
+        if [ ! -d "$project" ]; then
+            printf 'there is no Xcode project at %s to ask where the %s product is' "$project" "$config"
+            return 3
+        fi
+        printf '%s did not say where the %s product is' "$project" "$config"
+        return 4
+    fi
     if [ ! -d "$app" ]; then
         printf 'there is no %s product at %s' "$config" "$app"
         return 1
@@ -83,4 +103,17 @@ built_product_absence() {
         return 2
     fi
     return 0
+}
+
+# THE COMMAND THAT FIXES EACH OUTCOME ABOVE, named once (ovation#309), so the push
+# gate and the bundle suites cannot give different advice for one fault (L70). No
+# project is fixed by building, because build-products.sh makes a project where
+# there is none before it builds. A project that answers nothing is broken or
+# stale, and building from it will not help, so it is regenerated first.
+built_product_remedy() {
+    case "$1" in
+        3) printf 'bash scripts/build-products.sh   (it generates the project, then builds Debug and Release)' ;;
+        4) printf 'bash scripts/regenerate-xcode-project.sh, then bash scripts/build-products.sh' ;;
+        *) printf 'bash scripts/build-products.sh   (builds Debug and Release)' ;;
+    esac
 }

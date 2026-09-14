@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 73
+harness_begin "git hooks tests" 78
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -624,5 +624,44 @@ check "a tree with no built product lib is refused" \
     "$([ "$ST273D" -ne 0 ] && echo refused || echo allowed)" "refused"
 check "and it names the lib it could not find" \
     "$(printf '%s' "$OUT273D" | grep -c 'lib/built-product.sh')" "1"
+
+# ---------------------------------------------------------------------------
+# A TREE WITH NO PROJECT TO ASK IS TOLD THAT, NOT SENT TO "/Ovation.app"
+# (ovation#309).
+#
+# The location comes from asking the project, and in a tree where no project was
+# ever generated the answer is nothing. The refusal then said there was no Debug
+# product at "/Ovation.app", a place it never looked, and hid the cause (L11).
+# The location query is replaced here by one that answers nothing, the way the
+# real one does, and the staged tree has no Ovation.xcodeproj.
+# ---------------------------------------------------------------------------
+stage_unanswered_tree() {
+    local r
+    r="$(stage_tree "$1" 0)"
+    printf '\nbuilt_product_path() { :; }\n' >> "$r/scripts/lib/built-product.sh"
+    printf '%s' "$r"
+}
+P309="$(stage_unanswered_tree gate309)"
+B309="$(commit_file "$P309" "docs/one.md")"
+S309="$(commit_file "$P309" "Ovation/Domain/Thing.swift")"
+OUT309A="$(hook_with_range "$P309" "refs/heads/main $S309 refs/heads/main $B309")"; ST309A=$?
+check "a tree with no generated project is refused up front" \
+    "$([ "$ST309A" -ne 0 ] && echo refused || echo allowed):$(printf '%s' "$OUT309A" | grep -c 'SUITE-FROM-')" "refused:0"
+check "and it says there is no Xcode project to ask" \
+    "$(printf '%s' "$OUT309A" | grep -c 'no Xcode project')" "2"
+check "and it names no location it never looked at" \
+    "$(printf '%s' "$OUT309A" | grep -c ' /Ovation.app')" "0"
+
+# A PROJECT THAT IS THERE AND ANSWERS NOTHING is a different fault with a
+# different remedy: the project is broken or stale, and building will not fix it.
+P309B="$(stage_unanswered_tree gate309b)"
+mkdir -p "$P309B/Ovation.xcodeproj"
+B309B="$(commit_file "$P309B" "docs/one.md")"
+S309B="$(commit_file "$P309B" "Ovation/Domain/Thing.swift")"
+OUT309B="$(hook_with_range "$P309B" "refs/heads/main $S309B refs/heads/main $B309B")"; ST309B=$?
+check "a project that does not say where its products are is named as that" \
+    "$([ "$ST309B" -ne 0 ] && echo refused || echo allowed):$(printf '%s' "$OUT309B" | grep -c 'did not say where')" "refused:2"
+check "and it gives the command that regenerates the project" \
+    "$(printf '%s' "$OUT309B" | grep -c 'bash scripts/regenerate-xcode-project.sh')" "1"
 
 harness_end

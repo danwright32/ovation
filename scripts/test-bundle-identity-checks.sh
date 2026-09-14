@@ -32,7 +32,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "bundle identity judgement tests" 22
+harness_begin "bundle identity judgement tests" 25
 
 TARGET="scripts/lib/bundle-identity-checks.sh"
 require_target "$TARGET"
@@ -269,5 +269,31 @@ check "an Info.plist that could not be read is refused, not passed" \
 # ---------------------------------------------------------------------------
 check "an unknown configuration is refused, never treated as Debug" \
     "$(outcome Staging "$REL_SIG" "$NOT_DEBUGGABLE" | awk '{print ($3 > 0) ? "refused" : "accepted"}')" "refused"
+
+# ---------------------------------------------------------------------------
+# 9. THE REAL SUITE, IN A TREE WITH NO PROJECT, SAYS SO (ovation#309).
+#
+# The bundle suites locate the product by asking the project, through
+# scripts/lib/built-product.sh, and in a tree where no project was ever generated
+# that answer is nothing. The refusal used to name a product at "/Ovation.app", a
+# place it never looked. The real suite is run from a staged tree holding it, its
+# libs and a project.yml, and no Ovation.xcodeproj, so the question is asked for
+# real and answered with nothing, on a Mac and on Linux alike.
+# ---------------------------------------------------------------------------
+stage_projectless_tree() {
+    harness_temp_dir NOPROJ
+    mkdir -p "$NOPROJ/scripts/lib"
+    cp scripts/test-built-bundle-identity.sh "$NOPROJ/scripts/"
+    cp scripts/lib/test-harness.sh scripts/lib/built-product.sh scripts/lib/bundle-identity-checks.sh \
+        "$NOPROJ/scripts/lib/"
+    printf 'name: Ovation\n' > "$NOPROJ/project.yml"
+}
+stage_projectless_tree
+NOPROJ_OUT="$(bash "$NOPROJ/scripts/test-built-bundle-identity.sh" 2>&1)"; NOPROJ_ST=$?
+check "the bundle suite in a tree with no project cannot measure" "$NOPROJ_ST" "2"
+check "and it says there is no Xcode project to ask, with the command that makes one" \
+    "$(printf '%s' "$NOPROJ_OUT" | grep -c 'no Xcode project'):$(printf '%s' "$NOPROJ_OUT" | grep -c 'it generates the project')" "1:1"
+check "and it names no location it never looked at" \
+    "$(printf '%s' "$NOPROJ_OUT" | grep -c ' /Ovation.app')" "0"
 
 harness_end

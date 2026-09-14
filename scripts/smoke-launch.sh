@@ -73,12 +73,20 @@ fi
 # own, because it names the one configuration this launch needs.
 # shellcheck source=lib/built-product.sh
 . "${REPO_ROOT}/scripts/lib/built-product.sh"
+#
+# A LOCATION THAT WAS NEVER LEARNED IS NAMED AS THAT (ovation#309). The project
+# this script asked is passed on, so no project reads as no project rather than
+# as a product missing at "/Ovation.app", and its remedy is the shared one that
+# makes a project, because rebuilding from a project that is not there cannot
+# work.
 BUILD_IT="xcodebuild -project Ovation.xcodeproj -scheme Ovation -configuration ${CONFIGURATION} -destination 'platform=macOS' build"
-ABSENCE="$(built_product_absence "$CONFIGURATION" "$APP")"
+ABSENCE="$(built_product_absence "$CONFIGURATION" "$APP" "${REPO_ROOT}/Ovation.xcodeproj")"
 case $? in
     0) ;;
     1) cannot_measure "$ABSENCE" "build it first: ${BUILD_IT}" ;;
-    *) cannot_measure "$ABSENCE" "rebuild it: ${BUILD_IT}" ;;
+    2) cannot_measure "$ABSENCE" "rebuild it: ${BUILD_IT}" ;;
+    3) cannot_measure "$ABSENCE" "generate the project and build: $(built_product_remedy 3)" ;;
+    *) cannot_measure "$ABSENCE" "regenerate the project and build: $(built_product_remedy 4)" ;;
 esac
 
 EXE="${APP}/Contents/MacOS/Ovation"
