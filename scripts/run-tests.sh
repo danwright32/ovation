@@ -424,9 +424,82 @@ else
       # No lock is taken for a suite that does not run.
       echo "==> Hosted suite skipped: the pure command was injected and no hosted one was."
     else
+      # WHO WENT AHEAD, AND A RECORD OF EVERY WAIT (ovation#236).
+      #
+      # Measured 2026-09-11: a run waited over eleven minutes behind seven back to
+      # back Overture runs, then gave up naming two paths, which reads as Ovation's
+      # fault and cannot tell a queue of busy siblings from one lock a dead run left
+      # behind (L11, L148). And the wait was printed and lost, so how often and how
+      # long this happens was unknown.
+      #
+      # So the holders are noted on every poll and a CHANGE of holder counts as one
+      # more run that went ahead; giving up names them and the count; a wait that
+      # succeeds says what it cost; and every attempt, a wait of nothing included,
+      # is one line in a record the next wait quotes back (L46).
+      #
+      # THE RECORD IS WRITTEN BY REAL RUNS AND BY A RUN THAT NAMES ONE. A run with
+      # injected commands that names none writes nothing, so no test run can reach
+      # Dan's real record by forgetting a seam (L2).
+      WAIT_LOG="${OVATION_LOCK_WAIT_LOG:-}"
+      if [ -z "${WAIT_LOG}" ] && [ -z "${TEST_COMMAND}${HOSTED_TEST_COMMAND}" ]; then
+        WAIT_LOG="${HOME}/Library/Logs/Ovation/lock-waits.tsv"
+      fi
+      holders_seen=0
+      last_dir_holder=""
+      last_file_holder=""
+      last_file_id=""
+      WAIT_OUTCOME=""
+      note_holders() {
+        local d f f_id
+        d="$(describe_dir_holder)"
+        f="$(describe_file_holder)"
+        # A FILE LOCK HOLDER IS ITS LOWEST PID, NOT THE WHOLE LIST. Every process
+        # holding the descriptor is listed, and a real Overture run starts and
+        # ends children the whole time it holds the lock, so the list changed on
+        # almost every poll and one run counted as six. The process that TOOK the
+        # lock started first and lives as long as the hold, so it is the lowest
+        # pid in the list. Measured 2026-09-13: flock and its bash stayed put while
+        # a third pid changed on every sample. The one way this misleads is the
+        # system's pids wrapping round mid wait, which can only overcount.
+        f_id="$(printf '%s' "${f}" | grep -oE '[0-9]+ \(' | grep -oE '[0-9]+' | sort -n | head -1)"
+        # "free" is nobody, and so is a file lock whose holder cannot be seen: a
+        # count must only ever be of holders this run actually observed.
+        case "${d}" in
+          free) ;;
+          *) [ "${d}" != "${last_dir_holder}" ] && holders_seen=$((holders_seen + 1)) ;;
+        esac
+        if [ -n "${f_id}" ] && [ "${f_id}" != "${last_file_id}" ]; then
+          holders_seen=$((holders_seen + 1))
+        fi
+        last_dir_holder="${d}"
+        last_file_holder="${f}"
+        last_file_id="${f_id}"
+      }
+      holders_sentence() {
+        case "${holders_seen}" in
+          0) printf 'no holder this run could see' ;;
+          1) printf '1 different holder' ;;
+          *) printf '%s different holders' "${holders_seen}" ;;
+        esac
+      }
+      record_wait() {
+        [ -n "${WAIT_LOG}" ] || return 0
+        mkdir -p "$(dirname "${WAIT_LOG}")" 2>/dev/null || true
+        # Said, not swallowed, but never a reason to fail a run somebody is waiting
+        # on: the record is a measurement of the queue, not part of the verdict.
+        printf '%s\t%s\t%s\t%s\n' "${wait_started}" "${waited_for}" "${WAIT_OUTCOME}" \
+          "${holders_seen}" >> "${WAIT_LOG}" 2>/dev/null \
+          || echo "    (the lock wait record at ${WAIT_LOG} could not be written)" >&2
+      }
+
       echo "==> Waiting for both test locks, up to ${TIMEOUT}s"
-      echo "    ${DIR_LOCK}: $(describe_dir_holder)"
-      echo "    ${FILE_LOCK}: $(describe_file_holder)"
+      if [ -n "${WAIT_LOG}" ] && [ -s "${WAIT_LOG}" ]; then
+        wait_history="$(tail -n 20 "${WAIT_LOG}" | awk -F'\t' 'NF >= 3 { n++; s = $2 + 0; if (s > 0) waited++; if (s > longest) longest = s } END { if (n) printf "%d recorded, %d waited at all, longest %ds", n, waited, longest }')"
+        [ -n "${wait_history}" ] && echo "    recent waits on this Mac: ${wait_history}"
+      fi
+      note_holders
+      echo "    ${DIR_LOCK}: ${last_dir_holder}"
+      echo "    ${FILE_LOCK}: ${last_file_holder}"
       : > "${FILE_LOCK}" 2>/dev/null || true
       # ELAPSED IS REAL TIME, NOT A COUNT OF ITERATIONS. It was `elapsed=$((elapsed+1))`
       # against a timeout in seconds, which measures iterations and is only the same
@@ -443,15 +516,21 @@ else
             FLOCK_FD=9
             break
           fi
-          exec 9>&- 2>/dev/null || true
+          # A BARE CLOSE, NEVER `exec 9>&- 2>/dev/null` (ovation#281). An exec with
+          # no command makes EVERY redirection on it permanent, so that line sent
+          # this run's stderr to /dev/null from the first busy attempt on: the
+          # give-up message, and the reason a push was refused, simply vanished.
+          # Closing a descriptor needs no silencing; it never errors here.
+          exec 9>&-
           release_locks
         fi
+        note_holders
         elapsed=$(( $(date +%s) - wait_started ))
         # STILL ALIVE, said out loud every thirty seconds with who is holding it, so
         # a long wait reads as a queue rather than as a hang.
         if [ "$((elapsed / 30))" -gt "${announced}" ]; then
           announced=$((elapsed / 30))
-          echo "    still waiting after ${elapsed}s of ${TIMEOUT}s: ${DIR_LOCK} $(describe_dir_holder), ${FILE_LOCK} $(describe_file_holder)"
+          echo "    still waiting after ${elapsed}s of ${TIMEOUT}s: ${DIR_LOCK} ${last_dir_holder}, ${FILE_LOCK} ${last_file_holder}; $(holders_sentence) so far"
         fi
         # GIVING UP ENDS THE WAIT, NOT THE RUN. It used to `exit 3` here, which was
         # harmless while the live data bracket had not been opened yet. It now has:
@@ -459,14 +538,24 @@ else
         # at the end, which a verdict of 3 still does.
         if [ "${elapsed}" -gt "${TIMEOUT}" ]; then
           echo "Error: gave up waiting for the test locks after ${TIMEOUT}s." >&2
-          echo "       ${DIR_LOCK} is Downbeat's, ${FILE_LOCK} is Overture's." >&2
-          echo "       An Overture test run is holding it, or a previous run died." >&2
-          echo "       If nothing is running, remove ${DIR_LOCK} and try again." >&2
+          echo "       Downbeat's lock ${DIR_LOCK}: ${last_dir_holder}" >&2
+          echo "       Overture's lock ${FILE_LOCK}: ${last_file_holder}" >&2
+          echo "       $(holders_sentence) went ahead of this run while it waited." >&2
+          echo "       Several holders is a busy sibling. ONE holder the whole time with" >&2
+          echo "       nothing running is a run that died holding it: remove ${DIR_LOCK}" >&2
+          echo "       and try again." >&2
           STATUS=3
+          WAIT_OUTCOME=gave-up
           break
         fi
         sleep "${POLL}"
       done
+      waited_for=$(( $(date +%s) - wait_started ))
+      WAIT_OUTCOME="${WAIT_OUTCOME:-acquired}"
+      if [ "${WAIT_OUTCOME}" = acquired ] && { [ "${waited_for}" -gt 0 ] || [ "${holders_seen}" -gt 0 ]; }; then
+        echo "==> Waited ${waited_for}s for the test locks; $(holders_sentence) went ahead of this run."
+      fi
+      record_wait
     fi
   fi
 

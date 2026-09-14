@@ -32,7 +32,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_SKIP_XCODE_PHASE \
       OVATION_DIR_LOCK OVATION_FILE_LOCK OVATION_FLOCK_BIN \
       OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL \
-      OVATION_XCODE_PROJECT OVATION_XCODEGEN OVATION_XCODEBUILD_LISTER
+      OVATION_XCODE_PROJECT OVATION_XCODEGEN OVATION_XCODEBUILD_LISTER \
+      OVATION_LOCK_WAIT_LOG
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -63,7 +64,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 101
+harness_begin "test runner lock tests" 110
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -758,8 +759,10 @@ stage_suite "a-pass" 0
 mkdir -p "$DIR_LOCK"
 printf 'downbeat:12345\n' > "$DIR_LOCK/owner"
 OUT22W="$(TIMEOUT_OVERRIDE=1 run_runner)"
+# AT LEAST once, not exactly once: since ovation#236 the holder is named when the
+# wait starts AND again when it gives up, and "once" was never the point.
 check "the wait names who holds the directory lock" \
-    "$(printf '%s' "$OUT22W" | grep -c 'downbeat:12345')" "1"
+    "$([ "$(printf '%s' "$OUT22W" | grep -c 'downbeat:12345')" -ge 1 ] && echo named || echo not-named)" "named"
 check "and it says how long it will wait before giving up" \
     "$(printf '%s' "$OUT22W" | grep -cE 'up to [0-9]+ ?s')" "1"
 rm -rf "$DIR_LOCK"
@@ -779,6 +782,124 @@ WAITED=$(( $(date +%s) - WAIT_FROM ))
 check "it waits for the time it announced, not for a number of polls" \
     "$([ "$WAITED" -ge 2 ] && echo waited || echo "gave-up-after-${WAITED}s")" "waited"
 rm -rf "$DIR_LOCK"
+
+# ---------------------------------------------------------------------------
+# A WAIT THAT ENDS SAYS WHAT HELD IT, AND EVERY WAIT IS RECORDED (ovation#236).
+#
+# Measured 2026-09-11: an Ovation run waited over eleven minutes behind seven back
+# to back Overture runs and gave up with a message naming two paths. That reads as
+# Ovation's fault, and it cannot tell a busy sibling from a lock a dead run left
+# behind (L11, L148). And the wait was printed and lost, so how often and how long
+# this happens stayed unknown.
+#
+# So giving up names the holders and how many different holders went ahead, a
+# wait that succeeds says what it cost, and every attempt is recorded where the
+# start of the next wait reads it back (L46: a record nothing reads is not worth
+# writing).
+gave_up_part() { printf '%s\n' "$1" | sed -n '/gave up waiting/,$p'; }
+
+# 236a. Giving up names who held Downbeat's lock, not only where the lock is.
+mkdir -p "$DIR_LOCK"
+printf 'downbeat:12345\n' > "$DIR_LOCK/owner"
+OUT236A="$(TIMEOUT_OVERRIDE=1 run_runner)"
+check "giving up names who was holding Downbeat's lock" \
+    "$(mentions "$(gave_up_part "$OUT236A")" 'downbeat:12345')" "yes"
+rm -rf "$DIR_LOCK"
+
+# 236b. And who held Overture's. The description is whatever the runner can
+#       honestly say about the holder: a pid where it can ask the system, and
+#       that it cannot see one where it cannot (the Linux job has no lsof).
+    : > "$FILE_LOCK"
+    HOLD_SENTINEL4="$WORK/hold-4"; : > "$HOLD_SENTINEL4"
+    ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL4" ) &
+    HOLDER4=$!
+    waited=0
+    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
+        waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
+    done
+    OUT236B="$(TIMEOUT_OVERRIDE=1 run_runner)"
+    # THIS IS ALSO THE CASE THAT FOUND THE ERRORS GOING NOWHERE (ovation#281).
+    # After a busy attempt at Overture's lock the runner closed its descriptor
+    # with `exec 9>&- 2>/dev/null`, and an exec with no command makes its
+    # redirections PERMANENT: from the first busy attempt on, every error the run
+    # printed went to /dev/null, this message and the reason a push was refused
+    # included. A Downbeat-only hold never reaches that line, which is why 236a
+    # alone could not see it.
+    check "and who was holding Overture's lock" \
+        "$(gave_up_part "$OUT236B" | grep -cE "Overture's lock .*: (held by pid|free, or held by a process this run cannot see)")" "1"
+    # AND A HOLDER IS COUNTED ONCE, however its children come and go. The holder
+    # here, like a real Overture run, starts short lived children the whole time
+    # it holds the lock, so the list of processes holding it is different on
+    # almost every poll; only the process that TOOK the lock is its identity.
+    # Where the holder cannot be seen at all there is no one to count.
+    check "and one holder whose children come and go is counted once" \
+        "$(gave_up_part "$OUT236B" | grep -cE '(1 different holder|no holder this run could see) went ahead')" "1"
+    rm -f "$HOLD_SENTINEL4"; wait "$HOLDER4" 2>/dev/null || true
+
+# 236c. How many DIFFERENT holders went ahead, which is what tells a queue of busy
+#       sibling runs from one stuck lock. The holder changes during the wait, and
+#       the change is made on a condition, not a timer (L290): only once the
+#       runner has printed the first holder.
+mkdir -p "$DIR_LOCK"
+printf 'overture-run-a:111\n' > "$DIR_LOCK/owner"
+OUTFILE236C="$WORK/run-236c.out"; : > "$OUTFILE236C"
+( TIMEOUT_OVERRIDE=3 run_runner > "$OUTFILE236C" 2>&1 ) &
+RUNNER236C=$!
+waited=0
+until grep -q 'overture-run-a:111' "$OUTFILE236C"; do
+    waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
+done
+printf 'overture-run-b:222\n' > "$DIR_LOCK/owner"
+wait "$RUNNER236C" 2>/dev/null || true
+check "and how many different holders went ahead of it" \
+    "$(mentions "$(gave_up_part "$(cat "$OUTFILE236C")")" '2 different holders went ahead')" "yes"
+rm -rf "$DIR_LOCK"
+
+# 236d. A wait that SUCCEEDS says what went ahead of it, so a push's output shows
+#       the wait rather than leaving it to be inferred from how long it took.
+mkdir -p "$DIR_LOCK"
+printf 'downbeat-run:333\n' > "$DIR_LOCK/owner"
+OUTFILE236D="$WORK/run-236d.out"; : > "$OUTFILE236D"
+( TIMEOUT_OVERRIDE=10 run_runner > "$OUTFILE236D" 2>&1 ) &
+RUNNER236D=$!
+waited=0
+until grep -q 'downbeat-run:333' "$OUTFILE236D"; do
+    waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
+done
+rm -rf "$DIR_LOCK"
+wait "$RUNNER236D"; ST236D=$?
+check "a wait that ends in both locks passes and says what went ahead of it" \
+    "$ST236D:$(grep -c '1 different holder went ahead' "$OUTFILE236D")" "0:1"
+
+# 236e. EVERY attempt is recorded, a wait of nothing included, because how often a
+#       run waits is a fraction and needs the runs that did not (L396).
+WAITLOG="$WORK/lock-waits.tsv"; rm -f "$WAITLOG"
+OVATION_LOCK_WAIT_LOG="$WAITLOG" run_runner >/dev/null 2>&1
+mkdir -p "$DIR_LOCK"
+OVATION_LOCK_WAIT_LOG="$WAITLOG" TIMEOUT_OVERRIDE=1 run_runner >/dev/null 2>&1
+rm -rf "$DIR_LOCK"
+check "a run that got the locks at once is recorded as acquired" \
+    "$(sed -n 1p "$WAITLOG" 2>/dev/null | cut -f3)" "acquired"
+check "and a run that gave up is recorded as gave-up" \
+    "$(sed -n 2p "$WAITLOG" 2>/dev/null | cut -f3)" "gave-up"
+
+# 236f. A TEST RUN CAN NEVER WRITE DAN'S REAL RECORD. It is written by real runs
+#       and by a run that names a record; an injected run that names none writes
+#       nothing, measured where the default would land rather than trusted (L2,
+#       L322).
+FAKEHOME="$WORK/fakehome"; rm -rf "$FAKEHOME"; mkdir -p "$FAKEHOME"
+HOME="$FAKEHOME" run_runner >/dev/null 2>&1
+check "an injected run that names no record writes nothing under HOME" \
+    "$(find "$FAKEHOME" -type f | wc -l | tr -d ' ')" "0"
+
+# 236g. And the record is read back: the start of a wait quotes recent waits, so
+#       the number that used to be lost is in front of the person waiting.
+printf '1789000000\t0\tacquired\t0\n1789000100\t40\tacquired\t1\n1789000200\t700\tgave-up\t3\n' > "$WAITLOG"
+mkdir -p "$DIR_LOCK"
+OUT236G="$(OVATION_LOCK_WAIT_LOG="$WAITLOG" TIMEOUT_OVERRIDE=1 run_runner)"
+rm -rf "$DIR_LOCK"
+check "the start of a wait quotes the longest recent wait from the record" \
+    "$(mentions "$OUT236G" 'longest 700s')" "yes"
 
 
 # ---------------------------------------------------------------------------
