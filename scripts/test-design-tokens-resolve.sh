@@ -52,11 +52,11 @@ if [ "$BROWSER_PROBE" = "3" ]; then
         "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
 fi
 
-run_on() { OVATION_DESIGN_ROOT="$1" "./$TARGET" 2>&1; }
-status_on() {
-    OVATION_DESIGN_ROOT="$1" "./$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
-}
+# EACH RECORD IS RENDERED ONCE (ovation#282), and its status and every sentence
+# asked of it are read from that one run, which is quoted when an answer does not
+# match. The run is kept beside the record it rendered, as <record>.out.
+. "$(dirname "$0")/lib/rendered-run.sh"
+judge() { rendered_run "$1" env OVATION_DESIGN_ROOT="$1" "./$TARGET"; }
 
 # ---------------------------------------------------------------------------
 # THE FAULT, exactly as it shipped: the token is defined on the window and used
@@ -76,16 +76,16 @@ cat > "$BROKEN/invoice-list.html" <<'HTML'
   <div class="win"><span class="name">inside</span></div>
 </div>
 HTML
-check "a token used outside the element that defines it is refused" \
-    "$(status_on "$BROKEN")" "1"
-check "and the refusal names the token that did not resolve" \
-    "$(run_on "$BROKEN" | grep -c -- '--accent')" "1"
-check "and the refusal itself names the design file, not just the tally above it" \
-    "$(run_on "$BROKEN" | grep -c 'invoice-list.html: UNRESOLVED')" "1"
-check "and it names the rule whose element could not see it" \
-    "$(run_on "$BROKEN" | grep -c '\.chip')" "1"
-check "and it does not accuse the rule that CAN see it" \
-    "$(run_on "$BROKEN" | grep -c '\.name')" "0"
+judge "$BROKEN"
+check_rendered_status "a token used outside the element that defines it is refused" "$BROKEN" "1"
+check_rendered_count "and the refusal names the token that did not resolve" \
+    "$BROKEN" '--accent' "1"
+check_rendered_count "and the refusal itself names the design file, not just the tally above it" \
+    "$BROKEN" 'invoice-list.html: UNRESOLVED' "1"
+check_rendered_count "and it names the rule whose element could not see it" \
+    "$BROKEN" '\.chip' "1"
+check_rendered_count "and it does not accuse the rule that CAN see it" \
+    "$BROKEN" '\.name' "0"
 
 # ---------------------------------------------------------------------------
 # THE FIX, which is the same page with the palette moved up one element. This is
@@ -105,9 +105,10 @@ cat > "$FIXED/invoice-list.html" <<'HTML'
   <div class="win"><span class="name">inside</span></div>
 </div>
 HTML
-check "the same page with the palette one element up passes" "$(status_on "$FIXED")" "0"
-check "and it says how many references it actually resolved" \
-    "$(run_on "$FIXED" | grep -cE '[0-9]+ token reference')" "1"
+judge "$FIXED"
+check_rendered_status "the same page with the palette one element up passes" "$FIXED" "0"
+check_rendered_count "and it says how many references it actually resolved" \
+    "$FIXED" '[0-9][0-9]* token reference' "1"
 
 # A page that uses no tokens at all measured nothing, and nothing measured is not
 # a pass: it reports exactly what a page in perfect health reports (L98).
@@ -115,10 +116,10 @@ NOTOKENS="$WORK/notokens"
 mkdir -p "$NOTOKENS"
 printf '<meta charset="utf-8">\n<style>\n.chip { color: red; }\n</style>\n<span class="chip">x</span>\n' \
     > "$NOTOKENS/invoice-list.html"
-check "a design file referencing no token at all cannot measure" \
-    "$(status_on "$NOTOKENS")" "2"
-check "and says so rather than reporting every reference resolved" \
-    "$(run_on "$NOTOKENS" | grep -c 'CANNOT SCAN')" "1"
+judge "$NOTOKENS"
+check_rendered_status "a design file referencing no token at all cannot measure" "$NOTOKENS" "2"
+check_rendered_count "and says so rather than reporting every reference resolved" \
+    "$NOTOKENS" 'CANNOT SCAN' "1"
 
 # A rule that matches NO element resolves nothing, and treating that as a pass is
 # how a check goes green over a page it never looked at.
@@ -132,27 +133,30 @@ cat > "$UNMATCHED/invoice-list.html" <<'HTML'
 </style>
 <div class="screen">x</div>
 HTML
-check "a rule that matches no element is reported rather than passed over" \
-    "$(run_on "$UNMATCHED" | grep -c 'DRAWN BY NOTHING')" "1"
+judge "$UNMATCHED"
+check_rendered_count "a rule that matches no element is reported rather than passed over" \
+    "$UNMATCHED" 'DRAWN BY NOTHING' "1"
 
 # ---------------------------------------------------------------------------
 # Nothing to compare is not a pass, and the two ways of having nothing are
 # different faults with different remedies (L11).
 # ---------------------------------------------------------------------------
-check "a missing design root cannot measure" "$(status_on "$WORK/nowhere")" "2"
+judge "$WORK/nowhere"
+check_rendered_status "a missing design root cannot measure" "$WORK/nowhere" "2"
 
 NOHTML="$WORK/nohtml"
 mkdir -p "$NOHTML"
-check "a record with no design file cannot measure" "$(status_on "$NOHTML")" "2"
-check "and names that as its own cause" \
-    "$(run_on "$NOHTML" | grep -c 'no design file')" "1"
+judge "$NOHTML"
+check_rendered_status "a record with no design file cannot measure" "$NOHTML" "2"
+check_rendered_count "and names that as its own cause" "$NOHTML" 'no design file' "1"
 
 # ---------------------------------------------------------------------------
 # The real record, so the fixtures above are not the only thing ever measured. It
 # holds the committed files to what they draw TODAY, at rest, which is a real
 # guarantee and a smaller one than the note at the top of this file describes.
 # ---------------------------------------------------------------------------
-check "every token every committed design file references resolves where it is used" \
-    "$(OVATION_DESIGN_ROOT= "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+rendered_run "$WORK/committed" env OVATION_DESIGN_ROOT= "./$TARGET"
+check_rendered_status "every token every committed design file references resolves where it is used" \
+    "$WORK/committed" "0"
 
 harness_end

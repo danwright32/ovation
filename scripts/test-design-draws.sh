@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 48
+harness_begin "design rendering checks" 51
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -32,9 +32,16 @@ fi
 # ONE WIDTH FOR THE PLANTED CASES, so a mutation reports one failure rather than
 # one per width and the count below stays readable. The committed record is run
 # at both, which is the run that matters.
-one() { OVATION_DESIGN_WIDTHS=1440 python3 "$TARGET" "$1" 2>&1; }
-one_status() { one "$1" >/dev/null 2>&1; printf '%s' "$?"; }
-fired() { one "$1" | sed -n 's/^  FAIL [^:]*: \([^:]*\): .*/\1/p' | sort -u | tr '\n' ';'; }
+#
+# EACH PLANTED FILE IS RENDERED ONCE (ovation#282), and its status, the claims
+# that fired and anything else asked of it are read from that one run, which is
+# quoted whenever an answer does not match. Asking each question of a separate
+# render left the invoice suite with `got ''` on CI and no record of what the
+# render that answered had said.
+. "$(dirname "$0")/lib/rendered-run.sh"
+case_of() { printf '%s' "${1%.html}"; }
+judge() { rendered_run "$(case_of "$1")" env OVATION_DESIGN_WIDTHS=1440 python3 "$TARGET" "$1"; }
+fired() { rendered_claims "$(case_of "$1")" 's/^  FAIL [^:]*: \([^:]*\): .*/\1/p'; }
 
 mutate() {
     # $1 destination, $2 sed expression, $3 a pattern the result must contain.
@@ -69,7 +76,8 @@ check "with more than one claim in it" \
 THREW="$WORK/threw.html"
 check "the hours guard is where the mutation expects it" \
     "$(mutate "$THREW" 's|r.append(mk("td", "r", l.hours == null ? "" : hours(l.hours)));|r.append(mk("td", "r", l.hours !== undefined ? hours(l.hours) : ""));|' 'hours(l.hours) : ""' invoice-pdf.html)" "1"
-check "a page that throws while being driven is refused" "$(one_status "$THREW")" "1"
+judge "$THREW"
+check_rendered_status "a page that throws while being driven is refused" "$(case_of "$THREW")" "1"
 check "and the claim that fired names the console under driving" \
     "$(fired "$THREW")" "the console is still silent after every control has been pressed;"
 
@@ -80,9 +88,10 @@ check "and the claim that fired names the console under driving" \
 NOISY="$WORK/noisy.html"
 check "the page's opening script is where the mutation expects it" \
     "$(mutate "$NOISY" 's|<body>|<body><script>console.error("something the page said");</script>|' 'something the page said' invoice-pdf.html)" "1"
-check "a page that logs an error at rest is refused" "$(one_status "$NOISY")" "1"
-check "and the at rest console claim is one of the ones that fired" \
-    "$(one "$NOISY" | grep -c 'the console said nothing')" "1"
+judge "$NOISY"
+check_rendered_status "a page that logs an error at rest is refused" "$(case_of "$NOISY")" "1"
+check_rendered_count "and the at rest console claim is one of the ones that fired" \
+    "$(case_of "$NOISY")" 'the console said nothing' "1"
 
 # ---------------------------------------------------------------------------
 # 3. CONTENT CUT OFF WITH NO WAY TO REACH IT. The fault that deleted the invoice
@@ -91,9 +100,10 @@ check "and the at rest console claim is one of the ones that fired" \
 CUT="$WORK/cut.html"
 check "the screen's width is where the mutation expects it" \
     "$(mutate "$CUT" 's|^\.screen { width: 1120px;|.screen { width: 820px;|' 'width: 820px' invoice.html)" "1"
-check "a screen that cuts off what it holds is refused" "$(one_status "$CUT")" "1"
-check "and the claim that fired names the unreachable content" \
-    "$(one "$CUT" | grep -c 'nothing hides content there is no way to reach')" "1"
+judge "$CUT"
+check_rendered_status "a screen that cuts off what it holds is refused" "$(case_of "$CUT")" "1"
+check_rendered_count "and the claim that fired names the unreachable content" \
+    "$(case_of "$CUT")" 'nothing hides content there is no way to reach' "1"
 
 # ---------------------------------------------------------------------------
 # 4. A PAGE THAT SCROLLS SIDEWAYS.
@@ -101,9 +111,10 @@ check "and the claim that fired names the unreachable content" \
 WIDE="$WORK/wide.html"
 check "the page body is where the mutation expects it" \
     "$(mutate "$WIDE" 's|<body>|<body><div style="width:3000px;height:4px"></div>|' 'width:3000px' invoice-pdf.html)" "1"
-check "a page that scrolls sideways is refused" "$(one_status "$WIDE")" "1"
-check "and the claim that fired names the sideways scroll" \
-    "$(one "$WIDE" | grep -c 'the page does not scroll sideways')" "1"
+judge "$WIDE"
+check_rendered_status "a page that scrolls sideways is refused" "$(case_of "$WIDE")" "1"
+check_rendered_count "and the claim that fired names the sideways scroll" \
+    "$(case_of "$WIDE")" 'the page does not scroll sideways' "1"
 
 # ---------------------------------------------------------------------------
 # 5. A FIGURE OFF THE SHARED RIGHT EDGE, which the record has had to fix twice.
@@ -111,7 +122,8 @@ check "and the claim that fired names the sideways scroll" \
 EDGE="$WORK/edge.html"
 check "the money row is where the mutation expects it" \
     "$(mutate "$EDGE" 's|r.append(mk("span", "num", v));|r.append(mk("span", "num", v)); if (k === "Subtotal") r.lastChild.style.marginRight = "24px";|' 'marginRight' invoice-pdf.html)" "1"
-check "a figure off the shared right edge is refused" "$(one_status "$EDGE")" "1"
+judge "$EDGE"
+check_rendered_status "a figure off the shared right edge is refused" "$(case_of "$EDGE")" "1"
 check "and the claim that fired names the right edge" \
     "$(fired "$EDGE")" "every figure in a block that says its figures line up does;"
 
@@ -127,7 +139,8 @@ check "and the claim that fired names the right edge" \
 TWICE="$WORK/twice.html"
 check "the line that MOVES the waiting rows is where the mutation expects it" \
     "$(mutate "$TWICE" 's|      if (WAITING.indexOf(r.n) !== -1) return;|      if (false) return;|' 'if (false) return;' invoice-list.html)" "1"
-check "a list drawing one invoice twice is refused" "$(one_status "$TWICE")" "1"
+judge "$TWICE"
+check_rendered_status "a list drawing one invoice twice is refused" "$(case_of "$TWICE")" "1"
 check "and the claim that fired names the invoice drawn twice" \
     "$(fired "$TWICE")" "no invoice is drawn twice in one list;"
 
@@ -147,7 +160,8 @@ check "and the claim that fired names the invoice drawn twice" \
 QUIRKS="$WORK/quirks.html"
 check "the doctype is where the mutation expects it" \
     "$(mutate "$QUIRKS" '1{/<!doctype html>/d;}' '^<html lang="en">' review-send.html)" "1"
-check "a design file that renders in quirks mode is refused" "$(one_status "$QUIRKS")" "1"
+judge "$QUIRKS"
+check_rendered_status "a design file that renders in quirks mode is refused" "$(case_of "$QUIRKS")" "1"
 check "and the claim that fired names the rendering mode" \
     "$(fired "$QUIRKS")" "the page renders in standards mode;"
 
@@ -157,9 +171,10 @@ check "and the claim that fired names the rendering mode" \
 # ---------------------------------------------------------------------------
 EMPTY="$WORK/empty.html"
 printf '<!doctype html>\n<html><head><title>x</title></head><body><p>one</p></body></html>\n' > "$EMPTY"
-check "a page that drew almost nothing is refused" "$(one_status "$EMPTY")" "1"
-check "and the claim that fired says so" \
-    "$(one "$EMPTY" | grep -c 'the page drew something')" "1"
+judge "$EMPTY"
+check_rendered_status "a page that drew almost nothing is refused" "$(case_of "$EMPTY")" "1"
+check_rendered_count "and the claim that fired says so" \
+    "$(case_of "$EMPTY")" 'the page drew something' "1"
 
 # ---------------------------------------------------------------------------
 # NOTHING TO MEASURE IS NOT A PASS, and each way of having nothing is its own
@@ -254,6 +269,23 @@ check "a browser that says nothing at all still cannot measure" \
 check "and the message says it said nothing rather than leaving a blank" \
     "$(OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
         docs/design/invoice-pdf.html 2>&1 | grep -c 'and said nothing')" "1"
+
+# NO PAGE AND A PAGE WITHOUT A REPORT ARE DIFFERENT FAULTS (ovation#282). Both
+# used to read "the page rendered but the probe wrote nothing", which was false
+# for the first: a browser that returned nothing rendered no page, and the probe
+# never had one to run in. The second is the one worth chasing, since the page
+# came back and the report did not, so each is named, with what came back.
+check "a browser that returned no page at all says so, rather than blaming the probe" \
+    "$(OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
+        docs/design/invoice-pdf.html 2>&1 | grep -c 'returned no page at all')" "1"
+PAGE_BROWSER="$WORK/page-without-report.sh"
+printf '#!/bin/sh\necho "<html><head></head><body><p>a page</p></body></html>"\nexit 0\n' > "$PAGE_BROWSER"
+chmod +x "$PAGE_BROWSER"
+OVATION_HEADLESS_BROWSER="$PAGE_BROWSER" python3 "$TARGET" docs/design/invoice-pdf.html \
+    > "$WORK/page-without-report.txt" 2>&1
+check "a browser that returned a page with no report in it cannot measure" "$?" "3"
+check "and it says the page came back and how big it was, without the report" \
+    "$(grep -c 'returned a page of [0-9]* bytes with no probe report in it' "$WORK/page-without-report.txt"):$(grep -c 'returned no page at all' "$WORK/page-without-report.txt")" "1:0"
 
 # ---------------------------------------------------------------------------
 # AND THE LINUX JOB ACTUALLY RUNS THEM (ovation#160). A workflow that installs a
