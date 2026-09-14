@@ -25,23 +25,43 @@ accuses rather than finds (L375).
 `custody/` is not watched for the same reason: those files are Dan's, placed by
 hand, and a comparison cannot tell his hand from a test's.
 
-THE OTHER FALSE ACCUSATION, stated in the message rather than left to be
-puzzled over: running the app while the suite runs changes the Debug tree
-legitimately. The refusal says so, so the reader can tell that case from a test
-having reached live data.
+THE OTHER FALSE ACCUSATION IS THE INSTALLED APP (ovation#266). Since 2026-09-13
+the Release build lives in /Applications and is in daily use, and merely having
+it open, or quitting it, changes `Ovation.store-shm`. The refusal used to say a
+running app "explains a change under Ovation-Debug and nothing else", which was
+true while only Debug builds ran and became wrong the day the Release build was
+installed: it sent the reader to the wrong cause (L11, L375).
 
-Seam: OVATION_LIVE_DATA_ROOT.
+So whether the installed app is running is RECORDED at snapshot and read again
+at compare, identified by its EXECUTABLE PATH rather than its name, because a
+Debug build run from Xcode is also called Ovation and writes somewhere else. A
+change while it was running at either end cannot be told from a test having
+written there, so it is still not a pass, but it is its own outcome: it says the
+app was running and names what changed, rather than accusing the suite. A
+change with the app closed at both ends is refused as a leak exactly as before,
+and a process list that could not be read is never taken to mean closed (L98).
+
+Its known gap, stated rather than discovered: an app opened AND quit entirely
+between the two ends is not seen, and its change reads as a leak.
+
+Seams: OVATION_LIVE_DATA_ROOT, and OVATION_LIVE_DATA_PROCESS_LIST, a command
+printing one executable path per line in place of `ps -A -o comm=`, so the suite
+never has to launch or quit anything.
 
     snapshot <file>   record the fingerprint
     compare <file>    re-read and refuse on any difference
 
 Exit codes, one per outcome (L11):
     0  nothing changed
-    1  something changed, and it is named
+    1  something changed with the installed app closed at both ends, or with
+       whether it was running unreadable, and it is named
     2  the command or the fingerprint file is not usable
+    3  something changed while the installed app was running at either end, so
+       the change cannot be attributed, and it is named
 """
 import json
 import os
+import subprocess
 import sys
 
 # Relative to the Application Support root. Each is a file or a directory.
@@ -53,6 +73,33 @@ WATCHED = (
     "Ovation/documents",
     "Ovation-Debug",
 )
+
+
+# The installed Release build, by the path of the executable itself. Matched as
+# the WHOLE line, so a Debug copy under DerivedData, which is also called Ovation,
+# is never taken for it.
+INSTALLED_APP = "/Applications/Ovation.app/Contents/MacOS/Ovation"
+
+# A process listing that hangs is not an answer, so it has a deadline (L110).
+PROCESS_LIST_SECONDS = 30
+
+
+def installed_app_running():
+    """True or False, or None when the process list could not be read.
+
+    None is kept apart from False on purpose: a lookup that failed has not shown
+    the app was closed, and treating it as closed would put the accusation back
+    on the suite for a reason nobody measured (L98)."""
+    injected = os.environ.get("OVATION_LIVE_DATA_PROCESS_LIST")
+    command = [injected] if injected else ["ps", "-A", "-o", "comm="]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True,
+                                timeout=PROCESS_LIST_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return any(line.strip() == INSTALLED_APP for line in result.stdout.splitlines())
 
 
 def fingerprint(root):
@@ -90,11 +137,13 @@ def main(argv):
         os.path.expanduser("~"), "Library", "Application Support")
 
     current = fingerprint(root)
+    running_now = installed_app_running()
 
     if command == "snapshot":
         try:
             with open(store, "w", encoding="utf-8") as handle:
-                json.dump({"root": root, "entries": current}, handle)
+                json.dump({"root": root, "entries": current,
+                           "installed_app_running": running_now}, handle)
         except OSError as error:
             print(f"CANNOT MEASURE: the fingerprint could not be written to {store}: {error}")
             return 2
@@ -120,11 +169,34 @@ def main(argv):
     changed = [name for name, value in current.items()
                if before.get("entries", {}).get(name) != value]
     if changed:
+        # A fingerprint written before ovation#266 has no record, which is the
+        # same fact as a lookup that failed: nothing showed the app was closed.
+        running_before = before.get("installed_app_running")
+        if running_before is True or running_now is True:
+            print("LIVE DATA CHANGED while the installed app was running, so the change")
+            print("cannot be attributed to the tests or cleared of them. That is not a pass.")
+            for name in changed:
+                print(f"  {name}")
+            if running_before is True and running_now is True:
+                when = "at the start and at the end of the run"
+            elif running_before is True:
+                when = "at the start of the run, and not at the end"
+            else:
+                when = "at the end of the run, and not at the start"
+            print(f"The installed app ({INSTALLED_APP}) was running {when}.")
+            print("Quit it and run again: a change with it closed at both ends is a leak.")
+            return 3
+
         print("LIVE DATA CHANGED while the tests ran. That is not a pass.")
         for name in changed:
             print(f"  {name}")
-        print("Either a test reached live data, or Ovation itself was running at the time.")
-        print("If the app was open, that explains a change under Ovation-Debug and nothing else.")
+        if running_before is None or running_now is None:
+            print("Whether the installed app was running could not be read at one end of the")
+            print("run, so it cannot be ruled out. Nothing measured shows it was closed.")
+        else:
+            print("The installed app was not running at the start or at the end of the run.")
+            print("So a test reached live data, or a Debug build run from Xcode wrote to")
+            print("Ovation-Debug while the tests ran.")
         return 1
 
     print(f"OK: {len(current)} watched path(s) unchanged across the run.")
