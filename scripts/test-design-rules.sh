@@ -37,21 +37,59 @@ if [ -z "$NODE" ]; then
 fi
 
 cat "${RULES}"/duration.js "${RULES}"/time-field.js "${RULES}"/tax-line.js "${RULES}"/money.js \
-    "${RULES}"/waiting.js \
+    "${RULES}"/waiting.js "${RULES}"/pdf-text.js \
     "${RULES}"/duration.cases.js "${RULES}"/time-field.cases.js "${RULES}"/typing.cases.js \
     "${RULES}"/tax-line.cases.js "${RULES}"/money.cases.js "${RULES}"/waiting.cases.js \
     "${RULES}"/suite-isolation.js \
   > "${TMPDIR:-/tmp}/ovation-design-rules.$$.js"
 
+# THE PDF'S TEXT RULES ARE JUDGED BY CASES THE APP READS TOO (ovation#167). They
+# live in JSON rather than in a cases.js file, because OvationTests/PDFTextTests.swift
+# reads the same file against the app's own formatter, and two implementations of
+# one rule each tested by cases of their own agree on the day they are written and
+# then drift (L26). The table's isolation check is made here rather than in
+# suite-isolation.js, because that file is inlined into the invoice screen's
+# design, which has no PDF text table to find.
+{ printf 'var PDF_TEXT_CASES = '; cat "${RULES}"/pdf-text.cases.json; printf ';\n'; } \
+  >> "${TMPDIR:-/tmp}/ovation-design-rules.$$.js"
+
 cat >> "${TMPDIR:-/tmp}/ovation-design-rules.$$.js" <<'JS'
+function runPdfTextTests() {
+  var failures = [], ran = 0;
+  PDF_TEXT_CASES.money.forEach(function (c) {
+    ran++;
+    var got = money(c.cents / 100);
+    if (got !== c.text) failures.push(c.cents + " cents wrote " + got + ", expected " + c.text + " (" + c.why + ")");
+  });
+  PDF_TEXT_CASES.hours.forEach(function (c) {
+    ran++;
+    var got = hours(c.hundredths / 100);
+    if (got !== c.text) failures.push(c.hundredths + " hundredths wrote " + got + ", expected " + c.text + " (" + c.why + ")");
+  });
+  /* PRD 50c: the hours AS PRINTED, read back by digits alone, times the rate
+     must be the amount, which is what a one decimal quarter hour broke. */
+  PDF_TEXT_CASES.hourly.forEach(function (c) {
+    ran++;
+    var printed = hours(c.hundredths / 100).split(" ")[0].split(".");
+    var readBack = parseInt(printed[0], 10) * 100 + parseInt((printed[1] + "00").slice(0, 2), 10);
+    var amount = Math.round(readBack * c.rateCents / 100);
+    if (amount !== c.amountCents) failures.push("printed " + hours(c.hundredths / 100) + " at " + c.rateCents + " cents is " + amount + ", expected " + c.amountCents + " (" + c.why + ")");
+  });
+  return { ran: ran, failures: failures };
+}
 var isolation = checkSuitesAreIsolated();
+["money", "hours", "hourly"].forEach(function (k) {
+  if (!Array.isArray(PDF_TEXT_CASES[k]) || !PDF_TEXT_CASES[k].length)
+    isolation.push("PDF_TEXT_CASES." + k + " is missing or empty, so a suite is running against nothing");
+});
 var suites = [
   ["duration", runDurationTests()],
   ["time field", runTimeFieldTests()],
   ["typing", runTypingTests()],
   ["tax line", runTaxTests()],
   ["waiting on", runWaitingTests()],
-  ["money", runMoneyTests()]
+  ["money", runMoneyTests()],
+  ["pdf text", runPdfTextTests()]
 ];
 var ran = suites.reduce(function (a, s) { return a + s[1].ran; }, 0);
 var bad = isolation.slice();
@@ -66,8 +104,8 @@ if (bad.length) {
 /* The count is asserted, not just the absence of failures: a suite that runs
    half of itself and reports no failures reads exactly like a green one (L288,
    and ovation#106 filed for the same shape in the main suite). */
-if (ran < 130) {
-  console.log("only " + ran + " cases ran, which is fewer than the 130 these files carry.");
+if (ran < 151) {
+  console.log("only " + ran + " cases ran, which is fewer than the 151 these files carry.");
   process.exit(1);
 }
 console.log("design rules: " + ran + " cases pass across " + suites.length + " suites, isolation checked");
