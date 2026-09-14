@@ -67,7 +67,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 149
+harness_begin "test runner lock tests" 153
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -1018,6 +1018,93 @@ rm -rf "$DIR_LOCK"
 wait "$RUNNER236D"; ST236D=$?
 check "a wait that ends in both locks passes and says what went ahead of it" \
     "$ST236D:$(grep -c '1 different holder went ahead' "$OUTFILE236D")" "0:1"
+
+# 303. A LOCK CHANGING HANDS WHILE ITS OWNER IS BEING READ IS NOT ANOTHER HOLDER
+#      (ovation#303).
+#
+# 236d above failed on busy machines, CI and the push gate alike, expecting 0:1
+# and getting 0:0, and passed on rerun. The test's timing was not the cause. The
+# runner described Downbeat's lock by asking whether the owner file existed and
+# then reading it in a separate process, and it counted every change in that
+# description as one more run that went ahead. A release landing between the
+# two steps read as `held by ` with nothing after it, a description the holder
+# never had, so one holder counted as two. A new holder landing between its
+# mkdir and its owner line did the same from the other side. Load only widens
+# the gap, which is why it was rare; measured 2026-09-14, a `head` that sleeps
+# 0.3s first failed 236d in 20 of 20 runs, while 180 runs beside 24 busy loops
+# never did (L681, L203).
+#
+# So the moment is STAGED, not raced (L290): a `head` stand in does to the lock
+# what the case needs at the instant the runner reads its owner, and the case
+# arms it only once the runner has printed the first holder. Each case also
+# proves the stand in fired, because a runner that stopped reading the owner
+# with `head` would pass a race nobody staged (L159).
+REAL_HEAD="$(command -v head)"
+OWNER_READ_SHIM="$WORK/owner-read-shim"
+mkdir -p "$OWNER_READ_SHIM"
+cat > "$OWNER_READ_SHIM/head" <<SHIM
+#!/bin/bash
+for arg in "\$@"; do
+    if [ "\$arg" = "$DIR_LOCK/owner" ] && [ -f "$OWNER_READ_SHIM/armed" ]; then
+        case "\$(cat "$OWNER_READ_SHIM/armed")" in
+            release) rm -rf "$DIR_LOCK"; rm -f "$OWNER_READ_SHIM/armed"
+                     : > "$OWNER_READ_SHIM/fired" ;;
+            replace) rm -rf "$DIR_LOCK"; mkdir "$DIR_LOCK"
+                     printf 'name\n' > "$OWNER_READ_SHIM/armed"
+                     : > "$OWNER_READ_SHIM/fired" ;;
+            name)    printf 'overture-run-c:444\n' > "$DIR_LOCK/owner"
+                     rm -f "$OWNER_READ_SHIM/armed" ;;
+        esac
+        break
+    fi
+done
+exec "$REAL_HEAD" "\$@"
+SHIM
+chmod +x "$OWNER_READ_SHIM/head"
+
+# wait_for_holder_line <file>: the condition the arming waits on.
+wait_for_holder_line() {
+    local waited=0
+    until grep -q 'downbeat-run:333' "$1"; do
+        waited=$((waited+1)); [ "$waited" -gt 400 ] && break; sleep 0.05
+    done
+}
+
+# 303a. Released while its owner is read: one holder went ahead, not two.
+rm -f "$OWNER_READ_SHIM/armed" "$OWNER_READ_SHIM/fired"
+mkdir -p "$DIR_LOCK"
+printf 'downbeat-run:333\n' > "$DIR_LOCK/owner"
+OUTFILE303A="$WORK/run-303a.out"; : > "$OUTFILE303A"
+( PATH="$OWNER_READ_SHIM:$PATH" TIMEOUT_OVERRIDE=10 run_runner > "$OUTFILE303A" 2>&1 ) &
+RUNNER303A=$!
+wait_for_holder_line "$OUTFILE303A"
+printf 'release\n' > "$OWNER_READ_SHIM/armed"
+wait "$RUNNER303A"; ST303A=$?
+check "a lock released while its owner is read is counted as the one holder it was" \
+    "$ST303A:$(grep -c '1 different holder went ahead' "$OUTFILE303A")" "0:1"
+check "and the release really landed during an owner read" \
+    "$([ -f "$OWNER_READ_SHIM/fired" ] && echo staged || echo not-staged)" "staged"
+rm -rf "$DIR_LOCK"
+
+# 303b. Replaced by a new holder that names itself one read later: two holders
+#       went ahead, not three. The runner gives up here, since the new holder
+#       never lets go, and giving up is where the count is said.
+rm -f "$OWNER_READ_SHIM/armed" "$OWNER_READ_SHIM/fired"
+mkdir -p "$DIR_LOCK"
+printf 'downbeat-run:333\n' > "$DIR_LOCK/owner"
+OUTFILE303B="$WORK/run-303b.out"; : > "$OUTFILE303B"
+( PATH="$OWNER_READ_SHIM:$PATH" TIMEOUT_OVERRIDE=2 run_runner > "$OUTFILE303B" 2>&1 ) &
+RUNNER303B=$!
+wait_for_holder_line "$OUTFILE303B"
+printf 'replace\n' > "$OWNER_READ_SHIM/armed"
+wait "$RUNNER303B" 2>/dev/null || true
+check "a new holder caught before it names itself is counted once" \
+    "$(mentions "$(gave_up_part "$(cat "$OUTFILE303B")")" '2 different holders went ahead')" "yes"
+check "and the new holder really was caught unnamed and then named" \
+    "$(cat "$DIR_LOCK/owner" 2>/dev/null):$([ -f "$OWNER_READ_SHIM/armed" ] && echo armed || echo spent)" \
+    "overture-run-c:444:spent"
+rm -rf "$DIR_LOCK"
+rm -f "$OWNER_READ_SHIM/armed" "$OWNER_READ_SHIM/fired"
 
 # 236e. EVERY attempt is recorded, a wait of nothing included, because how often a
 #       run waits is a fraction and needs the runs that did not (L396).
