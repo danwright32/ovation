@@ -63,34 +63,64 @@ while IFS= read -r file; do
   # and it does not need to: the shapes it asks about are line shaped, and a
   # dependency on a YAML parser would be a tool this repository does not have on
   # every machine that has to run this.
+  # WHAT A JOB MUST CARRY, judged in one place for the end of a job and the end of
+  # the file alike, so the two exits cannot come to ask different things.
+  #
+  # A MAC JOB SELECTS THE PINNED XCODE (ovation#270). Both Mac jobs built with the
+  # image's default Xcode and nothing named a version, so an image update could
+  # move the compiler with no change here and the push gate on Dan's Mac would
+  # stop predicting CI. A third Mac job added tomorrow would quietly do the same,
+  # which is why this is a rule over every job rather than a line in two.
+  finish_job() {
+    [ -n "$current_job" ] || return 0
+    if [ "$job_has_timeout" -eq 0 ]; then
+      echo "NO TIMEOUT: $current_job in $(basename "$file")"
+      problems=$((problems+1))
+    fi
+    if [ "$job_is_mac" -eq 1 ] && [ "$job_selects_xcode" -eq 0 ]; then
+      echo "NO PINNED XCODE: $current_job in $(basename "$file")"
+      echo "    runs on macOS without running scripts/select-xcode.sh, so it builds"
+      echo "    with whatever Xcode the image ships as its default (ovation#270)."
+      problems=$((problems+1))
+    fi
+  }
+
   in_jobs=0
   current_job=""
   job_has_timeout=0
+  job_is_mac=0
+  job_selects_xcode=0
   while IFS= read -r line; do
     case "$line" in
       "jobs:"*) in_jobs=1; continue ;;
     esac
     [ "$in_jobs" -eq 1 ] || continue
+    # A COMMENT LINE SAYS NOTHING A JOB DOES. The same rule lib/workflow-text.sh
+    # applies to the file as a whole (ovation#221): a step commented out is not a
+    # step, and a sentence naming the selector is not a selection (L135).
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
     # A two space indented key that is not deeper: a job name.
     if printf '%s' "$line" | grep -qE '^  [A-Za-z0-9_-]+:[[:space:]]*$'; then
-      if [ -n "$current_job" ] && [ "$job_has_timeout" -eq 0 ]; then
-        echo "NO TIMEOUT: $current_job in $(basename "$file")"
-        problems=$((problems+1))
-      fi
+      finish_job
       current_job="$(printf '%s' "$line" | tr -d ' :')"
       job_count=$((job_count+1))
       job_has_timeout=0
+      job_is_mac=0
+      job_selects_xcode=0
       continue
     fi
     case "$line" in
       *timeout-minutes:*) job_has_timeout=1 ;;
     esac
+    case "$line" in
+      *runs-on:*macos*) job_is_mac=1 ;;
+    esac
+    case "$line" in
+      *"bash scripts/select-xcode.sh"*) job_selects_xcode=1 ;;
+    esac
   done < "$file"
-  if [ -n "$current_job" ] && [ "$job_has_timeout" -eq 0 ]; then
-    echo "NO TIMEOUT: $current_job in $(basename "$file")"
-    problems=$((problems+1))
-  fi
+  finish_job
 
   # Every `uses:` must name a 40 character commit, not a tag or a branch.
   while IFS= read -r used; do

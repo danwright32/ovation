@@ -40,12 +40,30 @@ jobs:
   # can fail alone. A job whose isolation does no work is not worth its own
   # minute; this one gates nothing the other job does not, and it tells you which
   # half is broken without waiting for a build (L310).
+  #
+  # A NAMED IMAGE AND A NAMED XCODE, in both Mac jobs (ovation#270). Both used to
+  # run `macos-latest` with the image's default Xcode and nothing named a
+  # version, so an image update could move the compiler with no change here and
+  # the push gate on Dan's Mac would stop predicting CI without anybody being told
+  # (L25, L376). `macos-latest` is itself moved between macOS versions by GitHub,
+  # gradually, over one to two months. `macos-26` is the same runner class, so
+  # nothing about minutes changes.
+  #
+  # The version is recorded once, in .xcode-version, and scripts/select-xcode.sh
+  # selects it and reads back what xcodebuild then reports. When the image does
+  # not carry that version the job STOPS AT THAT STEP BY NAME, listing what the
+  # image has, and never builds with the default instead. Images keep only the
+  # newest patch of each Xcode, so that stop is expected the day a patch release
+  # replaces the pinned one, and the fix is one line in .xcode-version.
   shell-suites:
     name: Shell suites
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Select the Xcode this repository builds with
+        run: bash scripts/select-xcode.sh
 
       # Ovation.xcodeproj is GENERATED from project.yml and is gitignored, so a
       # fresh checkout has no project at all. The suites that read it answer
@@ -179,10 +197,15 @@ jobs:
   # The half Dan's decision is about.
   build-and-test:
     name: Build both configurations and run everything
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # FIRST, before anything is installed or built, so a pin the image does not
+      # carry costs seconds rather than a build (ovation#270, see shell-suites).
+      - name: Select the Xcode this repository builds with
+        run: bash scripts/select-xcode.sh
 
       # The runner needs the tool Ovation inherits from Overture's lock. It is
       # installed rather than worked around, so this runs the same run-tests.sh

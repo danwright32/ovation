@@ -1,0 +1,54 @@
+name: Pull request description
+
+# ovation#261. Everything in this repository names issues as `ovation#N`, so pull
+# request descriptions wrote `Closes ovation#N`. GitHub reads a closing keyword
+# only before `#N` or `owner/repo#N`, so the issue stayed open after the merge and
+# nothing said so. Four pull requests did it in two days, leaving five issues
+# open with their work shipped, and one of them was then offered as the next
+# issue to work on (L468, L346).
+#
+# THE PUSH GATE CANNOT SEE A DESCRIPTION, which is why this is a workflow rather
+# than a gate check: a description exists only on GitHub, and only once the pull
+# request does.
+#
+# ITS OWN FILE, NOT A JOB IN ci.yml, because the event it needs is different. A
+# description is corrected by EDITING the pull request, and ci.yml does not run
+# on `edited`: a check that only saw the description as first written would stay
+# red after the fix, or green after somebody broke it. Adding `edited` to ci.yml
+# instead would rebuild both configurations on every description edit.
+#
+# A LINUX JOB OF SECONDS. Standard runners are free while this repository is
+# public; after ovation#15 it bills at the Linux rate with a one minute minimum
+# per event, which is Dan's decision to revisit then (L276, L310).
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+# A newer event supersedes an older one for the same pull request, and this job
+# writes nothing, so cancelling the superseded run loses nothing (L671).
+concurrency:
+  group: pr-description-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  closing-keywords:
+    name: Closing keywords GitHub reads
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # THE DESCRIPTION ARRIVES THROUGH AN ENVIRONMENT VARIABLE AND A FILE, never
+      # interpolated into the script. A description is text anybody opening a
+      # pull request writes, and `${{ }}` inside `run:` is pasted into the shell
+      # before it runs, so a backtick in a description would be executed.
+      - name: Refuse a closing keyword GitHub does not read
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "${PR_BODY}" > "${RUNNER_TEMP}/pr-body.md"
+          OVATION_PR_BODY_FILE="${RUNNER_TEMP}/pr-body.md" bash scripts/check-pr-closing-keywords.sh

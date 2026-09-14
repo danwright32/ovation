@@ -33,7 +33,7 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_DIR_LOCK OVATION_FILE_LOCK OVATION_FLOCK_BIN \
       OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL \
       OVATION_XCODE_PROJECT OVATION_XCODEGEN OVATION_XCODEBUILD_LISTER \
-      OVATION_LOCK_WAIT_LOG
+      OVATION_LOCK_WAIT_LOG OVATION_XCODEBUILD OVATION_XCODE_VERSION_FILE
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -64,7 +64,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 110
+harness_begin "test runner lock tests" 119
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -97,7 +97,13 @@ mkdir -p "$STANDIN_PROJECT"
 # the runner a hosted command; a pure one now runs whatever is held. It prints a
 # count because a hosted run that executed nothing is refused (ovation#59).
 HOSTED_PASSES='echo "Test run with 5 tests in 1 suite passed"'
+# THE XCODE VERSION SEAMS ARE SET HERE TOO (ovation#270), to paths that are not
+# there unless a case overrides them. Left unset, every case would run the real
+# xcodebuild to ask its version and read the real pin, which is this machine's
+# answer to a question no case but the Xcode ones is asking (L284).
 run_runner() {
+    OVATION_XCODEBUILD="${XCODEBUILD_OVERRIDE:-$WORK/no-xcodebuild-given}" \
+    OVATION_XCODE_VERSION_FILE="${XCODE_PIN_OVERRIDE:-$WORK/no-xcode-pin-given}" \
     OVATION_DIR_LOCK="$DIR_LOCK" \
     OVATION_FILE_LOCK="$FILE_LOCK" \
     OVATION_LOCK_TIMEOUT="${TIMEOUT_OVERRIDE:-2}" \
@@ -1061,6 +1067,67 @@ OUT156D="$(lister_run "printf '%s\n' $FAKE_PURE 4321")"
 check "but any other xcodebuild beside it still is" \
     "$(mentions "$OUT156D" "1 xcodebuild")" "yes"
 kill "$FAKE_PURE" 2>/dev/null; wait "$FAKE_PURE" 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# THE RUNNER SAYS WHEN THIS MAC'S XCODE IS NOT THE ONE CI BUILDS WITH
+# (ovation#270).
+#
+# The push gate is supposed to predict CI, and it can only do that while the two
+# compile with the same Xcode. CI now selects the version .xcode-version names;
+# this Mac builds with whatever is selected here, and a green run on a different
+# compiler is not evidence the merge will build (L376). So the runner reads the
+# same pin and says, on every run that builds, which of the three it found.
+#
+# IT NEVER CHANGES THE VERDICT. A person mid Xcode upgrade must still be able to
+# run the suite, and a refusal here would be a gate people learn to skip (L378).
+# Every case below asserts the exit code as well as the sentence, so a note that
+# started failing runs would be caught.
+# ---------------------------------------------------------------------------
+XCODE_PIN="$WORK/xcode-version"
+printf '26.6\n' > "$XCODE_PIN"
+xcodebuild_reporting() {
+    # xcodebuild_reporting <path> <version>: a stub whose -version says <version>.
+    printf '#!/bin/bash\nprintf "Xcode %s\\nBuild version 17F113\\n"\n' "$2" > "$1"
+    chmod +x "$1"
+}
+xcodebuild_reporting "$WORK/xcodebuild-same" "26.6"
+xcodebuild_reporting "$WORK/xcodebuild-older" "26.4.1"
+
+run_with_xcode() {
+    # run_with_xcode <xcodebuild> [pin file]
+    # LOCAL, so the override ends with the case rather than answering for every
+    # later one (L439).
+    local XCODEBUILD_OVERRIDE="$1" XCODE_PIN_OVERRIDE="${2:-$XCODE_PIN}"
+    run_runner
+}
+
+OUT_XSAME="$(run_with_xcode "$WORK/xcodebuild-same")"; ST_XSAME=$?
+check "a Mac on CI's Xcode runs as before" "$ST_XSAME" "0"
+check "and says it is building with the version CI builds with" \
+    "$(mentions "$OUT_XSAME" "Xcode 26.6, the version CI builds with")" "yes"
+
+OUT_XOLD="$(run_with_xcode "$WORK/xcodebuild-older")"; ST_XOLD=$?
+check "a Mac on a different Xcode is not refused" "$ST_XOLD" "0"
+check "and it names both versions, this Mac's and CI's" \
+    "$(printf '%s' "$OUT_XOLD" | grep -c 'Xcode 26.4.1.*Xcode 26.6')" "1"
+check "and it says what the difference costs, rather than only that there is one" \
+    "$(mentions "$OUT_XOLD" "does not show CI")" "yes"
+
+OUT_XNONE="$(run_with_xcode "$WORK/no-such-xcodebuild")"; ST_XNONE=$?
+check "a Mac where the Xcode version cannot be read is not refused" "$ST_XNONE" "0"
+check "and it says the comparison was not made, rather than staying silent" \
+    "$(mentions "$OUT_XNONE" "could not tell which Xcode")" "yes"
+
+OUT_XNOPIN="$(run_with_xcode "$WORK/xcodebuild-same" "$WORK/no-such-pin")"
+check "a missing pin names the pin file it could not read" \
+    "$(mentions "$OUT_XNOPIN" "$WORK/no-such-pin")" "yes"
+
+# A RUN THAT BUILDS NOTHING SAYS NOTHING ABOUT A COMPILER. The shell only path is
+# what CI's Linux job runs, where there is no Xcode at all, and a note there
+# would be one every Linux log carries and nobody reads (L36).
+OUT_XSKIP="$(OVATION_SKIP_XCODE_PHASE=1 run_with_xcode "$WORK/xcodebuild-older")"
+check "a run that skips the Xcode phase makes no claim about Xcode" \
+    "$(printf '%s' "$OUT_XSKIP" | grep -c 'Xcode 26')" "0"
 
 
 # EVERY INVOCATION OF THE REAL RUNNER SETS BOTH MACHINE SEAMS (ovation#152).
