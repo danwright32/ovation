@@ -1,0 +1,15 @@
+# SHA-256 of every file bundled from outside this repository (ovation#167).
+# Fonts from google/fonts at commit 809e4d8b8d7e, each verified against the git blob
+# GitHub lists for it at that commit before it was committed here. Check with
+#   shasum -a 256 -c Ovation/Resources/bundled-resources.sha256
+# DanWright-black.pdf is Dan's vector mark (Watermark/Logo Pdf/DanWright black.pdf)
+# redrawn into a fresh PDF, which drops the Illustrator editing data, layer list and
+# XMP the original carried. Rasterised at 1856 by 460 it matches the original on every
+# pixel (54,959 visible), and it draws with paths, never an embedded image.
+cf2a774503baf418d584f49967bd160e1e03f087c13b25602f28024ec7788f08  Ovation/Resources/Fonts/Lato-Light.ttf
+d636e4683231f931eda222d588e944d082bfd3bdba02f928bee461c0f185b251  Ovation/Resources/Fonts/Lato-Regular.ttf
+8a0aace75d33794eece4b28187bfc1df0bbd2888b5d8a56e01788c8d65d16be1  Ovation/Resources/Fonts/Lato-Bold.ttf
+74ba064d03f1f1c4a952da936c3eb71866c34404916734de3cae73b34357e59e  Ovation/Resources/Fonts/Lato-OFL.txt
+d0ed0e359e396af7ad05e73dffd11a3a4c326ea0d0283c56bd9361cb2cc86a96  Ovation/Resources/Fonts/Merriweather-Variable.ttf
+715bd349bfa6116f99e351e1548321dcfa25b91df65502d22ca8d624557697d2  Ovation/Resources/Fonts/Merriweather-OFL.txt
+c589e0aa3d1ebb7b419176f88d9676b4da048dd32dbf645edd5e5a32322c8f08  Ovation/Resources/DanWright-black.pdf
