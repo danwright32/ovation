@@ -19,6 +19,9 @@
 #                            running here tomorrow, chosen by them (L25).
 #   the documented command   the decision above is a sentence in a header until
 #                            something reads it (L407).
+#   one run per commit       a workflow on pull requests AND on push to other
+#                            branches runs every pull request commit twice, and
+#                            nothing fails: it only queues and bills (ovation#304).
 #
 # It prints paths, job names and counts. There is nothing here to redact.
 set -uo pipefail
@@ -55,6 +58,79 @@ fi
 problems=0
 job_count=0
 saw_wanted_command=0
+
+# ONE COMMIT, ONE RUN (ovation#304).
+#
+# ci.yml ran on a push to every branch AND on pull_request, with its concurrency
+# group keyed on github.ref, which is the branch for one event and the pull
+# request's merge ref for the other. Neither run cancelled the other, so every
+# commit on a branch with an open pull request built both configurations twice,
+# and on 2026-09-14 a pull request's jobs sat queued over 25 minutes behind the
+# duplicates. After ovation#15 each duplicate bills macOS minutes.
+#
+# THE RULE IS WRITTEN AS THE REASON (L362): a workflow that runs on pull requests
+# may also run on push only to main, the one branch no pull request is opened
+# from. A push with no branch filter is every branch. It is asked of every
+# workflow file rather than of ci.yml by name, because a workflow copied from
+# this one doubles the same way (L30).
+#
+# LINE SHAPED, like everything above: the top level `on:` block, comment lines
+# dropped, in the block form this repository writes and the one line list form.
+# A spelling it does not recognise can only be refused too often, never waved
+# through, except a push filter it cannot read at all, which is why an
+# unfiltered push counts as every branch.
+runs_twice_per_pull_request_commit() {
+  local line rest item in_on=0 in_push=0 in_branches=0
+  local has_pr=0 has_push=0 push_filtered=0 push_elsewhere=0
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [ -n "${line//[[:space:]]/}" ] || continue
+    if [ "$in_on" -eq 0 ]; then
+      case "$line" in
+        "on:"*)
+          in_on=1
+          rest="${line#on:}"
+          case "$rest" in *pull_request*) has_pr=1 ;; esac
+          case "$rest" in *push*) has_push=1 ;; esac
+          ;;
+      esac
+      continue
+    fi
+    # The next top level key ends the block.
+    [[ "$line" =~ ^[^[:space:]] ]] && break
+    # An event: a key at two spaces.
+    if [[ "$line" =~ ^\ \ [a-z_]+: ]]; then
+      in_push=0
+      in_branches=0
+      case "$line" in
+        "  pull_request:"*|"  pull_request_target:"*) has_pr=1 ;;
+        "  push:"*) has_push=1; in_push=1 ;;
+      esac
+      continue
+    fi
+    [ "$in_push" -eq 1 ] || continue
+    if [[ "$line" =~ ^\ \ \ \ branches: ]]; then
+      push_filtered=1
+      rest="${line#*branches:}"
+      if [[ "$rest" == *"["* ]]; then
+        rest="${rest//[\[\]\'\"]/}"
+        for item in ${rest//,/ }; do
+          [ "$item" = "main" ] || push_elsewhere=1
+        done
+      else
+        in_branches=1
+      fi
+    elif [[ "$line" =~ ^\ \ \ \ [a-z_-]+: ]]; then
+      in_branches=0
+    elif [ "$in_branches" -eq 1 ]; then
+      item="${line#*- }"
+      item="${item//[\'\"[:space:]]/}"
+      [ "$item" = "main" ] || push_elsewhere=1
+    fi
+  done < "$1"
+  [ "$has_pr" -eq 1 ] && [ "$has_push" -eq 1 ] \
+    && { [ "$push_filtered" -eq 0 ] || [ "$push_elsewhere" -eq 1 ]; }
+}
 
 while IFS= read -r file; do
   [ -n "$file" ] || continue
@@ -138,6 +214,14 @@ while IFS= read -r file; do
       problems=$((problems+1))
     fi
   done < <(grep -oE 'uses:[[:space:]]*[^[:space:]]+' "$file" | sed 's/uses:[[:space:]]*//')
+
+  if runs_twice_per_pull_request_commit "$file"; then
+    echo "RUNS TWICE PER PULL REQUEST COMMIT: $(basename "$file")"
+    echo "    it runs on pull requests and on push to branches other than main, so"
+    echo "    every commit on a branch with an open pull request runs it twice, and"
+    echo "    neither run cancels the other (ovation#304). Run on push to main only."
+    problems=$((problems+1))
+  fi
 
   if grep -qF "$WANTED" "$file"; then
     saw_wanted_command=1

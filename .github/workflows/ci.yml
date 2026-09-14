@@ -24,13 +24,29 @@ name: CI
 # running on exactly one machine, and those are the assertions that caught a real
 # security defect in ovation#9.
 
+# ONE RUN PER COMMIT (ovation#304). This ran on a push to every branch AND on
+# pull_request, so every commit on a branch with an open pull request ran the
+# whole workflow twice, both macOS jobs included, and the concurrency group below
+# could not pair them: github.ref is the branch for one event and the pull
+# request's merge ref for the other. On 2026-09-14 a pull request's jobs sat
+# queued over 25 minutes behind those duplicates.
+#
+# NOTHING READ THE BRANCH PUSH RUNS, checked before this changed: the repository
+# has no ruleset and no branch protection, so no required check names a push run;
+# ci-liveness.yml reads runs on main only; and the closing keyword check is its
+# own workflow on pull_request. What is given up is CI on a branch pushed with no
+# pull request open, which the push gate still judges before it leaves the Mac.
+#
+# scripts/check-ci-workflow.sh refuses this shape coming back, in any workflow.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
 
 # A second push supersedes the first. Nothing downstream reads a cancelled run,
 # and on a shared runner pool a superseded run delays every other repository's.
+# github.ref is the pull request's merge ref for a pull request run and main for
+# a push, so each pull request and main have one group apiece.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
