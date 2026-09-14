@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode project currency tests" 15
+harness_begin "xcode project currency tests" 17
 
 TARGET="scripts/check-xcode-project-current.sh"
 require_target "$TARGET"
@@ -149,5 +149,18 @@ fresh_tree
 on_disk App/Domain/Main.swift; on_disk scripts/tool.swift
 project_lists Main.swift
 check "a Swift file outside the source directories is not demanded" "$(status_of)" "0"
+
+# 11. STARTED WITH bash, THE SAME CODES (ovation#257). This is Python behind a .sh
+#     name, and `bash scripts/check-xcode-project-current.sh` is the obvious way
+#     to run it by hand. A caller acts on the code, so the refusal and the could
+#     not measure are both asserted rather than only a pass (L404).
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk App/Domain/New.swift
+project_lists Main.swift
+check "started with bash, a stale project still exits 1" \
+    "$(OVATION_REPO_ROOT="$TREE" OVATION_XCODE_PROJECT="$TREE/Ovation.xcodeproj" bash "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "1"
+rm -rf "$TREE/Ovation.xcodeproj"
+check "and with no project it still exits 2" \
+    "$(OVATION_REPO_ROOT="$TREE" OVATION_XCODE_PROJECT="$TREE/Ovation.xcodeproj" bash "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
 
 harness_end

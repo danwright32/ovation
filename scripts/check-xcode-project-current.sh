@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a generated Xcode project that does not list the Swift files on disk.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a generated Xcode project that does not list the Swift files on disk.
 
 ovation#206. project.yml lists DIRECTORIES and the generated Ovation.xcodeproj
 lists FILES, so a Swift file added after the project was generated is invisible
