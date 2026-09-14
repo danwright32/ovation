@@ -51,6 +51,10 @@ PLAIN="$WORK/plain"
 mkdir -p "$PLAIN" "$WORK/home"
 
 root_from() { bash -c '. "$1" && sibling_root "$2"' _ "$LIB" "$1" 2>/dev/null; }
+refusal_from() { bash -c '. "$1" && sibling_root "$2"' _ "$LIB" "$1" 2>"$WORK/err"; }
+toplevel_via_clean_git() {
+    bash -c '. "$1" && clean_git -C "$2" rev-parse --show-toplevel' _ "$LIB" "$1" 2>/dev/null
+}
 
 # 1. THE LIBRARY.
 check "the library exists" "$([ -f "$LIB" ] && echo yes)" "yes"
@@ -61,12 +65,11 @@ check "from a worktree, they live beside the primary checkout rather than beside
 # lookup that did not clear it would answer about whatever it names.
 check "and still when an inherited GIT_DIR names another repository, as inside a hook" \
     "$(GIT_DIR="$STRANGER/.git" root_from "$WT")" "$ESTATE"
-out="$(bash -c '. "$1" && sibling_root "$2"' _ "$LIB" "$PLAIN" 2>"$WORK/err")"
+out="$(refusal_from "$PLAIN")"
 check "outside any repository it refuses rather than guessing a folder" "$?:$out" "1:"
 check "and says why" "$(grep -c 'is not inside a git repository' "$WORK/err")" "1"
 check "clean_git answers about the repository it is pointed at, not an inherited GIT_DIR" \
-    "$(GIT_DIR="$STRANGER/.git" bash -c '. "$1" && clean_git -C "$2" rev-parse --show-toplevel' \
-        _ "$LIB" "$WT" 2>/dev/null)" "$WT"
+    "$(GIT_DIR="$STRANGER/.git" toplevel_via_clean_git "$WT")" "$WT"
 
 # 2. EACH CONSUMER, RUN FROM A WORKTREE COPY OF ITSELF. The library is copied only
 # if it exists, so before it did these fail on the defect rather than on a copy.
