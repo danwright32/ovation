@@ -22,10 +22,21 @@
 # returns EEXIST, which Downbeat's loop reads as "lock held" and then waits out
 # its thirty minute timeout. So each is taken by its own means.
 #
-# THE ORDER IS FIXED AND THAT IS WHAT MAKES DEADLOCK IMPOSSIBLE. Neither sibling
-# takes two locks, so nothing can hold Overture's while waiting for Downbeat's.
-# A future version taking them in the opposite order reintroduces the classic
-# deadlock, which is why the order is asserted by the suite.
+# THE ORDER IS FIXED AND THAT IS WHAT MAKES DEADLOCK IMPOSSIBLE. Every runner
+# that takes both takes them in THIS order, so nothing can hold Overture's while
+# waiting for Downbeat's. A future version taking them in the opposite order
+# reintroduces the classic deadlock, which is why the order is asserted by the
+# suite.
+#
+# WHY THAT SENTENCE CHANGED, 2026-09-14. It used to say deadlock was impossible
+# because "neither sibling takes two locks", and that stopped being true the day
+# it was written about: overture#3571 made Overture's runner take Downbeat's
+# directory lock as well as its own, because the two had never actually excluded
+# each other despite Downbeat's own comment saying they did. So the safety no
+# longer rests on Ovation being the only runner holding two. It rests on the
+# ORDER, and on every runner that takes both agreeing about it, which is now
+# Ovation and Overture. Downbeat takes only the directory lock and so cannot
+# deadlock either way.
 #
 # WHY NOT CONVERT OVERTURE TO ONE MECHANISM (option B, declined): flock is
 # released by the kernel when its holder dies and a mkdir lock is NOT, which is
