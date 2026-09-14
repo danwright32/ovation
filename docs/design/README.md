@@ -672,6 +672,7 @@ typography stands, because the letterhead does not contradict it.
 | Identity | The real mark alone, 218px wide. No contact details beside it and no signature. |
 | Contact | At the foot, beside the payment terms. The email address only: no phone number is printed (Dan, 2026-09-14, PRD 50d). |
 | Tax | Drawn on every invoice. Reads `$0.00` and names the reason where the client is exempt. |
+| Referral credit | Its own block above the subtotal (PRD 8): the lines are totalled as `Services`, the credit comes off beneath that, then the subtotal. Chosen by looking at four labels side by side (Dan, 2026-09-14, ovation#167). With no credit, only the subtotal is drawn. |
 | Colour | One bar at the foot in `#7FA99E`. Nothing else on the document carries colour. |
 | Type | Merriweather for the title and the amount, Lato for everything else, both embedded. |
 

@@ -485,8 +485,10 @@ function moneyBlock(inv) {
   }
   /* PRD 8. The referral credit is its own block above the subtotal, as the
      invoice screen draws it. When there is no credit the lines and the subtotal
-     are the same number, and a figure stated twice is not drawn. The label for
-     the lines is a draft shown to Dan before merge (ovation#167). */
+     are the same number, and a figure stated twice is not drawn. The lines are
+     totalled as Services (Dan, 2026-09-14, ovation#167), chosen by looking at the
+     page beside Photography, Charges and Before credit: Photography is wrong on
+     an invoice that also carries rush or preview charges. */
   if (t.credit > 0) {
     row("Services", money(t.lines));
     row("Referral credit", money(-t.credit));
