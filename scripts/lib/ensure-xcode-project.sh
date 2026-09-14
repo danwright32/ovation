@@ -42,18 +42,84 @@
 # (L110). No trap is set here: this is sourced, and a trap would replace the
 # caller's own.
 #
+# AND A BUILD READING THE PROJECT OUTSIDE THE BUILD LOCK IS VISIBLE (ovation#299).
+# Since ovation#271 the runner builds the pure suite without the directory build
+# lock, so that lock stopped saying whether anything is reading the project, and
+# regenerate-xcode-project.sh could move the project aside under a pure build.
+# The failure that makes reads as a broken build or a missing file rather than a
+# race, so the diagnosis starts in the wrong place.
+#
+# The same project scoped mechanism answers it, rather than a third lock. A
+# regeneration takes THIS create lock while it rewrites, so a run about to read
+# the project waits for it exactly as it waits for a create. And a run reading the
+# project REGISTERS itself in a folder beside the lock, one file per run named by
+# pid and holding the same owner line, which the regeneration reads and refuses
+# on by name. It is a registration rather than the create lock held for the whole
+# build, because two pure suites reading one project at once is fine (measured,
+# ovation#271), and holding the create lock would make the second wait minutes on
+# a message saying the project is being created. Nothing here can be held by a
+# sibling, so the pure suite still never waits behind Downbeat or Overture.
+#
+# THE ORDER CLOSES THE RACE. A reader registers and THEN looks at the create lock;
+# a regeneration takes the create lock and THEN looks at the registrations. Either
+# ordering of the two leaves one of them seeing the other.
+#
 # Sourced, so it can read and be read by the caller's own seams.
 
 # shellcheck source=dir-lock.sh
 . "$(dirname "${BASH_SOURCE[0]}")/dir-lock.sh"
+
+# The key every per project path is derived from, in one place, so the create
+# lock and the registrations beside it can never be derived differently (L70).
+xcode_project_key() {
+    printf '%s' "$1" | cksum | awk '{ print $1 }'
+}
 
 # The create lock for a project, derived from its path so that two trees never
 # share one and one tree always does. In /tmp beside the build locks rather than
 # in the tree, so a lock a dead run leaves behind is not a stray directory for
 # every tree walking guard to find.
 xcode_project_create_lock() {
-    printf '/tmp/ovation-project-create-%s.lock' \
-        "$(printf '%s' "$1" | cksum | awk '{ print $1 }')"
+    printf '/tmp/ovation-project-create-%s.lock' "$(xcode_project_key "$1")"
+}
+
+# Where a run reading a project outside the build lock registers itself
+# (ovation#299). Beside the create lock, for the same reasons.
+xcode_project_readers() {
+    printf '/tmp/ovation-project-readers-%s' "$(xcode_project_key "$1")"
+}
+
+# Claims a create lock whose owner is no longer running. Answers 0 when the
+# holder was dead (the lock is then free, or was taken by somebody else in
+# between), and 1 when the lock is held by a live run or one that named no pid,
+# which is a holder this cannot judge and so is treated as live (L42).
+#
+# CLAIMED BY MOVING IT ASIDE, and only if what was moved is still the dead run's.
+# Two waiters can both find the same dead holder; a plain delete by the slower one
+# would remove the lock the faster one has just taken. Moving and then reading
+# what was moved means a fresh lock caught by mistake is put straight back. The
+# window that survives is a third run taking the lock in between, and it is said
+# rather than hidden.
+xcode_project_claim_dead_lock() {
+    local lock="$1" project="$2" owner pid holder aside
+    [ -d "${lock}" ] || return 1
+    holder="$(dir_lock_describe "${lock}")"
+    owner="$(head -1 "${lock}/owner" 2>/dev/null)"
+    pid="${owner##*:}"
+    case "${pid}" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    ps -p "${pid}" >/dev/null 2>&1 && return 1
+    aside="${lock}.stale.$$"
+    if mv "${lock}" "${aside}" 2>/dev/null; then
+        if [ "$(head -1 "${aside}/owner" 2>/dev/null)" = "${owner}" ]; then
+            rm -rf "${aside}"
+            echo "==> A create lock for $(basename "${project}") was left by a run that is no longer alive (${holder}); claimed it."
+        elif ! mv "${aside}" "${lock}" 2>/dev/null; then
+            echo "Warning: a live create lock was moved aside by mistake and could not be put back: ${aside}" >&2
+        fi
+    fi
+    return 0
 }
 
 # Answers 0 when there is a project to build, and REFUSES with its own message
@@ -66,7 +132,7 @@ xcode_project_create_lock() {
 # makes every test that crosses it wait for real (L524).
 ensure_xcode_project() {
     local repo_root="$1" project="$2" generator="$3"
-    local lock poll timeout started elapsed owner pid holder announced=""
+    local lock poll timeout started elapsed holder announced=""
     lock="$(xcode_project_create_lock "${project}")"
     poll="${OVATION_PROJECT_CREATE_POLL:-0.2}"
     timeout="${OVATION_PROJECT_CREATE_TIMEOUT:-300}"
@@ -75,36 +141,15 @@ ensure_xcode_project() {
     while :; do
         # A CREATE IN PROGRESS IS ASKED ABOUT BEFORE THE PROJECT IS. The project
         # directory appears while xcodegen is still writing into it, so its
-        # existence is not an answer while somebody holds this lock.
+        # existence is not an answer while somebody holds this lock. A
+        # regeneration holds it too (ovation#299), and during one the project has
+        # been moved aside.
         if [ -d "${lock}" ]; then
+            xcode_project_claim_dead_lock "${lock}" "${project}" && continue
             holder="$(dir_lock_describe "${lock}")"
-            owner="$(head -1 "${lock}/owner" 2>/dev/null)"
-            pid="${owner##*:}"
-            case "${pid}" in
-                ''|*[!0-9]*) pid="" ;;
-            esac
-            if [ -n "${pid}" ] && ! ps -p "${pid}" >/dev/null 2>&1; then
-                # CLAIMED BY MOVING IT ASIDE, and only if what was moved is still
-                # the dead run's. Two waiters can both find the same dead holder;
-                # a plain delete by the slower one would remove the lock the faster
-                # one has just taken. Moving and then reading what was moved means
-                # a fresh lock caught by mistake is put straight back. The window
-                # that survives is a third run taking the lock in between, and it
-                # is said rather than hidden.
-                local aside="${lock}.stale.$$"
-                if mv "${lock}" "${aside}" 2>/dev/null; then
-                    if [ "$(head -1 "${aside}/owner" 2>/dev/null)" = "${owner}" ]; then
-                        rm -rf "${aside}"
-                        echo "==> A create lock for $(basename "${project}") was left by a run that is no longer alive (${holder}); claimed it."
-                    elif ! mv "${aside}" "${lock}" 2>/dev/null; then
-                        echo "Warning: a live create lock was moved aside by mistake and could not be put back: ${aside}" >&2
-                    fi
-                fi
-                continue
-            fi
             if [ -z "${announced}" ]; then
                 announced=1
-                echo "==> Another run is creating ${project} (${holder}); waiting for it rather than generating over it."
+                echo "==> Another run is creating or regenerating ${project} (${holder}); waiting for it rather than generating over it."
             fi
             elapsed=$(( $(date +%s) - started ))
             if [ "${elapsed}" -gt "${timeout}" ]; then
@@ -161,4 +206,76 @@ ensure_xcode_project() {
         echo "==> Generated $(basename "${project}") from project.yml, which was absent."
         return 0
     done
+}
+
+# Makes sure there is a project, then registers the caller as reading it
+# (ovation#299). Takes what ensure_xcode_project takes, plus the words that name
+# the reader and its pid, which together are the owner line a refusal quotes.
+# Answers 0 registered, and otherwise ensure_xcode_project's own refusal, or 2.
+#
+# A REGISTRATION THAT CANNOT BE WRITTEN IS A REFUSAL, not a build that goes on
+# unseen. A regeneration would then find nobody reading, which is the one answer
+# that must not be wrong (L42, L98). It is tried three times first, because the
+# last reader leaving removes the empty folder and can do so between a mkdir and
+# a write here.
+xcode_project_read_begin() {
+    local repo_root="$1" project="$2" generator="$3" who="$4" pid="$5"
+    local readers lock attempt status
+    readers="$(xcode_project_readers "${project}")"
+    lock="$(xcode_project_create_lock "${project}")"
+    while :; do
+        ensure_xcode_project "${repo_root}" "${project}" "${generator}"
+        status=$?
+        [ "${status}" -eq 0 ] || return "${status}"
+        attempt=0
+        until mkdir -p "${readers}" 2>/dev/null \
+            && printf '%s:%s\n' "${who}" "${pid}" > "${readers}/${pid}" 2>/dev/null; do
+            attempt=$((attempt + 1))
+            if [ "${attempt}" -ge 3 ]; then
+                echo "Error: could not register this run as reading ${project}" >&2
+                echo "       at ${readers}, so a regeneration could not see it." >&2
+                echo "       Refusing to build from a project that could be rewritten under it." >&2
+                return 2
+            fi
+        done
+        # REGISTERED, THEN ASKED. A regeneration that took the lock between the
+        # look inside ensure_xcode_project and the write above has not seen this
+        # registration, so this run steps back and waits for it.
+        [ -d "${lock}" ] || return 0
+        rm -f "${readers}/${pid}" 2>/dev/null || true
+    done
+}
+
+# Removes the caller's registration, and the folder when it was the last one.
+xcode_project_read_end() {
+    local readers
+    readers="$(xcode_project_readers "$1")"
+    rm -f "${readers}/$2" 2>/dev/null || true
+    rmdir "${readers}" 2>/dev/null || true
+}
+
+# Prints the owner line of every LIVE run reading the project, one per line, and
+# answers 0 when there is at least one. A registration whose pid is no longer
+# running is removed, because a run killed with -9 runs no trap and a dead pid is
+# not reading anything (L409). One that names no pid is counted as live: a holder
+# this cannot judge is not a holder it may wave through (L42).
+xcode_project_live_readers() {
+    local readers entry owner pid found=1
+    readers="$(xcode_project_readers "$1")"
+    [ -d "${readers}" ] || return 1
+    for entry in "${readers}"/*; do
+        [ -f "${entry}" ] || continue
+        owner="$(head -1 "${entry}" 2>/dev/null)"
+        pid="${owner##*:}"
+        case "${pid}" in
+            ''|*[!0-9]*) pid="" ;;
+        esac
+        if [ -n "${pid}" ] && ! ps -p "${pid}" >/dev/null 2>&1; then
+            rm -f "${entry}" 2>/dev/null || true
+            continue
+        fi
+        printf '%s\n' "${owner:-a run that left no owner line}"
+        found=0
+    done
+    return "${found}"
 }

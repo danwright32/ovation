@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode project regeneration tests" 23
+harness_begin "xcode project regeneration tests" 37
 
 TARGET="scripts/regenerate-xcode-project.sh"
 require_target "$TARGET"
@@ -179,5 +179,144 @@ case "$OUT" in
     *"brew install xcodegen"*) check "and the refusal carries the remedy" "yes" "yes" ;;
     *) check "and the refusal carries the remedy" "$OUT" "should say how to install it" ;;
 esac
+
+# ---------------------------------------------------------------------------
+# 8. A PURE SUITE BUILDING FROM THE PROJECT IS SEEN, AND NAMED (ovation#299).
+#
+# Since ovation#271 the runner builds the pure suite OUTSIDE the directory build
+# lock, so that lock no longer says whether anything is reading the project, and
+# a regeneration could move the project aside under a pure build. The failure
+# that produces reads as a broken build or a missing file, not as a race. The
+# pure suite must still not wait behind a sibling, so it does not take that lock;
+# it registers itself against the project, and the regeneration asks.
+#
+# THE REAL RUNNER IS HELD AT ITS BUILD STEP, through an injected pure command
+# that waits on a file this suite removes, so the overlap is staged on
+# conditions rather than on timing (L290). Its sibling lock is held by a
+# stand in for Downbeat the whole time, to show the pure suite still does not
+# wait for one.
+# ---------------------------------------------------------------------------
+[ -n "$WORK" ] || exit 1
+PROJECT_LIB="$PWD/scripts/lib/ensure-xcode-project.sh"
+TREE_PROJECT="$WORK/tree/Ovation.xcodeproj"
+# The paths come from the helper itself, never a copy of its derivation (L70).
+# A helper that is missing answers nothing, and an empty answer here would put
+# the fixtures at the root of the disk, so it is replaced by a path in WORK.
+readers_of() {
+    local got
+    got="$(bash -c '. "$1"; xcode_project_readers "$2"' _ "$PROJECT_LIB" "$1" 2>/dev/null)"
+    printf '%s' "${got:-$WORK/no-readers-helper}"
+}
+create_lock_of() {
+    local got
+    got="$(bash -c '. "$1"; xcode_project_create_lock "$2"' _ "$PROJECT_LIB" "$1" 2>/dev/null)"
+    printf '%s' "${got:-$WORK/no-create-lock-helper}"
+}
+wait_for_path() {
+    local n=0
+    until [ -e "$1" ]; do n=$((n+1)); [ "$n" -gt 400 ] && return 1; sleep 0.05; done
+}
+wait_for_text() {
+    local n=0
+    until grep -q "$2" "$1" 2>/dev/null; do n=$((n+1)); [ "$n" -gt 400 ] && return 1; sleep 0.05; done
+}
+
+PURE_HOLD="$WORK/pure-hold"
+PURE_STARTED="$WORK/pure-started"
+SIBLING_DIR_LOCK="$WORK/sibling-dir.lock"
+# Sets PURE_PID. Every runner seam this could inherit from the shell that ran the
+# suite is cleared or set, because an inherited skip or hosted command would
+# answer for it (L169, L439). The bounded loop is the deadline on the hold, so a
+# case that fails cannot leave this waiting for ever (L110).
+start_held_pure_suite() {
+    : > "$PURE_HOLD"; rm -f "$PURE_STARTED"
+    env -u OVATION_SKIP_XCODE_PHASE -u OVATION_HOSTED_TEST_COMMAND -u OVATION_TEST_FLOOR \
+        -u OVATION_SHELL_SUITE_DIR -u OVATION_SHELL_SUITE_FLOOR -u OVATION_LOCK_WAIT_LOG \
+        OVATION_XCODEBUILD="$WORK/no-xcodebuild-given" \
+        OVATION_XCODE_VERSION_FILE="$WORK/no-xcode-pin-given" \
+        OVATION_DEFAULTS_DOMAINS_COMMAND="printf 'com.apple.finder\n'" \
+        OVATION_DIR_LOCK="$SIBLING_DIR_LOCK" OVATION_FILE_LOCK="$WORK/sibling-file.lock" \
+        OVATION_FLOCK_BIN=/usr/bin/true \
+        OVATION_PROJECT_CREATE_POLL=0.05 \
+        OVATION_UNLOCKED_COMMAND=true \
+        OVATION_TEST_COMMAND="touch '$PURE_STARTED'; n=0; while [ -e '$PURE_HOLD' ] && [ \$n -lt 600 ]; do n=\$((n+1)); sleep 0.05; done" \
+        OVATION_XCODE_PROJECT="$TREE_PROJECT" OVATION_XCODEGEN="$WORK/xcodegen" \
+        ./scripts/run-tests.sh > "$WORK/pure.out" 2>&1 &
+    PURE_PID=$!
+}
+
+# 8a. Refused while the pure suite builds, by name, touching nothing.
+fresh_tree; stub_generator 0
+mkdir -p "$TREE_PROJECT"
+printf 'being built from\n' > "$TREE_PROJECT/marker.txt"
+rm -rf "$SIBLING_DIR_LOCK"; mkdir -p "$SIBLING_DIR_LOCK"
+printf 'Downbeat:4321\n' > "$SIBLING_DIR_LOCK/owner"
+start_held_pure_suite
+wait_for_path "$PURE_STARTED"
+check "the pure suite reached its build step while a sibling held the build lock" \
+    "$([ -e "$PURE_STARTED" ] && echo building || echo never-started)" "building"
+OUT="$(run_it)"; RC=$?
+check "a regeneration while a pure suite is building from the project is refused" "$RC" "1"
+case "$OUT" in
+    *"pure suite:$PURE_PID"*) check "and the refusal names the pure suite by its pid" "yes" "yes" ;;
+    *) check "and the refusal names the pure suite by its pid" "$OUT" "should name pure suite:$PURE_PID" ;;
+esac
+check "and the project it is building from was not touched" \
+    "$(cat "$TREE_PROJECT/marker.txt" 2>/dev/null)" "being built from"
+check "and the generator did not run" \
+    "$([ -f "$WORK/generated.txt" ] && echo yes || echo no)" "no"
+check "and the refusal left neither of its locks behind" \
+    "$({ [ -e "$WORK/lock" ] || [ -e "$(create_lock_of "$TREE_PROJECT")" ]; } && echo held || echo free)" "free"
+rm -f "$PURE_HOLD"; wait "$PURE_PID"; PURE_ST=$?
+rm -rf "$SIBLING_DIR_LOCK"
+check "the pure suite then finishes green" "$PURE_ST" "0"
+check "and once it has, a regeneration goes ahead" "$(status_of)" "0"
+
+# 8b. A REGISTRATION LEFT BY A RUN THAT DIED does not refuse for ever. A pure
+#     suite killed with -9 runs no trap, and a pid that is no longer running is
+#     not building anything (L409, L600).
+fresh_tree; stub_generator 0
+READERS="$(readers_of "$TREE_PROJECT")"
+bash -c 'exit 0' & DEAD_PID=$!; wait "$DEAD_PID"
+mkdir -p "$READERS"; printf 'tree pure suite:%s\n' "$DEAD_PID" > "$READERS/$DEAD_PID"
+check "a registration left by a pure suite that died does not refuse" "$(status_of)" "0"
+check "and it is cleared rather than left for the next one" \
+    "$([ -e "$READERS/$DEAD_PID" ] && echo left || echo cleared)" "cleared"
+
+# 8c. SCOPED TO THE PROJECT. A pure suite in another tree reads another project,
+#     so it must not refuse this one (L369). This suite's own pid is the live one.
+fresh_tree; stub_generator 0
+OTHER_READERS="$(readers_of "$WORK/other/Ovation.xcodeproj")"
+mkdir -p "$OTHER_READERS"; printf 'other pure suite:%s\n' "$$" > "$OTHER_READERS/$$"
+check "a pure suite reading a different tree's project does not refuse this one" "$(status_of)" "0"
+rm -rf "$OTHER_READERS"
+
+# 8d. AND THE OTHER DIRECTION. A regeneration holds the project's create lock
+#     while it rewrites, so a pure suite starting then waits for its result, the
+#     way it already waits for a create (ovation#207), instead of building from a
+#     project that has been moved aside.
+fresh_tree
+printf '#!/bin/bash\ntouch "%s"\nn=0; while [ -e "%s" ] && [ $n -lt 600 ]; do n=$((n+1)); sleep 0.05; done\nmkdir -p "%s"\n' \
+    "$WORK/gen-started" "$WORK/gen-hold" "$TREE_PROJECT" > "$WORK/xcodegen"
+chmod +x "$WORK/xcodegen"
+mkdir -p "$TREE_PROJECT"
+: > "$WORK/gen-hold"; rm -f "$WORK/gen-started"
+run_it > "$WORK/regen.out" 2>&1 & REGEN_PID=$!
+wait_for_path "$WORK/gen-started"
+REGEN_OWNER="$(head -1 "$(create_lock_of "$TREE_PROJECT")/owner" 2>/dev/null)"
+check "a regeneration holds the project's create lock while it rewrites" \
+    "${REGEN_OWNER%%:*}" "tree regenerate"
+start_held_pure_suite
+wait_for_text "$WORK/pure.out" "waiting for it"
+# BOTH HALVES, because either alone passes for the wrong reason: a pure suite that
+# found the project moved aside and started generating one of its own is also
+# not building yet, and it is stuck in the held generator rather than waiting.
+check "a pure suite starting during a regeneration waits for it rather than building" \
+    "$([ -e "$PURE_STARTED" ] && echo built-anyway || echo not-built):$(grep -c 'waiting for it rather than generating over it' "$WORK/pure.out")" "not-built:1"
+rm -f "$WORK/gen-hold"; wait "$REGEN_PID"
+wait_for_path "$PURE_STARTED"
+rm -f "$PURE_HOLD"; wait "$PURE_PID"; PURE_ST=$?
+check "and builds once the regeneration is done" \
+    "$([ -e "$PURE_STARTED" ] && echo "built:$PURE_ST" || echo "never:$PURE_ST")" "built:0"
 
 harness_end
