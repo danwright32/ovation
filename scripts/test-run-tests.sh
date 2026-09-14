@@ -33,7 +33,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_DIR_LOCK OVATION_FILE_LOCK OVATION_FLOCK_BIN \
       OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL \
       OVATION_XCODE_PROJECT OVATION_XCODEGEN OVATION_XCODEBUILD_LISTER \
-      OVATION_LOCK_WAIT_LOG OVATION_XCODEBUILD OVATION_XCODE_VERSION_FILE
+      OVATION_LOCK_WAIT_LOG OVATION_XCODEBUILD OVATION_XCODE_VERSION_FILE \
+      OVATION_DEFAULTS_DOMAINS_COMMAND
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -64,7 +65,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 119
+harness_begin "test runner lock tests" 128
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -97,6 +98,16 @@ mkdir -p "$STANDIN_PROJECT"
 # the runner a hosted command; a pure one now runs whatever is held. It prints a
 # count because a hosted run that executed nothing is refused (ovation#59).
 HOSTED_PASSES='echo "Test run with 5 tests in 1 suite passed"'
+
+# THE PREFERENCE DOMAINS THE RUNNER BRACKETS ARE A FILE HERE (ovation#263). The
+# real list is the whole Mac's, and another checkout running its tests beside
+# this suite can add to it, so a case reading it would be judged on somebody
+# else's run (L375). Each line of the file is one domain, the way `defaults
+# domains` separates them once split.
+DOMAINS="$WORK/domains.txt"
+printf 'com.apple.finder\n' > "$DOMAINS"
+DOMAINS_LISTER="cat '$DOMAINS'"
+
 # THE XCODE VERSION SEAMS ARE SET HERE TOO (ovation#270), to paths that are not
 # there unless a case overrides them. Left unset, every case would run the real
 # xcodebuild to ask its version and read the real pin, which is this machine's
@@ -104,6 +115,7 @@ HOSTED_PASSES='echo "Test run with 5 tests in 1 suite passed"'
 run_runner() {
     OVATION_XCODEBUILD="${XCODEBUILD_OVERRIDE:-$WORK/no-xcodebuild-given}" \
     OVATION_XCODE_VERSION_FILE="${XCODE_PIN_OVERRIDE:-$WORK/no-xcode-pin-given}" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="${DOMAINS_OVERRIDE:-$DOMAINS_LISTER}" \
     OVATION_DIR_LOCK="$DIR_LOCK" \
     OVATION_FILE_LOCK="$FILE_LOCK" \
     OVATION_LOCK_TIMEOUT="${TIMEOUT_OVERRIDE:-2}" \
@@ -407,6 +419,7 @@ hosted_run() {
     OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
     OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
     OVATION_TEST_COMMAND="true" OVATION_HOSTED_TEST_COMMAND="${1}" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
     OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
     "$TARGET" 2>&1
 }
@@ -444,6 +457,7 @@ pure_run() {
     OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
     OVATION_TEST_FLOOR="${2:-100}" \
     OVATION_TEST_COMMAND="${1}" OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
     OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
     "$TARGET" 2>&1
 }
@@ -475,6 +489,7 @@ check "an injected command with no floor announces the skip rather than passing 
     "$(OVATION_UNLOCKED_COMMAND=true \
        OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
        OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+       OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
        OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
        OVATION_TEST_COMMAND="true" "$TARGET" 2>&1 | grep -c 'Pure count check skipped')" "1"
 
@@ -499,6 +514,7 @@ check "with no hosted command injected, the skip is announced rather than silent
     "$(OVATION_UNLOCKED_COMMAND=true \
        OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
        OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+       OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
        OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
        OVATION_TEST_COMMAND="true" "$TARGET" 2>&1 | grep -c 'Hosted suite skipped')" "1"
 
@@ -571,6 +587,7 @@ clear_suites() { rm -f "$SUITES"/test-*.sh; }
 shell_run() {
     OVATION_SHELL_SUITE_DIR="$SUITES" \
     OVATION_SHELL_SUITE_FLOOR="${1:-}" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
     OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
     OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
     OVATION_TEST_COMMAND="true" \
@@ -718,6 +735,7 @@ check "every seam the runner honours is cleared by this suite" \
 skip_run() {
     OVATION_SHELL_SUITE_DIR="$SUITES" \
     OVATION_SKIP_XCODE_PHASE="${1}" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
     OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
     OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
     OVATION_TEST_COMMAND="echo THE-XCODE-PHASE-RAN" \
@@ -930,6 +948,7 @@ run_with_project() {
     OVATION_LOCK_TIMEOUT=2 OVATION_LOCK_POLL_INTERVAL=0.05 \
     OVATION_FLOCK_BIN="$SUITE_FLOCK" \
     OVATION_TEST_COMMAND="true" OVATION_UNLOCKED_COMMAND="true" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
     OVATION_XCODE_PROJECT="$1" OVATION_XCODEGEN="$2" \
         "./$TARGET" 2>&1
 }
@@ -996,6 +1015,7 @@ counted_run() {
     OVATION_TEST_FLOOR="$2" \
     OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
     OVATION_TEST_COMMAND="echo 'Test run with $1 tests in 1 suite passed'" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
     OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "./$TARGET" 2>&1
 }
@@ -1028,6 +1048,7 @@ lister_run() {
     OVATION_TEST_COMMAND="true" OVATION_UNLOCKED_COMMAND="true" \
     OVATION_HOSTED_TEST_COMMAND="$HOSTED_PASSES" \
     OVATION_XCODEBUILD_LISTER="$1" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
     OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "./$TARGET" 2>&1
 }
@@ -1130,6 +1151,51 @@ check "a run that skips the Xcode phase makes no claim about Xcode" \
     "$(printf '%s' "$OUT_XSKIP" | grep -c 'Xcode 26')" "0"
 
 
+# ---------------------------------------------------------------------------
+# A RUN MUST NOT LEAVE A PREFERENCE DOMAIN BEHIND (ovation#263).
+#
+# Two fixtures made a UserDefaults suite by NAME and never removed it, so every
+# run left one more `ovation.tests.<uuid>` domain on the Mac: 426 when the issue
+# was filed on 2026-09-13, 4656 by that evening. The runner lists them before
+# the Swift suites and after, and refuses a run that added one.
+#
+# BY NAME, NOT BY COUNT. A run that removed one old leftover and made one new one
+# would hold the count steady while leaking (L367). And a leftover that was
+# already there is not this run's, which is also the state of every Mac that ran
+# the suite before this change.
+#
+# The pure command stands in for a test: it adds a line to the listed file, which
+# is what a leaking test does to the real list.
+# ---------------------------------------------------------------------------
+printf 'com.apple.finder\novation.tests.OLD-LEFTOVER\n' > "$DOMAINS"
+OUT263A="$(PURE_OVERRIDE="printf 'ovation.tests.LEAKED-BY-THIS-RUN\n' >> '$DOMAINS'" run_runner)"; ST263A=$?
+check "a run that leaves an ovation.tests domain behind is refused" "$ST263A" "7"
+check "and it names the domain it left" \
+    "$(mentions "$OUT263A" "ovation.tests.LEAKED-BY-THIS-RUN")" "yes"
+check "and it names the other explanation, another checkout's older tests running at once" \
+    "$(mentions "$OUT263A" "another checkout")" "yes"
+
+printf 'com.apple.finder\novation.tests.OLD-LEFTOVER\n' > "$DOMAINS"
+OUT263B="$(run_runner)"; ST263B=$?
+check "a leftover that was there before the run is not blamed on it" "$ST263B" "0"
+check "and a clean run says it checked, with both counts" \
+    "$(mentions "$OUT263B" "1 before, 1 after")" "yes"
+
+# NOTHING LISTED IS NOT NOTHING LEFT BEHIND (L98, L215).
+OUT263C="$(DOMAINS_OVERRIDE="false" run_runner)"; ST263C=$?
+check "a domain list that cannot be read is not a clean run" "$ST263C" "2"
+check "and it says the list could not be read" \
+    "$(mentions "$OUT263C" "could not list")" "yes"
+
+# THE SHAPE `defaults domains` ACTUALLY PRINTS: one line, comma separated.
+printf 'com.apple.finder, ovation.tests.OLD-LEFTOVER' > "$DOMAINS"
+OUT263D="$(PURE_OVERRIDE="printf ', ovation.tests.COMMA-LEAK' >> '$DOMAINS'" run_runner)"; ST263D=$?
+check "a leak in the comma separated form is refused too" "$ST263D" "7"
+check "and named without its separator" \
+    "$(printf '%s' "$OUT263D" | grep -c '^ *ovation\.tests\.COMMA-LEAK$' || true)" "1"
+printf 'com.apple.finder\n' > "$DOMAINS"
+
+
 # EVERY INVOCATION OF THE REAL RUNNER SETS BOTH MACHINE SEAMS (ovation#152).
 #
 # An invocation that leaves `OVATION_FLOCK_BIN` or `OVATION_XCODE_PROJECT` unset
@@ -1144,7 +1210,7 @@ check "a run that skips the Xcode phase makes no claim about Xcode" \
 # every helper plus several fragments of syntax as offenders. A guard whose output
 # is unreadable is one nobody can act on (L148).
 TARGET_SUITE="scripts/test-run-tests.sh"
-check "every invocation of the real runner sets flock and the project" \
+check "every invocation of the real runner sets flock, the project and the domain lister" \
     "$(python3 - "$TARGET_SUITE" <<'PYSEAMS'
 import sys
 lines = open(sys.argv[1]).read().splitlines()
@@ -1157,7 +1223,7 @@ for index, line in enumerate(lines):
     if needle not in line:
         continue
     window = "\n".join(lines[max(0, index - 15):index + 1])
-    for seam in ("OVATION_FLOCK_BIN", "OVATION_XCODE_PROJECT"):
+    for seam in ("OVATION_FLOCK_BIN", "OVATION_XCODE_PROJECT", "OVATION_DEFAULTS_DOMAINS_COMMAND"):
         if seam not in window:
             missing.append("line %d:%s" % (index + 1, seam))
 print(" ".join(missing))

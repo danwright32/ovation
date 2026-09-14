@@ -199,7 +199,9 @@ struct BackupFolderSettingTests {
         let folder: URL
         let defaults: UserDefaults
         let setting: BackupFolderSetting
-        private let suiteName: String
+        /// Held for as long as the fixture lives, because releasing it removes the
+        /// settings the setting is writing to (ovation#263).
+        private let throwaway: ThrowawayDefaults
 
         init(disposable: Bool = false) throws {
             root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -211,10 +213,12 @@ struct BackupFolderSettingTests {
             // defaults as a dependency with no default that resolves to the real
             // one, so a test cannot reach Dan's actual choice even by omission
             // (L196, L2).
-            suiteName = "ovation.tests.\(UUID().uuidString)"
-            guard let defaults = UserDefaults(suiteName: suiteName) else {
-                throw FixtureFailure.couldNotMakeDefaults
-            }
+            //
+            // AND ONE THAT LEAVES NOTHING ON THE MAC (ovation#263). A suite made
+            // by name left one more preferences domain behind on every run; the
+            // helper keeps it out of ~/Library/Preferences altogether.
+            throwaway = try ThrowawayDefaults()
+            let defaults = throwaway.defaults
             self.defaults = defaults
             setting = BackupFolderSetting(defaults: defaults,
                                           isDisposableLaunch: { disposable })
@@ -223,9 +227,5 @@ struct BackupFolderSettingTests {
         func overwriteRecordedVolume(with identifier: String) {
             defaults.set(identifier, forKey: BackupFolderSetting.volumeKey)
         }
-    }
-
-    enum FixtureFailure: Error {
-        case couldNotMakeDefaults
     }
 }

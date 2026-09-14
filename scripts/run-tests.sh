@@ -86,6 +86,11 @@ TEST_COMMAND="${OVATION_TEST_COMMAND:-}"
 HOSTED_TEST_COMMAND="${OVATION_HOSTED_TEST_COMMAND:-}"
 UNLOCKED_COMMAND="${OVATION_UNLOCKED_COMMAND:-}"
 SKIP_XCODE_PHASE="${OVATION_SKIP_XCODE_PHASE:-}"
+# What lists this Mac's preference domains (ovation#263). A seam, because the
+# real list is the whole Mac's and another checkout's run can add to it, so the
+# runner's own suite must judge a list it controls (L375).
+DOMAINS_COMMAND="${OVATION_DEFAULTS_DOMAINS_COMMAND:-defaults domains}"
+DOMAINS_BRACKETED=""
 
 # STATUS IS THE RUN'S VERDICT AND IT EXISTS FROM THE TOP. The locked phase used to
 # be the only thing that set it, so the skip path above reached the exit with it
@@ -99,6 +104,23 @@ LIVE_DATA_FINGERPRINT=""
 
 DIR_LOCK_HELD=""
 FLOCK_FD=""
+
+# The `ovation.tests.` preference domains on this Mac, one per line, sorted
+# (ovation#263). `defaults domains` prints one comma separated line, so it is
+# split and trimmed here. It FAILS rather than answering with nothing when the
+# list cannot be read: an empty list and an unreadable one are different facts,
+# and only the first is clean (L98, L215).
+test_domains() {
+  local listed
+  listed="$(bash -c "${DOMAINS_COMMAND}" 2>/dev/null)" || return 1
+  [ -n "${listed}" ] || return 1
+  printf '%s\n' "${listed}" | tr ',' '\n' \
+    | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+    | grep '^ovation\.tests\.' | sort -u
+  return 0
+}
+
+count_lines() { printf '%s' "$1" | grep -c . || true; }
 
 # Released on EVERY exit path, not only the tidy one. A directory lock left
 # planted blocks the next run of a DIFFERENT app, which is the failure this
@@ -356,6 +378,24 @@ else
     LIVE_DATA_FINGERPRINT="$(mktemp)"
     "${LIVE_DATA_GUARD}" snapshot "${LIVE_DATA_FINGERPRINT}" >/dev/null || LIVE_DATA_FINGERPRINT=""
   fi
+
+  # ---------------------------------------------------------------------------
+  # AND AGAINST PREFERENCE DOMAINS LEFT BEHIND (ovation#263).
+  #
+  # Two fixtures made a UserDefaults suite by name and never removed it, so every
+  # run left one more `ovation.tests.<uuid>` domain on the Mac: 426 when the
+  # issue was filed on 2026-09-13 and 4692 by that night, each a plist in
+  # ~/Library/Preferences. OvationTests/ThrowawayDefaultsTests.swift is the fix;
+  # this is what notices the next test that goes around it, by measuring the
+  # list itself rather than reading the test sources (L63).
+  #
+  # BY NAME, NOT BY COUNT, so a run that clears one old leftover while making a
+  # new one cannot read as clean (L367). A leftover already there before the run
+  # is not this run's.
+  # ---------------------------------------------------------------------------
+  DOMAINS_BRACKETED=1
+  DOMAINS_UNMEASURED=""
+  DOMAINS_BEFORE="$(test_domains)" || DOMAINS_UNMEASURED=1
 
   # The command is injectable so the suite can measure the LOCKING without paying
   # for a three minute xcodebuild (L2, L291). The default is the real thing.
@@ -684,6 +724,34 @@ if [ -n "${LIVE_DATA_FINGERPRINT}" ]; then
     [ "${STATUS}" -eq 0 ] && STATUS=7
   fi
   rm -f "${LIVE_DATA_FINGERPRINT}"
+fi
+
+# The other end of the preference domain bracket (ovation#263).
+if [ -n "${DOMAINS_BRACKETED}" ]; then
+  if [ -n "${DOMAINS_UNMEASURED}" ] || ! DOMAINS_AFTER="$(test_domains)"; then
+    # A run whose list could not be read is not a run that left nothing behind,
+    # and it keeps CANNOT MEASURE's own code rather than reading as a failure or
+    # a pass (L11, L98). It never overwrites a real failure.
+    echo "Error: could not list this Mac's preference domains (${DOMAINS_COMMAND})," >&2
+    echo "       so whether this run left an ovation.tests. domain behind was not measured." >&2
+    [ "${STATUS}" -eq 0 ] && STATUS=2
+  else
+    DOMAINS_LEFT="$(comm -13 <(printf '%s\n' "${DOMAINS_BEFORE}" | sed '/^$/d') \
+                             <(printf '%s\n' "${DOMAINS_AFTER}" | sed '/^$/d'))"
+    if [ -n "${DOMAINS_LEFT}" ]; then
+      left_count="$(count_lines "${DOMAINS_LEFT}")"
+      echo "Error: this run left ${left_count} ovation.tests. preference domain(s) on this Mac:" >&2
+      printf '%s\n' "${DOMAINS_LEFT}" | sed -n '1,10p' | sed 's/^/    /' >&2
+      [ "${left_count}" -gt 10 ] && echo "    and $((left_count - 10)) more" >&2
+      echo "       A test made a UserDefaults suite by name and did not remove it. Use" >&2
+      echo "       ThrowawayDefaults, which keeps its settings out of ~/Library/Preferences." >&2
+      echo "       If another checkout was running tests from before ovation#263 at the" >&2
+      echo "       same time, it made them instead, and this run is not at fault." >&2
+      [ "${STATUS}" -eq 0 ] && STATUS=7
+    else
+      echo "==> No ovation.tests. preference domain was left behind ($(count_lines "${DOMAINS_BEFORE}") before, $(count_lines "${DOMAINS_AFTER}") after)."
+    fi
+  fi
 fi
 
 # A SHELL SUITE THAT COULD NOT MEASURE ENDS THE RUN NON-ZERO, at the END rather
