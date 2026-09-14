@@ -288,8 +288,13 @@ OUT138C="$( cd "$R138" && bash scripts/install-git-hooks.sh 2>&1 )"; ST138C=$?
 check "an absolute path to this repo's own hooks is upgraded, not refused" "$ST138C" "0"
 check "and the setting is now the relative form" \
     "$( cd "$R138" && git config --local --get core.hooksPath )" "scripts/git-hooks"
+# ANCHORED TO THE SENTENCE, not the word (ovation#213). Counting `absolute`
+# anywhere in the output is an assertion about every other line the installer
+# prints, and this file has already been bitten by that shape twice (`red` inside
+# `registered`, and `green` in ovation#211).
 check "and it says what it changed rather than doing it silently" \
-    "$(printf '%s' "$OUT138C" | grep -ci "absolute")" "1"
+    "$(printf '%s\n' "$OUT138C" \
+        | grep -c "^Upgraded: core\.hooksPath was an absolute path to this repository's own$")" "1"
 
 R138D="$(fresh_repo foreign)"
 ( cd "$R138D" && git config --local core.hooksPath "/somewhere/else/git-hooks" )
