@@ -670,7 +670,7 @@ typography stands, because the letterhead does not contradict it.
 | The total | Said twice on purpose, once at 25px at the top and once at 10.5px closing the arithmetic. |
 | A line | Description, Hours, Rate, Amount. The client sees the rate and can reconstruct every figure. |
 | Identity | The real mark alone, 218px wide. No contact details beside it and no signature. |
-| Contact | At the foot, beside the payment terms. |
+| Contact | At the foot, beside the payment terms. The email address only: no phone number is printed (Dan, 2026-09-14, PRD 50d). |
 | Tax | Drawn on every invoice. Reads `$0.00` and names the reason where the client is exempt. |
 | Colour | One bar at the foot in `#7FA99E`. Nothing else on the document carries colour. |
 | Type | Merriweather for the title and the amount, Lato for everything else, both embedded. |

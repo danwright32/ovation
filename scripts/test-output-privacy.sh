@@ -132,10 +132,14 @@ printf 'a file mentioning %s and %s\n' "$CLIENT" "$VENUE" > "$TREE/notes.md"
 # guard's five, so the store and the booking queue fell back to Dan's live ones
 # on every push. The check at the end of this file refuses any guard run in any
 # suite that leaves one unset.
+# An empty fingerprint file: zero fingerprints is a valid state, and this run is
+# about the identity branch rather than the fingerprint one.
+: > "$WORK/fingerprints-none.txt"
 OUT_GUARD="$(OVATION_GUARD_EXPORT="$EXPORT" \
     OVATION_GUARD_CUSTODY_DIR="$WORK/no-custody" \
     OVATION_GUARD_STORE="$WORK/no-store/Ovation.store" \
     OVATION_GUARD_QUEUE_DIR="$WORK/no-queue" \
+    OVATION_GUARD_FINGERPRINTS="$WORK/fingerprints-none.txt" \
     OVATION_GUARD_SCAN_ROOT="$TREE" \
     ./scripts/check-identity-leaks.sh 2>&1)"
 check "the identity guard found the planted identity, so its reporting branch ran" \
@@ -1002,7 +1006,7 @@ SEAMSCAN="$WORK/seamscan"; mkdir -p "$SEAMSCAN"
 GUARD_CALL="./scripts/check-""identity-leaks.sh"
 printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    %s 2>&1)"\n' \
     "$GUARD_CALL" > "$SEAMSCAN/test-offender.sh"
-printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_CUSTODY_DIR=x \\\n    OVATION_GUARD_STORE=x \\\n    OVATION_GUARD_QUEUE_DIR=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    %s 2>&1)"\n' \
+printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_CUSTODY_DIR=x \\\n    OVATION_GUARD_STORE=x \\\n    OVATION_GUARD_QUEUE_DIR=x \\\n    OVATION_GUARD_FINGERPRINTS=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    %s 2>&1)"\n' \
     "$GUARD_CALL" > "$SEAMSCAN/test-clean.sh"
 SEAMS_SCANNED="$(unfixtured_guard_runs "$SEAMSCAN")"
 check "a guard run that leaves a source unset is reported" \

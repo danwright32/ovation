@@ -378,7 +378,6 @@ var FIXTURES = [
    sentence is outbound copy and owes the cold read PRD 5.41a requires. */
 var SETTINGS = {
   email: "dan@danwrightphotography.com",
-  phone: "(631) 793 7858",
   payment: "Payment instructions available upon request.",
   noteToCustomer: "Thank you for having me at your performance. Galleries are delivered within five business days.",
   terms: "Payment due within 14 days of the invoice date."
@@ -517,7 +516,8 @@ function buildPage(inv) {
   }
   block("Payment", [SETTINGS.payment, SETTINGS.terms]);
   block("Note", [SETTINGS.noteToCustomer]);
-  block("Contact", [SETTINGS.email, SETTINGS.phone]);
+  /* No phone number is printed (Dan, 2026-09-14, PRD 50d). */
+  block("Contact", [SETTINGS.email]);
   pad.append(foot);
 
   p.append(pad);
