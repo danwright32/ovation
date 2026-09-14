@@ -99,7 +99,8 @@ for CONFIG in $CONFIGURATIONS; do
     APP="$(built_product_path "$CONFIG")/Ovation.app"
     SIG="$(codesign -d --verbose=2 "$APP" 2>&1)"
     ENTS="$(codesign -d --entitlements - --xml "$APP" 2>/dev/null | plutil -p - 2>/dev/null)"
-    bundle_identity_checks "$CONFIG" "$SIG" "$ENTS"
+    INFO="$(plutil -p "$APP/Contents/Info.plist" 2>/dev/null)"
+    bundle_identity_checks "$CONFIG" "$SIG" "$ENTS" "$INFO"
 done
 
 harness_end

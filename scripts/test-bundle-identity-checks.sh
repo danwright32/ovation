@@ -32,7 +32,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "bundle identity judgement tests" 18
+harness_begin "bundle identity judgement tests" 22
 
 TARGET="scripts/lib/bundle-identity-checks.sh"
 require_target "$TARGET"
@@ -98,13 +98,43 @@ RELEASE_UNVALIDATING='{
 REL_SIG="$(signature com.danwright.ovation 'Ovation Local Signing' "$GOOD_FLAGS")"
 DBG_SIG="$(signature com.danwright.ovation.debug 'Ovation Local Signing' "$GOOD_FLAGS")"
 
+# The Info.plist as `plutil -p` renders it, shaped from the installed Release
+# bundle on 2026-09-13 with only the name keys varied (L48). ovation#264 gave
+# the bundle a CFBundleDisplayName, so the fixture carries both name keys.
+info_plist() {
+    # info_plist <identifier> <name>
+    printf '{\n'
+    printf '  "CFBundleDevelopmentRegion" => "en"\n'
+    printf '  "CFBundleDisplayName" => "%s"\n' "$2"
+    printf '  "CFBundleExecutable" => "Ovation"\n'
+    printf '  "CFBundleIdentifier" => "%s"\n' "$1"
+    printf '  "CFBundleName" => "%s"\n' "$2"
+    printf '  "CFBundlePackageType" => "APPL"\n'
+    printf '  "LSMinimumSystemVersion" => "26.0"\n'
+    printf '}\n'
+}
+REL_INFO="$(info_plist com.danwright.ovation 'Ovation')"
+DBG_INFO="$(info_plist com.danwright.ovation.debug 'Ovation Debug')"
+
 # Runs the judgement in a subshell so its verdicts are COUNTED rather than
 # inherited: this suite has to observe the function failing without failing
 # itself. Prints "<assertions run> <passed> <failed>".
+#
+# The Info.plist text is the configuration's CORRECT one unless a case hands it
+# another, so every case written before ovation#264 stays about what it was
+# about.
 outcome() {
+    local info
+    if [ "$#" -ge 4 ]; then
+        info="$4"
+    elif [ "$1" = "Debug" ]; then
+        info="$DBG_INFO"
+    else
+        info="$REL_INFO"
+    fi
     (
         PASS=0; FAIL=0; _HARNESS_RAN=0
-        bundle_identity_checks "$1" "$2" "$3" >/dev/null 2>&1
+        bundle_identity_checks "$1" "$2" "$3" "$info" >/dev/null 2>&1
         printf '%s %s %s' "$_HARNESS_RAN" "$PASS" "$FAIL"
     )
 }
@@ -113,9 +143,9 @@ outcome() {
 # 1. The healthy pair. Both configurations as this machine actually builds them.
 # ---------------------------------------------------------------------------
 check "a correct Release bundle passes every judgement" \
-    "$(outcome Release "$REL_SIG" "$NOT_DEBUGGABLE")" "6 6 0"
+    "$(outcome Release "$REL_SIG" "$NOT_DEBUGGABLE")" "7 7 0"
 check "a correct Debug bundle passes every judgement" \
-    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE")" "6 6 0"
+    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE")" "7 7 0"
 
 # ---------------------------------------------------------------------------
 # 2. SEEN TO FAIL: ovation#9's actual defect.
@@ -129,21 +159,21 @@ check "a correct Debug bundle passes every judgement" \
 # the runtime flag, so every other reading said the app was protected (L188).
 # ---------------------------------------------------------------------------
 check "a Release bundle a debugger can attach to is REFUSED" \
-    "$(outcome Release "$REL_SIG" "$DEBUGGABLE")" "6 4 2"
+    "$(outcome Release "$REL_SIG" "$DEBUGGABLE")" "7 5 2"
 
 # And the inverse, which is a real defect too: without it Xcode cannot attach
 # and debugging the app is silently broken.
 check "a Debug bundle a debugger CANNOT attach to is refused" \
-    "$(outcome Debug "$DBG_SIG" "$NOT_DEBUGGABLE")" "6 4 2"
+    "$(outcome Debug "$DBG_SIG" "$NOT_DEBUGGABLE")" "7 5 2"
 
 # ---------------------------------------------------------------------------
 # 3. The identity. This is the whole of plan 1.1's isolation: macOS keys the
 #    data directory, the TCC grants and the Gmail login to this string.
 # ---------------------------------------------------------------------------
 check "a Release bundle wearing the Debug identifier is refused" \
-    "$(outcome Release "$DBG_SIG" "$NOT_DEBUGGABLE")" "6 5 1"
+    "$(outcome Release "$DBG_SIG" "$NOT_DEBUGGABLE")" "7 6 1"
 check "a Debug bundle wearing the Release identifier is refused" \
-    "$(outcome Debug "$REL_SIG" "$DEBUGGABLE")" "6 5 1"
+    "$(outcome Debug "$REL_SIG" "$DEBUGGABLE")" "7 6 1"
 
 # ---------------------------------------------------------------------------
 # 4. Ad hoc signing, the world before ovation#9. It mints a NEW code identity on
@@ -152,15 +182,15 @@ check "a Debug bundle wearing the Release identifier is refused" \
 #    Two judgements fail together: no stable authority, and an adhoc signature.
 # ---------------------------------------------------------------------------
 check "an ad hoc signed Release bundle is refused" \
-    "$(outcome Release "$(adhoc_signature com.danwright.ovation)" "$NOT_DEBUGGABLE")" "6 4 2"
+    "$(outcome Release "$(adhoc_signature com.danwright.ovation)" "$NOT_DEBUGGABLE")" "7 5 2"
 check "an ad hoc signed Debug bundle is refused" \
-    "$(outcome Debug "$(adhoc_signature com.danwright.ovation.debug)" "$DEBUGGABLE")" "6 4 2"
+    "$(outcome Debug "$(adhoc_signature com.danwright.ovation.debug)" "$DEBUGGABLE")" "7 5 2"
 
 # A bundle signed by SOMETHING ELSE is not Ovation's stable identity either,
 # even though it is not ad hoc.
 check "a bundle signed by another authority is refused" \
     "$(outcome Release "$(signature com.danwright.ovation 'Apple Development: someone' "$GOOD_FLAGS")" \
-        "$NOT_DEBUGGABLE")" "6 5 1"
+        "$NOT_DEBUGGABLE")" "7 6 1"
 
 # ---------------------------------------------------------------------------
 # 5. Hardened runtime, judged on the FLAGS and not on the word.
@@ -172,10 +202,10 @@ check "a bundle signed by another authority is refused" \
 # ---------------------------------------------------------------------------
 check "a Release bundle with no hardened runtime is refused" \
     "$(outcome Release "$(signature com.danwright.ovation 'Ovation Local Signing' "$NO_FLAGS")" \
-        "$NOT_DEBUGGABLE")" "6 5 1"
+        "$NOT_DEBUGGABLE")" "7 6 1"
 check "a Debug bundle with no hardened runtime is refused" \
     "$(outcome Debug "$(signature com.danwright.ovation.debug 'Ovation Local Signing' "$NO_FLAGS")" \
-        "$DEBUGGABLE")" "6 5 1"
+        "$DEBUGGABLE")" "7 6 1"
 
 # ---------------------------------------------------------------------------
 # 6. Empty input is a REFUSAL, not a pass. A caller whose codesign call failed
@@ -202,15 +232,35 @@ check "empty signature text fails rather than passing" \
 # the file it must never reach.
 # ---------------------------------------------------------------------------
 check "a Debug bundle that cannot load the hosted tests is refused" \
-    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE_VALIDATING")" "6 5 1"
+    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE_VALIDATING")" "7 6 1"
 check "a Release bundle carrying the Debug only exemption is REFUSED" \
-    "$(outcome Release "$REL_SIG" "$RELEASE_UNVALIDATING")" "6 5 1"
+    "$(outcome Release "$REL_SIG" "$RELEASE_UNVALIDATING")" "7 6 1"
 
-check "the function reports how many judgements it makes" "$(bundle_identity_checks_count)" "6"
+check "the function reports how many judgements it makes" "$(bundle_identity_checks_count)" "7"
 check "and Release runs exactly that many" \
-    "$(outcome Release "$REL_SIG" "$NOT_DEBUGGABLE" | cut -d' ' -f1)" "6"
+    "$(outcome Release "$REL_SIG" "$NOT_DEBUGGABLE" | cut -d' ' -f1)" "7"
 check "and Debug runs exactly that many" \
-    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE" | cut -d' ' -f1)" "6"
+    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE" | cut -d' ' -f1)" "7"
+# AND SO DOES A CONFIGURATION IT REFUSES. The refusal loop was written out as
+# five iterations while the function made six judgements, so an unknown
+# configuration ran short of the count its caller declared (L70, L288).
+check "and an unknown configuration runs exactly that many too" \
+    "$(outcome Staging "$REL_SIG" "$NOT_DEBUGGABLE" | cut -d' ' -f1)" "7"
+
+# ---------------------------------------------------------------------------
+# THE NAME macOS SHOWS (ovation#264). On 2026-09-13 opening Ovation by name
+# started the Debug build copy, whose data folder and preferences are its own,
+# and nothing Dan could see said which copy was open. Dan chose the Debug display
+# name "Ovation Debug"; the installed Release app stays "Ovation". Read off the
+# built Info.plist, because a name the configuration sets is only in force if
+# nothing downstream recomputes it (L188).
+# ---------------------------------------------------------------------------
+check "a Debug bundle that calls itself plain Ovation is refused" \
+    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE" "$(info_plist com.danwright.ovation.debug 'Ovation')")" "7 6 1"
+check "a Release bundle that calls itself Ovation Debug is refused" \
+    "$(outcome Release "$REL_SIG" "$NOT_DEBUGGABLE" "$(info_plist com.danwright.ovation 'Ovation Debug')")" "7 6 1"
+check "an Info.plist that could not be read is refused, not passed" \
+    "$(outcome Debug "$DBG_SIG" "$DEBUGGABLE" "")" "7 6 1"
 
 # ---------------------------------------------------------------------------
 # 8. An unknown configuration is refused rather than silently judged as Debug.
