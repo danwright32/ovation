@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Report which of the plan's claims about the sibling repositories have drifted.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Report which of the plan's claims about the sibling repositories have drifted.
 
     check-plan-claims.sh
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a design record that calls a CLOSED issue still open.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a design record that calls a CLOSED issue still open.
 
     check-design-record-open.sh
 

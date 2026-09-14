@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Hold `OvationMigrationPlan.schemas` and its `stages` in step.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Hold `OvationMigrationPlan.schemas` and its `stages` in step.
 
 ovation#119. `stages` is `[]` and `schemas` names one version. Both are correct
 today and exactly one of them is silently wrong the moment somebody adds a

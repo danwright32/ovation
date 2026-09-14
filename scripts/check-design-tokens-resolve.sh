@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a design file that names a colour token where the token is not there.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a design file that names a colour token where the token is not there.
 
 ovation#120. The palette lived on `.win` until 2026-09-08, so every rule OUTSIDE
 the app window resolved `var(--anything)` to nothing. The Edit chip in the menu

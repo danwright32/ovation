@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse an invoice design file that DRAWS something wrong.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse an invoice design file that DRAWS something wrong.
 
     check-invoice-screen-draws.sh [design file]
 

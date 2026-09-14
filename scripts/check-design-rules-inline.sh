@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a design file whose copy of a rule has drifted from rules/.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a design file whose copy of a rule has drifted from rules/.
 
 ovation#111. `docs/design/rules/` holds the invoice screen's rules as executable
 functions with their cases. `scripts/test-design-rules.sh` runs them and they

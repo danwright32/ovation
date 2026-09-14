@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a live data resolver that the isolation floor does not know about.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a live data resolver that the isolation floor does not know about.
 
 ovation#58, plan 1.9. Every resolver that can reach live data already refuses on
 its own under a disposable launch, which is the structural half: the wrong thing

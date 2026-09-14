@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a design file whose copy of the shell has drifted from shell/.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse a design file whose copy of the shell has drifted from shell/.
 
 ovation#120. `docs/design/shell/` holds the parts every design file shares: the
 embedded typefaces, the record page the design is written on, and the macOS

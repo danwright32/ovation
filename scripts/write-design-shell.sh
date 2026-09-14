@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Write each shell part into every design file that carries it.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Write each shell part into every design file that carries it.
 
     write-design-shell.sh [--check] [design file ...]
 

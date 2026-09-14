@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse if a real client, venue or vendor identity appears anywhere in the tree.
+''''exec python3 "$0" "$@" #'''
+# Started with bash, the line above runs this file under python3 instead (ovation#257).
+__doc__ = """Refuse if a real client, venue or vendor identity appears anywhere in the tree.
 
 ovation#5. The repository is PUBLIC for the whole build and Ovation's entire
 subject matter is real people and real businesses.
