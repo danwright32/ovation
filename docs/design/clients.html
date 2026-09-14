@@ -197,6 +197,7 @@ color: var(--faint); }
 .card .hd { color: var(--rail-card-hd); }
 .card .ln { color: var(--rail-card-ln); }
 .card .ln b { color: var(--rail-card-b); }
+.card .quiet { font-size: 12.5px; color: var(--rail-card-ln); }
 .railheld, .railheld b { color: var(--rail-dim); }
 .status { border-top-color: var(--rail-st-bd); }
 .status .fault { color: var(--rail-fault); }
@@ -245,9 +246,6 @@ color: var(--faint); }
 .nname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nheld { flex: none; font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--soft); }
 
-/* Z3's one remaining line. Same weight as a count's label, because it is the
-   card saying the same kind of thing. */
-.card .quiet { font-size: 12.5px; color: var(--rail-card-ln); }
 /* The day switch sits under the position buttons and is deliberately not one of
    them: it changes the DATA, not the design. */
 .tab.day { border-style: dashed; }

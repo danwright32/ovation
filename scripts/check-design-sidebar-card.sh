@@ -28,6 +28,18 @@ WHAT IT ASSERTS, and each is one thing the drift actually did:
      its figure ends where the card's figures end
   6. every card line whose rows the same file draws has a figure equal to the
      number of those rows (ovation#198)
+  7. every file can draw a SETTLED DAY, reached by pressing its own switch, and
+     on that day the card draws no count, says something rather than nothing,
+     and the held money line is not drawn (ovation#193, PRD 46b)
+  8. the rails agree with each other on that settled day as well
+
+SEVEN AND EIGHT ARE THE OTHER STATE. Until ovation#193 only clients.html could
+draw a settled day, so on three of the four screens it had never been drawn,
+and one to five compared the rails only in the state each file opens in. The
+rule is judged BEFORE the comparison, because four files that agree on a held
+line drawn at zero agree perfectly. A file with no switch reaching a settled day
+is a refusal naming it, never a rail passed over. Every control that changes the
+day names the day it moves to in `data-day`, which is what the probe presses.
 
 SIX IS THE ROLLUP, AND IT IS A DIFFERENT CLAIM FROM ONE TO FIVE. Those prove the
 four files draw the SAME card; nothing proved any of those figures agreed with
@@ -113,6 +125,44 @@ PROBE = r"""
       if (label && figure) { report.cardEdges = edges(label, figure); }
     }
   }
+  /* The rail as it stands, read the same way on either day. */
+  function readRail() {
+    var c = document.querySelector(".card");
+    var rail = {card: !!c, heading: null, lines: [], quiet: null, held: null};
+    if (c) {
+      var h = c.querySelector(".hd");
+      rail.heading = h ? h.textContent.trim() : null;
+      Array.prototype.forEach.call(c.querySelectorAll(".ln"), function (ln) {
+        var l = ln.querySelector("span"), f = ln.querySelector("b");
+        rail.lines.push([l ? l.textContent.trim() : null, f ? f.textContent.trim() : null]);
+      });
+      var q = c.querySelector(".quiet");
+      rail.quiet = q ? q.textContent.trim() : null;
+    }
+    var hl = document.querySelector(".railheld");
+    if (hl) {
+      var hs = hl.querySelector("span"), hb = hl.querySelector("b");
+      rail.held = [hs ? hs.textContent.trim() : null, hb ? hb.textContent.trim() : null];
+    }
+    return rail;
+  }
+  /* THE SETTLED DAY IS REACHED BY PRESSING (ovation#193), never by setting a
+     variable the real control never sets (L442). Every file names the day a
+     control moves to in `data-day`: a file with one button per day carries the
+     settled day's own button, and clients.html's single switch cycles, naming
+     the NEXT day, so reaching it can take more than one press. A file where no
+     press gets there has no settled day, and says so as `settled: null`. */
+  function pressDay(key) {
+    for (var i = 0; i < 4; i++) {
+      var b = document.querySelector('[data-day="' + key + '"]') ||
+              document.querySelector("[data-day]");
+      if (!b) return false;
+      var next = b.getAttribute("data-day");
+      b.click();
+      if (next === key) return true;
+    }
+    return false;
+  }
   // ovation#198. Every row the list draws carries the card line it was counted
   // into, so the card's figure and the rows under it can be compared as two
   // readings of one derivation. A file that draws no such rows reports none,
@@ -131,6 +181,9 @@ PROBE = r"""
                    heldFigure ? heldFigure.textContent.trim() : null];
     if (heldLabel && heldFigure) { report.heldEdges = edges(heldLabel, heldFigure); }
   }
+  // Everything above is the day with work, read BEFORE anything is pressed, so
+  // the rollup and the edges are measured on the state each file opens in.
+  report.settled = pressDay("quiet") ? readRail() : null;
   var out = document.createElement("pre");
   out.id = "ovation-probe";
   out.textContent = JSON.stringify(report);
@@ -162,6 +215,42 @@ def say(rail):
                          "; held line %s %s" % held if held else "; no held line")
 
 
+def settled_of(rail):
+    """The settled day's rail as one comparable value (ovation#193)."""
+    return (rail.get("heading"),
+            tuple(tuple(pair) for pair in rail.get("lines") or []),
+            rail.get("quiet") or None,
+            tuple(rail["held"]) if rail.get("held") else None)
+
+
+def say_settled(rail):
+    heading, lines, quiet, held = rail
+    drawn = ", ".join("%s %s" % (label, figure) for label, figure in lines)
+    body = drawn or ("says '%s'" % quiet if quiet else "says nothing")
+    return "%s: %s%s" % (heading, body,
+                         "; held line %s %s" % held if held else "; no held line")
+
+
+def settled_faults(rail):
+    """What a settled rail draws that a settled day must not.
+
+    A QUANTITY OF NOTHING IS NOT DRAWN (PRD 46b, round 3's Z3): no count and no
+    held money line. AND THE CARD STILL SAYS SOMETHING, because a card drawing
+    nothing on the healthy day is indistinguishable from one that failed to draw.
+    """
+    heading, lines, quiet, held = rail
+    faults = []
+    if heading is None:
+        faults.append("the settled day draws no card")
+    if lines:
+        faults.append("the settled day still draws %d count(s)" % len(lines))
+    if held:
+        faults.append("the settled day still draws the held money line")
+    if heading is not None and not lines and not quiet:
+        faults.append("the settled card says nothing at all")
+    return faults
+
+
 def main():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     root = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(repo_root, "docs", "design")
@@ -189,6 +278,7 @@ def main():
     # rollup claim below reads the row stamps out of the same render rather
     # than starting a sixth browser for them (ovation#183, ovation#198).
     rails, reports, no_card, edges_off, skipped = {}, {}, [], [], []
+    settled, no_day = {}, []
     for path in paths:
         name = os.path.basename(path)
         if not os.path.isfile(path):
@@ -215,6 +305,12 @@ def main():
         rails[name] = rail_of(report)
         reports[name] = report
         print("  %s: %s" % (name, say(rails[name])))
+        if report.get("settled") is None:
+            no_day.append(name)
+            print("  %s: NO SETTLED DAY" % name)
+        else:
+            settled[name] = settled_of(report["settled"])
+            print("  %s, settled day: %s" % (name, say_settled(settled[name])))
 
         # The held line's own edges against the card's, inside this one file.
         # Nothing else measures it: both boxes are declared correctly and the
@@ -245,6 +341,22 @@ def main():
         print("genuinely draws no app window says so in its own words, by declaring")
         print("NOT SHELLED: window.css with the reason, which is what invoice-pdf.html")
         print("does.")
+        return 1
+
+    # ovation#193. A FILE WHOSE RAIL CANNOT BE SETTLED IS ANSWERED BEFORE THE
+    # COUNT, for the same reason as a file with no card: it removes a subject
+    # from the settled comparison, and reporting the shortage would name nothing.
+    if no_day:
+        print("")
+        print("A DESIGN FILE THAT DRAWS THE RAIL AND CANNOT DRAW A SETTLED DAY: %d file(s)."
+              % len(no_day))
+        for name in no_day:
+            print("  %s: NO SETTLED DAY, no control marked data-day reaches one" % name)
+        print("")
+        print("The rail is chrome, so whatever the settled day looks like it looks")
+        print("like that on every screen, and the file that can draw it is the only")
+        print("one anyone can check it in. Give the file a switch whose control names")
+        print("the day it moves to in data-day, the way clients.html does.")
         return 1
 
     if len(rails) < 2:
@@ -315,6 +427,38 @@ def main():
         print("counts rather than in the record.")
         return 1
 
+    # ovation#193. THE SETTLED DAY, judged by its RULE first and then compared.
+    # The rule comes first because four files agreeing on a held line drawn at
+    # zero agree perfectly, and a comparison alone would pass them (L98).
+    quiet_faults = [(name, why) for name, rail in sorted(settled.items())
+                    for why in settled_faults(rail)]
+    if quiet_faults:
+        print("")
+        print("THE SETTLED DAY STILL DRAWS A QUANTITY, OR NOTHING AT ALL: %d fault(s)."
+              % len(quiet_faults))
+        for name, why in quiet_faults:
+            print("  %s: %s" % (name, why))
+        print("")
+        print("On a settled day the card says Nothing waiting instead of its counts,")
+        print("and the held money line is not drawn, because a quantity of nothing")
+        print("is not drawn (PRD 46b). A card saying nothing at all reads as one that")
+        print("failed to draw.")
+        return 1
+
+    quiet_agreed = set(settled.values())
+    if len(quiet_agreed) > 1:
+        print("")
+        print("THE SIDEBAR RAIL DISAGREES WITH ITSELF ON A SETTLED DAY: %d different "
+              "rails across %d design file(s)." % (len(quiet_agreed), len(settled)))
+        for rail in sorted(quiet_agreed, key=say_settled):
+            drawn_by = sorted(name for name, seen in settled.items() if seen == rail)
+            print("  %s" % say_settled(rail))
+            print("      drawn by %s" % ", ".join(drawn_by))
+        print("")
+        print("The files agree on a day with work waiting and not once it is settled,")
+        print("which is the state nobody opens them in.")
+        return 1
+
     if edges_off:
         print("")
         print("THE HELD MONEY LINE IS OFF THE CARD'S EDGES: %d file(s)." % len(edges_off))
@@ -327,8 +471,10 @@ def main():
         print("the rail, or wrapping it in anything, breaks that.")
         return 1
 
-    print("OK: one rail across %d design file(s), %s. %d file(s) draw no app window."
-          % (len(rails), say(next(iter(agreed))), len(skipped)))
+    print("OK: one rail across %d design file(s), %s, and one on a settled day, %s. "
+          "%d file(s) draw no app window."
+          % (len(rails), say(next(iter(agreed))), say_settled(next(iter(quiet_agreed))),
+             len(skipped)))
     print("    %d card line(s) rolled up and agreed with the rows drawn under them; "
           "%d could not be judged here, having no rows in the file that draws them."
           % (rolled, unjudged))

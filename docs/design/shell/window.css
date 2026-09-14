@@ -105,6 +105,12 @@
 .card .hd { color: var(--rail-card-hd); }
 .card .ln { color: var(--rail-card-ln); }
 .card .ln b { color: var(--rail-card-b); }
+/* THE SETTLED DAY'S ONE LINE (round 3, Z3), when every count has left the card.
+   Same size and colour as a count's label, because it is the card saying the
+   same kind of thing. It lived in clients.html alone until ovation#193, which
+   was the only file that could draw a settled day; the card is chrome, so its
+   settled line is too. */
+.card .quiet { font-size: 12.5px; color: var(--rail-card-ln); }
 .railheld, .railheld b { color: var(--rail-dim); }
 .status { border-top-color: var(--rail-st-bd); }
 .status .fault { color: var(--rail-fault); }

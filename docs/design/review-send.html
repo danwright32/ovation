@@ -199,6 +199,7 @@ color: var(--faint); }
 .card .hd { color: var(--rail-card-hd); }
 .card .ln { color: var(--rail-card-ln); }
 .card .ln b { color: var(--rail-card-b); }
+.card .quiet { font-size: 12.5px; color: var(--rail-card-ln); }
 .railheld, .railheld b { color: var(--rail-dim); }
 .status { border-top-color: var(--rail-st-bd); }
 .status .fault { color: var(--rail-fault); }
@@ -757,6 +758,10 @@ function outcomeBody() {
 /* ---------------------------------------------------------------------------
    The window, from the settled shell.
    --------------------------------------------------------------------------- */
+/* THE RAIL'S SETTLED DAY (ovation#193): the card says Nothing waiting instead of
+   its counts and the held money line is not drawn. Only the rail moves; the
+   sheet and the invoice behind it are the same on either day. */
+var QUIET = false;
 function shell(main, extra) {
   var screen = rsEl("screen rs-b");
   var bar = rsEl("menubar");
@@ -781,13 +786,17 @@ function shell(main, extra) {
   /* TO PLACE counts the invoices waiting on a decision about held money
      (ovation#190, PRD 46d). The card is chrome and is the same on every screen,
      so it is here as well as on the list where it was settled. */
-  [["To send", 4], ["To chase", 2], ["To confirm", 2], ["To place", 2],
-   ["Receipts to file", 7]]
-    .forEach(function (pr) {
-      var ln = rsEl("ln");
-      ln.append(rsEl(null, pr[0], "span"), rsEl(null, String(pr[1]), "b"));
-      card.append(ln);
-    });
+  if (QUIET) {
+    card.append(rsEl("quiet", "Nothing waiting"));
+  } else {
+    [["To send", 4], ["To chase", 2], ["To confirm", 2], ["To place", 2],
+     ["Receipts to file", 7]]
+      .forEach(function (pr) {
+        var ln = rsEl("ln");
+        ln.append(rsEl(null, pr[0], "span"), rsEl(null, String(pr[1]), "b"));
+        card.append(ln);
+      });
+  }
   side.append(card);
   /* MONEY HELD IS NOT ONE OF THE CARD'S COUNTS (ovation#187, settled with Dan
      2026-09-10 over two rounds, PRD 46b). The card says this many things need
@@ -795,9 +804,11 @@ function shell(main, extra) {
      client has one open invoice, so this stopped being work waiting. It is a
      figure under the card in the status colour, and it is a quantity, so a
      quantity of nothing is not drawn. */
-  var railheld = rsEl("railheld");
-  railheld.append(rsEl(null, "Money held", "span"), rsEl(null, "1,837.50", "b"));
-  side.append(railheld);
+  if (!QUIET) {
+    var railheld = rsEl("railheld");
+    railheld.append(rsEl(null, "Money held", "span"), rsEl(null, "1,837.50", "b"));
+    side.append(railheld);
+  }
   ["Invoices", "Expenses", "Clients"].forEach(function (label) {
     side.append(rsEl("item" + (label === "Invoices" ? " on" : ""), label));
   });
@@ -941,6 +952,17 @@ function finish(main, scrim, sheet) {
   holder.append(row("Pressing Send",
     [["works", "reaches Gmail"], ["fails", "is refused"]],
     function () { return OUTCOME; }, function (v) { OUTCOME = v; }));
+  /* ovation#193. Each button names the day it moves to in `data-day`, which is
+     what scripts/check-design-sidebar-card.sh presses before comparing the four
+     rails on a settled day. */
+  var days = [["busy", "A day with work waiting"], ["quiet", "A settled day"]];
+  var dayRow = row("The rail on", days,
+    function () { return QUIET ? "quiet" : "busy"; },
+    function (v) { QUIET = v === "quiet"; });
+  Array.prototype.forEach.call(dayRow.querySelectorAll("button"), function (b, i) {
+    b.setAttribute("data-day", days[i][0]);
+  });
+  holder.append(dayRow);
   hold.parentNode.insertBefore(holder, hold);
 
   window.redrawAll = function () { hold.replaceChildren(buildScreen()); };
