@@ -308,8 +308,13 @@ function hours(h) {
 }
 
 function totals(inv) {
-  var subtotal = 0;
-  inv.lines.forEach(function (l) { subtotal += l.amount; });
+  var lines = 0;
+  inv.lines.forEach(function (l) { lines += l.amount; });
+  /* THE REFERRAL CREDIT IS ITS OWN BLOCK, NOT A LINE (PRD 8, corrected
+     2026-09-07). It is still inside the subtotal, so the arithmetic is the same
+     as when it was drawn as a negative line; what moved is where it is shown. */
+  var credit = inv.credit || 0;
+  var subtotal = lines - credit;
   var discount = 0;
   if (inv.discount) {
     discount = inv.discount.percent
@@ -318,8 +323,8 @@ function totals(inv) {
   }
   var taxable = subtotal + discount;
   var tax = inv.exempt ? 0 : Math.round(taxable * TAX_RATE * 100) / 100;
-  return { subtotal: subtotal, discount: discount, taxable: taxable,
-           tax: tax, total: taxable + tax };
+  return { lines: lines, credit: credit, subtotal: subtotal, discount: discount,
+           taxable: taxable, tax: tax, total: taxable + tax };
 }
 
 function photoLine(shoot, venue, date, h) {
@@ -351,19 +356,18 @@ var FIXTURES = [
   },
   {
     label: "Every element",
-    note: "Extras, a referral credit as a negative line inside the subtotal (PRD 5.8), and a discount below it (PRD 5.4a). PRD 5.4b requires those two never read as one thing.",
+    note: "Extras, a referral credit in its own block above the subtotal (PRD 8), and a discount below it (PRD 5.4a). PRD 5.4b requires those two never read as one thing.",
     number: "1125", issued: "December 5, 2026", due: "December 19, 2026",
     client: "Westfield Choral Society", exempt: false, discount: { percent: 10 },
+    credit: 250,
     lines: [
       photoLine("Winter Gala Concert", "St Bride's Hall", "December 5, 2026", 2.0),
       /* ONE OF THESE OMITS THE KEYS AND ONE CARRIES THEM EMPTY, on purpose
          (ovation#170). They mean the same thing to anyone writing a fixture,
          and until this line existed no fixture anywhere used the second
          spelling, so the throw it caused could not be reached by any check. */
-      { kind: "Rush turnaround", detail: "Gallery delivered within 24 hours",
-        hours: null, rate: null, amount: 150 },
-      { kind: "Preview images", detail: "Six images delivered the same night", amount: 75 },
-      { kind: "Referral credit", detail: "Earned on Yarrow Street Collective, 1.0 hr", amount: -250 }
+      { kind: "Rush turnaround", hours: null, rate: null, amount: 150 },
+      { kind: "Preview images", amount: 75 }
     ]
   },
   {
@@ -441,7 +445,9 @@ function itemsTable(inv) {
     var r = document.createElement("tr");
     var d = mk("td");
     d.append(mk("span", "desc", l.shoot || l.kind));
-    var second = l.shoot ? l.venue + ", " + l.date : (l.detail || "");
+    /* AN EXTRA IS A TYPE AND AN AMOUNT (PRD 51f), and the app holds no field for
+       a line of detail beneath it, so the page draws none (ovation#167). */
+    var second = l.shoot ? l.venue + ", " + l.date : "";
     if (second) d.append(mk("span", "sub2", second));
     r.append(d);
     /* THE VALUE IS GUARDED, NOT THE KEY (ovation#170). `l.hours !== undefined`
@@ -477,11 +483,19 @@ function moneyBlock(inv) {
     r.append(mk("span", "num", v));
     m.append(r);
   }
+  /* PRD 8. The referral credit is its own block above the subtotal, as the
+     invoice screen draws it. When there is no credit the lines and the subtotal
+     are the same number, and a figure stated twice is not drawn. The label for
+     the lines is a draft shown to Dan before merge (ovation#167). */
+  if (t.credit > 0) {
+    row("Services", money(t.lines));
+    row("Referral credit", money(-t.credit));
+  }
   row("Subtotal", money(t.subtotal));
   if (inv.discount) {
     /* PRD 5.4a. A discount is not a line item: it sits BELOW the subtotal and
        the tax is charged on what is left. PRD 5.4b keeps it apart from a
-       referral credit, which is a negative LINE inside the subtotal. */
+       referral credit, which sits in its own block ABOVE the subtotal. */
     row("Discount" + (inv.discount.percent ? " (" + inv.discount.percent + "%)" : ""),
         money(t.discount));
     m.append(mk("div", "rule"));
