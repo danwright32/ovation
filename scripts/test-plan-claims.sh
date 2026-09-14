@@ -14,7 +14,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "plan claim tests" 31
+harness_begin "plan claim tests" 49
 
 TARGET="scripts/check-plan-claims.sh"
 require_target "$TARGET"
@@ -43,20 +43,36 @@ plan() {
 }
 
 run_on() {
-    # $1 estate, then arguments
+    # $1 estate, then arguments. EVERY SEAM IS SET, the record and the live
+    # export included, so no case can fall through to the repository's own PRD
+    # or to the export on this Mac (L284, L2).
     OVATION_SIBLING_ROOT="$1" OVATION_PLAN="$1/plan.md" \
         OVATION_SIBLING_INSTALL_CHECK="$1/installs.sh" \
         OVATION_BOOKING_EXPORT="$1/export.json" \
+        OVATION_EXPORT_RECORDS="$1/record.md" \
+        OVATION_LIVE_EXPORT="$1/live.json" \
         python3 "$TARGET" "${@:2}" 2>&1
 }
 status_on() { run_on "$@" >/dev/null 2>&1; printf '%s' "$?"; }
 
-# Every estate gets an install check and an export that agree, so a case is
-# about the one thing it changes.
+# Every estate gets an install check, an export and a record that agree, so a
+# case is about the one thing it changes.
 furnish() {
     printf '#!/bin/bash\necho "PASS: both siblings are as the plan says"\n' > "$1/installs.sh"
     printf '{"version": 3, "bookings": [1,2,3]}\n' > "$1/export.json"
+    printf '{"version": 3, "bookings": [], "clients": []}\n' > "$1/live.json"
+    printf 'A record that says nothing about what any export holds.\n' > "$1/record.md"
 }
+
+# Downbeat's contract, in the place the real one sits, declaring the fields
+# given. Line 3 is the client shape, so a field's line is known by construction.
+contract() {
+    # $1 estate, $2 the backticked fields the client shape declares
+    mkdir -p "$1/Downbeat/Downbeat/Integration/OvertureExport"
+    printf '# A contract\n\nOvertureClient: %s.\n' "$2" \
+        > "$1/Downbeat/Downbeat/Integration/OvertureExport/CONTRACT.md"
+}
+record() { printf '%s\n' "$2" > "$1/record.md"; }
 
 # ---------------------------------------------------------------------------
 # A claim that holds.
@@ -167,6 +183,99 @@ check "an install check that refuses is carried through rather than swallowed" \
     "$(status_on "$INST")" "1"
 check "and its own verdict line is what gets printed, not its last line" \
     "$(run_on "$INST" | grep -c 'INSTALLS   BLOCKED:')" "1"
+
+# ---------------------------------------------------------------------------
+# THE FIELDS THE RECORD SAYS THE EXPORT CARRIES, AND LACKS (ovation#215). The
+# PRD said the Downbeat export has no field for a client's tax status, while
+# Downbeat's own contract declared `isTaxExempt` and the export carried it on 6
+# of 31 clients. A claim that something is ABSENT never fails on its own, so
+# nothing revisited it (L460, L182). These fixtures invent every field and name.
+# ---------------------------------------------------------------------------
+FIELDS="$(estate fields)"; furnish "$FIELDS"
+plan "$FIELDS" 'A plan that states nothing checkable of its own.
+It names `deadbeef` so the run has something to compare besides the record.' >/dev/null
+contract "$FIELDS" '`id`, `displayName`, `isTaxExempt` (bool), `notes`'
+
+# THE CASE THIS EXISTS FOR: the record says a field is absent, the contract
+# declares it.
+record "$FIELDS" 'Nobody can re-derive it, because the Downbeat export has no field for a tax status.'
+check "a record saying the export lacks what the contract declares is refused" \
+    "$(status_on "$FIELDS")" "1"
+check "and it is named DERIVABLE rather than as any other drift" \
+    "$(run_on "$FIELDS" | grep -c '^  DERIVABLE')" "1"
+check "and the refusal names the field, and the contract line declaring it" \
+    "$(run_on "$FIELDS" | grep -c 'DERIVABLE  record.md:1 .*`isTaxExempt`.*CONTRACT.md:3')" "1"
+
+# A SENTENCE WRAPPED OVER LINES IS STILL ONE SENTENCE, which is how the design
+# record is written, and the line named is the one the claim starts on.
+record "$FIELDS" 'The round could not be judged.
+The export cannot say which is true, because it has no field for a
+tax status at all.'
+check "a claim hard wrapped across lines is read as one sentence" \
+    "$(run_on "$FIELDS" | grep -c 'DERIVABLE  record.md:2 ')" "1"
+
+# THE EXPORT IS A SOURCE OF ITS OWN, not only the contract: an optional field
+# the contract has not caught up with is still carried.
+contract "$FIELDS" '`id`, `displayName`, `notes`'
+printf '{"version": 3, "clients": [{"id": "c1", "isTaxExempt": true}]}\n' > "$FIELDS/live.json"
+record "$FIELDS" 'The Downbeat export has no field for a tax status.'
+check "a field only the live export carries still makes the claim derivable" \
+    "$(run_on "$FIELDS" | grep -c 'DERIVABLE .*`isTaxExempt`.*the live export')" "1"
+printf '{"version": 3, "bookings": [], "clients": []}\n' > "$FIELDS/live.json"
+printf '{"version": 3, "clients": [{"id": "c1", "isTaxExempt": false}]}\n' > "$FIELDS/export.json"
+check "and so does one only the custody snapshot carries" \
+    "$(run_on "$FIELDS" | grep -c 'DERIVABLE .*`isTaxExempt`.*the custody snapshot')" "1"
+printf '{"version": 3, "bookings": [1,2,3]}\n' > "$FIELDS/export.json"
+
+# A CLAIM THAT HOLDS, said positively rather than by silence (L98).
+record "$FIELDS" 'The Downbeat export carries nothing about payments, and nothing else holds them.'
+check "an absence no source contradicts holds" "$(status_on "$FIELDS")" "0"
+check "and is reported as holding rather than passing silently" \
+    "$(run_on "$FIELDS" | grep -c '^  FIELDS     record.md:1 ')" "1"
+
+# WHAT IT MUST PRESERVE (L104). Another export's sentence is not a claim about
+# Downbeat's, and a word matches whole words of a key, never letters inside one.
+contract "$FIELDS" '`id`, `syntaxNote`, `isTaxExempt` (bool)'
+record "$FIELDS" 'The FreshBooks export carries no tax amounts at all.'
+check "a sentence about the FreshBooks export is not read as one about Downbeat's" \
+    "$(status_on "$FIELDS")" "0"
+contract "$FIELDS" '`id`, `syntaxNote`'
+record "$FIELDS" 'The Downbeat export carries nothing about tax.'
+check "and a word never matches letters inside a longer word of a key" \
+    "$(status_on "$FIELDS")" "0"
+# A COUNT OF CLIENTS IS NOT A CLAIM ABOUT THE FILE. This sentence is PRD 5b's,
+# word for word, and it names an export while its subject is the clients.
+contract "$FIELDS" '`id`, `isTaxExempt` (bool)'
+record "$FIELDS" 'Measured against the live export, 25 of 31 clients carry no tax status, so the other reading would tell most clients.'
+check "and a count of clients carrying nothing is not read as the export lacking a field" \
+    "$(status_on "$FIELDS")" "0"
+
+# THE RECORD SAYING A FIELD IS THERE, which fails the other way.
+contract "$FIELDS" '`id`, `isTaxExempt` (bool)'
+record "$FIELDS" 'The Downbeat export carries `isTaxExempt` on the clients that have one.'
+check "a field the record says is carried, and the contract declares, holds" \
+    "$(status_on "$FIELDS")" "0"
+contract "$FIELDS" '`id`, `notes`'
+check "and one no source declares or carries is refused" "$(status_on "$FIELDS")" "1"
+check "and named UNCARRIED" "$(run_on "$FIELDS" | grep -c '^  UNCARRIED')" "1"
+
+# A SUBJECT THAT NAMES NO FIELD, which is how the original false sentence was
+# written ("no field for either"). Reported so it is visible, never refused.
+record "$FIELDS" 'The Downbeat export has no field for either.'
+check "a claim whose subject names no field is not refused" "$(status_on "$FIELDS")" "0"
+check "and is reported UNPARSED rather than passing as checked" \
+    "$(run_on "$FIELDS" | grep -c '^  UNPARSED')" "1"
+
+# NO SOURCE AT ALL IS NOT A HOLD. With the contract gone and both exports
+# unreadable, "nothing carries it" was measured against nothing (L98, L530).
+rm -f "$FIELDS/Downbeat/Downbeat/Integration/OvertureExport/CONTRACT.md"
+printf 'not json\n' > "$FIELDS/live.json"
+printf 'not json\n' > "$FIELDS/export.json"
+record "$FIELDS" 'The Downbeat export has no field for a tax status.'
+check "a field claim with no readable source is CANNOT MEASURE" \
+    "$(run_on "$FIELDS" | grep -c '^  FIELDS     CANNOT MEASURE')" "1"
+check "and never reported as holding" \
+    "$(run_on "$FIELDS" | grep -c '^  FIELDS     record.md')" "0"
 
 # ---------------------------------------------------------------------------
 # NOTHING TO MEASURE IS NOT A PASS, and each way of having nothing is its own

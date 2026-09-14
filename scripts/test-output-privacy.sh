@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 83
+harness_begin "output privacy tests" 86
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -582,6 +582,26 @@ check "the booking export measurement prints no identity when it measures" \
 check "and none when the hash does not match" \
     "$(leaks_in "$(./scripts/measure-booking-export.py "$BOOKINGS" \
         0000000000000000000000000000000000000000000000000000000000000000 2>&1)")" "clean"
+# THE LIVE COMPARISON (ovation#216) reads a second file carrying every real
+# client, and prints field names and differences. The live fixture differs from
+# the snapshot in a name, a count and a field whose NAME is harmless and whose
+# value is an identity, so every line the comparison can print is reached.
+BOOKINGS_LIVE="$WORK/bookings-live.json"
+cat > "$BOOKINGS_LIVE" <<JSON
+{ "version": 3, "exportedAt": "2026-09-13T15:07:27Z", "blockedDates": [],
+  "venues": [{"id": "v1", "name": "$VENUE", "notes": "$SHOOT"}],
+  "bookings": [{"id": "b1", "clientDisplayName": "$CLIENT",
+                "startsAt": "2026-10-25T19:00:00Z", "endsAt": "2026-10-25T20:00:00Z"},
+               {"id": "b2", "clientDisplayName": "$CLIENT", "shootName": "$SHOOT",
+                "startsAt": "2026-10-26T19:00:00Z", "endsAt": "2026-10-26T21:00:00Z"}],
+  "clients": [{"id": "1D6F2C3A-0000-4000-8000-000000000001", "displayName": "$CLIENT",
+               "email": "$CLIENT", "contractEmail": "$VENUE", "isTaxExempt": true,
+               "hostingSite": "$VENUE", "specialBehaviors": ["$CLIENT"]}] }
+JSON
+LIVE_OUT="$(./scripts/measure-booking-export.py "$BOOKINGS" "$BOOKINGS_SHA" --live "$BOOKINGS_LIVE" 2>&1)"
+check "and none when it compares the live export with the snapshot" "$(leaks_in "$LIVE_OUT")" "clean"
+check "and it really did compare them, so the case reached every line that prints" \
+    "$(printf '%s' "$LIVE_OUT" | grep -c 'figure(s) differ, and')" "1"
 printf 'not json at all, it is about %s\n' "$CLIENT" > "$BOOKINGS"
 check "and none when the file cannot be read at all" \
     "$(leaks_in "$(./scripts/measure-booking-export.py "$BOOKINGS" \
@@ -689,8 +709,20 @@ cat > "$PLANDIR/plan.md" <<MD
 | the booking | \`Downbeat/Downbeat/Booking.swift:2\` | \`anchored\`, written for $CLIENT |
 | the missing one | \`Downbeat/Downbeat/$VENUE.swift:9\` | \`gone\` |
 MD
+# THE FIFTH KIND READS THREE MORE PLACES A NAME SITS (ovation#215): the record's
+# prose around a claim, Downbeat's contract, and the live export, whose values
+# are every real client. Each carries one here, and the claim is one that
+# refuses, so the lines that print field names are the ones reached.
+mkdir -p "$PLANDIR/siblings/Downbeat/Downbeat/Integration/OvertureExport"
+printf '# Contract\n\nWritten for %s. OvertureClient: `id`, `isTaxExempt` (bool).\n' "$CLIENT" \
+    > "$PLANDIR/siblings/Downbeat/Downbeat/Integration/OvertureExport/CONTRACT.md"
+printf 'The Downbeat export has no field for a tax status, which %s asked about at %s.\n' \
+    "$CLIENT" "$VENUE" > "$PLANDIR/record.md"
+printf '{"version": 3, "clients": [{"id": "c1", "displayName": "%s", "isTaxExempt": true}]}\n' \
+    "$CLIENT" > "$PLANDIR/live.json"
 PLAN_OUT="$(OVATION_PLAN="$PLANDIR/plan.md" OVATION_SIBLING_ROOT="$PLANDIR/siblings" \
     OVATION_SIBLING_INSTALL_CHECK="/nonexistent" OVATION_BOOKING_EXPORT="/nonexistent" \
+    OVATION_EXPORT_RECORDS="$PLANDIR/record.md" OVATION_LIVE_EXPORT="$PLANDIR/live.json" \
     ./scripts/check-plan-claims.sh 2>&1)"
 check "the plan claims guard prints no identity" "$(leaks_in "$PLAN_OUT")" "clean"
 # AND IT REALLY DID READ THE ESTATE, or the case above would pass on a guard that
@@ -699,6 +731,8 @@ check "the plan claims guard prints no identity" "$(leaks_in "$PLAN_OUT")" "clea
 # file that carries the name.
 check "and it really did anchor a row in the sibling file, so the case reached it" \
     "$(printf '%s' "$PLAN_OUT" | grep -c 'HELD')" "1"
+check "and it really did judge the record against the contract and the live export" \
+    "$(printf '%s' "$PLAN_OUT" | grep -c 'DERIVABLE .*CONTRACT.md:3.*the live export')" "1"
 
 # ---------------------------------------------------------------------------
 # THE SIX RENDERING CHECKS (ovation#214). They were declared `tool` while

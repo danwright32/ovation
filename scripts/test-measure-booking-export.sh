@@ -11,7 +11,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "booking export measurement tests" 31
+harness_begin "booking export measurement tests" 53
 
 TARGET="scripts/measure-booking-export.py"
 require_target "$TARGET"
@@ -170,5 +170,94 @@ check "and its message names that cause rather than the empty one" \
 
 check "called with no argument it says how to call it" \
     "$(python3 "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
+
+# ---------------------------------------------------------------------------
+# THE LIVE EXPORT, ovation#216. Every figure was measured from a frozen snapshot
+# and nothing measured the file Ovation actually reads, which Downbeat rewrites
+# on every launch. It is taken only when a path is PASSED, so this suite cannot
+# reach the real one, and it is verified by SHAPE, since a file that
+# legitimately changes can never carry a recorded hash.
+# ---------------------------------------------------------------------------
+live_on() {
+    python3 "$TARGET" "$1" "$(shasum -a 256 "$1" | cut -d' ' -f1)" --live "$2" 2>&1
+}
+live_status() { live_on "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+
+FOUR_WEEK='{"id":"b4","startsAt":"2026-11-01T19:00:00Z","endsAt":"2026-11-01T20:00:00Z"}'
+SNAP="$WORK/snap.json"
+export_with "$SNAP" "[$ONE_HOUR,$TWO_HOUR]" '[
+  {"id":"1D6F2C3A-0000-4000-8000-000000000001","displayName":"An invented client","email":"a@example.com","contractEmail":"","isTaxExempt":true},
+  {"id":"1D6F2C3A-0000-4000-8000-000000000002","displayName":"Another invented one","email":"b@example.com","contractEmail":""}
+]'
+LIVE="$WORK/live.json"
+export_with "$LIVE" "[$ONE_HOUR,$TWO_HOUR,$FOUR_WEEK]" '[
+  {"id":"1D6F2C3A-0000-4000-8000-000000000001","displayName":"An invented client","email":"a@example.com","contractEmail":"","isTaxExempt":true},
+  {"id":"1D6F2C3A-0000-4000-8000-000000000002","displayName":"Another invented one","email":"b@example.com","contractEmail":"","isTaxExempt":true,"notes":"x"}
+]'
+
+check "a live export that disagrees with the snapshot is information, not a failure" \
+    "$(live_status "$SNAP" "$LIVE")" "0"
+check "and the comparison is its own section" \
+    "$(live_on "$SNAP" "$LIVE" | grep -c '^LIVE AGAINST SNAPSHOT')" "1"
+check "and a figure that differs is given from both files" \
+    "$(live_on "$SNAP" "$LIVE" | grep -c '^  bookings  *snapshot 2  *live 3$')" "1"
+check "and so is a tax status count, the figure ovation#215 was about" \
+    "$(live_on "$SNAP" "$LIVE" | grep -c '^  recorded as exempt  *snapshot 1 of 2  *live 2 of 2$')" "1"
+check "while a figure the two agree on is not listed as a difference" \
+    "$(live_on "$SNAP" "$LIVE" | grep -c '^  clients  *snapshot')" "0"
+check "and the bookings only the live export holds are counted, never named" \
+    "$(live_on "$SNAP" "$LIVE" | grep -c '^  booking ids only in the live export  *1$')" "1"
+check "and a field only the live export carries is named, being a field name" \
+    "$(live_on "$SNAP" "$LIVE" | grep -c '^  client fields only in the live export  *notes$')" "1"
+check "and the run says how many figures differ" \
+    "$(live_on "$SNAP" "$LIVE" | grep -c '^  6 figure(s) differ')" "1"
+
+# THE SAME DAY IS SAID POSITIVELY, not by an empty section (L98).
+cp "$SNAP" "$WORK/same.json"
+check "a live export identical in every figure says so" \
+    "$(live_on "$SNAP" "$WORK/same.json" | grep -c 'no figure differs')" "1"
+
+# THE SNAPSHOT IS STILL THE RECORD, so a live file that cannot be measured does
+# not take the snapshot's figures down with it, and has its own exit code (L11).
+check "a live export that is not there is its own outcome" \
+    "$(live_status "$SNAP" "$WORK/nowhere-live.json")" "4"
+check "and says the live export could not be measured, not the snapshot" \
+    "$(live_on "$SNAP" "$WORK/nowhere-live.json" | grep -c '^CANNOT MEASURE THE LIVE EXPORT: no file at')" "1"
+check "and the snapshot's own figures are still printed" \
+    "$(live_on "$SNAP" "$WORK/nowhere-live.json" | grep -c 'exactly one hour')" "1"
+printf 'not json\n' > "$WORK/badlive.json"
+check "a live export that is not JSON is the same outcome" \
+    "$(live_status "$SNAP" "$WORK/badlive.json")" "4"
+check "and names that cause" \
+    "$(live_on "$SNAP" "$WORK/badlive.json" | grep -c 'LIVE EXPORT: it could not be read as JSON')" "1"
+
+# THE SHAPE IS THE ONE OVATION READS (Ovation/Domain/DownbeatExport.swift): a
+# version of at least 2, an exportedAt instant, and clients carrying an id, a
+# name and both addresses. Each way of missing it is named.
+printf '{"version": 1, "exportedAt": "2026-08-29T15:07:27Z", "clients": []}\n' > "$WORK/v1.json"
+check "a live export below the version floor is refused" \
+    "$(live_status "$SNAP" "$WORK/v1.json")" "4"
+check "and the refusal names the version and the floor" \
+    "$(live_on "$SNAP" "$WORK/v1.json" | grep -c 'version 1 is below the floor of 2')" "1"
+printf '{"exportedAt": "2026-08-29T15:07:27Z", "clients": []}\n' > "$WORK/nover.json"
+check "a live export with no version is named as that" \
+    "$(live_on "$SNAP" "$WORK/nover.json" | grep -c 'it carries no whole number version')" "1"
+printf '{"version": 3, "exportedAt": "2026-08-29T15:07:27Z", "clients": {}}\n' > "$WORK/noclients.json"
+check "a live export whose clients are not a list is named as that" \
+    "$(live_on "$SNAP" "$WORK/noclients.json" | grep -c 'clients is not a list')" "1"
+printf '{"version": 3, "exportedAt": "2026-08-29T15:07:27Z", "clients": [{"id": "1D6F2C3A-0000-4000-8000-000000000001", "displayName": "x", "email": "a@example.com"}]}\n' \
+    > "$WORK/noaddr.json"
+check "and a client missing a field the app requires is named by position, never by name" \
+    "$(live_on "$SNAP" "$WORK/noaddr.json" | grep -c 'client 1 has no string contractEmail')" "1"
+printf '{"version": 3, "clients": []}\n' > "$WORK/noinstant.json"
+check "and so is an export with no exportedAt instant" \
+    "$(live_on "$SNAP" "$WORK/noinstant.json" | grep -c 'it carries no readable exportedAt')" "1"
+
+# NOT MEASURED IS SAID EVERY RUN, so a snapshot only run is never read as having
+# looked at what the app reads (L98).
+check "a run given no live export says the live export was not measured" \
+    "$(run_on "$SHAPE" | grep -c '^LIVE EXPORT NOT MEASURED')" "1"
+check "and --live with no path is refused as a wrong call" \
+    "$(python3 "$TARGET" "$SHAPE" "$(shasum -a 256 "$SHAPE" | cut -d' ' -f1)" --live >/dev/null 2>&1; printf '%s' "$?")" "2"
 
 harness_end

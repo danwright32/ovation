@@ -958,9 +958,9 @@ It is a decision now, and the list says so.
 **The round could not be judged until the fixture changed, which is ovation#197 in miniature.** Both
 of the file's shared clients also lack a tax status, so they sit in the pass either way and counting
 them changes nothing: two of the three options drew the identical screen. The round gave one of them
-a status. The export cannot say which is true of the real pair, because it has no field for a tax
-status at all, and PRD 5a0 records that the figure behind this whole pass is one of the two nothing
-can re-derive.
+a status. For the real pair the export does say, because it carries `isTaxExempt` (PRD 5a0,
+ovation#215): in the 2026-09-05 snapshot neither client of the pair holds a value, so both sat in
+the pass, as they do in the file.
 
 ### The address half emptied itself, 2026-09-11 (ovation#40)
 
