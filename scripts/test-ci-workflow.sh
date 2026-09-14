@@ -18,7 +18,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ci workflow tests" 26
+harness_begin "ci workflow tests" 30
 
 TARGET="scripts/check-ci-workflow.sh"
 require_target "$TARGET"
@@ -49,17 +49,24 @@ good_workflow() {
 name: CI
 jobs:
   shell-suites:
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: bash scripts/select-xcode.sh
       - run: bash scripts/run-tests.sh
   build-and-test:
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: bash scripts/select-xcode.sh
       - run: bash scripts/build-products.sh && bash scripts/run-tests.sh
+  a-linux-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: bash scripts/run-tests.sh
 YML
 }
 
@@ -99,6 +106,32 @@ sed_in_place "$B3/ci.yml" 's|bash scripts/build-products.sh && bash scripts/run-
 check "a workflow that never builds both configurations is refused" "$(status_of "$B3")" "1"
 check "and it quotes the command it expected to find" \
     "$(run_check "$B3" | grep -c 'build-products.sh')" "1"
+
+# 5b. A MAC JOB THAT BUILDS WITH WHATEVER XCODE THE IMAGE SHIPS (ovation#270).
+#     Both Mac jobs used the image default and nothing named a version, so an
+#     image update could move the compiler with no change here. Each Mac job must
+#     select the pinned Xcode; the Linux job in the fixture has none to select and
+#     is not asked to, which is what the passing case above already proves.
+B4="$WORK/noxcode"; good_workflow "$B4"
+# THE FIRST SELECTION ONLY, by awk rather than sed: the sed spelling of "first
+# match" is `0,/re/`, which GNU reads and BSD does not, and neither errors on the
+# other's form in a way a reader would predict (L434). The deletion is still
+# proved rather than assumed, because a fixture that selects in both jobs would
+# pass the refusal below for the wrong reason (L159).
+awk '!done && /bash scripts\/select-xcode.sh/ { done = 1; next } { print }' "$B4/ci.yml" > "$B4/ci.yml.tmp" \
+    && mv "$B4/ci.yml.tmp" "$B4/ci.yml"
+check "the fixture really lost one job's selection" \
+    "$(grep -c 'select-xcode.sh' "$B4/ci.yml")" "1"
+check "a macOS job that does not select the pinned Xcode is refused" "$(status_of "$B4")" "1"
+check "and it names that job" \
+    "$(run_check "$B4" | grep -c 'NO PINNED XCODE: shell-suites')" "1"
+# A COMMENT NAMING THE SELECTOR IS NOT A STEP RUNNING IT: comment lines are
+# dropped, the same rule lib/workflow-text.sh applies to a whole file
+# (ovation#221, L135).
+B5="$WORK/xcodecomment"; good_workflow "$B5"
+sed_in_place "$B5/ci.yml" 's|      - run: bash scripts/select-xcode.sh|      # - run: bash scripts/select-xcode.sh|'
+check "a selection that is only a comment is refused in every Mac job" \
+    "$(run_check "$B5" | grep -c 'NO PINNED XCODE')" "2"
 
 # 6. AND THE REAL WORKFLOW PASSES ITS OWN CHECK. Everything above is a fixture;
 #    this is the assertion that goes red the day the real file drifts.
@@ -176,6 +209,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: bash scripts/select-xcode.sh
       - run: python3 scripts/$2
       - run: bash scripts/build-products.sh && bash scripts/run-tests.sh
 YML

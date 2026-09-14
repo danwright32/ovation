@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 79
+harness_begin "output privacy tests" 83
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -805,6 +805,36 @@ check "the problem kinds check prints no identity when it refuses" \
 check "and that refusal really did print a finding, so the case reached the line that prints" \
     "$(OVATION_KINDS_SCAN_ROOT="$KINDS" ./scripts/check-problem-kinds-raised.sh 2>&1 | grep -c 'matched here, raised nowhere')" "1"
 
+# ---------------------------------------------------------------------------
+# THE PULL REQUEST DESCRIPTION CHECK (ovation#261). It reads a description a
+# person wrote, which is exactly where a sentence about a real booking sits, and
+# it prints into the log of a repository that is public on purpose. It prints the
+# reference it refused and its corrected spelling, never the line around it.
+# ---------------------------------------------------------------------------
+PR_BODY="$WORK/pr-body.md"
+printf 'The invoice for %s at %s was wrong. Closes ovation#9.\n' "$CLIENT" "$VENUE" > "$PR_BODY"
+check "the pull request description check prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_PR_BODY_FILE="$PR_BODY" ./scripts/check-pr-closing-keywords.sh 2>&1)")" "clean"
+check "and that refusal really did name the reference, so the case reached the line that prints" \
+    "$(OVATION_PR_BODY_FILE="$PR_BODY" ./scripts/check-pr-closing-keywords.sh 2>&1 | grep -c 'Closes ovation#9')" "1"
+
+# ---------------------------------------------------------------------------
+# THE XCODE SELECTOR (ovation#270). It prints versions and paths, and the one
+# thing it quotes that a person wrote is the pin file. A pin carrying a sentence
+# rather than a version is refused, and the refusal quotes it, so that is the
+# path this drives: covered because every workflow script is, not because this
+# one looked risky (L129, L96).
+# ---------------------------------------------------------------------------
+XPIN="$WORK/xcode-version"
+printf '%s at %s\n' "$CLIENT" "$VENUE" > "$XPIN"
+XSEL_OUT="$(OVATION_XCODE_VERSION_FILE="$XPIN" OVATION_XCODE_APPS_DIR="$WORK" \
+    OVATION_XCODE_SELECT_COMMAND=/nonexistent OVATION_XCODEBUILD=/nonexistent \
+    ./scripts/select-xcode.sh 2>&1)"
+check "the Xcode selector prints no identity, even from a pin somebody edited" \
+    "$(leaks_in "$XSEL_OUT")" "clean"
+check "and it really did refuse the pin, so the case reached the line that quotes one" \
+    "$(printf '%s' "$XSEL_OUT" | grep -c 'CANNOT MEASURE')" "1"
+
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever
 # nobody remembered to add, and the exempted one is the one this suite exists for
@@ -822,7 +852,13 @@ check "and that refusal really did print a finding, so the case reached the line
 MUST_BE_COVERED="$( { roles_with gated; roles_with reads-real-data; roles_with workflow; } | sort -u | tr '\n' ' ' | sed 's/ $//')"
 # What this suite actually exercises, read from its own text rather than
 # declared beside it, so the two cannot drift (L70).
-EXERCISED="$(grep -oE './scripts/(check|measure)-[a-z-]+\.(sh|py)' "$0" \
+#
+# `select-` IS IN THE PATTERN BECAUSE A ROLE, NOT A NAME, PUTS A SCRIPT IN THE
+# SET (ovation#270). scripts/select-xcode.sh is run by a workflow and so must be
+# covered, and it is not called check-: it CHANGES which Xcode a machine builds
+# with, and a name that reads like an inspection must not modify anything
+# (L206). A pattern blind to it would refuse a script this suite covers (L63).
+EXERCISED="$(grep -oE './scripts/(check|measure|select)-[a-z-]+\.(sh|py)' "$0" \
     | sed 's|^./scripts/||' | sort -u | tr '\n' ' ' | sed 's/ $//')"
 check "every script that can print about real data is covered by this suite" \
     "$EXERCISED" "$MUST_BE_COVERED"

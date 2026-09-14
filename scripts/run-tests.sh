@@ -255,6 +255,39 @@ else
   # be reading. REGENERATING an existing one is a different act and does take the
   # lock, in regenerate-xcode-project.sh: it rewrites a file a running build is
   # reading, which happened on 2026-09-10 and survived on luck (ovation#202).
+  # WHICH XCODE THIS RUN BUILDS WITH, AGAINST THE ONE CI BUILDS WITH (ovation#270).
+  #
+  # The push gate is meant to predict CI, and it can only do that while both
+  # compile with the same Xcode. CI selects the version .xcode-version names; this
+  # Mac builds with whatever is selected here. A green run on a different compiler
+  # is not evidence the merge will build (L376), so every run that builds says
+  # which of the three it found, the matching case included, so its silence can
+  # never be read as a comparison that passed (L98).
+  #
+  # IT NEVER CHANGES THE VERDICT. Somebody partway through an Xcode upgrade must
+  # still be able to run the suite, and a refusal here would be a gate people
+  # learn to skip (L378). It sits here, inside the phase that builds, because a
+  # shell only run compiles nothing and a note about a compiler there would be
+  # one every Linux log carried and nobody read (L36).
+  # shellcheck source=lib/xcode-pin.sh
+  . "${REPO_ROOT}/scripts/lib/xcode-pin.sh"
+  XCODE_PIN_FILE="${OVATION_XCODE_VERSION_FILE:-${REPO_ROOT}/.xcode-version}"
+  XCODEBUILD_FOR_VERSION="${OVATION_XCODEBUILD:-xcodebuild}"
+  if ! CI_XCODE="$(xcode_pin_read "${XCODE_PIN_FILE}")"; then
+    echo "==> NOTE: could not read the Xcode CI builds with from ${XCODE_PIN_FILE}"
+    echo "    (it should hold one version number, like 26.6), so this Mac's Xcode was"
+    echo "    not compared with CI's. The run continues."
+  elif ! LOCAL_XCODE="$(xcode_active_version "${XCODEBUILD_FOR_VERSION}")"; then
+    echo "==> NOTE: could not tell which Xcode this Mac builds with, so it was not"
+    echo "    compared with Xcode ${CI_XCODE}, the version CI builds with. The run continues."
+  elif [ "${LOCAL_XCODE}" = "${CI_XCODE}" ]; then
+    echo "==> Building with Xcode ${LOCAL_XCODE}, the version CI builds with (.xcode-version)."
+  else
+    echo "==> NOTE: this Mac builds with Xcode ${LOCAL_XCODE} and CI builds with Xcode ${CI_XCODE} (.xcode-version)."
+    echo "    A green run here does not show CI's compiler will agree, so a push can"
+    echo "    pass this gate and still fail to build in CI (ovation#270). The run continues."
+  fi
+
   # shellcheck source=lib/ensure-xcode-project.sh
   . "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
   ensure_xcode_project "${REPO_ROOT}" "${XCODE_PROJECT}" "${XCODEGEN}" || exit 2
