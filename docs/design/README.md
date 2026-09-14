@@ -244,6 +244,29 @@ something that named no claim. The renderer likewise tells a browser that return
 that returned a page with no report in it. It was not reproduced: 286 renders of the same damaged
 file, serial and up to forty at once, all named the one claim.
 
+**A check starts one browser, however many files it renders** (ovation#183). Every render used to
+start its own browser, and the start was most of the cost: 0.13s of a 0.16s render of `invoice.html`.
+Now a check opens one browser and renders each file, at each width, as a fresh page in it. A fresh
+page each time rather than every probe injected into one page, because the probes are not
+independent: one presses every control and two drive their screens, so a shared page would measure
+what another probe pressed. Before the change every probe was run against every committed file both
+ways and all 27 reports were identical, and every check printed the same words. Measured back to
+back on 2026-09-14, three samples each, fastest shown: `check-design-draws.sh` 1.79s to 0.78s, the
+token check 0.86s to 0.43s, the sidebar check 0.72s to 0.41s, the window ceiling check 0.87s to
+0.46s, and the six rendering suites together 34.9s to 23.2s, which also counts rendering each case
+once. The one thing that moved with it: the old renderer ran the page's timers forward on a virtual
+clock before taking the page, and this reads the report as soon as the page has loaded and the probe
+has written it. No probe writes later than that, and the record's only timer starts when Send is
+pressed.
+
+**Each page is asked for as a new window of its size**, because the Linux runner's browser refused
+a size given to an ordinary page after accepting it once or twice, which the Mac browser never did,
+so only CI could see it. Asked for that way, all 27 reports still matched the old renderer's. And
+**every tool that renders gets its browser through one call** that answers CANNOT MEASURE when there
+is none: the window ceiling check had asked for a browser and never looked at the answer, so on a
+machine without one it died with a traceback instead, and its suite could not reach its own
+CANNOT MEASURE either.
+
 ## Each file's own list of what it does not answer is checked too
 
 **`scripts/check-design-record-open.sh` now reads each design file's own open list as well as this
@@ -975,8 +998,10 @@ by a file that draws it nowhere (L98), and because what the row gives up has to 
 which makes this a move rather than a deletion. It was the first thing that DROVE this screen, and
 the rest of what ovation#186 asked for is recorded below, under "Something drives this screen now".
 
-**It makes five browser starts in the CI step that proves the design checks can measure**, where
-there were four, which ovation#183 already counts as a cost worth removing. It is not removed here.
+**It made five browser starts in the CI step that proves the design checks can measure**, where
+there were four, which ovation#183 counted as a cost worth removing. Since ovation#183 each check
+starts one browser however many files it renders, so that step starts six browsers, one per check,
+where it used to start twenty six, one per render.
 
 ### The roster pass holds what blocks, settled 2026-09-10 (ovation#40)
 
@@ -1068,7 +1093,7 @@ reports the clients it started with, the roster leaves the rail once empty and s
 on it, and a quantity of nothing is not drawn anywhere on the screen or the rail. Its suite plants
 the defect each claim exists for and asserts that exactly that claim fires. They are claims in the
 existing check rather than a new one, because a second check is another browser start in the CI
-step ovation#183 counts.
+step ovation#183 counted, and a check still starts its own browser.
 
 **The day switch has a third day, `A day with the address fixed`** (ovation#209). A section with
 nothing in it is not drawn (PRD 5a), and until this the file could not draw that case at all: its

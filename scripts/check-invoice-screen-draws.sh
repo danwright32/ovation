@@ -38,7 +38,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
-from design_render import CannotMeasure, NO_BROWSER, find_browser, render  # noqa: E402
+from design_render import CannotMeasure, open_browser  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_FILE = os.path.join(REPO, "docs/design/invoice.html")
@@ -661,7 +661,7 @@ def main(argv):
         fail("the design file is not there: %s" % path)
 
     try:
-        browser = find_browser()
+        session = open_browser()
     except CannotMeasure as err:
         # IN THE WORDS, not only in the exit code (ovation#214). This branch used
         # to print a bare sentence while its four sibling rendering checks all
@@ -670,12 +670,9 @@ def main(argv):
         # L98). The code was always 3; only the sentence was missing.
         print("CANNOT MEASURE: %s" % err)
         return 3
-    if browser is None:
-        print(NO_BROWSER)
-        return 3
 
     try:
-        report = render(browser, path, PROBE)
+        report = session.render(path, PROBE)
     except CannotMeasure as err:
         # IN THE WORDS, not only in the exit code (ovation#214). This branch used
         # to print a bare sentence while its four sibling rendering checks all
@@ -688,7 +685,7 @@ def main(argv):
     if not claims:
         fail("the probe reported no claims at all, so nothing was measured", 3)
 
-    print("Rendered %s in %s" % (os.path.relpath(path, REPO), os.path.basename(browser)))
+    print("Rendered %s in %s" % (os.path.relpath(path, REPO), os.path.basename(session.path)))
     broken = []
     for name, outcome in claims.items():
         mark = "ok  " if outcome.get("ok") else "FAIL"
