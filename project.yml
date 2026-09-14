@@ -123,6 +123,12 @@ targets:
         # cannot route an ovation:// open to the wrong build. Read by the single
         # window handler in plan 1.13 and by Info.plist's CFBundleURLTypes.
         OVATION_URL_SCHEME: ovation
+        # THE NAME macOS SHOWS, read by Info.plist's CFBundleName and
+        # CFBundleDisplayName (ovation#264). Release keeps "Ovation"; Debug
+        # overrides it below. PRODUCT_NAME is deliberately left alone: it names
+        # the bundle and its executable, and the installer and every guard find a
+        # running copy by that executable's path.
+        OVATION_DISPLAY_NAME: Ovation
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
         # ENTITLEMENTS ARE DECLARED PER CONFIGURATION, and this is a security
@@ -170,6 +176,15 @@ targets:
           # being applied and the symptom is the state this replaced, which
           # reads as normal.
           ASSETCATALOG_COMPILER_APPICON_NAME: AppIconDebug
+          # ovation#264. The icon above is a sign only for someone who knows to
+          # look for it. On 2026-09-13 opening Ovation by name started a Debug
+          # build copy, which keeps its own data folder and preferences, and the
+          # relaunch check for ovation#232 was run against it by mistake. The
+          # name is what the menu bar, the Dock and Spotlight say, so a Debug
+          # copy now says so there. Dan chose "Ovation Debug", Debug only.
+          # scripts/lib/bundle-identity-checks.sh holds both configurations to
+          # it on the built bundle.
+          OVATION_DISPLAY_NAME: Ovation Debug
   # The PURE suite, UNHOSTED on purpose, adopted from the source rather than
   # retrofitted later, because the reason it exists there is measured and applies
   # to Ovation from its first test.

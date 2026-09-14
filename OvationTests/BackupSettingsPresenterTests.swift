@@ -129,6 +129,9 @@ struct BackupSettingsPresenterTests {
         let problems: ProblemsStore
         let presenter: BackupSettingsPresenter
         let instant = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        /// Held for as long as the fixture lives, because releasing it removes the
+        /// settings the presenter is writing to.
+        private let throwaway: ThrowawayDefaults
         /// What the panel hands back next. Held in a BOX rather than on the
         /// fixture, because the closure has to be built before the presenter and
         /// capturing `self` there reads a property that does not exist yet.
@@ -150,8 +153,11 @@ struct BackupSettingsPresenterTests {
                                                     withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: folder,
                                                     withIntermediateDirectories: true)
-            guard let defaults = UserDefaults(suiteName: "ovation.tests.\(UUID().uuidString)")
-            else { throw FixtureFailure.couldNotMakeDefaults }
+            // A SUITE THAT LEAVES NOTHING ON THE MAC (ovation#263). A suite made by
+            // name left one more preferences domain behind on every run, and the
+            // fixture that makes it also removes it when this fixture goes.
+            throwaway = try ThrowawayDefaults()
+            let defaults = throwaway.defaults
 
             problems = ProblemsStore(journal: InMemoryProblemsJournal())
             answer.url = folder
@@ -167,9 +173,5 @@ struct BackupSettingsPresenterTests {
                 now: { Date(timeIntervalSinceReferenceDate: 800_000_000) },
                 askForAFolder: answers)
         }
-    }
-
-    enum FixtureFailure: Error {
-        case couldNotMakeDefaults
     }
 }

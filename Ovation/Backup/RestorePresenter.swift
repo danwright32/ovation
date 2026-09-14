@@ -182,18 +182,23 @@ final class RestorePresenter {
             return .refused("\(name) does not verify, so it was NOT restored: "
                             + "\(failures.count) problem(s) with what is in it. "
                             + "Nothing in Ovation has been changed.")
-        } catch BackupError.restoredPartway(let replaced, let failedAt, let snapshot) {
+        } catch BackupError.restoredPartway(let replaced, let failedAt, let snapshot, let cause) {
             // THE DATA FOLDER IS NOW A MIX (ovation#258), so this can never borrow
             // the sentence below. It names what went back, what may be missing, and
             // the snapshot, because the snapshot is the way back (L11, L12).
+            //
+            // AND WHY IT STOPPED (ovation#269). Freeing space, granting access again
+            // and reconnecting a drive are three different remedies, and a sentence
+            // that names only where it stopped leaves Dan guessing which one applies.
             let done = replaced.isEmpty
                 ? "Nothing had been put back yet"
                 : "\(replaced.sorted().joined(separator: ", ")) had been put back"
             return .partlyRestored(
-                "\(name) was only partly restored. \(done) when \(failedAt) could not be, "
-                    + "so \(failedAt) may now be missing or incomplete and Ovation's data "
-                    + "is a mix of the backup and what was there before. Everything as it "
-                    + "was just before the restore is in \(snapshot), in the backups folder.")
+                "\(name) was only partly restored. \(done) when \(failedAt) could not be: "
+                    + "\(Self.asSentence(cause)) So \(failedAt) may now be missing or "
+                    + "incomplete, and Ovation's data is a mix of the backup and what was "
+                    + "there before. Everything as it was just before the restore is in "
+                    + "\(snapshot), in the backups folder.")
         } catch {
             // ONLY A FAILURE BEFORE THE SNAPSHOT REACHES HERE, because the service
             // turns every failure after it into `restoredPartway`, so this sentence
@@ -227,6 +232,14 @@ final class RestorePresenter {
             return "\(bookings(added)) added back."
         }
         return "Every queued booking in it is already in the queue."
+    }
+
+    /// A cause ends in a full stop before the next sentence starts, whether or not
+    /// the text it came from had one.
+    private static func asSentence(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trimmed.last else { return trimmed }
+        return ".!?".contains(last) ? trimmed : trimmed + "."
     }
 
     private static func bookings(_ count: Int) -> String {

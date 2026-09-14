@@ -24,7 +24,10 @@
 # Usage, from a suite that has already sourced the test harness:
 #
 #     . "$(dirname "$0")/lib/bundle-identity-checks.sh"
-#     bundle_identity_checks Release "$signature_text" "$entitlements_text"
+#     bundle_identity_checks Release "$signature_text" "$entitlements_text" "$info_plist_text"
+#
+# The Info.plist text is `plutil -p` of the built bundle's Info.plist
+# (ovation#264).
 #
 # It runs exactly `bundle_identity_checks_count` assertions through the
 # harness's own `check`, so a caller declares its total as
@@ -34,24 +37,31 @@
 # How many assertions one call makes. A caller derives its declared total from
 # this rather than writing the number twice, because two numbers that must agree
 # drift and the one that drifts is the declaration nobody re-reads (L70).
-bundle_identity_checks_count() { printf '6'; }
+bundle_identity_checks_count() { printf '7'; }
 
 bundle_identity_checks() {
-    local config="$1" sig="$2" ents="$3"
-    local expected_id i
+    local config="$1" sig="$2" ents="$3" info="${4:-}"
+    local expected_id expected_name i
 
     # An unknown configuration is REFUSED, not quietly judged as Debug.
     # Defaulting to Debug is the exact defect this issue exists to remove, so
     # nothing here carries one (L320). It still runs the declared number of
     # assertions, so a caller's count stays honest while every one of them says
     # what went wrong (L11).
+    #
+    # THE LOOP RUNS THE COUNT, never a number written beside it. It was
+    # `for i in 1 2 3 4 5` while the function made six judgements, so a refused
+    # configuration ran one short of what its caller declared; found when
+    # ovation#264 added a seventh (L70).
     case "$config" in
-        Release) expected_id="com.danwright.ovation" ;;
-        Debug)   expected_id="com.danwright.ovation.debug" ;;
+        Release) expected_id="com.danwright.ovation";       expected_name="Ovation" ;;
+        Debug)   expected_id="com.danwright.ovation.debug"; expected_name="Ovation Debug" ;;
         *)
-            for i in 1 2 3 4 5; do
+            i=0
+            while [ "$i" -lt "$(bundle_identity_checks_count)" ]; do
                 check "configuration '$config' is not one this suite can judge" \
                     "unknown configuration" "Debug or Release"
+                i=$((i+1))
             done
             return 1
             ;;
@@ -137,4 +147,20 @@ bundle_identity_checks() {
         check "the debug build allows the hosted test bundle to load" \
             "$(printf '%s' "$ents" | grep -c 'disable-library-validation')" "1"
     fi
+
+    # 7. THE NAME macOS SHOWS, in both keys that carry it (ovation#264).
+    #
+    # On 2026-09-13 opening Ovation by name started the Debug build copy, whose
+    # data folder and preferences are its own, and nothing on the screen said
+    # which copy was open. The bundle identifier already kept the two apart for
+    # macOS; a person reads the menu bar, the Dock and Spotlight instead. Dan
+    # chose "Ovation Debug" for Debug, and the installed Release app stays
+    # "Ovation".
+    #
+    # CFBundleName is the menu bar and Dock name, CFBundleDisplayName the one
+    # Spotlight and Launch Services show, so both are held. Read off the BUILT
+    # Info.plist, and an empty reading is a refusal rather than a pass (L98).
+    check "the $config bundle is named $expected_name where macOS shows it" \
+        "$(printf '%s' "$info" | sed -n 's/^ *"CFBundleName" => "\(.*\)"$/\1/p')|$(printf '%s' "$info" | sed -n 's/^ *"CFBundleDisplayName" => "\(.*\)"$/\1/p')" \
+        "$expected_name|$expected_name"
 }

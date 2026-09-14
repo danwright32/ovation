@@ -116,7 +116,7 @@ enum BackupError: Error, Equatable {
     /// A restore that had begun changing the data folder and could not finish
     /// (ovation#258): what it had put back, what it was putting back when it
     /// stopped, and the pre restore snapshot that holds everything as it was.
-    case restoredPartway(replaced: [String], failedAt: String, snapshot: String)
+    case restoredPartway(replaced: [String], failedAt: String, snapshot: String, cause: String)
 }
 
 final class BackupService {
@@ -699,11 +699,32 @@ final class BackupService {
                 }
             }
         } catch {
+            // THE CAUSE IS KEPT, not discarded at this boundary (ovation#269). A full
+            // disk, a permission macOS withdrew and a volume that went away need
+            // three different actions, and the partway restore is the screen Dan
+            // reads on a bad day, so it has to say which (L11). ovation#229 made
+            // `couldNotWrite` carry its cause for the same reason.
             throw BackupError.restoredPartway(replaced: putBack,
                                               failedAt: inProgress,
-                                              snapshot: snapshot.lastPathComponent)
+                                              snapshot: snapshot.lastPathComponent,
+                                              cause: Self.cause(of: error))
         }
         return RestoreResult(bookingsAddedBack: added.sorted(), bookingsHeldBack: heldBack.sorted())
+    }
+
+    /// Why a restore stopped, in words a person can act on (ovation#269).
+    ///
+    /// A FOUNDATION ERROR ALREADY SAYS IT: "you don't have permission", "there
+    /// isn't enough space". Ovation's OWN refusal does not, because `BackupError`
+    /// carries no description and its `localizedDescription` is "The operation
+    /// couldn't be completed" with a type name and a number, which claims a cause
+    /// without stating one (L11). The one it can raise inside a restore is named
+    /// here by what could not be read.
+    private static func cause(of error: Error) -> String {
+        if case BackupError.couldNotRead(let path) = error {
+            return "\(path) could not be read."
+        }
+        return error.localizedDescription
     }
 
     /// What a restore did with the booking queue (ovation#253), so the surface can

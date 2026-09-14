@@ -29,10 +29,24 @@
 #
 # WHAT THIS PORT DELIBERATELY DOES NOT TAKE, per docs/PORT-DISCIPLINE.md. The
 # source is 619 lines and much of it is Downbeat's own machinery: the shipped
-# commit recorder, the LaunchServices registration cleanup, and the synthetic
-# launch check. Each is a real thing Ovation may want later, and none of them is
-# what ovation#10 is for. They are named here so their absence is a decision and
-# not an oversight, and ovation#20 already covers the launch half.
+# commit recorder and the synthetic launch check. Each is a real thing Ovation
+# may want later, and neither is what ovation#10 is for. They are named here so
+# their absence is a decision and not an oversight, and ovation#20 already covers
+# the launch half.
+#
+# THE LAUNCH SERVICES CLEANUP WAS ON THAT LIST UNTIL ovation#264, which measured
+# the gap. On 2026-09-13, straight after this installed a Release build, opening
+# Ovation by name started the DEBUG build copy in Xcode's DerivedData. That copy
+# keeps its own data folder and preferences, so a backup folder chosen in it was
+# invisible to the installed app, and once invoices exist, work entered in a
+# build copy lands in a database the installed app never reads (L55, L83). So
+# after installing, every other Ovation bundle Launch Services holds is
+# unregistered, and the database is read back to prove it took.
+#
+# WHAT IT CANNOT DO: Xcode registers a build copy again whenever it builds one,
+# so this clears the state at install time rather than for ever. The Debug
+# build's own display name, "Ovation Debug" (project.yml), is what keeps a copy
+# that comes back distinguishable where Dan looks.
 #
 # FIELD SET: Ovation writes the UNION of what the two siblings record, because
 # NEITHER writes the set Ovation's own installed consumer guard needs. Overture
@@ -50,6 +64,9 @@ BUILT_APP="${OVATION_BUILT_APP:-}"
 DATA_DIR="${OVATION_DATA_DIR:-${HOME}/Library/Application Support/Ovation}"
 CODESIGN_CMD="${OVATION_CODESIGN:-codesign}"
 XATTR_CMD="${OVATION_XATTR:-xattr}"
+# A SEAM FROM THE FIRST LINE (ovation#264). The real tool edits the database the
+# whole Mac opens apps by, so the suite must never reach it (L2, L196).
+LSREGISTER_CMD="${OVATION_LSREGISTER:-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister}"
 RECORD="${DATA_DIR}/installed-build.json"
 
 # ---------------------------------------------------------------------------
@@ -153,6 +170,51 @@ ovation_signing_identity() {
   esac
 }
 
+# The path of every bundle Launch Services holds for Ovation, anywhere but the
+# given destination, one per line, read from `lsregister -dump` on stdin
+# (ovation#264).
+#
+# BOTH IDENTITIES, because the copy that opened by name on 2026-09-13 was the
+# Debug one, and a person asking for "Ovation" is asking for either. The
+# identifier is compared EXACTLY: one that merely starts the same is another
+# app's. The path is taken WHOLE, up to the record handle the dump appends, so a
+# folder with a space in its name is not cut in two.
+ovation_registered_elsewhere() {
+  local dest="$1" line path="" id=""
+  # Only the three kinds of line that matter, so the loop reads a few hundred
+  # lines rather than the whole database.
+  grep -E '^(-{10,}|path:|identifier:)' | {
+    while IFS= read -r line; do
+      case "${line}" in
+        path:*)
+          path="${line#path:}"
+          path="${path#"${path%%[![:space:]]*}"}"
+          path="${path% (0x*)}"
+          ;;
+        identifier:*)
+          id="${line#identifier:}"
+          id="${id#"${id%%[![:space:]]*}"}"
+          ;;
+        *)
+          _ovation_emit_registration "${dest}" "${path}" "${id}"
+          path=""; id=""
+          ;;
+      esac
+    done
+    _ovation_emit_registration "${dest}" "${path}" "${id}"
+  }
+  return 0
+}
+
+_ovation_emit_registration() {
+  local dest="$1" path="$2" id="$3"
+  [ -n "${path}" ] && [ "${path}" != "${dest}" ] || return 0
+  case "${id}" in
+    com.danwright.ovation|com.danwright.ovation.debug) printf '%s\n' "${path}" ;;
+  esac
+  return 0
+}
+
 [ "${1:-}" = "--source-only" ] && return 0 2>/dev/null
 
 # ---------------------------------------------------------------------------
@@ -243,3 +305,48 @@ ovation_installed_build_json "${COMMIT}" "${COMMIT_DATE}" "${REPO_ROOT}" \
 echo "==> Installed to ${DEST}"
 echo "==> Recorded ${RECORD}"
 cat "${RECORD}"
+
+# ---------------------------------------------------------------------------
+# ONLY THE INSTALLED COPY MAY ANSWER TO THE NAME (ovation#264). See the header.
+#
+# After the record, deliberately: the bundle is in place and recorded whatever
+# happens here, so a failure below is said as exactly that and exits 3, a code
+# of its own, rather than reading as an install that did not happen (L11, L12).
+# ---------------------------------------------------------------------------
+LS_UNREADABLE="Installed and recorded, but Ovation could not read Launch Services"
+if ! LS_BEFORE="$("${LSREGISTER_CMD}" -dump 2>/dev/null)" || [ -z "${LS_BEFORE}" ]; then
+  # A database that cannot be read is not one with nothing in it (L98, L215).
+  echo "Warning: ${LS_UNREADABLE}, so it could not check whether another copy" >&2
+  echo "         of Ovation would open by name instead of ${DEST}." >&2
+  exit 3
+fi
+
+OTHERS="$(printf '%s\n' "${LS_BEFORE}" | ovation_registered_elsewhere "${DEST}")"
+removed=0
+while IFS= read -r other; do
+  [ -n "${other}" ] || continue
+  # Its exit code is not the proof: the database is read back below (L184).
+  "${LSREGISTER_CMD}" -u "${other}" >/dev/null 2>&1 || true
+  removed=$((removed+1))
+done <<< "${OTHERS}"
+"${LSREGISTER_CMD}" -f "${DEST}" >/dev/null 2>&1 || true
+
+case "${removed}" in
+  0) echo "==> No other copy of Ovation was registered with Launch Services." ;;
+  1) echo "==> Removed 1 other copy of Ovation from Launch Services." ;;
+  *) echo "==> Removed ${removed} other copies of Ovation from Launch Services." ;;
+esac
+
+if ! LS_AFTER="$("${LSREGISTER_CMD}" -dump 2>/dev/null)" || [ -z "${LS_AFTER}" ]; then
+  echo "Warning: ${LS_UNREADABLE} afterwards, so it could not confirm that" >&2
+  echo "         ${DEST} is the only copy that opens by name." >&2
+  exit 3
+fi
+STILL="$(printf '%s\n' "${LS_AFTER}" | ovation_registered_elsewhere "${DEST}")"
+if [ -n "${STILL}" ]; then
+  echo "Warning: Installed and recorded, but these copies of Ovation are still" >&2
+  echo "         registered, so opening Ovation by name can start one of them" >&2
+  echo "         instead of ${DEST}:" >&2
+  printf '%s\n' "${STILL}" | sed 's/^/           /' >&2
+  exit 3
+fi
