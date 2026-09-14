@@ -1,0 +1,188 @@
+{
+  "about": "The text docs/design/invoice-pdf.html draws for each of its fixture invoices, written by scripts/build-invoice-pdf-text.sh and read by the app's document tests (ovation#167). Do not edit by hand: re-run the script, and --check says when this is no longer what the design draws.",
+  "source": "docs/design/invoice-pdf.html",
+  "fixtures": [
+    {
+      "label": "Ordinary",
+      "head": {"label": "Amount due", "amount": "$272.19", "due": "by November 8, 2026"},
+      "strip": [
+        ["Bill to", "Calder Street Theatre"],
+        ["Invoice", "1123"],
+        ["Issued", "October 25, 2026"]
+      ],
+      "title": "Invoice",
+      "columns": [
+        "Description",
+        "Hours",
+        "Rate",
+        "Amount"
+      ],
+      "items": [
+        ["Autumn Concert", "Calder Street Theatre, October 25, 2026", "1.0 hr", "$250.00", "$250.00"]
+      ],
+      "money": [
+        ["Subtotal", "$250.00"],
+        ["Sales tax (8.875%)", "$22.19"],
+        ["Total due", "$272.19"]
+      ],
+      "foot": [
+        ["Payment", ["Payment instructions available upon request.", "Payment due within 14 days of the invoice date."]],
+        ["Note", ["Thank you for having me at your performance. Galleries are delivered within five business days."]],
+        ["Contact", ["dan@danwrightphotography.com"]]
+      ]
+    },
+    {
+      "label": "Combined run",
+      "head": {"label": "Amount due", "amount": "$952.66", "due": "by November 27, 2026"},
+      "strip": [
+        ["Bill to", "Harborlight Ballet"],
+        ["Invoice", "1124"],
+        ["Issued", "November 13, 2026"]
+      ],
+      "title": "Invoice",
+      "columns": [
+        "Description",
+        "Hours",
+        "Rate",
+        "Amount"
+      ],
+      "items": [
+        ["The Nutcracker, dress rehearsal", "Fairhaven Opera House, November 13, 2026", "1.0 hr", "$250.00", "$250.00"],
+        ["The Nutcracker, opening night", "Fairhaven Opera House, November 14, 2026", "1.5 hrs", "$250.00", "$375.00"],
+        ["The Nutcracker, matinee", "Fairhaven Opera House, November 15, 2026", "1.0 hr", "$250.00", "$250.00"]
+      ],
+      "money": [
+        ["Subtotal", "$875.00"],
+        ["Sales tax (8.875%)", "$77.66"],
+        ["Total due", "$952.66"]
+      ],
+      "foot": [
+        ["Payment", ["Payment instructions available upon request.", "Payment due within 14 days of the invoice date."]],
+        ["Note", ["Thank you for having me at your performance. Galleries are delivered within five business days."]],
+        ["Contact", ["dan@danwrightphotography.com"]]
+      ]
+    },
+    {
+      "label": "Every element",
+      "head": {"label": "Amount due", "amount": "$465.44", "due": "by December 19, 2026"},
+      "strip": [
+        ["Bill to", "Westfield Choral Society"],
+        ["Invoice", "1125"],
+        ["Issued", "December 5, 2026"]
+      ],
+      "title": "Invoice",
+      "columns": [
+        "Description",
+        "Hours",
+        "Rate",
+        "Amount"
+      ],
+      "items": [
+        ["Winter Gala Concert", "St Bride's Hall, December 5, 2026", "2.0 hrs", "$250.00", "$500.00"],
+        ["Rush turnaround", "", "", "", "$150.00"],
+        ["Preview images", "", "", "", "$75.00"]
+      ],
+      "money": [
+        ["Services", "$725.00"],
+        ["Referral credit", "-$250.00"],
+        ["Subtotal", "$475.00"],
+        ["Discount (10%)", "-$47.50"],
+        ["Taxable", "$427.50"],
+        ["Sales tax (8.875%)", "$37.94"],
+        ["Total due", "$465.44"]
+      ],
+      "foot": [
+        ["Payment", ["Payment instructions available upon request.", "Payment due within 14 days of the invoice date."]],
+        ["Note", ["Thank you for having me at your performance. Galleries are delivered within five business days."]],
+        ["Contact", ["dan@danwrightphotography.com"]]
+      ]
+    },
+    {
+      "label": "Tax exempt",
+      "head": {"label": "Amount due", "amount": "$250.00", "due": "by December 26, 2026"},
+      "strip": [
+        ["Bill to", "Larkspur Community Chorus"],
+        ["Invoice", "1126"],
+        ["Issued", "December 12, 2026"]
+      ],
+      "title": "Invoice",
+      "columns": [
+        "Description",
+        "Hours",
+        "Rate",
+        "Amount"
+      ],
+      "items": [
+        ["Carols by Candlelight", "Larkspur Meeting House, December 12, 2026", "1.0 hr", "$250.00", "$250.00"]
+      ],
+      "money": [
+        ["Subtotal", "$250.00"],
+        ["Sales tax (exempt)", "$0.00"],
+        ["Total due", "$250.00"]
+      ],
+      "foot": [
+        ["Payment", ["Payment instructions available upon request.", "Payment due within 14 days of the invoice date."]],
+        ["Note", ["Thank you for having me at your performance. Galleries are delivered within five business days."]],
+        ["Contact", ["dan@danwrightphotography.com"]]
+      ]
+    },
+    {
+      "label": "Comped, zero",
+      "head": {"label": "Amount due", "amount": "$0.00", "due": "by January 23, 2027"},
+      "strip": [
+        ["Bill to", "Yarrow Street Collective"],
+        ["Invoice", "1127"],
+        ["Issued", "January 9, 2027"]
+      ],
+      "title": "Invoice",
+      "columns": [
+        "Description",
+        "Hours",
+        "Rate",
+        "Amount"
+      ],
+      "items": [
+        ["Company showcase", "Yarrow Street Studios, January 9, 2027", "1.0 hr", "$0.00", "$0.00"]
+      ],
+      "money": [
+        ["Subtotal", "$0.00"],
+        ["Sales tax (8.875%)", "$0.00"],
+        ["Total due", "$0.00"]
+      ],
+      "foot": [
+        ["Payment", ["Payment instructions available upon request.", "Payment due within 14 days of the invoice date."]],
+        ["Note", ["Thank you for having me at your performance. Galleries are delivered within five business days."]],
+        ["Contact", ["dan@danwrightphotography.com"]]
+      ]
+    },
+    {
+      "label": "Longest real names",
+      "head": {"label": "Amount due", "amount": "$544.38", "due": "by February 20, 2027"},
+      "strip": [
+        ["Bill to", "Marrowbone Percussion Group Trust"],
+        ["Invoice", "1128"],
+        ["Issued", "February 6, 2027"]
+      ],
+      "title": "Invoice",
+      "columns": [
+        "Description",
+        "Hours",
+        "Rate",
+        "Amount"
+      ],
+      "items": [
+        ["Spring Festival of New Percussion, Song and Dances", "The Rothersay Memorial Concert Rooms, February 6, 2027", "2.0 hrs", "$250.00", "$500.00"]
+      ],
+      "money": [
+        ["Subtotal", "$500.00"],
+        ["Sales tax (8.875%)", "$44.38"],
+        ["Total due", "$544.38"]
+      ],
+      "foot": [
+        ["Payment", ["Payment instructions available upon request.", "Payment due within 14 days of the invoice date."]],
+        ["Note", ["Thank you for having me at your performance. Galleries are delivered within five business days."]],
+        ["Contact", ["dan@danwrightphotography.com"]]
+      ]
+    }
+  ]
+}
