@@ -65,7 +65,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 128
+harness_begin "test runner lock tests" 133
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -191,6 +191,114 @@ check "the directory lock is taken before the file lock" \
 run_runner "kill -9 \$\$" >/dev/null 2>&1
 check "a killed run still releases the directory lock" \
     "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
+
+# 6b. A RUN TOLD TO STOP STOPS (ovation#274).
+#
+#     The trap was `trap release_locks EXIT INT TERM`, and a trap on INT or TERM
+#     that only cleans up RETURNS to the script: the runner let go of its locks
+#     and carried on, back to waiting for them or on into xcodebuild. Seen
+#     2026-09-13: two push gate runs stopped with an ordinary signal were still
+#     alive and still waiting seconds later, and needed `kill -9`, which skips the
+#     trap entirely and can leave Downbeat's lock planted for every sibling.
+#
+#     So each case asserts the run has EXITED, with the conventional status, and
+#     only then that the locks are free. Free locks alone are what the broken
+#     trap also produced, so asserting only that would pass on the defect (L140).
+#
+#     THE RUNNER IS STARTED WITH INT RESTORED. A background job in a shell with
+#     no job control starts with SIGINT IGNORED, and a signal ignored on entry
+#     cannot be trapped, so without this the INT case would measure bash's rule
+#     for background jobs rather than the runner. Every seam is set on the one
+#     command, as every other invocation here does (ovation#152).
+start_stoppable_runner() {
+    OVATION_DIR_LOCK="$DIR_LOCK" \
+    OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_TIMEOUT=120 \
+    OVATION_LOCK_POLL_INTERVAL=0.05 \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" \
+    OVATION_TEST_COMMAND=true \
+    OVATION_HOSTED_TEST_COMMAND="$2" \
+    OVATION_UNLOCKED_COMMAND=true \
+    OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
+        python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execv(sys.argv[1], sys.argv[1:])' \
+        "./$TARGET" > "$1" 2>&1 &
+    STOPPABLE_PID=$!
+}
+# Waits for the run to exit, on the condition rather than for a fixed time, and
+# sets STOPPED to its status or `still-running`. A run still alive after the
+# budget is the defect, so it is killed here rather than left behind this suite
+# (L290). IT SETS A VARIABLE AND IS NEVER CALLED INSIDE `$(...)`: a substitution
+# is a subshell, the runner is not ITS child, and `wait` there answers nonsense
+# about a process it never started (the first version read -1).
+stopped_status() {
+    local pid="$1" polls=0
+    while kill -0 "$pid" 2>/dev/null && [ "$polls" -lt 200 ]; do
+        polls=$((polls+1)); sleep 0.05
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+        STOPPED=still-running
+        return
+    fi
+    wait "$pid" 2>/dev/null
+    STOPPED=$?
+}
+wait_for_line() {
+    local waited=0
+    until grep -q "$2" "$1" 2>/dev/null; do
+        waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
+    done
+}
+
+# 6b-i. INT while WAITING on Overture's held lock: the case the issue saw.
+#        Indented like every other holder in this file, because the suite level
+#        argument scan below reads unindented lines and the holder's inner `$1`
+#        belongs to its own shell.
+    rm -rf "$DIR_LOCK"
+    : > "$FILE_LOCK"
+    HOLD_SENTINEL274="$WORK/hold-274"; : > "$HOLD_SENTINEL274"
+    ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL274" ) &
+    HOLDER274=$!
+    waited=0
+    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
+        waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
+    done
+    OUT274A="$WORK/run-274a.out"
+    start_stoppable_runner "$OUT274A" "$HOSTED_PASSES"
+    wait_for_line "$OUT274A" 'Waiting for both test locks'
+    kill -INT "$STOPPABLE_PID"
+    stopped_status "$STOPPABLE_PID"
+    check "a run interrupted while waiting for a lock exits, with status 130" \
+        "$STOPPED" "130"
+    check "and it left Downbeat's lock free behind it" \
+        "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
+    rm -f "$HOLD_SENTINEL274"; wait "$HOLDER274" 2>/dev/null || true
+    # A killed broken run can leave the directory lock planted, which would
+    # then answer for the next case.
+    rm -rf "$DIR_LOCK"
+
+# 6b-ii. TERM while HOLDING BOTH, inside the hosted suite. The signal is handled
+#        when the command it is running returns, and the broken trap then ran
+#        on to report that suite's verdict as the run's. The hosted command
+#        blocks on a sentinel this case removes, so nothing here is timed.
+rm -rf "$DIR_LOCK"
+IN_HOSTED="$WORK/in-hosted-274"; HOLD_HOSTED="$WORK/hold-hosted-274"
+rm -f "$IN_HOSTED"; : > "$HOLD_HOSTED"
+OUT274B="$WORK/run-274b.out"
+start_stoppable_runner "$OUT274B" "touch '$IN_HOSTED'; while [ -e '$HOLD_HOSTED' ]; do sleep 0.02; done; $HOSTED_PASSES"
+waited=0
+until [ -e "$IN_HOSTED" ]; do
+    waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
+done
+kill -TERM "$STOPPABLE_PID"
+rm -f "$HOLD_HOSTED"
+stopped_status "$STOPPABLE_PID"
+check "a run terminated while holding both locks exits, with status 143" \
+    "$STOPPED" "143"
+check "and Downbeat's lock is free" \
+    "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
+check "and Overture's lock is free" \
+    "$("$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null && echo free || echo held)" "free"
 
 # 7. Missing flock: say so BY NAME with the remedy, rather than failing
 #    obscurely. Ovation inherits this dependency from Overture and does not own

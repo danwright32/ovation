@@ -131,7 +131,26 @@ release_locks() {
   DIR_LOCK_HELD=""
   FLOCK_FD=""
 }
-trap release_locks EXIT INT TERM
+# AND A RUN TOLD TO STOP, STOPS (ovation#274). This was one trap for EXIT, INT
+# and TERM, and a trap on INT or TERM that only cleans up RETURNS to the script:
+# a runner told to stop let go of its locks and carried on, back to waiting for
+# them or on into xcodebuild, and reported whatever that reached as its verdict.
+# Seen 2026-09-13: two push gate runs stopped with an ordinary signal were still
+# alive and still waiting seconds later. Stopping one for real then needed
+# `kill -9`, which skips every trap, and the directory lock is the half that does
+# not clear when its holder dies (L473).
+#
+# So EXIT keeps the cleanup, and INT and TERM release and then EXIT with the
+# conventional status, 128 plus the signal, so a caller can tell a stopped run
+# from a red one. The EXIT trap runs again on the way out and finds nothing held.
+#
+# WHAT A SIGNAL CANNOT DO, said so it is not expected: bash runs the trap when
+# the command in front of it returns, so a signal sent to this pid alone while
+# xcodebuild is running takes effect when that build finishes. Ctrl+C reaches
+# the whole foreground group, the build included, and is the prompt way to stop.
+trap release_locks EXIT
+trap 'release_locks; exit 130' INT
+trap 'release_locks; exit 143' TERM
 
 # Ovation does not own flock, it inherits the dependency from Overture, so this
 # is the one that will be absent on a fresh machine. Say so BY NAME with the
