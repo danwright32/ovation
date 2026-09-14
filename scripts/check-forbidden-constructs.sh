@@ -220,10 +220,12 @@ ACTION_OPENERS = re.compile(
 # considered (L233), so nothing was carried across from the sibling.
 #
 # EMPTY ON PURPOSE, and it stays that way until something earns a place.
-# Each entry is "<path relative to the scan root> # <the reason>", and an entry
+# Each entry is "<path relative to the scan root> : <rule name> # <the reason>",
+# and it lifts THAT rule from THAT file and nothing else (ovation#210). An entry
 # with no reason is refused rather than honoured: an exemption carrying no
 # written reason, sitting beside neighbours that have one, is evidence nobody
-# reasoned about it (L233).
+# reasoned about it (L233). An entry naming no rule, or one that does not exist,
+# is refused too.
 DEFAULT_ALLOWLIST = (
     # A COLOUR CHANNEL IS NOT MONEY, and this is the one place the distinction
     # has to be written down. The rule above forbids floating point because
@@ -245,7 +247,7 @@ DEFAULT_ALLOWLIST = (
     # It is scoped to one file that contains nothing else, and the parser above
     # refuses an entry naming a file that is not there, so the reason cannot
     # outlive what it exempts.
-    "Roster/OvationPalette.swift # colour channels, not money: SwiftUI's Color "
+    "Roster/OvationPalette.swift : floating point money # colour channels, not money: SwiftUI's Color "
     "takes Doubles and has no integer form, and this file holds nothing but the "
     "palette quoted from docs/design/shell/palette.css",
 )
@@ -358,16 +360,46 @@ def drawing_findings(lines):
     return findings
 
 
+def rule_names():
+    """Every rule an exemption can name, the scoped one included, in order."""
+    return [rule["name"] for rule in RULES] + [DRAWING_RULE["name"]]
+
+
 def parse_allowlist(entries, root, problems):
+    """The (file, rule name) pairs the allowlist exempts.
+
+    AN ENTRY NAMES A RULE AS WELL AS A FILE (ovation#210). It used to name only a
+    file, and the scan skipped that file entirely, so an exemption written for one
+    rule silently lifted all of them: the palette's, written for floating point
+    colour channels, took the file out of the Task and calendar rules too, and the
+    scanned count dropping by one was the only sign. An entry naming no rule is
+    refused rather than read as covering every rule, because that reading is the
+    defect, and an entry naming a rule that does not exist is refused because it
+    exempts nothing while reading as an exemption.
+    """
+    known = rule_names()
     allowed = set()
+    unknown_rule = False
     for entry in entries:
         entry = entry.strip()
         if not entry:
             continue
-        path, separator, reason = entry.partition("#")
-        path = path.strip()
+        target, separator, reason = entry.partition("#")
+        path, colon, rule = target.partition(":")
+        path, rule = path.strip(), rule.strip()
         if not separator or not reason.strip():
             problems.append(f"the allowlist entry '{path or entry}' carries no reason")
+            continue
+        if not colon or not rule:
+            problems.append(
+                f"the allowlist entry '{path}' names no rule, and an exemption from "
+                "every rule is not one anybody reasoned about: write it as "
+                "'<file> : <rule> # <reason>'"
+            )
+            continue
+        if rule not in known:
+            problems.append(f"the allowlist entry '{path}' names a rule that does not exist, '{rule}'")
+            unknown_rule = True
             continue
         if not os.path.isfile(os.path.join(root, path)):
             problems.append(
@@ -375,7 +407,9 @@ def parse_allowlist(entries, root, problems):
                 "so its reason has outlived it"
             )
             continue
-        allowed.add(path)
+        allowed.add((path, rule))
+    if unknown_rule:
+        problems.append("the rules are: " + ", ".join(known))
     return allowed
 
 
@@ -388,6 +422,10 @@ def main(argv):
     if "--list-drawing" in argv:
         for reader in DRAWING_RULE["readers"]:
             print(reader)
+        return 0
+    if "--list-rules" in argv:
+        for name in rule_names():
+            print(name)
         return 0
 
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -416,17 +454,24 @@ def main(argv):
                 continue
             path = os.path.join(directory, filename)
             relative = os.path.relpath(path, root)
-            if relative in allowed:
+            # Only the rules this file is not exempt from. A file exempt from
+            # EVERY rule was not scanned at all, and is not counted as scanned, so
+            # an allowlist that has grown to cover everything still reads as
+            # nothing checked rather than as a clean tree (L98).
+            applying = [rule for rule in RULES if (relative, rule["name"]) not in allowed]
+            drawing_applies = (relative, DRAWING_RULE["name"]) not in allowed
+            if not applying and not drawing_applies:
                 continue
             scanned += 1
             with open(path, "r", encoding="utf-8", errors="replace") as handle:
                 lines = handle.read().splitlines()
             for number, code in strip_comments(lines):
-                for rule in RULES:
+                for rule in applying:
                     for match in rule["pattern"].finditer(code):
                         findings.append((relative, number, match.group(1), rule["name"]))
-            for number, token in drawing_findings(lines):
-                findings.append((relative, number, token, DRAWING_RULE["name"]))
+            if drawing_applies:
+                for number, token in drawing_findings(lines):
+                    findings.append((relative, number, token, DRAWING_RULE["name"]))
 
     if scanned == 0:
         print(f"CANNOT SCAN: no Swift files under {root}.")
@@ -446,7 +491,8 @@ def main(argv):
         for rule in fired:
             print(f"{rule['name']}: {rule['because']}")
         print(f"{len(findings)} occurrence(s). If one of these is genuinely outside the")
-        print("rule, add it to DEFAULT_ALLOWLIST in this script WITH ITS REASON.")
+        print("rule, add it to DEFAULT_ALLOWLIST in this script, naming the file AND the")
+        print("rule, WITH ITS REASON.")
         return 1
 
     print(f"OK: scanned {scanned} Swift file(s) under {root}, no forbidden constructs.")
