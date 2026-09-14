@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 48
+harness_begin "identity guard tests" 52
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -345,6 +345,77 @@ EMPTY23="$WORK/emptystore"; rm -rf "$EMPTY23"; mkdir -p "$EMPTY23"
 python3 -c "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute('CREATE TABLE ZSOMETHINGELSE (Z_PK INTEGER)'); db.commit()" "$EMPTY23/Ovation.store"
 OUT23F="$(run_guard "$T23D" "$EXPORT" "" "$EMPTY23/Ovation.store")"; ST23F=$?
 check "a store with no client table REFUSES rather than deriving nothing" "$ST23F" "4"
+
+# THE LIVE STORE IS READ WITHOUT ANYTHING BEING WRITTEN BESIDE IT (ovation#276).
+#
+# The guard opened Dan's store with `mode=ro`, under a docstring saying a guard
+# must not write to it. A read only connection to a store in WAL mode still
+# rewrites the index file beside it, measured on the live store on 2026-09-13, so
+# every push touched live data and another run's live data check refused.
+#
+# THE FIXTURE IS THE STATE THE APP LEAVES BEHIND, not a tidy database: a WAL
+# holding a change the main file does not, and its index, with no connection
+# open. A tidy store has no WAL to recover and passes whatever the guard does
+# (L159). The name planted here exists ONLY in the WAL, so a fix that stops
+# writing by ignoring the WAL, which SQLite's immutable flag does, fails the
+# needle check instead of passing both (L215).
+make_wal_store() {
+    python3 - "$1" <<'PYWAL'
+import os, shutil, sqlite3, sys
+dest = sys.argv[1]
+building = dest + ".building"
+os.makedirs(building, exist_ok=True)
+live = os.path.join(building, "Ovation.store")
+db = sqlite3.connect(live)
+db.execute("PRAGMA journal_mode=WAL")
+db.execute("PRAGMA wal_autocheckpoint=0")
+db.execute("CREATE TABLE ZCLIENT (Z_PK INTEGER PRIMARY KEY, ZNAME TEXT, ZEMAIL TEXT, ZCONTRACTEMAIL TEXT)")
+db.execute("CREATE TABLE ZEXPENSE (Z_PK INTEGER PRIMARY KEY, ZVENDOR TEXT)")
+db.commit()
+db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+db.execute("INSERT INTO ZCLIENT VALUES (1, 'Uufixture Walonly Quartet', '', '')")
+db.commit()
+# Copied while the writer is still open, so the copies keep the WAL and its index
+# exactly as an app that persists its WAL leaves them after it closes.
+for suffix in ("", "-wal", "-shm"):
+    shutil.copy2(live + suffix, dest + suffix)
+db.close()
+shutil.rmtree(building)
+PYWAL
+}
+# Every byte and modification time of the store, its WAL and its index, read as
+# plain files, so taking the fingerprint cannot itself change them.
+store_fingerprint() {
+    python3 -c 'import hashlib, os, sys
+p = sys.argv[1]
+for suffix in ("", "-wal", "-shm"):
+    f = p + suffix
+    if os.path.exists(f):
+        st = os.stat(f)
+        print(suffix or "store", hashlib.sha256(open(f, "rb").read()).hexdigest(), st.st_mtime_ns, st.st_size)
+    else:
+        print(suffix or "store", "absent")' "$1"
+}
+WAL23="$WORK/walstore"; rm -rf "$WAL23"; mkdir -p "$WAL23"
+make_wal_store "$WAL23/Ovation.store"
+# The fixture's own shape, checked on a SCRATCH COPY, so nothing has opened the
+# fixture itself before its fingerprint is taken.
+SCRATCH23="$WORK/walscratch"; rm -rf "$SCRATCH23"; mkdir -p "$SCRATCH23"
+cp -p "$WAL23/Ovation.store" "$WAL23/Ovation.store-wal" "$WAL23/Ovation.store-shm" "$SCRATCH23/"
+check "the fixture store holds a change only in its WAL, as the app leaves its store" \
+    "$(python3 -c 'import os, sqlite3, sys
+p = sys.argv[1]
+has_wal = os.path.getsize(p + "-wal") > 0 and os.path.exists(p + "-shm")
+in_main_file = sqlite3.connect("file:%s?immutable=1" % p, uri=True).execute("SELECT count(*) FROM ZCLIENT").fetchone()[0]
+print("yes" if has_wal and in_main_file == 0 else "no")' "$SCRATCH23/Ovation.store")" "yes"
+BEFORE23="$(store_fingerprint "$WAL23/Ovation.store")"
+T23W="$(tree walleak)"; printf 'a set by Uufixture Walonly Quartet\n' > "$T23W/a.txt"
+OUT23W="$(run_guard "$T23W" "$EXPORT" "" "$WAL23/Ovation.store")"; ST23W=$?
+AFTER23="$(store_fingerprint "$WAL23/Ovation.store")"
+check "a name that exists only in the store's WAL is still a needle" "$ST23W" "1"
+check "and the guard left the store, its WAL and its index exactly as they were" \
+    "$([ "$BEFORE23" = "$AFTER23" ] && echo untouched || echo changed)" "untouched"
+check "and the WAL-only name itself is not printed" "$(says "$OUT23W" "Uufixture")" "no"
 
 # THE HANDOFF QUEUE, which is present on this machine already.
 QUEUE23="$WORK/queue23"; rm -rf "$QUEUE23"; mkdir -p "$QUEUE23"
