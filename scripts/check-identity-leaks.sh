@@ -30,8 +30,10 @@ half a name is not the name.
 import json
 import os
 import re
+import shutil
 import sqlite3
 import sys
+import tempfile
 
 EXPORT = os.environ.get("OVATION_GUARD_EXPORT",
                         os.path.expanduser("~/Library/Application Support/Overture/downbeat-export.json"))
@@ -191,8 +193,41 @@ STORE_ADDRESS_COLUMNS = {
 def needles_from_store(path, source_name, problems):
     """Client and vendor identities out of Ovation's own store (ovation#23).
 
-    OPENED READ ONLY. This is Dan's live database and a guard must not be the
-    thing that writes to it, nor leave a journal beside it.
+    READ FROM A COPY, NEVER FROM THE LIVE FILES (ovation#276). This is Dan's live
+    database and a guard must not be the thing that writes beside it. It used to
+    open the store with `mode=ro`, and a read only connection to a store in WAL
+    mode still rewrites the index file beside it: measured on the live store on
+    2026-09-13, where every push touched live data and a concurrent run's live
+    data check refused.
+
+    So the store, its WAL and its index are copied into a temporary directory and
+    only the COPY is opened, which may recover its WAL and rewrite its index as it
+    likes. The WAL is copied too, because a change the app has not yet folded into
+    the main file is still a name. SQLite's immutable flag would also write
+    nothing, and it reads none of the WAL either (L215).
+
+    A copy that fails is a problem, never an empty set, because an empty
+    derivation from a store that exists reads exactly like a clean one (L98).
+    """
+    with tempfile.TemporaryDirectory(prefix="ovation-guard-store-") as scratch:
+        copy = os.path.join(scratch, os.path.basename(path))
+        try:
+            for suffix in ("", "-wal", "-shm"):
+                if suffix == "" or os.path.exists(path + suffix):
+                    shutil.copyfile(path + suffix, copy + suffix)
+        except Exception as exc:
+            problems.append("%s could not be copied to be read (%s)"
+                            % (source_name, type(exc).__name__))
+            return set()
+        return needles_from_store_copy(copy, source_name, problems)
+
+
+def needles_from_store_copy(path, source_name, problems):
+    """The identities in a store COPY that needles_from_store made.
+
+    Never point this at the live files: opening a store, even read only, can
+    write beside it. It is a separate function so that the one place allowed to
+    open a store is only ever handed a copy.
     """
     out = set()
     try:
