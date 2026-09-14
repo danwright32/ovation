@@ -282,6 +282,32 @@ the same sentence.
 an hours figure cannot be sent, so they are not `To send`, and the card has no line for them. It is
 recorded because a row in no line looks exactly like a row somebody forgot to map.
 
+## The settled day is drawn on every screen that draws the rail (ovation#193)
+
+**All four files that draw the rail now carry a switch for a settled day**, and
+`scripts/check-design-sidebar-card.sh` presses it in each one and compares the rails in both states.
+Until 2026-09-13 only `clients.html` could draw a settled day, so on three of the four screens it had
+never been drawn at all, and the comparison ran only in the state each file opens in. The rail is
+chrome: whatever the settled day looks like, it looks like that everywhere.
+
+**Nothing new was designed.** The settled rail is the one round 3 settled on the Clients screen:
+`Nothing waiting` in place of the counts, and no held money line, because a quantity of nothing is
+not drawn (PRD 46b). Its one CSS rule, `.card .quiet`, moved from `clients.html` into
+`shell/window.css`, since it belongs to the card and every file carries the card. Each switch uses
+its own file's existing idiom: the Clients tab in `invoice-list.html`, a group on the first state row
+in `invoice.html`, and a row of the sheet's switches in `review-send.html`. Only the rail moves. What
+the invoice list, the invoice and the sheet look like on a day with nothing waiting was never
+designed, and a switch is not the place to design it.
+
+**The rule is judged before the rails are compared**, because four files agreeing on a held line
+drawn at zero agree perfectly. A settled card that says nothing at all is refused too, since a card
+drawing nothing reads as one that failed to draw. A file whose switch cannot reach a settled day is
+refused by name rather than passed over.
+
+**Where the invoice screen's switch went was measured, not chosen.** On its own row it would have
+cost 40px above a window already starting 437px down, and on the second state row it wrapped that
+row and put the window at 477px, past the 460px ceiling. On the first row it fits.
+
 ## The window comes before the reading, and something measures it
 
 **`scripts/check-design-window-top.sh` renders every file in an 800px laptop window and refuses one

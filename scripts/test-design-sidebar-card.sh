@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design sidebar card tests" 28
+harness_begin "design sidebar card tests" 41
 
 TARGET="scripts/check-design-sidebar-card.sh"
 require_target "$TARGET"
@@ -50,6 +50,23 @@ status_on() {
 # is 3px of margin, 1px of border and 11px of padding, and the held line is 3px
 # of margin and 12px of padding, which puts both on 15px from each side.
 #
+# THE SETTLED DAY (ovation#193). Every rail file carries a day switch, because
+# every real one does and the check refuses a rail it cannot settle. Pressing it
+# draws what clients.html's settled day draws: no counts, `Nothing waiting`, and
+# no held money line. It names the day it moves to in `data-day`, the hook the
+# check presses. Each line below is one thing a case removes with sed, so a case
+# changes exactly one behaviour of the switch.
+DAY_SWITCH='<button type="button" data-day="quiet" onclick="settle(this)">A settled day</button>
+<script>
+function settle(b) {
+  var card = document.querySelector(".card");
+  Array.prototype.forEach.call(card.querySelectorAll(".ln"), function (n) { n.remove(); });
+  var q = document.createElement("div"); q.className = "quiet"; q.textContent = "Nothing waiting"; card.appendChild(q);
+  var held = document.querySelector(".railheld"); if (held) { held.remove(); }
+  b.setAttribute("data-day", "busy");
+}
+</script>'
+
 # $1 file, $2 the card's lines as HTML, $3 the held line's HTML
 rail_file() {
     cat > "$1" <<HTML
@@ -60,6 +77,7 @@ rail_file() {
 .card .ln { display: flex; justify-content: space-between; }
 .railheld { display: flex; justify-content: space-between; margin: -6px 3px 12px; padding: 0 12px; }
 </style>
+$DAY_SWITCH
 <div class="screen"><div class="win"><nav class="side">
   <div class="card"><div class="hd">Needs you</div>
 $2
@@ -67,6 +85,12 @@ $2
 $3
 </nav></div></div>
 HTML
+}
+
+# Edit one fixture in place, portably: `sed -i ''` is BSD only (L434).
+edit_fixture() {
+    # $1 file, $2 sed expression
+    sed "$2" "$1" > "$1.tmp" && mv "$1.tmp" "$1"
 }
 
 FOUR='    <div class="ln"><span>To send</span><b>4</b></div>
@@ -87,6 +111,7 @@ rollup_file() {
 .card .ln { display: flex; justify-content: space-between; }
 .railheld { display: flex; justify-content: space-between; margin: -6px 3px 12px; padding: 0 12px; }
 </style>
+$DAY_SWITCH
 <div class="screen"><div class="win"><nav class="side">
   <div class="card"><div class="hd">Needs you</div>
 $2
@@ -110,6 +135,8 @@ check "and it says how many rails it actually compared" \
     "$(grep -c 'OK: one rail across [0-9]* design file' "$WORK/healthy.txt")" "1"
 check "and it names the file that draws no app window rather than passing over it" \
     "$(grep -c 'draws no app window, by its own declaration' "$WORK/healthy.txt")" "1"
+check "and it compared the rails on a settled day as well as on a day with work" \
+    "$(grep -c '^OK: .* and one on a settled day' "$WORK/healthy.txt")" "1"
 
 # ---------------------------------------------------------------------------
 # THE FAULT, exactly as it shipped: one file gains a line during a round about
@@ -241,8 +268,10 @@ check "a card figure that does not match the rows it counts is refused" "$(statu
 # would leave the reader assuming the other is the correct copy.
 check "and it names the line, the figure and the rows actually drawn" \
     "$(run_on "$BAD" | grep -c "To send.*says 3.*2 row")" "2"
+# The FAULT line, not every line naming the file: since ovation#193 each file is
+# listed twice, once per day, so a bare count of its name measures the listing.
 check "and it names the file the disagreement is in" \
-    "$(run_on "$BAD" | grep -c 'invoice-list.html')" "2"
+    "$(run_on "$BAD" | grep -c 'invoice-list.html: To send says 3')" "1"
 
 # A LINE WITH NO ROWS IN THIS FILE IS NOT A PASS AND NOT A FAILURE. `Receipts to
 # file` counts the other half of the product, which has no screen in this record,
@@ -255,5 +284,75 @@ rollup_file "$NONE/clients.html" "$UNJUDGED" "$ROLL_ROWS"
 check "a card line with no rows in the file does not refuse" "$(status_on "$NONE")" "0"
 check "and the count of lines it could not judge is printed rather than left silent" \
     "$(run_on "$NONE" | grep -c 'could not be judged')" "1"
+
+# ---------------------------------------------------------------------------
+# THE SETTLED DAY (ovation#193). The rail is chrome, so whatever the settled day
+# looks like it looks like that on every screen, and until this only one of the
+# four files could draw it at all. The comparison above ran only in the state
+# each file opens in, so it could not see the settled rails disagreeing, or a
+# settled rail still carrying a quantity of nothing (PRD 46b).
+# ---------------------------------------------------------------------------
+
+# The pair drifting ONLY on the settled day: identical on the day with work, so
+# every case above passes it.
+QUIETDRIFT="$WORK/quiet-drift"; mkdir -p "$QUIETDRIFT"
+rail_file "$QUIETDRIFT/invoice-list.html" "$FOUR" "$HELD"
+rail_file "$QUIETDRIFT/clients.html" "$FOUR" "$HELD"
+edit_fixture "$QUIETDRIFT/clients.html" 's/"Nothing waiting"/"Nothing to do"/'
+run_on "$QUIETDRIFT" > "$WORK/quiet-drift.txt"; QUIETDRIFT_STATUS=$?
+check "rails that agree with work waiting and disagree when settled are refused" "$QUIETDRIFT_STATUS" "1"
+check "and the refusal says it is the settled day that disagrees" \
+    "$(grep -c 'THE SIDEBAR RAIL DISAGREES WITH ITSELF ON A SETTLED DAY' "$WORK/quiet-drift.txt")" "1"
+check "and it names the file drawing the other one" \
+    "$(grep -c 'drawn by clients.html' "$WORK/quiet-drift.txt")" "1"
+
+# A settled day that still draws the held money line, in BOTH files, so the two
+# agree with each other and only the rule can refuse it.
+QUIETHELD="$WORK/quiet-held"; mkdir -p "$QUIETHELD"
+rail_file "$QUIETHELD/invoice-list.html" "$FOUR" "$HELD"
+rail_file "$QUIETHELD/clients.html" "$FOUR" "$HELD"
+edit_fixture "$QUIETHELD/invoice-list.html" 's/if (held) { held.remove(); }//'
+edit_fixture "$QUIETHELD/clients.html" 's/if (held) { held.remove(); }//'
+run_on "$QUIETHELD" > "$WORK/quiet-held.txt"; QUIETHELD_STATUS=$?
+check "a settled day still drawing the held money line is refused, even where the files agree" \
+    "$QUIETHELD_STATUS" "1"
+check "and the refusal says the settled day still draws a quantity" \
+    "$(grep -c 'THE SETTLED DAY STILL DRAWS A QUANTITY' "$WORK/quiet-held.txt")" "1"
+check "and it names the held line in each file" \
+    "$(grep -c ': the settled day still draws the held money line' "$WORK/quiet-held.txt")" "2"
+
+# A settled day that keeps the counts, which is a switch doing nothing to them.
+QUIETCOUNTS="$WORK/quiet-counts"; mkdir -p "$QUIETCOUNTS"
+rail_file "$QUIETCOUNTS/invoice-list.html" "$FOUR" "$HELD"
+rail_file "$QUIETCOUNTS/clients.html" "$FOUR" "$HELD"
+edit_fixture "$QUIETCOUNTS/invoice-list.html" '/n.remove(); });$/d'
+edit_fixture "$QUIETCOUNTS/clients.html" '/n.remove(); });$/d'
+run_on "$QUIETCOUNTS" > "$WORK/quiet-counts.txt"; QUIETCOUNTS_STATUS=$?
+check "a settled day that keeps its counts is refused" "$QUIETCOUNTS_STATUS" "1"
+check "and it says how many counts are still drawn" \
+    "$(grep -c ': the settled day still draws 2 count(s)' "$WORK/quiet-counts.txt")" "2"
+
+# A settled card that says NOTHING. A card drawing nothing on the healthy day is
+# indistinguishable from one that failed to draw (round 3, Z3).
+QUIETMUTE="$WORK/quiet-mute"; mkdir -p "$QUIETMUTE"
+rail_file "$QUIETMUTE/invoice-list.html" "$FOUR" "$HELD"
+rail_file "$QUIETMUTE/clients.html" "$FOUR" "$HELD"
+edit_fixture "$QUIETMUTE/invoice-list.html" 's/q.textContent = "Nothing waiting"; //'
+edit_fixture "$QUIETMUTE/clients.html" 's/q.textContent = "Nothing waiting"; //'
+run_on "$QUIETMUTE" > "$WORK/quiet-mute.txt"; QUIETMUTE_STATUS=$?
+check "a settled card that says nothing at all is refused" "$QUIETMUTE_STATUS" "1"
+check "and it says the card is silent rather than calling it agreement" \
+    "$(grep -c ': the settled card says nothing at all' "$WORK/quiet-mute.txt")" "2"
+
+# A file with no way to reach a settled day is refused and NAMED, because the
+# settled rail is otherwise simply never compared in it (L98).
+NODAY="$WORK/no-day"; mkdir -p "$NODAY"
+rail_file "$NODAY/invoice-list.html" "$FOUR" "$HELD"
+rail_file "$NODAY/clients.html" "$FOUR" "$HELD"
+edit_fixture "$NODAY/clients.html" 's/ data-day="quiet"//'
+run_on "$NODAY" > "$WORK/no-day.txt"; NODAY_STATUS=$?
+check "a file whose rail cannot be put in a settled day is refused" "$NODAY_STATUS" "1"
+check "and the refusal names that file" \
+    "$(grep -c 'clients.html: NO SETTLED DAY, no control' "$WORK/no-day.txt")" "1"
 
 harness_end

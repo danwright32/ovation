@@ -43,6 +43,17 @@ body {
 h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clamp(34px,4.8vw,46px); line-height: 1.05; font-weight: 400; letter-spacing: -.01em; text-wrap: balance; }
 .lede { margin: 0; color: var(--page-ink-soft); font-size: 16.5px; }
 .lede strong { color: var(--page-ink); font-weight: 600; }
+/* THE DAY SWITCH, clients.html's own treatment, because it is the same control
+   (ovation#193). It changes the DATA the rail is drawn from, never the design. */
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab {
+  appearance: none; cursor: pointer; font-family: inherit;
+  padding: 9px 15px; border-radius: 7px; border: 1px solid var(--page-rule);
+  background: var(--page-panel); font-size: 13.5px; font-weight: 600; color: var(--page-ink-soft);
+  display: flex; align-items: baseline; gap: 8px;
+}
+.tab .k { font-size: 11px; font-weight: 700; letter-spacing: .1em; color: var(--page-ink-faint); }
+.tab:focus-visible { outline: 2px solid var(--page-ink); outline-offset: 2px; }
 
 
 
@@ -199,6 +210,7 @@ color: var(--faint); }
 .card .hd { color: var(--rail-card-hd); }
 .card .ln { color: var(--rail-card-ln); }
 .card .ln b { color: var(--rail-card-b); }
+.card .quiet { font-size: 12.5px; color: var(--rail-card-ln); }
 .railheld, .railheld b { color: var(--rail-dim); }
 .status { border-top-color: var(--rail-st-bd); }
 .status .fault { color: var(--rail-fault); }
@@ -344,6 +356,7 @@ color: var(--faint); }
     </p>
   </header>
 
+  <div class="tabs" id="tabs"></div>
   <div class="stage" id="stage"></div>
 
   <div class="record">
@@ -576,11 +589,20 @@ function windowFor(layout) {
      this card counts invoices, which is what makes the four comparable, and the
      one line that ever counted something else was taken out of it. It sits above
      Receipts to file because that line is the other half of the product. */
-  CARD_LINES.forEach(function (line) {
-    var ln = el("div", "ln");
-    ln.append(el("span", null, line.label), el("b", null, cardFigure(line)));
-    card.append(ln);
-  });
+  /* A SETTLED DAY (ovation#193) is drawn by the rail alone: the card says
+     Nothing waiting instead of its counts, and the held money line below is not
+     drawn. The list is deliberately left as it is, because what this list looks
+     like with nothing waiting has never been designed, and a switch is not the
+     place to design it. */
+  if (QUIET) {
+    card.append(el("div", "quiet", "Nothing waiting"));
+  } else {
+    CARD_LINES.forEach(function (line) {
+      var ln = el("div", "ln");
+      ln.append(el("span", null, line.label), el("b", null, cardFigure(line)));
+      card.append(ln);
+    });
+  }
   side.append(card);
   /* MONEY HELD IS NOT ONE OF THE CARD'S COUNTS (ovation#187, settled with Dan
      2026-09-10 over two rounds, PRD 46b). The card says this many things need
@@ -588,9 +610,11 @@ function windowFor(layout) {
      client has one open invoice, so this stopped being work waiting. It is a
      figure under the card in the status colour, and it is a quantity, so a
      quantity of nothing is not drawn. */
-  var railheld = el("div", "railheld");
-  railheld.append(el("span", null, "Money held"), el("b", null, "1,837.50"));
-  side.append(railheld);
+  if (!QUIET) {
+    var railheld = el("div", "railheld");
+    railheld.append(el("span", null, "Money held"), el("b", null, "1,837.50"));
+    side.append(railheld);
+  }
   ["Invoices", "Expenses", "Clients"].forEach(function (x, i) { side.append(el("div", "item" + (i === 0 ? " on" : ""), x)); });
   side.append(el("div", "spacer"));
   var st = el("div", "status");
@@ -687,5 +711,26 @@ function windowFor(layout) {
 
 
 
-document.getElementById("stage").replaceChildren(windowFor(""));
+/* THE RAIL'S SETTLED DAY (ovation#193). The rail is chrome, so whatever a day
+   with nothing waiting looks like, it looks like that on every screen, and until
+   this only clients.html could draw it. The control names the day it moves to in
+   `data-day`, which is what scripts/check-design-sidebar-card.sh presses before
+   comparing the four rails on that day too. */
+var QUIET = false;
+function drawList() { document.getElementById("stage").replaceChildren(windowFor("")); }
+var railBtn = el("button", "tab");
+railBtn.type = "button";
+function railLabel() {
+  railBtn.replaceChildren(el("span", "k", "RAIL"),
+    el("span", null, QUIET ? "A settled day" : "A day with work waiting"));
+  railBtn.setAttribute("data-day", QUIET ? "busy" : "quiet");
+}
+railBtn.addEventListener("click", function () {
+  QUIET = !QUIET;
+  railLabel();
+  drawList();
+});
+railLabel();
+document.getElementById("tabs").append(railBtn);
+drawList();
 </script>
