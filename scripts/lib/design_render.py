@@ -257,7 +257,10 @@ class Browser:
             self._stderr.seek(0)
             text = self._stderr.read().decode("utf-8", "replace")
         except (OSError, ValueError):
-            text = ""
+            # UNREAD IS NOT SILENT. A complaint that could not be read and a
+            # browser that complained of nothing are different facts, and only
+            # the second was measured when the file came back empty (L11).
+            return "and its own output could not be read"
         return " ".join(text.split())[:300] or "and said nothing"
 
     def _gone(self):

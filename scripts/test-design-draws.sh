@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 57
+harness_begin "design rendering checks" 58
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -343,6 +343,21 @@ FAKE_BROWSER_MODE=silent OVATION_HEADLESS_BROWSER="$FAKE_BROWSER" OVATION_RENDER
 check "a browser that never answers cannot measure, rather than hanging" "$?" "3"
 check "and it says the browser did not answer, and for how long it was given" \
     "$(grep -c 'the browser did not answer .* within 0.5 seconds' "$WORK/hung.txt")" "1"
+
+# A COMPLAINT THAT COULD NOT BE READ IS NOT SILENCE (L11). The browser's own
+# output is the diagnosis every refusal above quotes, and when reading it fails
+# the message may not say the browser said nothing, which nobody measured.
+check "a browser whose own output cannot be read is not reported as having said nothing" \
+    "$(python3 - <<'PYEOF'
+import sys, tempfile
+sys.path.insert(0, "scripts/lib")
+from design_render import Browser
+session = Browser("/no/browser/needed/for/this")
+session._stderr = tempfile.TemporaryFile()
+session._stderr.close()
+print(session._said())
+PYEOF
+)" "and its own output could not be read"
 
 # ---------------------------------------------------------------------------
 # ONE BROWSER PER CHECK, HOWEVER MANY RENDERS (ovation#183). Every render used to
