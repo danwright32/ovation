@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "live data guard tests" 16
+harness_begin "live data guard tests" 25
 
 TARGET="scripts/check-live-data-untouched.sh"
 require_target "$TARGET"
@@ -18,8 +18,29 @@ harness_temp_dir WORK
 ROOT="$WORK/support"
 mkdir -p "$ROOT/Ovation" "$ROOT/Ovation-Debug"
 
-run() { OVATION_LIVE_DATA_ROOT="$ROOT" "./$TARGET" "$@" 2>&1; }
-status() { OVATION_LIVE_DATA_ROOT="$ROOT" "./$TARGET" "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+# THE PROCESS LIST IS INJECTED IN EVERY CASE (ovation#266). The check asks
+# whether the installed app was running, and a case left to the real list would
+# answer differently depending on whether Dan has Ovation open while the suite
+# runs, which is a test about his afternoon (L284). A stub prints what
+# `ps -A -o comm=` would, so no case launches or quits anything.
+INSTALLED_EXE="/Applications/Ovation.app/Contents/MacOS/Ovation"
+printf '#!/bin/bash\nprintf "/sbin/launchd\\n%s\\n"\n' "$INSTALLED_EXE" > "$WORK/ps-running"
+# A Debug build run from DerivedData is not the installed app, and naming one
+# here is what keeps the match on the whole executable path rather than the name.
+printf '#!/bin/bash\nprintf "/sbin/launchd\\n/Users/x/DerivedData/Build/Products/Debug/Ovation.app/Contents/MacOS/Ovation\\n"\n' \
+    > "$WORK/ps-not-running"
+printf '#!/bin/bash\nexit 1\n' > "$WORK/ps-broken"
+chmod +x "$WORK/ps-running" "$WORK/ps-not-running" "$WORK/ps-broken"
+
+with_ps() {
+    OVATION_LIVE_DATA_ROOT="$ROOT" OVATION_LIVE_DATA_PROCESS_LIST="$1" "./$TARGET" "${@:2}" 2>&1
+}
+with_ps_status() {
+    OVATION_LIVE_DATA_ROOT="$ROOT" OVATION_LIVE_DATA_PROCESS_LIST="$1" "./$TARGET" "${@:2}" >/dev/null 2>&1
+    printf '%s' "$?"
+}
+run() { with_ps "$WORK/ps-not-running" "$@"; }
+status() { with_ps_status "$WORK/ps-not-running" "$@"; }
 
 # An untouched run.
 check "a snapshot of an empty root succeeds" "$(status snapshot "$WORK/f1.json")" "0"
@@ -34,8 +55,12 @@ check "a file appearing under the watched set is REFUSED" \
     "$(status compare "$WORK/f2.json")" "1"
 check "and the refusal names the path that changed" \
     "$(run compare "$WORK/f2.json" | grep -c 'Ovation/Ovation.store')" "1"
-check "and it names the other explanation, so a false accusation is diagnosable" \
-    "$(run compare "$WORK/f2.json" | grep -c 'app was open')" "1"
+# The explanation this refusal used to give was true while only Debug builds ran
+# and has been wrong since the Release build was installed: the installed app
+# writes the Release folder, not Ovation-Debug, so it sent the reader to the wrong
+# cause (ovation#266, L11). It is asserted gone rather than merely replaced.
+check "and it no longer says a running app explains only a change under Ovation-Debug" \
+    "$(run compare "$WORK/f2.json" | grep -c 'explains a change under Ovation-Debug and nothing else')" "0"
 
 # A file that CHANGED rather than appeared.
 run snapshot "$WORK/f3.json" >/dev/null
@@ -79,6 +104,58 @@ check "a fingerprint taken under another root is refused, not compared" \
         >/dev/null 2>&1; printf '%s' "$?")" "2"
 
 check "an unknown command is refused" "$(status wibble "$WORK/f1.json")" "2"
+
+# ---------------------------------------------------------------------------
+# THE INSTALLED APP (ovation#266). Since 2026-09-13 the Release build lives in
+# /Applications and is in daily use, and merely having it open, or quitting it,
+# changes Ovation.store-shm. The run for ovation#262 was refused for exactly
+# that, and only a second run with the app confirmed closed showed no test had
+# reached live data.
+#
+# A change while the app was running cannot be told from a test having written
+# there, so it is still not a pass. It is its OWN outcome, saying so and naming
+# what changed, rather than an accusation of the suite.
+# ---------------------------------------------------------------------------
+touch_shm() { printf 'shm %s\n' "$1" > "$ROOT/Ovation/Ovation.store-shm"; }
+
+with_ps "$WORK/ps-running" snapshot "$WORK/app1.json" >/dev/null
+touch_shm one
+check "a change while the installed app was open is its own outcome, not a leak" \
+    "$(with_ps_status "$WORK/ps-running" compare "$WORK/app1.json")" "3"
+check "and it says the installed app was running, naming it by its executable path" \
+    "$(with_ps "$WORK/ps-running" compare "$WORK/app1.json" \
+        | grep -c "^The installed app ($INSTALLED_EXE) was running at the start and at the end of the run\.$")" "1"
+check "and it names which watched path changed" \
+    "$(with_ps "$WORK/ps-running" compare "$WORK/app1.json" | grep -c '^  Ovation/Ovation.store-shm$')" "1"
+
+with_ps "$WORK/ps-running" snapshot "$WORK/app2.json" >/dev/null
+touch_shm two
+check "a change when the app was open at the start and quit before the end is the same outcome" \
+    "$(with_ps_status "$WORK/ps-not-running" compare "$WORK/app2.json")" "3"
+
+# THE SAME CHANGE WITH THE APP CLOSED AT BOTH ENDS IS STILL A LEAK. This is the
+# half that keeps the new outcome from becoming a way to excuse a real one.
+with_ps "$WORK/ps-not-running" snapshot "$WORK/app3.json" >/dev/null
+touch_shm three
+check "the same change with the installed app closed at both ends is still refused as a leak" \
+    "$(with_ps_status "$WORK/ps-not-running" compare "$WORK/app3.json")" "1"
+check "and that refusal says the installed app was not running at either end" \
+    "$(with_ps "$WORK/ps-not-running" compare "$WORK/app3.json" \
+        | grep -c '^The installed app was not running at the start or at the end of the run\.$')" "1"
+
+# A process list that could not be read is not "the app was closed" (L98): the
+# change stays a refusal, and the message says what could not be told.
+with_ps "$WORK/ps-broken" snapshot "$WORK/app4.json" >/dev/null
+touch_shm four
+check "a change when whether the app was running could not be read is still refused" \
+    "$(with_ps_status "$WORK/ps-broken" compare "$WORK/app4.json")" "1"
+check "and it says the process list could not be read, rather than claiming the app was closed" \
+    "$(with_ps "$WORK/ps-broken" compare "$WORK/app4.json" \
+        | grep -c '^Whether the installed app was running could not be read')" "1"
+
+with_ps "$WORK/ps-running" snapshot "$WORK/app5.json" >/dev/null
+check "nothing changing while the app was open still passes" \
+    "$(with_ps_status "$WORK/ps-running" compare "$WORK/app5.json")" "0"
 
 # The real root, once (L246).
 REAL="$WORK/real.json"
