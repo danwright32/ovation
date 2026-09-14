@@ -137,7 +137,9 @@ enum ExpenseCategory: String, CaseIterable, Codable, Hashable, Sendable {
 /// nobody recorded, and it would do it in the direction that reads as complete
 /// (L163, L548). Ovation charges the tax and SAYS the status was never recorded,
 /// and ovation#40's one pass roster screen is what clears them before the warning
-/// starts meaning something.
+/// starts meaning something. Downbeat answered all 25 on 2026-09-12, so the live
+/// export of 2026-09-13 has none unanswered (ovation#298); the third case stays,
+/// because a client can still arrive without a status.
 enum TaxStatus: String, CaseIterable, Codable, Hashable, Sendable {
     case exempt = "exempt"
     case notExempt = "not-exempt"

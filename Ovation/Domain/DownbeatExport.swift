@@ -31,6 +31,9 @@
 // than a gap. It was measured on 6 of 31 clients, 5 true and 1 false, which is
 // exactly PRD 5a's "6 of 31", and the 25 without it are exactly the roster pass's
 // 25. The record said for two weeks that this field did not exist (ovation#215).
+// That was the 2026-09-05 snapshot; the live export of 2026-09-13 answers it on
+// 31 of 31, 30 true and 1 false (ovation#298). The third state is still decoded,
+// because nothing stops Downbeat writing it again.
 import Foundation
 
 /// What reading the export came to.

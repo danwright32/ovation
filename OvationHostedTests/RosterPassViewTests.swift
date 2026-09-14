@@ -12,15 +12,17 @@ import ViewInspector
 /// these assert lives in the binding, so they render the real view.
 ///
 /// THEY RUN AT THE REAL COUNT. L606: a two row fixture and a green suite are the
-/// two ways a screen ships unseen. The roster's real population on 2026-09-11 is
-/// 31 clients of which 25 need a sales tax status, so that is what is built here
-/// rather than a pair.
+/// two ways a screen ships unseen. The roster's population on 2026-09-11 was 31
+/// clients of which 25 needed a sales tax status, so that is what is built here
+/// rather than a pair. On the live export of 2026-09-13 none do (ovation#298),
+/// which is the settled screen; 25 stays as the largest pass the real roster
+/// has ever had, because a pass with work is the screen these tests exist for.
 @MainActor
 struct RosterPassViewTests {
 
-    /// The real shape, measured from the live Downbeat export on 2026-09-11 by
+    /// The shape measured from the live Downbeat export on 2026-09-11 by
     /// `scripts/measure-booking-export.py`: 31 clients, 25 with no tax status,
-    /// and no address that cannot be sent to.
+    /// and no address that cannot be sent to. Not today's roster (ovation#298).
     private static func theRealRoster() -> [Client] {
         var clients: [Client] = []
         for i in 0..<25 {

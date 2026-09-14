@@ -2,10 +2,15 @@
 // live, as a value rather than as a screen.
 //
 // WHY IT EXISTS AT ALL. Requirement 5 refuses to send an invoice for a client
-// with no recorded tax status, and 25 of 31 clients carry none, so on the day
-// invoicing ships 80% of invoices cannot go out. Clearing that one send at a
-// time asks the same question 25 times, and each answer belongs to the client
-// rather than to the invoice (L126).
+// with no recorded tax status. In the 2026-09-05 snapshot 25 of 31 clients had
+// none, so 80% of invoices could not have gone out on the day invoicing shipped,
+// and clearing that one send at a time asks the same question once per client
+// when each answer belongs to the client rather than to the invoice (L126).
+//
+// ON THE REAL ROSTER IT NOW OPENS WITH NOTHING (ovation#298). Downbeat answered
+// every missing status on 2026-09-12, and the live export of 2026-09-13 answers
+// 31 of 31. It is kept (Dan, 2026-09-14) for the client that still arrives with
+// no status, and it stays out of the rail while it is empty.
 //
 // IT HOLDS WHAT BLOCKS A SEND AND NOTHING ELSE (Dan, 2026-09-10, PRD 5a). Two
 // clients share one address; that WARNS and can be dismissed as correct (PRD

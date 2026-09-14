@@ -180,7 +180,9 @@ enum ClientImport {
         // THE ONE FIELD OVATION OWNS. Filled only where nothing has been recorded
         // here, so the roster pass stays cleared across launches. Note this is
         // also correct when the ROW carries nothing: a client answered here must
-        // not be reset by an absence upstream, which is 25 of 31 rows.
+        // not be reset by an absence upstream, which was 25 of 31 rows in the
+        // 2026-09-05 snapshot and is 0 in the live export of 2026-09-13
+        // (ovation#298). An absence can still arrive, so the rule stands.
         if client.taxStatus == .neverRecorded, let upstream = row.isTaxExempt {
             client.taxStatus = upstream ? .exempt : .notExempt
         }

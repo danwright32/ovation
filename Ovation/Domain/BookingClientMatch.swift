@@ -24,7 +24,9 @@
 //
 // AN EMPTY CONTRACT EMAIL IS NOT A MATCH CANDIDATE AT ALL. Matching on an empty
 // string would link every client with no recorded address to each other, which
-// measured against the real roster is 25 of 31 (ovation#40).
+// in the live export of 2026-09-13 is the 2 of 31 clients whose contract email
+// is empty (ovation#298 corrected a figure of 25 here that was never an address
+// count).
 import Foundation
 
 /// What matching a queued booking's client came to.
