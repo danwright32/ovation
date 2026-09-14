@@ -56,7 +56,10 @@ LS_GONE="$WORK/ls-unregistered.txt"
 cat > "$LSREGISTER" <<'STUB'
 #!/bin/bash
 printf '%s\n' "$*" >> "$LS_CALLS"
-case "$1" in
+# Indented, because a suite level line reading the first argument is how the
+# runner's scan recognises a suite that takes a parameter, and this is the stub's
+# argument, not the suite's.
+  case "$1" in
     -dump)
         [ -n "${STUB_DUMP_FAILS:-}" ] && exit 1
         python3 - "$LS_FIXTURE" "$LS_GONE" <<'PY'
