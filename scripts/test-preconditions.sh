@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "preconditions tests" 29
+harness_begin "preconditions tests" 31
 
 TARGET="scripts/check-preconditions.sh"
 require_target "$TARGET"
@@ -201,10 +201,39 @@ check "every real data tool is run by some suite too" \
 # A WORKFLOW SCRIPT IS RUN BY NOTHING ON THIS MACHINE, which is what makes both
 # halves necessary: the workflow is the only thing that runs it, and a suite is
 # the only thing that can judge it before it is pushed (ovation#155).
+#
+# READ THROUGH THE SAME READER THE OTHER DIRECTION USES (ovation#221). This was
+# `grep -rlq` over the whole workflow file, comments included, and both workflow
+# files explain themselves at length and name scripts while doing it. So a check
+# could be declared as run by CI, be mentioned only in a sentence explaining why
+# it is NOT run there, and be run by nothing, while both sides read as correct
+# (L135). scripts/check-ci-workflow.sh had already stopped reading comments for
+# the reverse direction; two greps that each decide what a workflow "names" are
+# two rules that drift, so both now ask lib/workflow-text.sh (L370).
+. scripts/lib/workflow-text.sh
 check "every workflow script is actually named by a workflow file" \
     "$(for w in $(roles_with workflow); do
-         grep -rlq "$(basename "$w")" .github/workflows 2>/dev/null || printf '%s ' "$w"
+         workflow_names_script "$(basename "$w")" .github/workflows || printf '%s ' "$w"
        done | sed 's/ $//')" ""
+
+# THE READER, SEEN TO TELL A STEP FROM A COMMENT. The positive first, in the same
+# fixture, or the refusal is satisfied by a reader that finds nothing at all
+# (L159). The comment names its check in exactly the shape the real files do: a
+# sentence explaining why it is not run here.
+WF_FIXTURE="$WORK/workflows"; mkdir -p "$WF_FIXTURE"
+cat > "$WF_FIXTURE/ci.yml" <<'YML'
+name: CI
+# check-only-in-a-comment.sh is not run here, and this sentence says why.
+jobs:
+  a-job:
+    steps:
+        # An indented comment about check-only-in-a-comment.sh, inside a step list.
+      - run: bash scripts/check-in-a-step.sh
+YML
+check "a check named by a step is named by the workflow" \
+    "$(workflow_names_script check-in-a-step.sh "$WF_FIXTURE" && echo named || echo not-named)" "named"
+check "and a check named only in comments is not, however it is indented" \
+    "$(workflow_names_script check-only-in-a-comment.sh "$WF_FIXTURE" && echo named || echo not-named)" "not-named"
 check "and every workflow script is covered by a suite" \
     "$(for w in $(roles_with workflow); do
          [ -n "$(covering_suite "$w")" ] || printf '%s ' "$w"

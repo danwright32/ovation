@@ -15,13 +15,26 @@
 # newer than the newest successful run, by more than a grace period that lets a
 # run in flight finish.
 #
-# THREE OUTCOMES, because they need three different actions:
+# FOUR OUTCOMES, because they need four different actions:
 #
 #   0  PASS            the newest commit has been judged, or is inside the grace
 #   1  BLOCKED         work has landed that no successful run has followed
-#   2  CANNOT MEASURE  a date could not be got, for a named reason
+#   2  CANNOT MEASURE  an input could not be got, for a named reason
+#   3  FAILING         the newest CI run has already answered, and it is red
 #
-# THE DATES ARE INPUTS. Whoever calls this knows how to ask GitHub; this decides
+# A RED BUILD IS NOT A LATE BUILD (ovation#212). Inside the grace period the dates
+# alone cannot tell a run still in flight from runs that are happening and
+# failing: in both there is simply no successful run yet. Measured 2026-09-11,
+# this reported PASS on two consecutive commits while CI was failing on both.
+# The two need different responses, which is the test for whether they are one
+# condition or two (L11): a run in flight needs nothing, and a failed run needs
+# somebody now, so the grace protects nothing once the answer is known.
+#
+# So the NEWEST RUN'S STATE is an input too, and a failed one is reported at
+# once, as its own outcome with its own sentence, rather than folded into
+# BLOCKED, whose remedy is to go looking for a workflow that stopped triggering.
+#
+# THE INPUTS ARE INPUTS. Whoever calls this knows how to ask GitHub; this decides
 # what the answer means, and it is a separate file for exactly that reason: a
 # judgement inside a workflow step can only be tested by pushing (L2, L196).
 set -uo pipefail
@@ -30,6 +43,11 @@ NOW="${OVATION_CI_NOW:-}"
 LAST_SUCCESS="${OVATION_CI_LAST_SUCCESS:-}"
 LAST_COMMIT="${OVATION_CI_LAST_COMMIT:-}"
 GRACE_HOURS="${OVATION_CI_GRACE_HOURS:-24}"
+# The newest CI run on main: its status while it has not finished, its conclusion
+# once it has, or `none` when there is no run at all. REQUIRED, never defaulted:
+# an unset value quietly switching FAILING off would be this script back where
+# ovation#212 found it, green over a red build (L168).
+NEWEST_RUN="${OVATION_CI_NEWEST_RUN:-}"
 
 cannot_measure() {
     echo "CANNOT MEASURE: $1"
@@ -64,6 +82,37 @@ PY
 COMMIT_AGE="$(delta_hours "$NOW" "$LAST_COMMIT")" \
     || cannot_measure "the newest commit's date could not be read" \
         "it was: ${LAST_COMMIT}"
+
+[ -n "$NEWEST_RUN" ] || cannot_measure "the state of the newest CI run was not given" \
+    "without it, a run still in flight cannot be told from one that has already failed"
+
+# EVERY STATE IS LISTED, AND ONE NOBODY LISTED IS NOT A PASS. A rule that names
+# only the failures admits every state GitHub adds later as healthy, which is
+# validity decided by a list of invalid values (L257). The states are GitHub's
+# own: a status while the run has not finished, a conclusion once it has.
+case "$NEWEST_RUN" in
+    failure|timed_out|startup_failure)
+        # FAILING OUTRANKS EVERY DATE BELOW. Past the grace this would otherwise
+        # read as BLOCKED, whose remedy is looking for a workflow that stopped
+        # triggering, when it is triggering fine and going red.
+        echo "FAILING: the newest CI run on main has finished, and its conclusion is ${NEWEST_RUN}."
+        echo "    Main is red now. This is not a run still in flight, so it is reported"
+        echo "    at once rather than after the ${GRACE_HOURS} hour grace period."
+        exit 3
+        ;;
+    # NOT ANSWERED YET: the grace period exists for exactly these.
+    requested|queued|pending|waiting|in_progress) ;;
+    # ANSWERED GREEN, so the dates decide whether it is the newest commit's.
+    success) ;;
+    # ANSWERED NOTHING. A cancelled run on main is almost always one a newer push
+    # superseded, and calling it red would be an alarm on ordinary use (L36).
+    cancelled|skipped|neutral|stale|action_required) ;;
+    none) ;;
+    *)
+        cannot_measure "the newest CI run's state is one this does not know: ${NEWEST_RUN}" \
+            "a state nobody listed is not a pass; add it to the list above with what it means"
+        ;;
+esac
 
 if [ -z "$LAST_SUCCESS" ]; then
     # NEVER a pass. A repository with commits and no successful run is the

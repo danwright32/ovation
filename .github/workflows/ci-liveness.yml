@@ -31,6 +31,20 @@ on:
     - cron: '17 13 * * *'
   push:
     branches: [main]
+  # WHEN A CI RUN ON MAIN FINISHES (ovation#212). On a schedule and on the push
+  # that starts CI, the newest run is almost always still in flight when this
+  # looks, so a red build was first seen by the next day's run at best. This is
+  # the moment the answer exists. It costs one short Linux run per CI run on
+  # main, which is free while this repository is public (ovation#15).
+  #
+  # THIS ONE IS BY DISPLAY NAME, because workflow_run accepts nothing else. The
+  # match is exact rather than a prefix, so it cannot pick up this workflow's own
+  # runs; a rename of CI would silently stop this trigger, and the schedule above
+  # would still catch the red build a day late rather than never.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -70,10 +84,19 @@ jobs:
             --limit 1 --json updatedAt --jq '.[0].updatedAt // empty')"
           last_commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" \
             --jq '.commit.committer.date')"
+          # THE NEWEST RUN'S STATE, whatever it is (ovation#212): its status
+          # while it has not finished, its conclusion once it has, and `none`
+          # for no run at all, so an empty value can only mean the lookup failed
+          # and the judge refuses it rather than reading it as healthy (L98).
+          newest_run="$(gh run list --workflow ci.yml --branch main --limit 1 \
+            --json status,conclusion \
+            --jq 'if length == 0 then "none" elif .[0].status != "completed" then .[0].status else .[0].conclusion end')"
           echo "last_success=${last_success}" >> "$GITHUB_OUTPUT"
           echo "last_commit=${last_commit}" >> "$GITHUB_OUTPUT"
+          echo "newest_run=${newest_run}" >> "$GITHUB_OUTPUT"
           echo "Last successful CI run: ${last_success:-none}"
           echo "Newest commit on main:  ${last_commit:-unknown}"
+          echo "Newest CI run on main:  ${newest_run:-unknown}"
 
       # The verdict, and it is allowed to be any of the three. A CANNOT MEASURE
       # is neither a pass nor a finding: it means a date could not be got, and
@@ -85,6 +108,7 @@ jobs:
           OVATION_CI_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           OVATION_CI_LAST_SUCCESS="${{ steps.dates.outputs.last_success }}" \
           OVATION_CI_LAST_COMMIT="${{ steps.dates.outputs.last_commit }}" \
+          OVATION_CI_NEWEST_RUN="${{ steps.dates.outputs.newest_run }}" \
             bash scripts/check-ci-liveness.sh | tee verdict.txt
           status="${PIPESTATUS[0]}"
           set -e
@@ -95,9 +119,14 @@ jobs:
             echo 'VERDICT'
           } >> "$GITHUB_OUTPUT"
 
-      # ONE ISSUE, COMMENTED ON RATHER THAN REOPENED OR DUPLICATED (L393). The
-      # title is the marker, because a label can be removed by hand and the title
-      # is what a person searches for.
+      # ONE ISSUE PER CONDITION, COMMENTED ON RATHER THAN REOPENED OR DUPLICATED
+      # (L393). The title is the marker, because a label can be removed by hand
+      # and the title is what a person searches for.
+      #
+      # TWO CONDITIONS, TWO TITLES (ovation#212). BLOCKED sends somebody to find a
+      # workflow that stopped triggering; FAILING sends them to a red build that
+      # is triggering fine. One issue carrying both would be two independent
+      # findings sharing one status field (L53).
       #
       # THE BODY IS BUILT IN A FILE rather than inline. The first version put the
       # verdict into a `--body "..."` inside this block, and the unindented lines
@@ -105,28 +134,46 @@ jobs:
       # ran no jobs at all, and reported a failure with no log to read. A run with
       # zero jobs is what an invalid workflow file looks like.
       - name: Say so, once
-        if: steps.judge.outputs.status == '1'
+        if: steps.judge.outputs.status == '1' || steps.judge.outputs.status == '3'
         env:
           GH_TOKEN: ${{ github.token }}
-          TITLE: CI has stopped judging what lands on main
+          STATUS: ${{ steps.judge.outputs.status }}
         run: |
           set -uo pipefail
-          {
-            echo "Opened automatically by the CI liveness workflow (ovation#155)."
-            echo
-            sed 's/^/    /' verdict.txt
-            echo
-            echo "Work has landed on main that no successful CI run has followed."
-            echo "Either the workflow has stopped triggering, or it is failing on"
-            echo "every run. Both are silent from the outside, which is why this is"
-            echo "an issue rather than an absence."
-            echo
-            echo "The push gate on Dan's machine goes on passing throughout: it does"
-            echo "not build both configurations, and it can skip the Swift suites"
-            echo "entirely for a push it judges irrelevant (ovation#22)."
-            echo
-            echo "This issue is commented on rather than duplicated while it is open."
-          } > issue-body.md
+          if [ "${STATUS}" = "3" ]; then
+            TITLE="CI is failing on main"
+            {
+              echo "Opened automatically by the CI liveness workflow (ovation#212)."
+              echo
+              sed 's/^/    /' verdict.txt
+              echo
+              echo "The newest CI run on main has finished red. CI is triggering; what"
+              echo "it is judging is failing. The push gate on Dan's machine can pass"
+              echo "while this is true, because CI builds with its own Xcode and both"
+              echo "configurations (ovation#22, ovation#270)."
+              echo
+              echo "This issue is commented on rather than duplicated while it is open,"
+              echo "and closed by this workflow once the newest run on main is green."
+            } > issue-body.md
+          else
+            TITLE="CI has stopped judging what lands on main"
+            {
+              echo "Opened automatically by the CI liveness workflow (ovation#155)."
+              echo
+              sed 's/^/    /' verdict.txt
+              echo
+              echo "Work has landed on main that no successful CI run has followed."
+              echo "Either the workflow has stopped triggering, or it is failing on"
+              echo "every run. Both are silent from the outside, which is why this is"
+              echo "an issue rather than an absence."
+              echo
+              echo "The push gate on Dan's machine goes on passing throughout: it does"
+              echo "not build both configurations, and it can skip the Swift suites"
+              echo "entirely for a push it judges irrelevant (ovation#22)."
+              echo
+              echo "This issue is commented on rather than duplicated while it is open."
+            } > issue-body.md
+          fi
 
           existing="$(gh issue list --state open --search "in:title \"${TITLE}\"" \
             --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -1)"
@@ -144,6 +191,33 @@ jobs:
               --label priority-p1 --label ci-hygiene --label monitoring \
               --body-file issue-body.md
           fi
+
+      # AND SAID ONCE WHEN IT IS OVER (ovation#212). A FAILING issue left open
+      # after main went green is a finding that reads as outstanding, and teaches
+      # everyone to skim the next one (L269). It closes only on a newest run that
+      # SUCCEEDED, never on a pass that merely means a run is still in flight,
+      # because the condition is over when a run answers green and not before
+      # (L160). BLOCKED's issue is left for a person: whether CI has resumed
+      # judging everything is a judgement about the gap, not about one run.
+      - name: Close the failing issue once main is green
+        if: steps.judge.outputs.status == '0' && steps.dates.outputs.newest_run == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: CI is failing on main
+        run: |
+          set -uo pipefail
+          existing="$(gh issue list --state open --search "in:title \"${TITLE}\"" \
+            --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -1)"
+          if [ -z "${existing}" ]; then
+            echo "No open \"${TITLE}\" issue, so there is nothing to close."
+            exit 0
+          fi
+          {
+            echo "The newest CI run on main succeeded on $(date -u +%Y-%m-%d), so this is closed."
+            echo
+            sed 's/^/    /' verdict.txt
+          } > close-body.md
+          gh issue close "${existing}" --comment "$(cat close-body.md)"
 
       # A FAILURE TO MEASURE FAILS THE JOB, so it is visible in the checks of the
       # push that ran it rather than passing quietly. It does not open an issue:
