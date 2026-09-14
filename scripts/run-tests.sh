@@ -296,6 +296,12 @@ else
   # be reading. REGENERATING an existing one is a different act and does take the
   # lock, in regenerate-xcode-project.sh: it rewrites a file a running build is
   # reading, which happened on 2026-09-10 and survived on luck (ovation#202).
+  # A create does take a lock of its own, scoped to the project path, so a second
+  # run creating the same project waits for the first's result instead of
+  # generating over it, and nothing about a sibling's build can hold it
+  # (ovation#207). The create itself is the ensure_xcode_project call below the
+  # Xcode version note.
+  #
   # WHICH XCODE THIS RUN BUILDS WITH, AGAINST THE ONE CI BUILDS WITH (ovation#270).
   #
   # The push gate is meant to predict CI, and it can only do that while both

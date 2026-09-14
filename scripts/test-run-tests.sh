@@ -34,7 +34,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL \
       OVATION_XCODE_PROJECT OVATION_XCODEGEN OVATION_XCODEBUILD_LISTER \
       OVATION_LOCK_WAIT_LOG OVATION_XCODEBUILD OVATION_XCODE_VERSION_FILE \
-      OVATION_DEFAULTS_DOMAINS_COMMAND
+      OVATION_DEFAULTS_DOMAINS_COMMAND \
+      OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -65,7 +66,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 133
+harness_begin "test runner lock tests" 146
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -1090,6 +1091,122 @@ OUT151D="$(run_with_project "$PROJ/still-absent.xcodeproj" "$PROJ/quiet-xcodegen
 check "a generator that reports success and writes nothing is refused" \
     "$([ "$ST151D" -ne 0 ] && echo refused || echo allowed)" "refused"
 
+
+# ---------------------------------------------------------------------------
+# TWO RUNS CREATING THE SAME PROJECT AT ONCE MAKE IT ONCE (ovation#207).
+#
+# ovation#202 put regeneration under the lock every build takes and left the
+# CREATE alone, on purpose: a fresh checkout must not queue behind a sibling's
+# build for a file nothing can be reading. That holds against a build and not
+# against a second create. Two runs starting together on a fresh tree both saw no
+# project and both ran xcodegen at the same path, and a second run could see the
+# project DIRECTORY the first had only begun to write and build from it.
+#
+# So a create takes a lock scoped to the project path, and a run that finds one
+# held waits for that run's result rather than generating over it. The helper is
+# driven directly, with generators that block on a sentinel this suite removes,
+# so the overlap is staged on conditions rather than on timing (L290).
+[ -n "${WORK:-}" ] || { echo "REFUSED: no temp directory"; exit 1; }
+CREATE="$WORK/create"; rm -rf "$CREATE"; mkdir -p "$CREATE"
+CREATE_LIB="$PWD/scripts/lib/ensure-xcode-project.sh"
+# stage_generator <name> <mkdir-first|mkdir-last|fail>
+stage_generator() {
+    local body
+    case "$2" in
+        mkdir-first) body="mkdir -p '$CREATE/Ovation.xcodeproj'; touch '$CREATE/started'; while [ -e '$CREATE/hold' ]; do sleep 0.02; done" ;;
+        mkdir-last) body="touch '$CREATE/started'; while [ -e '$CREATE/hold' ]; do sleep 0.02; done; mkdir -p '$CREATE/Ovation.xcodeproj'" ;;
+        fail) body="exit 1" ;;
+    esac
+    printf '#!/bin/bash\necho GENERATOR-RAN >> "%s"\n%s\n' "$CREATE/generated.log" "$body" > "$CREATE/$1"
+    chmod +x "$CREATE/$1"
+}
+reset_create() {
+    rm -rf "$CREATE/Ovation.xcodeproj" "$CREATE/started" "$CREATE/generated.log"
+    : > "$CREATE/hold"
+}
+# create_in_background <output file> <generator>: sets CREATE_PID.
+create_in_background() {
+    OVATION_PROJECT_CREATE_POLL=0.05 \
+        bash -c '. "$1"; ensure_xcode_project "$2" "$3" "$4"' _ \
+        "$CREATE_LIB" "$CREATE" "$CREATE/Ovation.xcodeproj" "$CREATE/$2" > "$1" 2>&1 &
+    CREATE_PID=$!
+}
+wait_for_file() {
+    local waited=0
+    until [ -e "$1" ]; do
+        waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
+    done
+}
+# create_now <generator> [timeout]: runs the helper in the foreground. The inner
+# `$1` belongs to `bash -c`, which is why every call lives inside a function: the
+# suite level argument scan below reads unindented lines.
+create_now() {
+    OVATION_PROJECT_CREATE_POLL=0.05 OVATION_PROJECT_CREATE_TIMEOUT="${2:-300}" \
+        bash -c '. "$1"; ensure_xcode_project "$2" "$3" "$4"' _ \
+        "$CREATE_LIB" "$CREATE" "$CREATE/Ovation.xcodeproj" "$CREATE/$1" 2>&1
+}
+create_lock_of() {
+    bash -c '. "$1"; xcode_project_create_lock "$2"' _ "$CREATE_LIB" "$1"
+}
+CREATE_LOCK="$(create_lock_of "$CREATE/Ovation.xcodeproj")"
+check "the create lock is a real path derived from the project" \
+    "$([ -n "$CREATE_LOCK" ] && [ "$CREATE_LOCK" != "$CREATE/Ovation.xcodeproj" ] && echo derived || echo "none:$CREATE_LOCK")" "derived"
+
+# 207a. The generator writes the project only when it finishes, so a second run
+#       that does not wait generates a second time.
+reset_create; stage_generator gen-last mkdir-last
+create_in_background "$CREATE/a.out" gen-last; FIRST_CREATE=$CREATE_PID
+wait_for_file "$CREATE/started"
+create_in_background "$CREATE/b.out" gen-last; SECOND_CREATE=$CREATE_PID
+wait_for_line "$CREATE/b.out" 'creating'
+rm -f "$CREATE/hold"
+wait "$FIRST_CREATE"; ST207A1=$?
+wait "$SECOND_CREATE"; ST207A2=$?
+check "two runs creating one project at once both succeed" "$ST207A1:$ST207A2" "0:0"
+check "and the generator ran once, not once for each" \
+    "$(grep -c GENERATOR-RAN "$CREATE/generated.log" 2>/dev/null)" "1"
+check "and the second run says it waited for the first rather than generating" \
+    "$(grep -c 'waiting for it rather than generating over it' "$CREATE/b.out")" "1"
+
+# 207b. The generator makes the directory FIRST, which is what a half written
+#       project looks like from outside. A run must not take that as ready.
+reset_create; stage_generator gen-first mkdir-first
+create_in_background "$CREATE/a.out" gen-first; FIRST_CREATE=$CREATE_PID
+wait_for_file "$CREATE/started"
+create_in_background "$CREATE/b.out" gen-first; SECOND_CREATE=$CREATE_PID
+wait_for_line "$CREATE/b.out" 'creating'
+check "a project still being created is waited for, not built from" \
+    "$(kill -0 "$SECOND_CREATE" 2>/dev/null && echo waiting || echo returned-early)" "waiting"
+rm -f "$CREATE/hold"
+wait "$FIRST_CREATE"; wait "$SECOND_CREATE"; ST207B=$?
+check "and once it is made the waiting run goes on with it" "$ST207B" "0"
+
+# 207c. A LOCK LEFT BY A RUN THAT DIED is claimed, not waited on for ever. A mkdir
+#       lock is not released by the kernel, and run-tests.sh exits on INT and TERM
+#       (ovation#274), so a stopped create leaves one behind (L409).
+reset_create; rm -f "$CREATE/hold"; stage_generator gen-last mkdir-last
+bash -c 'exit 0' & DEAD_PID=$!; wait "$DEAD_PID"
+mkdir -p "$CREATE_LOCK"; printf 'Ovation create:%s\n' "$DEAD_PID" > "$CREATE_LOCK/owner"
+OUT207C="$(create_now gen-last)"; ST207C=$?
+check "a create lock left by a run that died is claimed and the project made" "$ST207C" "0"
+check "and it says whose lock it claimed" "$(mentions "$OUT207C" "left by a run that is no longer alive")" "yes"
+check "and the lock is gone afterwards" "$([ -e "$CREATE_LOCK" ] && echo held || echo free)" "free"
+
+# 207d. A generator that fails still gives the lock back, or every later run on
+#       this tree would wait on a create that is not happening.
+reset_create; rm -f "$CREATE/hold"; stage_generator gen-fail fail
+create_now gen-fail >/dev/null; ST207D=$?
+check "a generator that failed is refused" "$ST207D" "2"
+check "and the create lock is released anyway" "$([ -e "$CREATE_LOCK" ] && echo held || echo free)" "free"
+
+# 207e. A create by a LIVE run that does not finish is a refusal naming it, not a
+#       wait with no end (L110). This suite's own pid is the live holder.
+reset_create; rm -f "$CREATE/hold"
+mkdir -p "$CREATE_LOCK"; printf 'Ovation create:%s\n' "$$" > "$CREATE_LOCK/owner"
+OUT207E="$(create_now gen-last 1)"; ST207E=$?
+check "a create that a live run never finishes is refused after the deadline" "$ST207E" "2"
+check "and the refusal names the run holding it" "$(mentions "$OUT207E" "Ovation create:$$")" "yes"
+rm -rf "$CREATE_LOCK"
 
 # AND EVERY ROUTE TO xcodebuild GOES THROUGH THE SAME HELPER (ovation#151).
 #

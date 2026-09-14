@@ -23,6 +23,12 @@
 # release a mkdir lock when its holder dies, which is why the runner carries a
 # timeout and why the regenerator REFUSES rather than waits.
 #
+# A THIRD USER TAKES A DIFFERENT LOCK THROUGH THE SAME TWO FUNCTIONS.
+# `ensure-xcode-project.sh` takes a create lock scoped to the project path
+# (ovation#207), and it writes and reads its owner line here for the same reason
+# the other two do: a waiting run claims a lock whose owner pid is no longer
+# running, so the format is load bearing rather than descriptive.
+#
 # Sourced, never run on its own.
 
 # What is holding the lock, in words, or that it is free.
