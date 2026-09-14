@@ -193,7 +193,7 @@ repository, and leaving it out was how it came to be unrecorded while three apps
 | --- | --- |
 | Path | `~/Library/Application Support/Overture/downbeat-export.json` |
 | Written by | Downbeat, on every Downbeat launch, atomically (write then rename) |
-| Read by | Overture, and now Ovation (ovation#208) |
+| Read by | Overture, Ovation (ovation#208), and `scripts/measure-booking-export.py --live` (ovation#216) |
 | Declared in | Downbeat's `Downbeat/Integration/OvertureExport/CONTRACT.md` |
 | Not a custody file | Downbeat rewrites it on every launch, so a recorded hash would fail on every correct read |
 
@@ -202,6 +202,9 @@ snapshot whose hash is verified at read time, because a figure derived from a fi
 underneath the record is worse than no figure. This one is the opposite: it legitimately changes
 whenever Downbeat launches, so a hash would fail on every correct read. What guards it instead is
 the decoder's own version floor and its named refusals (`Ovation/Domain/DownbeatExport.swift`).
+`scripts/measure-booking-export.py --live` reads it the same way, by the shape that decoder
+requires, and reports in counts where it and the snapshot above disagree (ovation#216), because
+every figure the record cites describes the snapshot and the app reads this file.
 
 **It sits under OVERTURE's folder, not Ovation's, and that is not a mistake to tidy.** Downbeat
 wrote this file for Overture first and publishes the path in its own contract. Moving it is a

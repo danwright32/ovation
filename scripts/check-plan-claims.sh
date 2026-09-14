@@ -66,7 +66,8 @@ than passing as health (L98).
 Exit codes:
 
     0  every citation was checked and none is absent, short or ambiguous
-    1  at least one is absent, short or ambiguous, or --strict and something moved
+    1  at least one is absent, short or ambiguous, a field claim is derivable or
+       uncarried, or --strict and something moved
     2  nothing could be compared, which is not a pass
     3  a sibling repository is not on this machine, so most of the plan's
        claims could not be looked at either way
@@ -95,6 +96,32 @@ another script already answers it, rather than implemented twice (L370).
                   snapshot 2, read out of the plan's own sentence and compared
                   with the custody file through `measure-booking-export.py`.
 
+    FIELDS        what the record (the PRD, this plan and the design README)
+                  says the export does and does not carry, against Downbeat's
+                  `Integration/OvertureExport/CONTRACT.md`, the custody snapshot
+                  and the live export (ovation#215). The PRD said the export had
+                  no field for a client's tax status while the contract declared
+                  `isTaxExempt` and the export carried it on 6 of 31 clients. A
+                  claim that something is ABSENT never fails on its own, so this
+                  is the one kind that exists to fail when a figure the record
+                  calls impossible becomes derivable (L460, L182).
+
+                    FIELDS      the claim holds against every source read
+                    DERIVABLE   the record says a field is absent and a source
+                                declares or carries one, which REFUSES
+                    UNCARRIED   the record says a backticked field is carried
+                                and no source has it, which REFUSES
+                    UNPARSED    the subject names no field ("no field for it"),
+                                reported and not checked either way
+
+                  A claim is a sentence naming an export and saying it carries
+                  nothing about a thing, no field for it, or no such thing, or
+                  that it carries a backticked field. So the record is corrected
+                  IN PLACE: a note restating the false sentence in order to say
+                  it was false is read as the sentence, which is the point,
+                  because a correction standing over a contradicting body is
+                  read as the body.
+
 WHAT IT DELIBERATELY DOES NOT DO, said rather than left to be assumed from its
 name (L400). It does not map the plan's numbered sub-steps to filed issues.
 That is the fifth thing ovation#16 asks for and it is a different job: the
@@ -103,7 +130,8 @@ frozen, and a coverage report full of legitimately unissued sub-steps is one
 nobody reads. It is tracked separately.
 
 Seams: OVATION_PLAN, OVATION_SIBLING_ROOT, OVATION_SIBLING_INSTALL_CHECK,
-OVATION_BOOKING_EXPORT.
+OVATION_BOOKING_EXPORT, OVATION_EXPORT_RECORDS (records, joined by the path
+separator), OVATION_LIVE_EXPORT.
 """
 import json
 import os
@@ -135,6 +163,31 @@ COMMIT = re.compile(r"`([0-9a-f]{8}(?:[0-9a-f]{32})?)`")
 # healthy export as drift.
 EXPORT_CLAIM = re.compile(r"version (\d+), (\d+) bookings")
 EXPORT_SUBJECT = "snapshot 2"
+
+# THE FIFTH KIND, ovation#215. A sentence naming an export and saying it carries
+# nothing about a thing, no field for it, or no such thing, is a claim that the
+# thing cannot be re-derived from it; one saying it carries a backticked field is
+# the opposite claim. A sentence naming ANOTHER export is not about Downbeat's:
+# the record says "the FreshBooks export carries no payment amounts" and means it.
+# NOT INSIDE A NAME. `measure-booking-export.py` contains the word, and read as
+# one it made every sentence citing that script a claim about the export.
+EXPORT_WORD = re.compile(r"(?<![-/\w])export\b", re.I)
+OTHER_EXPORTS = re.compile(r"FreshBooks|QuickBooks|year end|accountant|\bCSV", re.I)
+# SINGULAR VERBS ONLY, because the export is one file. Measured on the real
+# record: PRD 5b says "Measured against the live export, 25 of 31 clients carry
+# no tax status", which names an export and is a count of CLIENTS, and taking
+# "carry" read it as a claim that the export has no tax field.
+LACKS = re.compile(r"\b(?:carries|has|holds)\s+(?:nothing about|no field for|no)"
+                   r"\s+([^.,;:()]+?)(?=\s+(?:at all|and|or|so|which|because|but|since|while)\b|[.,;:()]|$)",
+                   re.I)
+CARRIES = re.compile(r"\b(?:carries|holds)\s+(`[A-Za-z][A-Za-z0-9]*`)")
+# Words that say what KIND of thing is missing rather than which thing, so a
+# subject of "a tax status" is matched on tax alone.
+GENERIC_WORDS = {"field", "status", "value", "record", "data", "information",
+                 "amount", "figure", "the", "any", "all", "its", "their", "either",
+                 "them", "one", "this", "that", "such", "kind"}
+IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,39}$")
+CONTRACT_PATH = "Downbeat/Integration/OvertureExport/CONTRACT.md"
 
 
 def repositories():
@@ -210,6 +263,169 @@ def literals(row):
             continue
         out.append(said)
     return out
+
+
+def paragraphs(text):
+    """(paragraph text, first line number, line start offsets) per paragraph.
+
+    THE DESIGN RECORD IS HARD WRAPPED and the PRD is one line per requirement, so
+    a sentence is read across the lines of its paragraph rather than line by line.
+    The false sentence ovation#215 would have caught in docs/design/README.md
+    starts on one line and names its subject on the next."""
+    out, lines, first = [], [], None
+    for number, line in enumerate(text.split("\n") + [""], 1):
+        if line.strip():
+            if first is None:
+                first = number
+            lines.append(line.strip())
+            continue
+        if lines:
+            starts, joined = [], ""
+            for piece in lines:
+                starts.append(len(joined))
+                joined += piece + " "
+            out.append((joined, first, starts))
+        lines, first = [], None
+    return out
+
+
+def words_of(text):
+    """The significant words of a subject or a key, lower cased and singular.
+
+    A KEY IS SPLIT INTO ITS OWN WORDS, so `isTaxExempt` is is, tax and exempt,
+    and a subject matches only WHOLE words of it. Matching letters would read
+    "tax" inside `syntaxNote` and refuse a record for being right (L104)."""
+    found = re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])", text)
+    out = set()
+    for word in found:
+        word = word.lower()
+        # "status" is not a plural, and made singular it became "statu", which
+        # no key ever holds, so every claim about a tax status matched nothing.
+        if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us")):
+            word = word[:-1]
+        if len(word) >= 3 and word not in GENERIC_WORDS:
+            out.add(word)
+    return out
+
+
+def keys_in(value, into):
+    """Every object key anywhere in a parsed export. Keys only, never a value."""
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            into.add(key)
+            keys_in(inner, into)
+    elif isinstance(value, list):
+        for inner in value:
+            keys_in(inner, into)
+    return into
+
+
+def fields_claims(repos, indexes, custody_export):
+    """The fifth kind: what the record says the Downbeat export does and does
+    not carry, against Downbeat's contract and against real exports.
+
+    Returns (refusals, claims found). Prints one line per claim."""
+    records = os.environ.get("OVATION_EXPORT_RECORDS")
+    records = records.split(os.pathsep) if records else [
+        os.path.join(REPO, "PRD.md"), PLAN, os.path.join(REPO, "docs", "design", "README.md")]
+
+    found = []
+    for path in records:
+        if not os.path.isfile(path):
+            print("  FIELDS     CANNOT MEASURE: no record at %s, so what it says the "
+                  "export carries was not read" % path)
+            continue
+        shown = os.path.relpath(path, REPO)
+        if shown.startswith(".."):
+            shown = os.path.basename(path)
+        text = open(path, encoding="utf-8", errors="replace").read()
+        for joined, first, starts in paragraphs(text):
+            for sentence in re.finditer(r"[^.!?]+(?:[.!?]+|$)", joined):
+                said = sentence.group(0)
+                mention = EXPORT_WORD.search(said)
+                if not mention or OTHER_EXPORTS.search(said):
+                    continue
+                after = said[mention.end():]
+                offset = sentence.start() + mention.end()
+                for kind, pattern in (("lacks", LACKS), ("carries", CARRIES)):
+                    for match in pattern.finditer(after):
+                        at = offset + match.start()
+                        line = first + max(i for i, s in enumerate(starts) if s <= at)
+                        subject = match.group(match.lastindex)
+                        found.append((shown, line, kind, subject))
+
+    if not found:
+        return 0, 0
+
+    # THE SOURCES. The contract is what Downbeat PROMISES and the exports are
+    # what it WROTE, and either one carrying a field makes an absence claim
+    # false: an optional field the contract has not caught up with is still in
+    # the file (ovation#215).
+    sources, unread = [], []
+    where, refusal = resolve(CONTRACT_PATH, {"Downbeat": repos["Downbeat"]},
+                             {"Downbeat": indexes["Downbeat"]})
+    if refusal:
+        unread.append("the contract (%s)" % refusal.lower())
+    else:
+        declared = {}
+        for number, line in enumerate(open(where[1], encoding="utf-8",
+                                           errors="replace").read().split("\n"), 1):
+            for ident in re.findall(r"`([A-Za-z][A-Za-z0-9]*)`", line):
+                declared.setdefault(ident, number)
+        label = os.path.relpath(where[1], repos["Downbeat"])
+        sources.append(({k: "declared at %s:%d" % (label, n) for k, n in declared.items()}))
+    live = os.environ.get("OVATION_LIVE_EXPORT") or os.path.expanduser(
+        "~/Library/Application Support/Overture/downbeat-export.json")
+    for name, path in (("the custody snapshot", custody_export), ("the live export", live)):
+        if not os.path.isfile(path):
+            unread.append("%s (absent)" % name)
+            continue
+        try:
+            keys = keys_in(json.load(open(path, encoding="utf-8")), set())
+        except (ValueError, OSError) as err:
+            unread.append("%s (%s)" % (name, type(err).__name__))
+            continue
+        sources.append({k: "carried in %s" % name for k in keys})
+
+    if not sources:
+        print("  FIELDS     CANNOT MEASURE: the record makes %d claim(s) about what the "
+              "export carries, and no source could be read: %s. Nothing was "
+              "compared, so none of them holds either way" % (len(found), "; ".join(unread)))
+        return 0, len(found)
+
+    bad = 0
+    tail = "; not read: %s" % "; ".join(unread) if unread else ""
+    for shown, line, kind, subject in found:
+        ident = re.fullmatch(r"\s*`([A-Za-z][A-Za-z0-9]*)`\s*", subject)
+        wanted = None if ident else words_of(subject)
+        if not ident and not wanted:
+            print("  UNPARSED   %s:%d  an export claim whose subject names no field, "
+                  "so it was not checked either way" % (shown, line))
+            continue
+        carriers = {}
+        for source in sources:
+            for key, how in source.items():
+                if not IDENTIFIER.match(key):
+                    continue
+                if (ident and key == ident.group(1)) or (wanted and wanted <= words_of(key)):
+                    carriers.setdefault(key, []).append(how)
+        said = " and ".join("`%s` %s" % (k, ", ".join(v)) for k, v in sorted(carriers.items()))
+        if kind == "lacks" and carriers:
+            bad += 1
+            print("  DERIVABLE  %s:%d  says an export carries no such field, and %s. "
+                  "The figure can be re-derived, so the record is corrected in place; "
+                  "if the sentence means another export, it must name that export"
+                  % (shown, line, said))
+        elif kind == "lacks":
+            print("  FIELDS     %s:%d  no source carries a field matching the claim, as "
+                  "stated%s" % (shown, line, tail))
+        elif carriers:
+            print("  FIELDS     %s:%d  %s, as stated" % (shown, line, said))
+        else:
+            bad += 1
+            print("  UNCARRIED  %s:%d  says the export carries `%s`, and no source "
+                  "declares or carries it%s" % (shown, line, ident.group(1), tail))
+    return bad, len(found)
 
 
 def main(argv=()):
@@ -425,6 +641,8 @@ def main(argv=()):
                   "booking(s); the export is version %s with %d"
                   % (stated[0], stated[1], stated[2], version, bookings))
 
+    fields_bad, field_claims = fields_claims(repos, indexes, export)
+
     order = ["ABSENT", "AMBIGUOUS", "SHORT", "MOVED", "UNANCHORED", "HELD"]
     for kind in order:
         for plan_line, path, cited, detail in verdicts.get(kind, []):
@@ -434,8 +652,8 @@ def main(argv=()):
                 print("  %-10s plan:%d  %s:%d  %s" % (kind, plan_line, path, cited, detail))
 
     broken = sum(len(verdicts.get(k, [])) for k in ("ABSENT", "AMBIGUOUS", "SHORT"))
-    broken += commits_bad + installs_bad + export_bad
-    if not claims and not named and stated is None:
+    broken += commits_bad + installs_bad + export_bad + fields_bad
+    if not claims and not named and stated is None and not field_claims:
         print("CANNOT MEASURE: the plan cites no file, names no commit and states "
               "nothing about the export, so this compared nothing. A plan that "
               "stopped citing its sources and one whose sources all still agree "
@@ -448,7 +666,10 @@ def main(argv=()):
     print("%s: %d citation(s) checked. %d held where the plan says, %d moved, "
           "%d unanchored, %d absent, ambiguous or past the end of the file."
           % ("DRIFTED" if refused else "OK",
-             len(claims), held, moved, unanchored, broken))
+             len(claims), held, moved, unanchored, broken - fields_bad))
+    if field_claims:
+        print("%d claim(s) about the fields the export carries, %d refused as "
+              "derivable or uncarried." % (field_claims, fields_bad))
     if broken:
         print("The plan is corrected by a PERSON, not by this check: a claim that "
               "has drifted may mean the plan is wrong or the sibling has "
