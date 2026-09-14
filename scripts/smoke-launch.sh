@@ -65,11 +65,23 @@ else
         | awk '$1 == "BUILT_PRODUCTS_DIR" && $2 == "=" { print $3; exit }')/Ovation.app"
 fi
 
+# WHAT "BUILT" MEANS IS ASKED OF THE SHARED DEFINITION (ovation#300). This used to
+# carry its own two tests, no bundle and then no executable, beside
+# built_product_absence, which since ovation#273 is the one the push gate and the
+# bundle suites read. A copy goes on answering the old question the day the
+# shared one changes, and nothing fails (L370). The remedy stays this script's
+# own, because it names the one configuration this launch needs.
+# shellcheck source=lib/built-product.sh
+. "${REPO_ROOT}/scripts/lib/built-product.sh"
 BUILD_IT="xcodebuild -project Ovation.xcodeproj -scheme Ovation -configuration ${CONFIGURATION} -destination 'platform=macOS' build"
-[ -d "$APP" ] || cannot_measure "there is no ${CONFIGURATION} product at ${APP}" "build it first: ${BUILD_IT}"
+ABSENCE="$(built_product_absence "$CONFIGURATION" "$APP")"
+case $? in
+    0) ;;
+    1) cannot_measure "$ABSENCE" "build it first: ${BUILD_IT}" ;;
+    *) cannot_measure "$ABSENCE" "rebuild it: ${BUILD_IT}" ;;
+esac
 
 EXE="${APP}/Contents/MacOS/Ovation"
-[ -f "$EXE" ] || cannot_measure "the ${CONFIGURATION} bundle has no executable inside it" "rebuild it: ${BUILD_IT}"
 
 # BY EXECUTABLE PATH, never by name. Two copies of an app called the same thing
 # can be running at once, and the wrong one has been acted on before.
