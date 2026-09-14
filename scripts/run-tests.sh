@@ -339,6 +339,25 @@ else
   . "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
   ensure_xcode_project "${REPO_ROOT}" "${XCODE_PROJECT}" "${XCODEGEN}" || exit 2
 
+  # AND THE PROJECT THAT IS THERE LISTS THE SWIFT FILES THAT ARE THERE
+  # (ovation#206). The helper above deliberately never regenerates, so a Swift
+  # file added after the project was made is invisible to both suites, and the
+  # build then fails with `cannot find ... in scope`, naming the code rather than
+  # the project. Asked here, before anything is built from it, through the same
+  # script the push gate runs, so the two cannot disagree about "current" (L70).
+  #
+  # 0 is current and 2 is nothing to compare (no project file to read), and both
+  # go on: xcodebuild says plainly when a project is absent. Anything else stops
+  # the run with the check's own words and status, which is a real fault in the
+  # tree rather than something that went unmeasured.
+  OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
+    "${REPO_ROOT}/scripts/check-xcode-project-current.sh"
+  PROJECT_CURRENT_STATUS=$?
+  case "${PROJECT_CURRENT_STATUS}" in
+    0|2) ;;
+    *) exit "${PROJECT_CURRENT_STATUS}" ;;
+  esac
+
   if [ ! -x "${FLOCK_BIN}" ]; then
     echo "Error: flock was not found at ${FLOCK_BIN}." >&2
     echo "       Ovation's test runner takes Overture's lock, which uses it." >&2

@@ -294,6 +294,16 @@ gate_check check-design-shared-components.sh "a design file declares a second co
 # (L411). gate_check is that rule made general.
 gate_check check-app-icon-current.sh "the committed icon catalog is not what the artwork produces."
 
+# ovation#206. project.yml lists directories and the generated project lists
+# files, so a Swift file added since the project was generated is invisible to
+# every build, and the first sign was `cannot find ... in scope` from a file that
+# plainly referenced it: an error naming the code rather than the project. Asked
+# here, in seconds and before the suite, because a push is where a person meets
+# it; the runner asks the same script before its Swift suites for a direct run.
+# A tree with no generated project answers could not measure (2), which is
+# allowed: the next run generates one from these very directories.
+gate_check check-xcode-project-current.sh "the generated Xcode project does not list the Swift files on disk; run bash scripts/regenerate-xcode-project.sh."
+
 # The launch sequence must be WIRED into the entry point. ovation#88: the store
 # schema guard was written and fully tested and then called by nothing, because
 # the file carrying @main is the one file the pure test target cannot compile, so

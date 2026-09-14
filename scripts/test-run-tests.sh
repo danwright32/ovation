@@ -35,7 +35,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_XCODE_PROJECT OVATION_XCODEGEN OVATION_XCODEBUILD_LISTER \
       OVATION_LOCK_WAIT_LOG OVATION_XCODEBUILD OVATION_XCODE_VERSION_FILE \
       OVATION_DEFAULTS_DOMAINS_COMMAND \
-      OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT
+      OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
+      OVATION_REPO_ROOT
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -66,7 +67,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 146
+harness_begin "test runner lock tests" 149
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -1091,6 +1092,36 @@ OUT151D="$(run_with_project "$PROJ/still-absent.xcodeproj" "$PROJ/quiet-xcodegen
 check "a generator that reports success and writes nothing is refused" \
     "$([ "$ST151D" -ne 0 ] && echo refused || echo allowed)" "refused"
 
+
+# ---------------------------------------------------------------------------
+# A PROJECT THAT DOES NOT LIST THE SWIFT FILES ON DISK STOPS THE RUN BY NAME
+# (ovation#206).
+#
+# project.yml lists directories and the generated project lists files, so a new
+# Swift file is invisible to every build until the project is regenerated. On
+# 2026-09-10 that surfaced as `cannot find 'YearEndExportCommand' in scope`,
+# which names the code rather than the project. The runner asks
+# check-xcode-project-current.sh before either Swift suite, so a direct run is
+# told the real subject and the command that fixes it. The stale project here
+# lists one name that is in no tree, against this repository's real sources.
+STALE="$WORK/stale.xcodeproj"; mkdir -p "$STALE"
+printf '{\n\t\t000000000000000000000001 /* NotInAnyTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotInAnyTree.swift; sourceTree = "<group>"; };\n}\n' \
+    > "$STALE/project.pbxproj"
+stale_project_run() {
+    OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_TIMEOUT=2 OVATION_LOCK_POLL_INTERVAL=0.05 \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" \
+    OVATION_TEST_COMMAND="echo PURE-SUITE-RAN" OVATION_UNLOCKED_COMMAND="true" \
+    OVATION_HOSTED_TEST_COMMAND="$HOSTED_PASSES" \
+    OVATION_XCODE_PROJECT="$1" \
+        "./$TARGET" 2>&1
+}
+OUT206="$(stale_project_run "$STALE")"; ST206=$?
+check "a project that does not list the Swift files on disk fails the run" "$ST206" "1"
+check "and it stops before the pure suite is built from it" \
+    "$(mentions "$OUT206" "PURE-SUITE-RAN")" "no"
+check "and it gives the command that regenerates the project" \
+    "$(mentions "$OUT206" "bash scripts/regenerate-xcode-project.sh")" "yes"
 
 # ---------------------------------------------------------------------------
 # TWO RUNS CREATING THE SAME PROJECT AT ONCE MAKE IT ONCE (ovation#207).
