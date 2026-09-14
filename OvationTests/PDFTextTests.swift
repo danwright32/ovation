@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#167, PRD 50c. How money, hours and dates are WRITTEN on the invoice PDF.
 ///
