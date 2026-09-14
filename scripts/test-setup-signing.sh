@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "setup-signing tests" 31
+harness_begin "setup-signing tests" 32
 
 TARGET="scripts/setup-signing.sh"
 require_target "$TARGET"
@@ -115,8 +115,13 @@ check "creation that did not take is an error, not a success" \
     "$([ "$ST3" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
 check "and it says the identity was not created" \
     "$(printf '%s' "$OUT3" | grep -ci "was not created")" "1"
-check "and it does NOT tell Dan to go and rebuild" \
-    "$(printf '%s' "$OUT3" | grep -ci "rebuild")" "0"
+# WHAT THIS MEANS is that a failed setup does not end the way a successful one
+# does, with the next step to take. It used to count the word `rebuild` anywhere,
+# which this script never prints at all, so it passed for no reason and would
+# have failed the day any unrelated line used the word, pointing at the wrong
+# thing (ovation#213). So it is anchored to the success ending itself.
+check "and it does NOT print the next step a successful setup ends with" \
+    "$(printf '%s\n' "$OUT3" | grep -c '^==> Done\. ')" "0"
 
 # 5. Ovation's own identity name, not the one it was ported from. Three siblings
 #    already use "<App> Local Signing" and each is distinct, so the signer of a
@@ -156,6 +161,11 @@ check "and the list names codesign" \
 check "and it does that AFTER importing the key, not before" \
     "$(awk '/import/{i=NR} /set-key-partition-list/{p=NR} END{print (i>0 && p>i) ? "after" : "not-after"}' "$WORK/security-calls")" "after"
 
+# THE POSITIVE HALF of case 4's "does NOT print the next step": the same sentence
+# is seen to appear on a setup that worked, so its absence there is a finding
+# rather than a pattern that matches nothing at all (L159, ovation#213).
+check "a setup that worked does end with the next step" \
+    "$(printf '%s\n' "$OUT_NEW" | grep -c '^==> Done\. ')" "1"
 check "it warns that the first build may still stop for a keychain dialog" \
     "$(printf '%s' "$OUT_NEW" | grep -ci "keychain dialog")" "1"
 check "and it names Always Allow, because Allow grants it once and it comes back" \
@@ -170,8 +180,11 @@ printf '  0 valid identities found\n' > "$WORK/identities"
 OUT_PART="$(run_target)"; ST_PART=$?
 rm -f "$WORK/partition-fails"
 check "a partition list that could not be set does not fail the setup" "$ST_PART" "0"
+# Anchored to the sentence, not the word `partition`, which the authorising step
+# could name at any time and which would then count twice (ovation#213).
 check "but it says so, rather than leaving the dialog unexplained" \
-    "$(printf '%s' "$OUT_PART" | grep -ci "partition")" "1"
+    "$(printf '%s\n' "$OUT_PART" \
+        | grep -c '^    The partition list could not be set (a wrong password, or a keychain that$')" "1"
 
 # 3. THE ALREADY PRESENT PATH must reach the person who ran this BECAUSE builds
 #    are prompting. Telling them "nothing to do" and stopping leaves them facing
