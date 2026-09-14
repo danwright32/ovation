@@ -25,15 +25,15 @@
 # refusal NAMES the holder, so it is actionable rather than just a no (L148).
 #
 # THE LOCKS ARE THE READERS', not one of its own. A lock must be the one the
-# READERS take or it protects nothing (L453). The hosted suite and the product
-# builds read the project under /tmp/xcodebuild-tests.lock, so this takes that
-# lock; it is shared with Downbeat, so it is coarser than the resource it
-# protects, and a private lock nothing else takes would guard an empty room
-# (L369).
+# READERS take or it protects nothing (L453). The hosted suite reads the project
+# under /tmp/xcodebuild-tests.lock, so this takes that lock; it is shared with
+# Downbeat, so it is coarser than the resource it protects, and a private lock
+# nothing else takes would guard an empty room (L369).
 #
 # THAT LOCK STOPPED BEING THE WHOLE ANSWER (ovation#299). Since ovation#271 the
-# pure suite builds WITHOUT it, so it can hold the directory lock free while it
-# reads the project. The pure suite must not start waiting behind a sibling, so
+# pure suite builds WITHOUT it, and so do the Debug and Release builds of
+# build-products.sh, which travel as the runner's pure command (ovation#302). Both
+# can leave the directory lock free while they read the project. The pure suite must not start waiting behind a sibling, so
 # it takes no lock; it registers itself against the project through
 # lib/ensure-xcode-project.sh, and this refuses while a live registration stands,
 # naming it. This also takes that project's create lock while it rewrites, so a
@@ -106,6 +106,7 @@ if ! dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}") regenerate" "$$"; t
     echo "         done, or find out what is holding the lock." >&2
     exit 1
 fi
+DIR_LOCK_HELD=1
 
 # RELEASED ON EVERY EXIT PATH, including a generator that failed. A mkdir lock is
 # not released by the kernel when its holder dies, so one left planted blocks
@@ -129,12 +130,31 @@ release() {
         rm -rf "${PROJECT}" 2>/dev/null || true
         mv "${ASIDE}" "${PROJECT}" 2>/dev/null || true
     fi
-    # Only a create lock this run TOOK is removed; one it was refused belongs to
-    # the run that holds it.
-    [ -n "${CREATE_LOCK_HELD}" ] && rm -rf "${CREATE_LOCK}" 2>/dev/null
-    rm -rf "${DIR_LOCK}" 2>/dev/null || true
+    # Only a lock this run TOOK is removed, and each only ONCE. A stopped run
+    # passes through here twice (the signal trap, then EXIT), and a second
+    # unconditional delete could remove a lock another run took in between.
+    if [ -n "${CREATE_LOCK_HELD}" ]; then
+        rm -rf "${CREATE_LOCK}" 2>/dev/null || true
+        CREATE_LOCK_HELD=""
+    fi
+    if [ -n "${DIR_LOCK_HELD}" ]; then
+        rm -rf "${DIR_LOCK}" 2>/dev/null || true
+        DIR_LOCK_HELD=""
+    fi
 }
-trap release EXIT INT TERM
+# A REGENERATION TOLD TO STOP, STOPS (ovation#302). This was one trap for EXIT,
+# INT and TERM, and a trap on INT or TERM that only cleans up RETURNS to the
+# script (L473): a stopped regeneration put the old project back, let go of both
+# locks, and carried on, into xcodegen unlocked or on to "OK: regenerated" over a
+# project the trap had just replaced. ovation#274 fixed the same shape in
+# run-tests.sh, and this is the same fix: release, then exit with 128 plus the
+# signal, so a stopped run cannot read as a finished one.
+#
+# As there, bash runs the trap when the command in front of it returns, so a
+# signal sent to this pid alone during xcodegen takes effect when xcodegen ends.
+trap release EXIT
+trap 'release; exit 130' INT
+trap 'release; exit 143' TERM
 
 # THE PROJECT'S CREATE LOCK, so a run about to read the project waits for this
 # one's result, as it waits for a create (ovation#299, ovation#207). A lock left

@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode project regeneration tests" 37
+harness_begin "xcode project regeneration tests" 41
 
 TARGET="scripts/regenerate-xcode-project.sh"
 require_target "$TARGET"
@@ -318,5 +318,46 @@ wait_for_path "$PURE_STARTED"
 rm -f "$PURE_HOLD"; wait "$PURE_PID"; PURE_ST=$?
 check "and builds once the regeneration is done" \
     "$([ -e "$PURE_STARTED" ] && echo "built:$PURE_ST" || echo "never:$PURE_ST")" "built:0"
+
+# ---------------------------------------------------------------------------
+# 9. A REGENERATION TOLD TO STOP, STOPS (ovation#302).
+#
+# The trap was one line for EXIT, INT and TERM, and a trap on INT or TERM that
+# only cleans up RETURNS to the script (L473). A regeneration told to stop put
+# the old project back, let go of both locks, and carried on: into xcodegen with
+# no lock if it was told before the generator started, or, told during it, on to
+# "OK: regenerated" and exit 0 over a project the trap had just replaced with the
+# old one. ovation#274 fixed the same shape in run-tests.sh.
+#
+# TERM, and not INT, is what this sends: bash 5 can absorb an INT sent to one pid
+# when the command in front of it exits normally, which run-tests.sh records. The
+# signal goes to the regeneration's own pid, read from the owner line it wrote, so
+# nothing else is signalled. Bash runs the trap when the generator returns, which
+# is why the hold is released after the signal.
+# ---------------------------------------------------------------------------
+fresh_tree
+printf '#!/bin/bash\ntouch "%s"\nn=0; while [ -e "%s" ] && [ $n -lt 600 ]; do n=$((n+1)); sleep 0.05; done\nmkdir -p "%s"\n' \
+    "$WORK/gen-started" "$WORK/gen-hold" "$TREE_PROJECT" > "$WORK/xcodegen"
+chmod +x "$WORK/xcodegen"
+mkdir -p "$TREE_PROJECT"
+printf 'the project before\n' > "$TREE_PROJECT/marker.txt"
+: > "$WORK/gen-hold"; rm -f "$WORK/gen-started" "$WORK/stopped.status"
+( run_it > "$WORK/stopped.out" 2>&1; echo "$?" > "$WORK/stopped.status" ) &
+STOP_WRAPPER=$!
+wait_for_path "$WORK/gen-started"
+STOP_OWNER="$(head -1 "$WORK/lock/owner" 2>/dev/null)"
+STOP_PID="${STOP_OWNER##*:}"
+case "$STOP_PID" in ''|*[!0-9]*) STOP_PID="" ;; esac
+[ -n "$STOP_PID" ] && kill -TERM "$STOP_PID" 2>/dev/null
+rm -f "$WORK/gen-hold"
+wait "$STOP_WRAPPER"
+check "a regeneration stopped with TERM exits 143, not with a verdict" \
+    "$(cat "$WORK/stopped.status" 2>/dev/null)" "143"
+check "and it does not report having regenerated" \
+    "$(grep -c 'OK: regenerated' "$WORK/stopped.out")" "0"
+check "and the project that was there is put back" \
+    "$(cat "$TREE_PROJECT/marker.txt" 2>/dev/null)" "the project before"
+check "and it left neither of its locks behind" \
+    "$({ [ -e "$WORK/lock" ] || [ -e "$(create_lock_of "$TREE_PROJECT")" ]; } && echo held || echo free)" "free"
 
 harness_end
