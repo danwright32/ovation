@@ -22,7 +22,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "launch smoke check tests" 24
+harness_begin "launch smoke check tests" 28
 
 TARGET="scripts/smoke-launch.sh"
 require_target "$TARGET"
@@ -144,6 +144,32 @@ check "the refusal is the shared definition's, so a change to it reaches the smo
     "$(says "$SMOKE_OUT" "the shared definition refused Debug")" "yes"
 check "and a refusal from it is still cannot measure" "$SMOKE_ST" "2"
 check "and nothing was launched on its say so" \
+    "$([ -f "$STATE/launched" ] && echo launched || echo no)" "no"
+
+# A LOCATION THAT WAS NEVER LEARNED IS NAMED AS THAT (ovation#309). With no
+# generated project the location query answers nothing and the path becomes
+# "/Ovation.app". The script is run from a staged tree with the real shared lib
+# and no project, handed exactly that path, and must name the project it asked
+# and the command that makes one, not tell somebody to rebuild from a project
+# that is not there.
+stage_projectless_smoke_tree() {
+    [ -n "$WORK" ] || exit 1
+    NOPROJ="$WORK/noproj"; rm -rf "$NOPROJ"; mkdir -p "$NOPROJ/scripts/lib"
+    cp "$TARGET" "$NOPROJ/scripts/smoke-launch.sh"
+    cp scripts/lib/built-product.sh "$NOPROJ/scripts/lib/built-product.sh"
+}
+stage_projectless_smoke_tree
+reset_state
+SMOKE_OUT="$(OVATION_SMOKE_APP="/Ovation.app" \
+    OVATION_SMOKE_LAUNCH_CMD="$WORK/launch" OVATION_SMOKE_PIDS_CMD="$WORK/pids" \
+    OVATION_SMOKE_WINDOWS_CMD="$WORK/windows" OVATION_SMOKE_QUIT_CMD="$WORK/quit" \
+    STATE="$STATE" bash "$NOPROJ/scripts/smoke-launch.sh" 2>&1)"; SMOKE_ST=$?
+check "a location never learned from a project cannot be measured" "$SMOKE_ST" "2"
+check "and it names the project it asked, which is not there" \
+    "$(says "$SMOKE_OUT" "no Xcode project at $NOPROJ/Ovation.xcodeproj")" "yes"
+check "and it gives the command that makes the project, not a rebuild" \
+    "$(says "$SMOKE_OUT" "it generates the project"):$(says "$SMOKE_OUT" "rebuild it")" "yes:no"
+check "and nothing was launched" \
     "$([ -f "$STATE/launched" ] && echo launched || echo no)" "no"
 
 # ALREADY RUNNING. It refuses rather than acting on a process it did not start.

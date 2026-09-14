@@ -474,21 +474,33 @@ if [ -z "${SKIP_XCODE}" ] && [ -z "${TEST_COMMAND}" ]; then
     # shellcheck source=../lib/built-product.sh
     . "${PRODUCT_LIB}"
     PRODUCTS_MISSING=""
+    PRODUCT_REMEDIES=""
     for config in ${BUILT_PRODUCT_CONFIGURATIONS}; do
         # From the top of the pushed tree, which is where the location query
-        # expects to find the project.
+        # expects to find the project. The project it asked is passed on, so a
+        # location that was never learned is reported as that (ovation#309).
         app="$(cd "${REPO_ROOT}" && built_product_path "${config}")/Ovation.app"
-        reason="$(built_product_absence "${config}" "${app}")" \
-            || PRODUCTS_MISSING="${PRODUCTS_MISSING}pre-push:     ${reason}
+        reason="$(built_product_absence "${config}" "${app}" "${REPO_ROOT}/Ovation.xcodeproj")"
+        code=$?
+        [ "${code}" -eq 0 ] && continue
+        PRODUCTS_MISSING="${PRODUCTS_MISSING}pre-push:     ${reason}
 "
+        # EACH REMEDY ONCE, from the lib, so both configurations missing for one
+        # reason print one command rather than the same command twice.
+        remedy="$(built_product_remedy "${code}")"
+        case "${PRODUCT_REMEDIES}" in
+            *"${remedy}"*) ;;
+            *) PRODUCT_REMEDIES="${PRODUCT_REMEDIES}pre-push:     ${remedy}
+" ;;
+        esac
     done
     if [ -n "${PRODUCTS_MISSING}" ]; then
         echo "pre-push: this push contains something the built bundle suites judge, and" >&2
-        echo "pre-push: they cannot measure a product that was never built:" >&2
+        echo "pre-push: they cannot measure a product that is not there:" >&2
         printf '%s' "${PRODUCTS_MISSING}" >&2
         echo "pre-push: Push refused before running anything, rather than after the whole" >&2
-        echo "pre-push: suite. Build both configurations, then push again:" >&2
-        echo "pre-push:     bash scripts/build-products.sh" >&2
+        echo "pre-push: suite. Run this, then push again:" >&2
+        printf '%s' "${PRODUCT_REMEDIES}" >&2
         exit 1
     fi
 fi
