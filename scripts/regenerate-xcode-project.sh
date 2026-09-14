@@ -1,5 +1,6 @@
 #!/bin/bash
-# Regenerate Ovation.xcodeproj, under the lock every build of it already takes.
+# Regenerate Ovation.xcodeproj, under the build lock and the project's own create
+# lock, and never while a build outside those locks is reading it.
 #
 #     regenerate-xcode-project.sh
 #
@@ -23,12 +24,21 @@
 # silently behind a ten minute suite is worse than being told to try again. The
 # refusal NAMES the holder, so it is actionable rather than just a no (L148).
 #
-# THE LOCK IS THE RUNNER'S, not one of its own. A lock must be the one the
-# READERS take or it protects nothing (L453), and what reads the project is
-# xcodebuild, which runs under /tmp/xcodebuild-tests.lock. That lock is shared
-# with Downbeat, so this is coarser than the resource it protects; the
-# alternative, a private lock nothing else takes, would be a lock that guards an
-# empty room (L369).
+# THE LOCKS ARE THE READERS', not one of its own. A lock must be the one the
+# READERS take or it protects nothing (L453). The hosted suite and the product
+# builds read the project under /tmp/xcodebuild-tests.lock, so this takes that
+# lock; it is shared with Downbeat, so it is coarser than the resource it
+# protects, and a private lock nothing else takes would guard an empty room
+# (L369).
+#
+# THAT LOCK STOPPED BEING THE WHOLE ANSWER (ovation#299). Since ovation#271 the
+# pure suite builds WITHOUT it, so it can hold the directory lock free while it
+# reads the project. The pure suite must not start waiting behind a sibling, so
+# it takes no lock; it registers itself against the project through
+# lib/ensure-xcode-project.sh, and this refuses while a live registration stands,
+# naming it. This also takes that project's create lock while it rewrites, so a
+# pure suite starting in the middle waits for the new project rather than building
+# from one that has been moved aside.
 #
 # WHAT IT DOES NOT DO, said rather than left to be discovered. It does not run
 # when a source file is added: that is still a step somebody takes, and
@@ -39,7 +49,8 @@
 # Exit codes, one per outcome (L11):
 #
 #     0  regenerated
-#     1  the lock is held, and it says by whom. Nothing was touched
+#     1  a lock is held, or a build is reading the project, and it says by whom.
+#        Nothing was touched
 #     2  there is no generator, or the generator failed
 #     3  there is no project.yml to generate from
 #
@@ -60,6 +71,8 @@ XCODEGEN="${OVATION_XCODEGEN:-$(command -v xcodegen || echo /opt/homebrew/bin/xc
 
 # shellcheck source=lib/dir-lock.sh
 . "${HERE}/lib/dir-lock.sh"
+# shellcheck source=lib/ensure-xcode-project.sh
+. "${HERE}/lib/ensure-xcode-project.sh"
 
 # GUARDED BEFORE ANY DELETE. Both of these come from seams, and a recursive
 # delete built from an empty variable is not the place to rely on a caller having
@@ -105,6 +118,8 @@ fi
 # and is not the same as not doing it. Moving it aside makes the failure
 # recoverable rather than merely well described.
 ASIDE="${PROJECT}.previous.$$"
+CREATE_LOCK="$(xcode_project_create_lock "${PROJECT}")"
+CREATE_LOCK_HELD=""
 
 release() {
     # THE ASIDE COPY IS PUT BACK ON EVERY PATH THAT DID NOT REPLACE IT, including
@@ -114,9 +129,40 @@ release() {
         rm -rf "${PROJECT}" 2>/dev/null || true
         mv "${ASIDE}" "${PROJECT}" 2>/dev/null || true
     fi
+    # Only a create lock this run TOOK is removed; one it was refused belongs to
+    # the run that holds it.
+    [ -n "${CREATE_LOCK_HELD}" ] && rm -rf "${CREATE_LOCK}" 2>/dev/null
     rm -rf "${DIR_LOCK}" 2>/dev/null || true
 }
 trap release EXIT INT TERM
+
+# THE PROJECT'S CREATE LOCK, so a run about to read the project waits for this
+# one's result, as it waits for a create (ovation#299, ovation#207). A lock left
+# by a run that died is claimed through the same function the waiting side uses.
+if ! dir_lock_take "${CREATE_LOCK}" "$(basename "${REPO_ROOT}") regenerate" "$$"; then
+    if xcode_project_claim_dead_lock "${CREATE_LOCK}" "${PROJECT}" >&2 \
+        && dir_lock_take "${CREATE_LOCK}" "$(basename "${REPO_ROOT}") regenerate" "$$"; then
+        :
+    else
+        echo "REFUSED: ${PROJECT} is being created by another run:" >&2
+        echo "         ${CREATE_LOCK} is $(dir_lock_describe "${CREATE_LOCK}")." >&2
+        echo "         Nothing was touched. Try again when that run is done." >&2
+        exit 1
+    fi
+fi
+CREATE_LOCK_HELD=1
+
+# AND NOBODY IS READING IT OUTSIDE THE BUILD LOCK (ovation#299). Asked AFTER the
+# create lock is held, because a pure suite registers and then looks at that lock,
+# so whichever of the two moves second sees the first.
+if LIVE_READERS="$(xcode_project_live_readers "${PROJECT}")"; then
+    echo "REFUSED: a build is reading ${PROJECT} right now, outside the build lock:" >&2
+    printf '%s\n' "${LIVE_READERS}" | sed 's/^/         held by /' >&2
+    echo "         Rewriting it under that build is the hazard this refusal exists" >&2
+    echo "         for, and it would fail as a broken build rather than as a race." >&2
+    echo "         Nothing was touched. Try again when that run is done." >&2
+    exit 1
+fi
 
 if [ -e "${PROJECT}" ] && ! mv "${PROJECT}" "${ASIDE}"; then
     echo "REFUSED: ${PROJECT} could not be moved aside, so nothing was regenerated." >&2

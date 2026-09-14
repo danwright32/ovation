@@ -1,6 +1,8 @@
 #!/bin/bash
-# The directory lock every xcodebuild run in this repository takes, and the ONE
-# place its owner line is written and read.
+# The directory lock the hosted suite and the regenerator take, and the ONE place
+# its owner line is written and read. The pure suite has not taken it since
+# ovation#271; lib/ensure-xcode-project.sh is how a regeneration sees one
+# (ovation#299).
 #
 # ovation#202. Two things take it now. `run-tests.sh`, whose Xcode phase READS
 # the generated project, has always taken it. `regenerate-xcode-project.sh`

@@ -115,6 +115,10 @@ LIVE_DATA_FINGERPRINT=""
 
 DIR_LOCK_HELD=""
 FLOCK_FD=""
+# The pid this run registered as reading the project under, while it is
+# registered (ovation#299). Empty otherwise, so the trap removes nothing it did
+# not write.
+PROJECT_READER_PID=""
 
 # The `ovation.tests.` preference domains on this Mac, one per line, sorted
 # (ovation#263). `defaults domains` prints one comma separated line, so it is
@@ -141,6 +145,12 @@ release_locks() {
   [ -n "${DIR_LOCK_HELD}" ] && rm -rf "${DIR_LOCK}" 2>/dev/null || true
   DIR_LOCK_HELD=""
   FLOCK_FD=""
+  # A registration left standing would refuse every regeneration of this tree
+  # until a later one noticed this pid was gone (ovation#299).
+  if [ -n "${PROJECT_READER_PID}" ]; then
+    xcode_project_read_end "${XCODE_PROJECT}" "${PROJECT_READER_PID}"
+    PROJECT_READER_PID=""
+  fi
 }
 # AND A RUN TOLD TO STOP, STOPS (ovation#274). This was one trap for EXIT, INT
 # and TERM, and a trap on INT or TERM that only cleans up RETURNS to the script:
@@ -314,8 +324,15 @@ else
   # A create does take a lock of its own, scoped to the project path, so a second
   # run creating the same project waits for the first's result instead of
   # generating over it, and nothing about a sibling's build can hold it
-  # (ovation#207). The create itself is the ensure_xcode_project call below the
-  # Xcode version note.
+  # (ovation#207). The create itself is the xcode_project_read_begin call below
+  # the Xcode version note.
+  #
+  # AND THE PURE SUITE REGISTERS AS READING THE PROJECT (ovation#299). It builds
+  # outside the directory build lock since ovation#271, so that lock no longer
+  # tells a regeneration whether anything is reading the project. The same call
+  # that makes sure a project exists registers this run against it, and a
+  # regeneration refuses by name while the registration stands. Nothing a sibling
+  # does can hold it, so the pure suite still never waits behind one.
   #
   # WHICH XCODE THIS RUN BUILDS WITH, AGAINST THE ONE CI BUILDS WITH (ovation#270).
   #
@@ -352,7 +369,9 @@ else
 
   # shellcheck source=lib/ensure-xcode-project.sh
   . "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
-  ensure_xcode_project "${REPO_ROOT}" "${XCODE_PROJECT}" "${XCODEGEN}" || exit 2
+  xcode_project_read_begin "${REPO_ROOT}" "${XCODE_PROJECT}" "${XCODEGEN}" \
+    "$(basename "${REPO_ROOT}") pure suite" "$$" || exit 2
+  PROJECT_READER_PID="$$"
 
   # AND THE PROJECT THAT IS THERE LISTS THE SWIFT FILES THAT ARE THERE
   # (ovation#206). The helper above deliberately never regenerates, so a Swift
@@ -471,6 +490,12 @@ else
     bash -c "${TEST_COMMAND}" 2>&1 | tee "${PURE_OUTPUT}"
   fi
   STATUS="${PIPESTATUS[0]}"
+
+  # THE PURE SUITE HAS STOPPED READING THE PROJECT, so a regeneration may go ahead
+  # (ovation#299). The hosted suite reads it under the directory build lock, which
+  # a regeneration also takes, so the registration is not needed past here.
+  xcode_project_read_end "${XCODE_PROJECT}" "${PROJECT_READER_PID}"
+  PROJECT_READER_PID=""
 
   # ---------------------------------------------------------------------------
   # THE PURE SUITE IS JUDGED BY WHAT IT EXECUTED, NOT ONLY BY ITS EXIT CODE.
