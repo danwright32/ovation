@@ -67,7 +67,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 153
+harness_begin "test runner lock tests" 170
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -130,6 +130,22 @@ run_runner() {
         "./$TARGET" 2>&1
 }
 
+# CONDITIONS THE CASES WAIT ON, for harness_wait_for (ovation#303). Every wait in
+# this suite used to break out of a hand written loop after a fixed number of
+# polls and carry on as if the condition held, so a wait that ran out was silent
+# and the case after it failed on an assertion about something never staged. A
+# wait is now an assertion that fails by name.
+staged_file_lock_held() {
+    ! "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null
+}
+file_mentions() {
+    grep -q "$2" "$1" 2>/dev/null
+}
+# Not `ps | grep -q`: under pipefail a grep ending early fails the ps (L183).
+process_shows() {
+    [[ "$(ps -o command= -p "$1" 2>/dev/null)" == *"$2"* ]]
+}
+
 # 1. Nothing held: it runs, and it runs the command it was given.
 OUT1="$(run_runner "echo THE-COMMAND-RAN; $HOSTED_PASSES")"; ST1=$?
 check "with neither lock held the runner succeeds" "$ST1" "0"
@@ -165,10 +181,7 @@ rmdir "$DIR_LOCK"
     HOLDER=$!
     # Wait for the holder to actually HAVE the lock, rather than sleeping and
     # hoping: a fixed wait asserts about machine load, not about the lock (L290).
-    waited=0
-    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
-        waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
-    done
+    harness_wait_for "Overture's lock to be taken by HOLDER" 100 0.05 staged_file_lock_held
     OUT4="$(run_runner)"; ST4=$?
     check "Overture's file lock also stops Ovation running" \
         "$([ "$ST4" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
@@ -259,10 +272,7 @@ stopped_status() {
     STOPPED=$?
 }
 wait_for_line() {
-    local waited=0
-    until grep -q "$2" "$1" 2>/dev/null; do
-        waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
-    done
+    harness_wait_for "'$2' in $(basename "$1")" 200 0.05 file_mentions "$1" "$2"
 }
 
 # 6b-i. INT while WAITING on Overture's held lock: the case the issue saw.
@@ -274,10 +284,7 @@ wait_for_line() {
     HOLD_SENTINEL274="$WORK/hold-274"; : > "$HOLD_SENTINEL274"
     ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL274" ) &
     HOLDER274=$!
-    waited=0
-    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
-        waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
-    done
+    harness_wait_for "Overture's lock to be taken by HOLDER274" 100 0.05 staged_file_lock_held
     OUT274A="$WORK/run-274a.out"
     start_stoppable_runner "$OUT274A" "$HOSTED_PASSES"
     wait_for_line "$OUT274A" 'Waiting for both test locks'
@@ -302,10 +309,7 @@ IN_HOSTED="$WORK/in-hosted-274"; HOLD_HOSTED="$WORK/hold-hosted-274"
 rm -f "$IN_HOSTED"; : > "$HOLD_HOSTED"
 OUT274B="$WORK/run-274b.out"
 start_stoppable_runner "$OUT274B" "touch '$IN_HOSTED'; while [ -e '$HOLD_HOSTED' ]; do sleep 0.02; done; $HOSTED_PASSES"
-waited=0
-until [ -e "$IN_HOSTED" ]; do
-    waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
-done
+harness_wait_for "the hosted command to start inside both locks (6b-ii)" 200 0.05 test -e "$IN_HOSTED"
 kill -TERM "$STOPPABLE_PID"
 rm -f "$HOLD_HOSTED"
 stopped_status "$STOPPABLE_PID"
@@ -385,10 +389,7 @@ rmdir "$DIR_LOCK"
     HOLD_SENTINEL2="$WORK/hold-2"; : > "$HOLD_SENTINEL2"
     ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL2" ) &
     HOLDER2=$!
-    waited=0
-    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
-        waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
-    done
+    harness_wait_for "Overture's lock to be taken by HOLDER2" 100 0.05 staged_file_lock_held
 
     # Start Ovation while the file lock is held, and watch whether it parks on
     # the directory lock. Wait on the CONDITION rather than a fixed sleep (L290).
@@ -448,10 +449,7 @@ rmdir "$DIR_LOCK"
     HOLD_SENTINEL3="$WORK/hold-3"; : > "$HOLD_SENTINEL3"
     ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL3" ) &
     HOLDER3=$!
-    waited=0
-    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
-        waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
-    done
+    harness_wait_for "Overture's lock to be taken by HOLDER3" 100 0.05 staged_file_lock_held
     OUT12B="$(PURE_OVERRIDE="$PURE_RAN" TIMEOUT_OVERRIDE=1 run_runner "$HOSTED_RAN")"
     check "with Overture's lock held the pure suite still runs" \
         "$(mentions "$OUT12B" "PURE-SUITE-RAN")" "yes"
@@ -842,6 +840,13 @@ seams_not_cleared() {
 check "every seam the runner honours is cleared by this suite" \
     "$(seams_not_cleared)" ""
 
+# AND NO CONDITION WAIT IN THIS SUITE GIVES UP IN SILENCE (ovation#303). Each one
+# goes through harness_wait_for, which fails by name when it runs out; a loop
+# that breaks out on a poll count and carries on is refused here, so the next
+# case written by copying an old one cannot bring the silent kind back (L613).
+check "no condition wait in this suite breaks out of a poll count and carries on" \
+    "$(grep -cE '" -gt [0-9]+ \] && [b]reak' scripts/test-run-tests.sh)" "0"
+
 # ---------------------------------------------------------------------------
 # THE XCODE PHASE CAN BE SKIPPED WHEN THE PUSH CANNOT HAVE CHANGED IT
 # (ovation#22).
@@ -961,10 +966,7 @@ rm -rf "$DIR_LOCK"
     HOLD_SENTINEL4="$WORK/hold-4"; : > "$HOLD_SENTINEL4"
     ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL4" ) &
     HOLDER4=$!
-    waited=0
-    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
-        waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
-    done
+    harness_wait_for "Overture's lock to be taken by HOLDER4" 100 0.05 staged_file_lock_held
     OUT236B="$(TIMEOUT_OVERRIDE=1 run_runner)"
     # THIS IS ALSO THE CASE THAT FOUND THE ERRORS GOING NOWHERE (ovation#281).
     # After a busy attempt at Overture's lock the runner closed its descriptor
@@ -993,10 +995,8 @@ printf 'overture-run-a:111\n' > "$DIR_LOCK/owner"
 OUTFILE236C="$WORK/run-236c.out"; : > "$OUTFILE236C"
 ( TIMEOUT_OVERRIDE=3 run_runner > "$OUTFILE236C" 2>&1 ) &
 RUNNER236C=$!
-waited=0
-until grep -q 'overture-run-a:111' "$OUTFILE236C"; do
-    waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
-done
+harness_wait_for "the runner to print the first holder (236c)" 200 0.05 \
+    file_mentions "$OUTFILE236C" 'overture-run-a:111'
 printf 'overture-run-b:222\n' > "$DIR_LOCK/owner"
 wait "$RUNNER236C" 2>/dev/null || true
 check "and how many different holders went ahead of it" \
@@ -1010,10 +1010,8 @@ printf 'downbeat-run:333\n' > "$DIR_LOCK/owner"
 OUTFILE236D="$WORK/run-236d.out"; : > "$OUTFILE236D"
 ( TIMEOUT_OVERRIDE=10 run_runner > "$OUTFILE236D" 2>&1 ) &
 RUNNER236D=$!
-waited=0
-until grep -q 'downbeat-run:333' "$OUTFILE236D"; do
-    waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
-done
+harness_wait_for "the runner to print the holder (236d)" 200 0.05 \
+    file_mentions "$OUTFILE236D" 'downbeat-run:333'
 rm -rf "$DIR_LOCK"
 wait "$RUNNER236D"; ST236D=$?
 check "a wait that ends in both locks passes and says what went ahead of it" \
@@ -1064,10 +1062,8 @@ chmod +x "$OWNER_READ_SHIM/head"
 
 # wait_for_holder_line <file>: the condition the arming waits on.
 wait_for_holder_line() {
-    local waited=0
-    until grep -q 'downbeat-run:333' "$1"; do
-        waited=$((waited+1)); [ "$waited" -gt 400 ] && break; sleep 0.05
-    done
+    harness_wait_for "the runner to print the holder in $(basename "$1")" 400 0.05 \
+        file_mentions "$1" 'downbeat-run:333'
 }
 
 # 303a. Released while its owner is read: one holder went ahead, not two.
@@ -1265,10 +1261,7 @@ create_in_background() {
     CREATE_PID=$!
 }
 wait_for_file() {
-    local waited=0
-    until [ -e "$1" ]; do
-        waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
-    done
+    harness_wait_for "$(basename "$1") to exist" 200 0.05 test -e "$1"
 }
 # create_now <generator> [timeout]: runs the helper in the foreground. The inner
 # `$1` belongs to `bash -c`, which is why every call lives inside a function: the
@@ -1435,10 +1428,8 @@ check "and it still ran, so the quiet case is not a skipped run" \
 # by this suite, not left to a timer (L290).
 ( exec -a "xcodebuild -project Ovation.xcodeproj -scheme OvationCore -destination platform=macOS test" sleep 300 ) &
 FAKE_PURE=$!
-waited=0
-until ps -o command= -p "$FAKE_PURE" 2>/dev/null | grep -q 'scheme OvationCore'; do
-    waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
-done
+harness_wait_for "the stand in pure suite to show its command line" 100 0.05 \
+    process_shows "$FAKE_PURE" 'scheme OvationCore'
 OUT156C="$(lister_run "printf '%s\n' $FAKE_PURE")"
 check "another Ovation pure suite building is not reported as outside the locks" \
     "$(mentions "$OUT156C" "started outside them")" "no"
