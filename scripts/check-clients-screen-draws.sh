@@ -30,6 +30,34 @@ WHAT IT CLAIMS, and each is one way the rule can be got wrong:
   5. The selected holder's own box still states the money, so what the row gave
      up is stated exactly once rather than nowhere.
 
+AND THE REST OF THE SCREEN (ovation#186, ovation#209). Eight rounds settled this
+file and each was measured by hand on the day and by nothing since, so these are
+claimed in THIS check rather than in a second one, which would be one more
+browser start in the CI step ovation#183 already counts:
+
+  6. The two balances are told apart by their faces (PRD 14f): the held money
+     value is in the mono tabular face and the referral credit in the body face,
+     compared as COMPUTED styles, because a rule written as a bare class loses to
+     a more specific one and comes out identical while the source reads right.
+  7. A single arrival is never broken down, and a balance of two is (PRD 14l).
+  8. The payment terms value opens the four terms (PRD 51j), and
+  9. choosing one changes the value, closes the list and keeps the selected
+     client, which is three things a person meets after the press.
+ 10. A roster section with nothing in it is not drawn (PRD 5a, ovation#209),
+     measured on the day switch's day with the address fixed, and only believed
+     when that day really draws fewer sections than the day with work.
+ 11. The roster pass reports the number it started with, as the clients in it
+     and never the section counts added together.
+ 12. Standing on the roster as it empties keeps it, saying nothing is left, and
+ 13. on a settled day the roster is gone from the rail.
+ 14. A quantity of nothing is not drawn, on the clients screen or the rail: no
+     box for a balance a client does not hold, and on a settled day no count, no
+     held line and no figure on any row.
+
+THE DAY SWITCH IS PRESSED, NEVER SET. It names the day it moves to in
+`data-day`, so reaching a day is pressing the real control, and a switch that
+never gets there is a refusal rather than a claim made on the wrong day.
+
 EVERY CLAIM ABOUT A SELECTED HOLDER IS MADE AFTER A PRESS, never on load. The
 file opens on a client who holds nothing, so on load the selected row has no
 figure to give up and the rule's own case has not arisen: a claim made there
@@ -79,6 +107,265 @@ window.addEventListener("load", function () {
      figures are absent. */
   function holders() {
     return (typeof HELD === "undefined" ? [] : HELD).map(function (k) { return k.c; });
+  }
+
+  /* ---------------------------------------------------------------------------
+     THE REST OF THE SCREEN (ovation#186, ovation#209). Every client named below
+     is chosen from the page's own data by what it HOLDS, never by name, so a
+     fixture that changes cannot turn a claim into one about nobody (L98).
+     --------------------------------------------------------------------------- */
+  function pick(test) { return CLIENTS.filter(test)[0]; }
+  function pressClient(c) {
+    var r = rows()[c];
+    if (!r) throw new Error("no name row for a client the page's own data lists");
+    r.node.click();
+  }
+  function boxesByLabel() {
+    var out = {};
+    Array.prototype.forEach.call(document.querySelectorAll(".detail .mbox"), function (b) {
+      var l = b.querySelector(".mlabel");
+      out[l ? l.textContent.trim() : "(no label)"] = b;
+    });
+    return out;
+  }
+  function railItem(label) {
+    return Array.prototype.filter.call(document.querySelectorAll(".side .item"), function (n) {
+      return n.textContent.trim() === label;
+    })[0] || null;
+  }
+  /* A FIGURE THAT SAYS NOTHING. Zero in any spelling the screen uses, or an
+     element drawn to hold a figure with no figure in it, which is the same
+     absence with a label over it.
+
+     A FIGURE THAT DOES NOT PARSE IS REPORTED TOO, never read as "not zero".
+     Number() answers NaN rather than failing, NaN loses every comparison, so
+     `NaN === 0` would wave a `NaN` or `undefined` drawn in a money box straight
+     through as a real figure (L50). */
+  var FIGURES = ".card .ln b, .railheld b, .nheld, .mval, .aamt, .passhead .n";
+  function nothingDrawn() {
+    var out = [];
+    Array.prototype.forEach.call(document.querySelectorAll(FIGURES), function (n) {
+      var bare = n.textContent.replace(/[$,\s]|hrs?/g, "");
+      var value = bare === "" ? NaN : Number(bare);
+      var where = "'" + n.textContent.trim() + "' in ." + n.className.split(" ")[0];
+      if (bare === "") out.push("an empty figure " + where);
+      else if (isNaN(value)) out.push("a figure that is not a number " + where);
+      else if (value === 0) out.push("a zero " + where);
+    });
+    return out;
+  }
+  /* THE DAY SWITCH IS PRESSED, never set, and it names the day it moves TO in
+     `data-day`. It cycles, so reaching a day means pressing until the press that
+     was about to move there has happened; a switch that never reaches it is a
+     refusal rather than a claim quietly made on the wrong day. */
+  function pressDay(key) {
+    for (var i = 0; i < 4; i++) {
+      var b = document.querySelector("[data-day]");
+      if (!b) return false;
+      var next = b.getAttribute("data-day");
+      b.click();
+      if (next === key) return true;
+    }
+    return false;
+  }
+  function rosterReading() {
+    var heads = Array.prototype.map.call(document.querySelectorAll(".pass .passhead"), function (h) {
+      var drawn = 0, sib = h.nextElementSibling;
+      while (sib && !sib.classList.contains("passhead") && !sib.classList.contains("passfoot")) {
+        drawn++;
+        sib = sib.nextElementSibling;
+      }
+      var t = h.querySelector("h6"), n = h.querySelector(".n");
+      return { title: t ? t.textContent.trim() : "", said: n ? n.textContent.trim() : "", rows: drawn };
+    });
+    var names = {};
+    Array.prototype.forEach.call(document.querySelectorAll(".pass .pname"), function (p) {
+      names[p.textContent.trim()] = true;
+    });
+    var foot = document.querySelector(".passfoot b");
+    var meta = document.querySelector(".main .toolbar .meta");
+    return { heads: heads, distinct: Object.keys(names).length,
+             foot: foot ? foot.textContent.trim() : "", meta: meta ? meta.textContent.trim() : "" };
+  }
+  function sayRoster(r) {
+    return r.heads.map(function (h) { return h.title + " says " + h.said + " over " + h.rows + " row(s)"; })
+             .join("; ") + " | " + r.distinct + " distinct client(s) | foot '" + r.foot + "' | meta '" + r.meta + "'";
+  }
+  function sectionsHonest(r) {
+    return r.heads.length > 0 && r.heads.every(function (h) {
+      return h.rows > 0 && h.said === String(h.rows);
+    });
+  }
+  function startedHonest(r) {
+    var m = /^Started with (\d+) of (\d+)$/.exec(r.foot);
+    return !!m && Number(m[1]) === r.distinct && Number(m[2]) === CLIENTS.length &&
+           r.meta === m[1] + " of " + m[2] + " clients";
+  }
+
+  function drivesTheRest() {
+    var both = pick(function (k) { return k.h && k.r; });
+    var neither = pick(function (k) { return !k.h && !k.r; });
+    var creditOnly = pick(function (k) { return k.r && !k.h; });
+    var heldOnly = pick(function (k) { return k.h && !k.r; });
+    if (!both || !neither || !creditOnly || !heldOnly) {
+      result.errors.push("the fixture lacks a client holding both balances, neither, credit alone " +
+                         "or money alone, so the claims about the balances cannot be measured");
+      return;
+    }
+
+    /* ---- PRD 14f: the two balances are told apart by their FACES. Compared as
+       computed styles, because a rule written as a bare class loses to a more
+       specific one and comes out identical while the source reads correctly. */
+    pressClient(both.c);
+    var bx = boxesByLabel();
+    var busyBoxes = Object.keys(bx).length;
+    var heldVal = bx["Money held"] ? bx["Money held"].querySelector(".mval") : null;
+    var credVal = bx["Referral credit"] ? bx["Referral credit"].querySelector(".mval") : null;
+    var bodyFace = getComputedStyle(document.querySelector(".detail")).fontFamily;
+    if (heldVal && credVal) {
+      var hs = getComputedStyle(heldVal), cs = getComputedStyle(credVal);
+      claim("the held money value is in the mono tabular face and the referral credit in the body face",
+            /IBM Plex Mono/.test(hs.fontFamily) && /tabular-nums/.test(hs.fontVariantNumeric) &&
+            cs.fontFamily === bodyFace && !/IBM Plex Mono/.test(cs.fontFamily) &&
+            !/tabular-nums/.test(cs.fontVariantNumeric),
+            "held " + hs.fontFamily.split(",")[0] + " " + hs.fontVariantNumeric +
+            "; credit " + cs.fontFamily.split(",")[0] + " " + cs.fontVariantNumeric +
+            "; body " + bodyFace.split(",")[0]);
+    } else {
+      claim("the held money value is in the mono tabular face and the referral credit in the body face",
+            false, "a client holding both balances did not draw both boxes");
+    }
+
+    /* ---- PRD 14l: a single arrival is never broken down, and two are ---- */
+    var arrivals = typeof ARRIVALS === "undefined" ? {} : ARRIVALS;
+    var several = HELD.filter(function (k) { return (arrivals[k.c] || []).length > 1; });
+    var single = HELD.filter(function (k) { return (arrivals[k.c] || []).length === 1; });
+    if (several.length === 0 || single.length === 0) {
+      result.errors.push("the fixture needs a balance of one arrival and one of several, " +
+                         "so the claim about breaking a balance down cannot be measured");
+    } else {
+      var seen = [], ok = true;
+      several.concat(single).forEach(function (k) {
+        pressClient(k.c);
+        var box = boxesByLabel()["Money held"];
+        var listed = box ? box.querySelectorAll(".arrival").length : -1;
+        var noted = box ? box.querySelectorAll(".mnote").length : -1;
+        var want = arrivals[k.c].length;
+        var right = want > 1 ? listed === want : (listed === 0 && noted === 1);
+        if (!right) ok = false;
+        seen.push(want + " arrival(s): " + listed + " listed, " + noted + " note(s)");
+      });
+      claim("a single arrival is never broken down, and a balance of two is", ok, seen.join("; "));
+    }
+
+    /* ---- a quantity of nothing is not drawn, on the clients screen ---- */
+    var nothing = [];
+    function noBox(k, label) {
+      pressClient(k.c);
+      var have = boxesByLabel();
+      if (label ? have[label] : Object.keys(have).length) {
+        nothing.push((label || "a money box") + " drawn for a client holding none");
+      }
+      if (!label && document.querySelector(".detail .money")) {
+        nothing.push("an empty money row drawn for a client holding nothing");
+      }
+      nothing = nothing.concat(nothingDrawn());
+    }
+    noBox(neither, null);
+    noBox(creditOnly, "Money held");
+    noBox(heldOnly, "Referral credit");
+
+    /* ---- PRD 51j: the payment terms value is the control ---- */
+    pressClient(heldOnly.c);
+    var terms = typeof TERMS === "undefined" ? [] : TERMS;
+    var btn = document.querySelector(".detail .termbtn");
+    var before = btn ? btn.textContent.trim() : "";
+    if (btn) btn.click();
+    var offered = Array.prototype.map.call(document.querySelectorAll(".detail .termlist .termitem"),
+                                           function (n) { return n.textContent.trim(); });
+    claim("the payment terms value opens the four terms",
+          !!btn && terms.length === 4 && offered.join("|") === terms.join("|"),
+          (btn ? "pressed " + before : "no terms control drawn") + ", offered " +
+          (offered.join(", ") || "nothing") + " against " + terms.join(", "));
+    var target = terms.filter(function (t) { return t !== before; }).slice(-1)[0];
+    var item = Array.prototype.filter.call(document.querySelectorAll(".detail .termlist .termitem"),
+                                           function (n) { return n.textContent.trim() === target; })[0];
+    if (!item) {
+      claim("choosing a term changes the value, closes the list and keeps the selected client",
+            false, "the list never offered " + target + ", so nothing could be chosen");
+    } else {
+      item.click();
+      var after = document.querySelector(".detail .termbtn");
+      var sel = document.querySelector(".names .nrow.sel");
+      var head = document.querySelector(".detail h5");
+      claim("choosing a term changes the value, closes the list and keeps the selected client",
+            !!after && after.textContent.trim() === target &&
+            !document.querySelector(".termlist") &&
+            !!sel && sel.dataset.client === heldOnly.c && !!head && head.textContent.trim() === heldOnly.c,
+            "chose " + target + ": value " + (after ? after.textContent.trim() : "gone") +
+            ", list " + (document.querySelector(".termlist") ? "still open" : "closed") +
+            ", selected " + (sel && sel.dataset.client === heldOnly.c ? "kept" : "changed") +
+            ", pane " + (head && head.textContent.trim() === heldOnly.c ? "kept" : "changed"));
+    }
+
+    /* ---- the roster pass, on the day with work, then with the addresses fixed ---- */
+    var toRoster = railItem("Settle the roster");
+    if (!toRoster) {
+      result.errors.push("the rail offers no roster on a day with work waiting, so nothing about " +
+                         "the pass can be measured");
+      return;
+    }
+    toRoster.click();
+    var busy = rosterReading();
+    if (!pressDay("addresses")) {
+      result.errors.push("the day switch never reached the day the addresses are fixed, so the " +
+                         "empty section cannot be drawn");
+      return;
+    }
+    var fixed = rosterReading();
+    /* THE SWITCH HAS TO HAVE EMPTIED SOMETHING, or a pass that draws the same
+       sections on both days satisfies every word of the claim (L98). */
+    claim("a roster section with nothing in it is not drawn",
+          sectionsHonest(busy) && sectionsHonest(fixed) && fixed.heads.length < busy.heads.length,
+          "work waiting: " + sayRoster(busy) + " || addresses fixed: " + sayRoster(fixed));
+    claim("the roster pass reports the number it started with",
+          startedHonest(busy) && startedHonest(fixed),
+          "work waiting: " + sayRoster(busy) + " || addresses fixed: " + sayRoster(fixed));
+
+    /* ---- the settled day, standing on the roster and then leaving it ---- */
+    if (!pressDay("quiet")) {
+      result.errors.push("the day switch never reached a settled day, so nothing about it can be measured");
+      return;
+    }
+    var done = document.querySelector(".pass .queue h5");
+    var stillThere = railItem("Settle the roster");
+    claim("standing on the roster as it empties keeps it, saying nothing is left",
+          !!stillThere && !!done && /Nothing left to settle/.test(done.textContent),
+          "rail " + (stillThere ? "still offers it" : "dropped it") + ", screen says " +
+          (done ? "'" + done.textContent.trim() + "'" : "nothing"));
+    var toClients = railItem("Clients");
+    if (!toClients) {
+      result.errors.push("the rail offers no Clients item, so the settled day cannot be left");
+      return;
+    }
+    toClients.click();
+    claim("on a settled day the roster is gone from the rail",
+          !railItem("Settle the roster"),
+          "rail: " + Array.prototype.map.call(document.querySelectorAll(".side .item"),
+                                              function (n) { return n.textContent.trim(); }).join(", "));
+
+    /* The same rule on the settled day: the client who held both balances on the
+       day with work now shows neither, and the rail says no count and no sum. */
+    pressClient(both.c);
+    if (Object.keys(boxesByLabel()).length) nothing.push("a money box drawn on a settled day");
+    if (document.querySelector(".names .nheld")) nothing.push("a held figure on a name row on a settled day");
+    if (document.querySelector(".card .ln")) nothing.push("a count in the card on a settled day");
+    if (document.querySelector(".railheld")) nothing.push("the rail's held money line on a settled day");
+    nothing = nothing.concat(nothingDrawn());
+    claim("a quantity of nothing is not drawn on the clients screen or the rail",
+          nothing.length === 0 && busyBoxes === 2,
+          (nothing.join("; ") || "nothing drawn for any absent quantity") +
+          " | the client holding both drew " + busyBoxes + " box(es) on the day with work");
   }
 
   function describe(map, who) {
@@ -149,6 +436,7 @@ window.addEventListener("load", function () {
               missing.length === 0,
               describe(third, who) + " | pressed: " + poor);
       }
+      drivesTheRest();
     }
   } catch (err) {
     result.errors.push("THREW " + (err && err.message));

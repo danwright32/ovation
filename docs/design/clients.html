@@ -512,7 +512,7 @@ var CLIENTS = [
   { c: "Marrowbone Percussion Group",  m: "kit@marrowbonepercussion.example", o: null, t: null,         h: null,        r: null },
   { c: "Nettlefield Baroque Consort",  m: "info@nettlefieldbaroque.example",  o: null, t: null,         h: null,        r: null },
   { c: "Orchard Hill Symphonia",       m: "office@orchardhillsym.example",    o: null, t: null,         h: null,        r: "1.0 hrs" },
-  { c: "Pennywhistle Folk Circle",     m: "ask at the box office",            o: null, t: null,         h: null,        r: null, bad: "notaddress" },
+  { c: "Pennywhistle Folk Circle",     m: "ask at the box office",            o: null, t: null,         h: null,        r: null, bad: "notaddress", fixed: "folk@pennywhistlecircle.example" },
   { c: "Priya Raghunathan",            m: "priya@raghunathanviolin.example",  o: null, t: null,         h: null,        r: null },
   { c: "Quillon Contemporary Dance",   m: "co@quillondance.example",          o: null, t: null,         h: null,        r: null },
   { c: "Redbourne Light Opera",        m: "tickets@redbournelight.example",   o: null, t: null,         h: null,        r: null },
@@ -546,8 +546,17 @@ function dollars(n) {
 }
 var HELD = CLIENTS.filter(function (k) { return k.h; });
 var NO_TAX = CLIENTS.filter(function (k) { return !k.t; });
-var BAD_ADDRESS = CLIENTS.filter(function (k) { return k.bad; });
-var TO_SETTLE = CLIENTS.filter(function (k) { return !k.t || k.bad; });
+
+/* A BROKEN ADDRESS IS A FACT ABOUT THE DAY, not about the client (ovation#209).
+   Dan fixed the one unsendable address in Downbeat on 2026-09-11, at source, so
+   the real pass is now 25 tax statuses and no address section at all. The
+   fixture keeps its broken address, because a value typed into Ovation by hand
+   can still not be an address, and the day switch has a day on which it has
+   been fixed, so the pass with an EMPTY section can be drawn rather than argued
+   about. Both are derived when asked, never counted once at load. */
+function addressBroken(k) { return !!k.bad && !ADDRESSES_FIXED; }
+function badAddresses() { return CLIENTS.filter(addressBroken); }
+function toSettle() { return CLIENTS.filter(function (k) { return !k.t || addressBroken(k); }); }
 
 var INVOICES = [
   { n: "1131", s: "Autumn gala",      d: "14 Nov 2026", a: "1,088.75", w: "Sent, unpaid" },
@@ -557,6 +566,7 @@ var INVOICES = [
 ];
 
 var QUIET = false;
+var ADDRESSES_FIXED = false;
 var PLACE = "clients";
 
 function el(t, c, x) { var n = document.createElement(t); if (c) n.className = c; if (x !== undefined) n.textContent = x; return n; }
@@ -587,8 +597,8 @@ var TERM = "14 days";
 var TERMS_OPEN = false;
 
 /* On a settled day the roster is clear, so the whole screen is gone. */
-function rosterCount() { return QUIET ? 0 : TO_SETTLE.length; }
-function goesTo(k) { return k.o || k.m; }
+function rosterCount() { return QUIET ? 0 : toSettle().length; }
+function goesTo(k) { return k.o || (k.bad && !addressBroken(k) ? k.fixed : k.m); }
 
 function taxChoice(k) {
   var w = el("div", "choice");
@@ -602,7 +612,8 @@ function taxChoice(k) {
 function rosterScreen() {
   var main = el("div", "main");
   var tbar = el("div", "toolbar");
-  var left = QUIET ? 0 : TO_SETTLE.length;
+  var settle = toSettle(), bad = badAddresses(), untaxed = NO_TAX;
+  var left = QUIET ? 0 : settle.length;
   tbar.append(el("h4", null, "Settle the roster"),
               el("div", "meta", left === 0 ? "Settled"
                  : left + " of " + CLIENTS.length + " clients"));
@@ -615,7 +626,7 @@ function rosterScreen() {
      only when you do. Answering the last one is the moment you most deserve to be
      told you finished, and it is the worst possible moment for the screen to
      disappear. */
-  if (TO_SETTLE.length === 0 || QUIET) {
+  if (settle.length === 0 || QUIET) {
     var doneWrap = el("div", "queue");
     doneWrap.append(el("h5", null, "Nothing left to settle"));
     doneWrap.append(el("div", "qask", "Every client can be invoiced."));
@@ -627,31 +638,46 @@ function rosterScreen() {
   }
 
   /* ADDRESSES FIRST. One of them against 25 of the other, and it still goes on
-     top, because it is the one that cannot be sent to at all. */
-  var h1 = el("div", "passhead");
-  h1.append(el("h6", null, "Addresses that cannot be sent to"),
-            el("div", "n", String(BAD_ADDRESS.length)),
-            el("div", "said", "Worse than a missing status, so it is first"));
-  scroll.append(h1);
-  BAD_ADDRESS.forEach(function (k) {
-    var er = el("div", "erow");
-    er.append(el("div", "pname", k.c), el("div", "kind", "Not an address"),
-              el("div", "field bad", k.m));
-    scroll.append(er);
-  });
+     top, because it is the one that cannot be sent to at all.
 
-  var h2 = el("div", "passhead");
-  h2.append(el("h6", null, "Sales tax status"), el("div", "n", String(NO_TAX.length)),
-            el("div", "said", "None of these can be invoiced until it is set"));
-  scroll.append(h2);
-  NO_TAX.forEach(function (k) {
-    var pr = el("div", "prow");
-    pr.append(el("div", "pname", k.c), taxChoice(k));
-    scroll.append(pr);
-  });
+     A SECTION WITH NOTHING IN IT IS NOT DRAWN (PRD 5a, ovation#209), the same
+     rule as every count in the card and as the roster's own place in the rail.
+     Both headings used to be built unconditionally, so the day the real
+     address was fixed this screen would have said `Addresses that cannot be
+     sent to  0`. Ovation/Roster/RosterPassView.swift draws it the same way, and
+     scripts/check-clients-screen-draws.sh presses the day switch to the day
+     with the address fixed and refuses a heading over no rows. */
+  if (bad.length > 0) {
+    var h1 = el("div", "passhead");
+    h1.append(el("h6", null, "Addresses that cannot be sent to"),
+              el("div", "n", String(bad.length)),
+              el("div", "said", "Worse than a missing status, so it is first"));
+    scroll.append(h1);
+    bad.forEach(function (k) {
+      var er = el("div", "erow");
+      er.append(el("div", "pname", k.c), el("div", "kind", "Not an address"),
+                el("div", "field bad", k.m));
+      scroll.append(er);
+    });
+  }
 
+  if (untaxed.length > 0) {
+    var h2 = el("div", "passhead");
+    h2.append(el("h6", null, "Sales tax status"), el("div", "n", String(untaxed.length)),
+              el("div", "said", "None of these can be invoiced until it is set"));
+    scroll.append(h2);
+    untaxed.forEach(function (k) {
+      var pr = el("div", "prow");
+      pr.append(el("div", "pname", k.c), taxChoice(k));
+      scroll.append(pr);
+    });
+  }
+
+  /* ONE CLIENT IS COUNTED ONCE. A client with no tax status AND a broken
+     address sits in both sections, so the number the pass started with is the
+     clients in it, never the two section counts added together. */
   var foot = el("div", "passfoot");
-  foot.append(el("b", null, "Started with " + TO_SETTLE.length + " of " + CLIENTS.length),
+  foot.append(el("b", null, "Started with " + settle.length + " of " + CLIENTS.length),
               el("span", null, "Ovation says the number it began with, so this reads as a one "
                 + "time pass rather than a standing nag. Once it is empty this screen is gone."));
   scroll.append(foot);
@@ -726,10 +752,10 @@ function detailFor(k) {
 
   var to = el("div", "fact");
   to.append(el("span", "flabel", "Invoices go to"));
-  if (k.bad) { to.append(el("span", "field bad", k.m)); }
+  if (addressBroken(k)) { to.append(el("span", "field bad", k.m)); }
   else { to.append(el("span", "fval", goesTo(k))); }
   facts.append(to);
-  if (k.bad) {
+  if (addressBroken(k)) {
     var why = el("div", "fact");
     why.append(el("span", "flabel", ""), el("span", "fval absent", "Not an address"));
     facts.append(why);
@@ -954,14 +980,29 @@ var stage = document.getElementById("stage");
 var tabs = document.getElementById("tabs");
 function draw() { stage.replaceChildren(buildScreen()); }
 
+/* THE DAY SWITCH CHANGES THE DATA, NEVER THE DESIGN, and it has three days.
+   The third, the address fixed, is ovation#209: the live export's one broken
+   address was fixed at source on 2026-09-11, and a roster section with nothing
+   in it is not drawn, which no day this file could reach had ever shown.
+
+   IT SAYS WHERE IT GOES NEXT in `data-day`, so a check PRESSES it to reach a
+   day rather than setting a variable the real control never sets (L442). */
+var DAYS = [
+  { key: "busy",      label: "A day with work waiting",       quiet: false, fixed: false },
+  { key: "addresses", label: "A day with the address fixed",  quiet: false, fixed: true },
+  { key: "quiet",     label: "A settled day",                 quiet: true,  fixed: true }
+];
+var DAY = 0;
 var dayBtn = el("button", "tab");
 dayBtn.type = "button";
 function dayLabel() {
-  dayBtn.replaceChildren(el("span", "k", "DAY"),
-    el("span", null, QUIET ? "A settled day" : "A day with work waiting"));
+  dayBtn.replaceChildren(el("span", "k", "DAY"), el("span", null, DAYS[DAY].label));
+  dayBtn.setAttribute("data-day", DAYS[(DAY + 1) % DAYS.length].key);
 }
 dayBtn.addEventListener("click", function () {
-  QUIET = !QUIET;
+  DAY = (DAY + 1) % DAYS.length;
+  QUIET = DAYS[DAY].quiet;
+  ADDRESSES_FIXED = DAYS[DAY].fixed;
   dayLabel();
   draw();
 });

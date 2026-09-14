@@ -936,8 +936,8 @@ the rows and asserts the figure moves, and with a suite that plants four defects
 only where the row is built, the rule inverted, the figure taken off every row, and the money box
 removed. The last two are there because a check about where a figure is NOT is otherwise satisfied
 by a file that draws it nowhere (L98), and because what the row gives up has to be stated somewhere,
-which makes this a move rather than a deletion. It is the first thing that DRIVES this screen, which
-is part of what ovation#186 asks for; the rest of that issue is untouched.
+which makes this a move rather than a deletion. It was the first thing that DROVE this screen, and
+the rest of what ovation#186 asked for is recorded below, under "Something drives this screen now".
 
 **It makes five browser starts in the CI step that proves the design checks can measure**, where
 there were four, which ovation#183 already counts as a cost worth removing. It is not removed here.
@@ -1020,9 +1020,27 @@ not hold every question about the roster. A first attempt drew a shared email on
 which measured as no difference at all on screen and was removed rather than left as a distinction
 the page claims and does not draw.
 
-Nothing here is rendered by a check the way the invoice screen is. Every claim above about what
-this file DRAWS was measured by hand on the day, and only the generic rendering rules
-(`check-design-draws.sh`) and the terms comparison run against it afterwards.
+### Something drives this screen now (ovation#186, ovation#209)
+
+**`scripts/check-clients-screen-draws.sh` presses this file the way a person does and claims what the
+rounds above settled**, where until 2026-09-13 only round F's rule was driven and every other claim
+here about what this file DRAWS had been measured by hand on the day and by nothing since. It now
+also claims the two balances are told apart by their computed faces (PRD 14f), a single arrival is
+never broken down while a balance of two is (PRD 14l), the payment terms value opens the four terms
+and a choice changes the value, closes the list and keeps the client (PRD 51j), the roster pass
+reports the clients it started with, the roster leaves the rail once empty and stays while you stand
+on it, and a quantity of nothing is not drawn anywhere on the screen or the rail. Its suite plants
+the defect each claim exists for and asserts that exactly that claim fires. They are claims in the
+existing check rather than a new one, because a second check is another browser start in the CI
+step ovation#183 counts.
+
+**The day switch has a third day, `A day with the address fixed`** (ovation#209). A section with
+nothing in it is not drawn (PRD 5a), and until this the file could not draw that case at all: its
+one broken address was on every day that had a roster. The switch now cycles through the day with
+work, the day the address was fixed at source, and the settled day, and the check presses it to
+the middle day and refuses a section heading over no rows. It is only believed when that day
+really draws fewer sections than the day with work, since a pass drawing the same sections on both
+would satisfy every word of the claim.
 
 ## The invoice screen
 
