@@ -224,6 +224,13 @@ What it claims, each seen to fail on a planted defect before it was believed:
    shows one state at rest and carries several, and the state it opens on is the only one every
    other check has ever seen. This is what ovation#170 needed: the invoice PDF threw on any line
    carrying an explicitly empty hours value, and the only fixture with one was three buttons away.
+   **Each control is pressed from the page at rest, in a page of its own** (ovation#184). They used
+   to be pressed in one page in document order, so a control an earlier press had removed was
+   pressed while off the page, where a handler listening on the document never hears it: on
+   2026-09-14 five of the invoice screen's fourteen controls and five of the review sheet's sixteen
+   were gone by the time the pass reached them. A floor on the number pressed could not have seen
+   it, since a control off the page still counted as pressed. It costs a page per control, 78 across
+   the record at both widths, which took the check from 0.78s to 5.80s on the one browser renderer.
 
 **A claim that could never fail was written and then deleted rather than kept.** "The app window is
 drawn at its declared width" cannot be made from a rendering, because `getComputedStyle` returns the

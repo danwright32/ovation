@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 66
+harness_begin "design rendering checks" 68
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -80,6 +80,39 @@ judge "$THREW"
 check_rendered_status "a page that throws while being driven is refused" "$(case_of "$THREW")" "1"
 check "and the claim that fired names the console under driving" \
     "$(fired "$THREW")" "the console is still silent after every control has been pressed;"
+
+# ---------------------------------------------------------------------------
+# 1b. A CONTROL AN EARLIER PRESS REMOVED (ovation#184). The pass used to press
+#     every control in ONE page, in document order, so a control that an
+#     earlier press took off the page was pressed while detached, where a
+#     handler listening on the document never hears it. The invoice screen's do
+#     not bill confirmation replaces its whole foot that way. Here the first
+#     button empties the panel the second one sits in, and pressing the second
+#     one while it is ON the page throws, which only a press from the page at
+#     rest can reach.
+# ---------------------------------------------------------------------------
+REMOVED="$WORK/removed.html"
+cat > "$REMOVED" <<'HTML'
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>x</title></head><body>
+<div class="panel">
+  <button type="button" onclick="document.querySelector('.later').innerHTML = '<p>asked</p>'">Do not bill</button>
+  <div class="later"><button type="button" id="after">Send</button></div>
+</div>
+<script>
+document.addEventListener("click", function (e) {
+  if (e.target && e.target.id === "after") { notDefinedAnywhere(); }
+});
+</script>
+<div>
+HTML
+for i in $(seq 1 60); do printf '<span>filler %s</span>\n' "$i" >> "$REMOVED"; done
+printf '</div></body></html>\n' >> "$REMOVED"
+judge "$REMOVED"
+check_rendered_status "a control that throws only while on the page is refused, even after an earlier press removes it" \
+    "$(case_of "$REMOVED")" "1"
+check "and the claim that fired names the console under driving" \
+    "$(fired "$REMOVED")" "the console is still silent after every control has been pressed;"
 
 # ---------------------------------------------------------------------------
 # 2. THE CONSOLE AT REST, which is a different claim and needs the catcher
@@ -409,15 +442,21 @@ COUNTING="$WORK/counting-browser.sh"
 printf '#!/bin/sh\necho started >> "$BROWSER_STARTS"\nexec %q "$@"\n' "$REAL_BROWSER" > "$COUNTING"
 chmod +x "$COUNTING"
 starts_for() {
-    # $1 a check. Prints its exit status and how many browsers it started.
+    # $1 a check, then any arguments. Prints its exit status and how many
+    # browsers it started.
     local log="$WORK/starts-$(basename "$1" .sh)"
     : > "$log"
     BROWSER_STARTS="$log" OVATION_HEADLESS_BROWSER="$COUNTING" OVATION_DESIGN_ROOT= \
-        python3 "$1" > "$log.out" 2>&1
+        python3 "$@" > "$log.out" 2>&1
     printf '%s:%s' "$?" "$(grep -c started "$log")"
 }
-check "this check renders every file at both widths in one browser" \
-    "$(starts_for scripts/check-design-draws.sh)" "0:1"
+# THIS CHECK IS COUNTED ON ONE FILE, at both widths, which is two renders of the
+# page and one more per control it presses (ovation#184): fourteen pages, and
+# the committed record is already run in full at the top of this suite. Running
+# the whole record again only to count starts would cost six seconds and prove
+# nothing fourteen pages do not.
+check "this check renders a file at both widths, and presses its controls, in one browser" \
+    "$(starts_for scripts/check-design-draws.sh docs/design/invoice-pdf.html)" "0:1"
 check "the token check renders every file in one browser" \
     "$(starts_for scripts/check-design-tokens-resolve.sh)" "0:1"
 check "the sidebar card check renders every rail in one browser" \
