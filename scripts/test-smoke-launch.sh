@@ -22,7 +22,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "launch smoke check tests" 18
+harness_begin "launch smoke check tests" 24
 
 TARGET="scripts/smoke-launch.sh"
 require_target "$TARGET"
@@ -102,6 +102,49 @@ SMOKE_OUT="$(OVATION_SMOKE_APP="$WORK/NotBuilt.app" \
 check "with no built product it cannot be measured" "$SMOKE_ST" "2"
 check "and it names the command that would build it" "$(says "$SMOKE_OUT" "xcodebuild")" "yes"
 check "and it launched nothing" "$([ -f "$STATE/launched" ] && echo launched || echo no)" "no"
+
+# A BUNDLE WITH NO EXECUTABLE is its own refusal, with its own remedy.
+reset_state
+mkdir -p "$WORK/Hollow.app/Contents/MacOS"
+SMOKE_OUT="$(OVATION_SMOKE_APP="$WORK/Hollow.app" \
+    OVATION_SMOKE_LAUNCH_CMD="$WORK/launch" OVATION_SMOKE_PIDS_CMD="$WORK/pids" \
+    OVATION_SMOKE_WINDOWS_CMD="$WORK/windows" OVATION_SMOKE_QUIT_CMD="$WORK/quit" \
+    STATE="$STATE" "./$TARGET" 2>&1)"; SMOKE_ST=$?
+check "a bundle with no executable cannot be measured" "$SMOKE_ST" "2"
+check "and it says the bundle has no executable" "$(says "$SMOKE_OUT" "has no executable inside it")" "yes"
+check "and it names the command that would rebuild it" "$(says "$SMOKE_OUT" "rebuild it: xcodebuild")" "yes"
+
+# WHAT "BUILT" MEANS IS THE SHARED DEFINITION'S, NOT A COPY (ovation#300). The
+# smoke launch used to carry its own test beside built_product_absence in
+# scripts/lib/built-product.sh, which since ovation#273 is the one the push gate
+# and the bundle suites read. A copy answers the old question the day the shared
+# one changes, and nothing fails (L370). So the script is run from a staged tree
+# whose shared definition is REPLACED by one that says something no copy could,
+# and the refusal must carry those words.
+#
+# The staging is a FUNCTION, with its body indented, for the same reason the quit
+# stub above is: the replacement definition names its own `$1`, and
+# scripts/test-run-tests.sh refuses any suite reading `$1` on an unindented line
+# (ovation#25, L245).
+stage_drift_tree() {
+    [ -n "$WORK" ] || exit 1
+    DRIFT="$WORK/drift"; rm -rf "$DRIFT"; mkdir -p "$DRIFT/scripts/lib"
+    cp "$TARGET" "$DRIFT/scripts/smoke-launch.sh"
+    cp scripts/lib/built-product.sh "$DRIFT/scripts/lib/built-product.sh"
+    printf '\nbuilt_product_absence() { printf "the shared definition refused %%s" "$1"; return 1; }\n' \
+        >> "$DRIFT/scripts/lib/built-product.sh"
+}
+stage_drift_tree
+reset_state
+SMOKE_OUT="$(OVATION_SMOKE_APP="$WORK/Fake.app" \
+    OVATION_SMOKE_LAUNCH_CMD="$WORK/launch" OVATION_SMOKE_PIDS_CMD="$WORK/pids" \
+    OVATION_SMOKE_WINDOWS_CMD="$WORK/windows" OVATION_SMOKE_QUIT_CMD="$WORK/quit" \
+    STATE="$STATE" bash "$DRIFT/scripts/smoke-launch.sh" 2>&1)"; SMOKE_ST=$?
+check "the refusal is the shared definition's, so a change to it reaches the smoke launch" \
+    "$(says "$SMOKE_OUT" "the shared definition refused Debug")" "yes"
+check "and a refusal from it is still cannot measure" "$SMOKE_ST" "2"
+check "and nothing was launched on its say so" \
+    "$([ -f "$STATE/launched" ] && echo launched || echo no)" "no"
 
 # ALREADY RUNNING. It refuses rather than acting on a process it did not start.
 # Quitting one it found would be quitting Dan's running copy, which is exactly
