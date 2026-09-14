@@ -143,9 +143,32 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAN = os.environ.get("OVATION_PLAN") or os.path.join(REPO, "docs", "IMPLEMENTATION-PLAN.md")
+
 # Where the sibling checkouts live. One variable moves the whole estate for a
 # test, so no case here has to reach the real ones (L2).
-SIBLING_ROOT = os.environ.get("OVATION_SIBLING_ROOT") or os.path.dirname(REPO)
+#
+# OTHERWISE IT IS ASKED OF `scripts/lib/repo-git.sh`, the one place this is
+# worked out (ovation#314). It used to be the parent of this checkout, which from
+# a worktree is the worktrees folder: the siblings were never found, this check
+# answered CANNOT MEASURE, and the gate lets that through, so on nearly every
+# push the plan went unchecked (L668). The library is run through bash rather
+# than restated here, because a second implementation in a second language is
+# two things doing one job (L263).
+def sibling_root():
+    """The folder holding Ovation's primary checkout, or None and why not."""
+    library = os.path.join(REPO, "scripts", "lib", "repo-git.sh")
+    done = subprocess.run(["bash", "-c", '. "$1" && sibling_root "$2"', "sibling_root",
+                           library, REPO], capture_output=True, text=True)
+    answer = done.stdout.strip()
+    if done.returncode != 0 or not answer:
+        return None, done.stderr.strip() or "the library printed nothing and exited %d" % done.returncode
+    return answer, None
+
+
+if os.environ.get("OVATION_SIBLING_ROOT"):
+    SIBLING_ROOT, SIBLING_ROOT_REFUSAL = os.environ["OVATION_SIBLING_ROOT"], None
+else:
+    SIBLING_ROOT, SIBLING_ROOT_REFUSAL = sibling_root()
 
 CITATION = re.compile(r'`([A-Za-z0-9_./-]+\.(?:swift|sh|py|json|yml|md)):([0-9]+)(?:-([0-9]+))?')
 QUOTED = re.compile(r'`([^`\n]{2,90})`')
@@ -435,6 +458,15 @@ def main(argv=()):
     if not os.path.isfile(PLAN):
         print("CANNOT MEASURE: no plan at %s, so no claim was checked." % PLAN)
         return 2
+    if SIBLING_ROOT is None:
+        # Its own sentence, because "the siblings are not in that folder" and "no
+        # folder could be worked out at all" need different remedies (L11). Still
+        # exit 3: a copy with no primary checkout has nothing to stand beside,
+        # which is a sibling not on this machine as far as the gate is concerned.
+        print("CANNOT MEASURE: where Downbeat and Overture live could not be worked "
+              "out, so no claim this plan makes about them was looked at: %s. Set "
+              "OVATION_SIBLING_ROOT to the folder holding them." % SIBLING_ROOT_REFUSAL)
+        return 3
     repos = repositories()
     if "Downbeat" not in repos or "Overture" not in repos:
         missing = [n for n in ("Downbeat", "Overture") if n not in repos]

@@ -56,13 +56,22 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCAN_ROOT="${OVATION_PORT_SCAN_ROOT:-$REPO_ROOT}"
-# The Outreach root that sat between these two was dropped on 2026-09-09
-# (ovation#16): Overture moved under `Apps/` and nothing is there any more. It
-# cost nothing while it stood, because the search finds Overture under the first
-# root either way, which is exactly why a dead entry in a list like this survives
-# unnoticed.
-DEFAULT_ROOTS="$HOME/Non-icloudDocuments/Apps:$HOME/Documents"
-SEARCH_ROOTS="${OVATION_SIBLING_SEARCH_ROOTS:-$DEFAULT_ROOTS}"
+# shellcheck source=lib/repo-git.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/repo-git.sh"
+
+# THE SIBLINGS ARE LOOKED FOR BESIDE OVATION'S PRIMARY CHECKOUT (ovation#314), as
+# the library works that out, and nowhere else. This used to be folder names
+# typed under the home directory. One had already gone dead when Overture moved,
+# and it cost nothing while it stood, which is exactly why an entry in a list like
+# that survives unnoticed; none of them said anything about where Ovation itself
+# is (L153).
+if [ -n "${OVATION_SIBLING_SEARCH_ROOTS:-}" ]; then
+    SEARCH_ROOTS="$OVATION_SIBLING_SEARCH_ROOTS"
+elif ! SEARCH_ROOTS="$(sibling_root "$REPO_ROOT")"; then
+    echo "CANNOT MEASURE: where the sibling checkouts live could not be worked out (see above)."
+    echo "    Set OVATION_SIBLING_SEARCH_ROOTS to the folder holding them."
+    exit 2
+fi
 
 # Assembled from pieces so this file contains no literal instance of the marker
 # it looks for. One definition, used by both the file search and the line
@@ -75,25 +84,13 @@ if [ ! -d "$SCAN_ROOT" ]; then
     exit 2
 fi
 
-# ASKING ANOTHER REPOSITORY ABOUT ITSELF NEEDS MORE THAN `git -C`. An inherited
-# GIT_DIR BEATS the -C, so every question below would be answered by whatever
-# GIT_DIR names, which is this repository. That is not a hypothetical: git
-# EXPORTS GIT_DIR to its hooks, and this check runs in the pre-push hook.
-#
-# From the primary checkout it survived by luck, because git sets the relative
-# `.git` there and a relative GIT_DIR beside `-C /path/to/sibling` resolves to
-# the sibling's own .git. From a WORKTREE it is an absolute path, every sibling
-# answers with Ovation's own origin, matches no slug, and is reported as not
-# being on this machine while sitting right there. A push was refused for nine
-# unmeasurable ports on 2026-09-08 with all nine siblings present, and the same
-# command passed by hand, which is what pointed at the environment.
-#
-# So every call goes through here. One definition, so a call site added later
-# cannot quietly be the one that reads the wrong repository (L70, L621).
-sibling_git() {
-    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY \
-        -u GIT_COMMON_DIR -u GIT_NAMESPACE git "$@"
-}
+# EVERY QUESTION TO A SIBLING GOES THROUGH `clean_git` FROM THE LIBRARY. An
+# inherited GIT_DIR beats `git -C`, and git exports GIT_DIR to its hooks. From the
+# primary checkout that survived by luck, because a relative `.git` beside
+# `-C /path/to/sibling` resolves to the sibling's own; from a worktree it is
+# absolute, every sibling answered with Ovation's own origin, and a push was
+# refused for nine unmeasurable ports on 2026-09-08 with all nine present (L70,
+# L621).
 
 # Resolve <owner>/<repo> to a local checkout by asking each candidate what its
 # origin actually is, rather than matching on directory name. Overture's checkout
@@ -105,7 +102,7 @@ resolve_sibling() {
     for root in $SEARCH_ROOTS; do
         [ -d "$root" ] || continue
         while IFS= read -r candidate; do
-            url="$(sibling_git -C "$candidate" remote get-url origin 2>/dev/null)" || continue
+            url="$(clean_git -C "$candidate" remote get-url origin 2>/dev/null)" || continue
             case "$url" in
                 *"$slug".git|*"$slug"|*"$slug"/) printf '%s\n' "$candidate"; return 0 ;;
             esac
@@ -119,7 +116,7 @@ resolve_sibling() {
 main_ref() {
     local repo="$1"
     for ref in main origin/main; do
-        if sibling_git -C "$repo" rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
+        if clean_git -C "$repo" rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
             printf '%s\n' "$ref"; return 0
         fi
     done
@@ -170,13 +167,13 @@ while IFS= read -r file; do
             cannot_measure=$((cannot_measure+1))
             continue
         fi
-        if ! sibling_git -C "$sibling" cat-file -e "${commit}^{commit}" 2>/dev/null; then
+        if ! clean_git -C "$sibling" cat-file -e "${commit}^{commit}" 2>/dev/null; then
             echo "COMMIT NOT FOUND: $rel"
             echo "    $slug does not contain $commit, so the port cannot be placed"
             cannot_measure=$((cannot_measure+1))
             continue
         fi
-        if sibling_git -C "$sibling" merge-base --is-ancestor "$commit" "$ref" 2>/dev/null; then
+        if clean_git -C "$sibling" merge-base --is-ancestor "$commit" "$ref" 2>/dev/null; then
             echo "OK: $rel  ($slug $path @ ${commit:0:8})"
         else
             echo "NOT ON MAIN: $rel"

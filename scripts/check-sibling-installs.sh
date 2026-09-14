@@ -42,13 +42,22 @@ set -uo pipefail
 SUPPORT="${HOME}/Library/Application Support"
 RECORD="${OVATION_OVERTURE_BUILD_RECORD:-${SUPPORT}/Overture/installed-build.json}"
 EXPORT_FILE="${OVATION_DOWNBEAT_EXPORT:-${SUPPORT}/Overture/downbeat-export.json}"
-# CORRECTED 2026-09-09 (ovation#16). It pointed at
-# `Photography Assets/Dan Wright Photography/Marketing/Outreach/Overture`, which
-# no longer exists: Overture sits beside its siblings under `Apps/` now. The
-# check did not lie about it, it answered CANNOT MEASURE and said to correct this
-# line, which is the design working. What it could not do is notice that nobody
-# had, so it had been blind to both Overture facts since the move (L153, L175).
-REPO="${OVATION_OVERTURE_REPO:-${HOME}/Non-icloudDocuments/Apps/Overture}"
+# shellcheck source=lib/repo-git.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/repo-git.sh"
+# OVERTURE IS LOOKED FOR BESIDE OVATION'S PRIMARY CHECKOUT (ovation#314), as the
+# library works that out. It used to be a folder typed under the home directory,
+# which went dead once already when Overture moved and left this check blind to
+# both Overture facts until somebody noticed (L153, L175). An empty REPO means no
+# folder could be worked out at all, which is refused by its own sentence where
+# the checkout is first needed rather than here, so a missing install record is
+# still reported first (L11).
+if [ -n "${OVATION_OVERTURE_REPO:-}" ]; then
+    REPO="$OVATION_OVERTURE_REPO"
+elif ESTATE="$(sibling_root "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null)"; then
+    REPO="${ESTATE}/Overture"
+else
+    REPO=""
+fi
 # The commit that widened Overture's version gate from an equality to a minimum.
 GATE="${OVATION_OVERTURE_GATE_COMMIT:-bdd85404}"
 # The export version Ovation needs. Downbeat's OvertureExportBuilder.formatVersion.
@@ -102,33 +111,30 @@ PROVENANCE="$(json_field "$RECORD" provenance)" || PROVENANCE=""
     "Overture's installed-build.json has no 'provenance' field" \
     "the record predates that field, or the install did not finish; reinstall Overture"
 
+[ -n "$REPO" ] || cannot_measure \
+    "where the sibling checkouts live could not be worked out" \
+    "this copy of Ovation is not inside a git checkout; set OVATION_OVERTURE_REPO to the Overture checkout"
 [ -d "$REPO/.git" ] || cannot_measure \
-    "the Overture checkout is not where it is recorded to be" \
-    "set OVATION_OVERTURE_REPO to where it is now, and correct the path in this script"
+    "the Overture checkout is not beside Ovation's primary checkout" \
+    "clone it into the folder holding Ovation, or set OVATION_OVERTURE_REPO to where it is"
 
 # ANCESTRY IS ASKED OF THE REPOSITORY, not inferred from dates or from the
 # commit strings looking different. Read only: nothing here checks anything out,
 # because the checkout may be shared with a session that is working in it.
-# AND IT IS ASKED WITH THE ENVIRONMENT CLEARED, because an inherited GIT_DIR
-# BEATS `git -C`, so every question below would be answered by whatever GIT_DIR
-# names rather than by Overture. This check exists to establish that the
-# INSTALLED Overture contains a particular fix, and an answer about Ovation
-# instead is not an error, it is a confident wrong verdict about another
-# repository. Same fault as ovation#138 in the push gate, found by sweeping for
-# the class rather than by hitting it here (L30, L387).
-sibling_git() {
-    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY \
-        -u GIT_COMMON_DIR -u GIT_NAMESPACE git "$@"
-}
+# AND IT IS ASKED THROUGH `clean_git` FROM THE LIBRARY, because an inherited
+# GIT_DIR BEATS `git -C`. This check exists to establish that the INSTALLED
+# Overture contains a particular fix, and an answer about Ovation instead is not
+# an error, it is a confident wrong verdict about another repository. Same fault
+# as ovation#138 in the push gate (L30, L387).
 
-sibling_git -C "$REPO" cat-file -e "${INSTALLED}^{commit}" 2>/dev/null || cannot_measure \
+clean_git -C "$REPO" cat-file -e "${INSTALLED}^{commit}" 2>/dev/null || cannot_measure \
     "the installed Overture commit ${INSTALLED:0:8} is not in that checkout" \
     "it was built from a clone this one has never fetched, so its contents cannot be established here"
-sibling_git -C "$REPO" cat-file -e "${GATE}^{commit}" 2>/dev/null || cannot_measure \
+clean_git -C "$REPO" cat-file -e "${GATE}^{commit}" 2>/dev/null || cannot_measure \
     "the gate commit ${GATE:0:8} is not in that checkout" \
     "fetch Overture, or correct OVATION_OVERTURE_GATE_COMMIT"
 
-if ! sibling_git -C "$REPO" merge-base --is-ancestor "$GATE" "$INSTALLED" 2>/dev/null; then
+if ! clean_git -C "$REPO" merge-base --is-ancestor "$GATE" "$INSTALLED" 2>/dev/null; then
     blocked "the installed Overture ${INSTALLED:0:8} does not contain the version gate fix ${GATE:0:8}" \
         "it will refuse a version ${WANT_VERSION} export outright and lose its roster; reinstall Overture from main first"
 fi
