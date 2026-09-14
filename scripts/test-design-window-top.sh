@@ -24,7 +24,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design window top tests" 15
+harness_begin "design window top tests" 16
 
 TARGET="scripts/check-design-window-top.sh"
 require_target "$TARGET"
@@ -39,6 +39,16 @@ if [ "$BROWSER_PROBE" = "3" ]; then
         "no headless browser, so nothing can be rendered and no claim here proves anything" \
         "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
 fi
+
+# THE PROBE ABOVE ONLY WORKS IF THE CHECK LOOKS FOR A BROWSER FIRST. It points
+# the check at a record that is not there, and the check used to answer that
+# with 2 before it ever looked for a browser, so on a machine with none this
+# suite never reached its own CANNOT MEASURE and failed assertions instead. The
+# lookup is pointed where no browser is, so this holds on a machine that has one.
+OVATION_BROWSER_GLOBS="$WORK/no-browser-here/*" OVATION_HEADLESS_BROWSER= \
+    OVATION_DESIGN_ROOT="$WORK/nothing-here" "./$TARGET" > "$WORK/no-browser.txt" 2>&1
+check "with no browser to find, even a record that is not there answers cannot measure" \
+    "$?:$(grep -c 'CANNOT MEASURE: no headless browser found' "$WORK/no-browser.txt")" "3:1"
 
 # EACH RECORD IS RENDERED ONCE (ovation#282): its status and what it printed are
 # read from one run, kept beside the record as <record>.out, and a status that

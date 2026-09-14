@@ -53,7 +53,7 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
-from design_render import CannotMeasure, NO_BROWSER, find_browser, render  # noqa: E402
+from design_render import CannotMeasure, open_browser  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs", "design")
@@ -105,10 +105,9 @@ window.addEventListener("load", function () {
 """
 
 
-def measure(browser, path):
+def measure(session, path):
     """The screen's rect and a hash of everything drawn inside it."""
-    report = render(browser, path, PROBE,
-                    window="%d,%d" % WINDOW, budget=6000)
+    report = session.render(path, PROBE, window="%d,%d" % WINDOW, budget=6000)
     if not report.get("found"):
         raise CannotMeasure("%s draws no `.screen`, so there is nothing to frame"
                             % os.path.basename(path))
@@ -166,17 +165,16 @@ def main(argv):
         print("CANNOT MEASURE: no %s, so there is nothing to render." % path)
         return 2
 
+    # THE ONE BROWSER START every rendering tool shares, which answers the case
+    # where there is no browser at all (ovation#183).
     try:
-        browser = find_browser()
+        session = open_browser()
     except CannotMeasure as err:
         print("CANNOT MEASURE: %s" % err)
         return 3
-    if not browser:
-        print(NO_BROWSER)
-        return 3
 
     try:
-        rect, layout, elements = measure(browser, path)
+        rect, layout, elements = measure(session, path)
     except CannotMeasure as err:
         print("CANNOT MEASURE: %s" % err)
         return 3
@@ -216,7 +214,7 @@ def main(argv):
         return 0
 
     try:
-        width, height = capture(browser, path, rect, picture)
+        width, height = capture(session.path, path, rect, picture)
     except CannotMeasure as err:
         print("CANNOT MEASURE: %s" % err)
         return 3

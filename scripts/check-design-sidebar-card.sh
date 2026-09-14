@@ -97,7 +97,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
 from design_inline import declared_parts, html_files  # noqa: E402
-from design_render import Browser, CannotMeasure, NO_BROWSER, find_browser  # noqa: E402
+from design_render import CannotMeasure, open_browser  # noqa: E402
 
 # The probe reads the rail back out of the RENDERING, never the source. What
 # went wrong was a list built in JavaScript, in four places, and the geometry it
@@ -255,13 +255,11 @@ def main():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     root = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(repo_root, "docs", "design")
 
+    # One browser for every rail, each render a fresh page in it (ovation#183).
     try:
-        browser = find_browser()
+        session = open_browser()
     except CannotMeasure as err:
         print("CANNOT MEASURE: %s" % err)
-        return 3
-    if browser is None:
-        print(NO_BROWSER)
         return 3
 
     given = sys.argv[1:]
@@ -279,8 +277,6 @@ def main():
     # than starting a sixth browser for them (ovation#183, ovation#198).
     rails, reports, no_card, edges_off, skipped = {}, {}, [], [], []
     settled, no_day = {}, []
-    # One browser for every rail, each render a fresh page in it (ovation#183).
-    session = Browser(browser)
     for path in paths:
         name = os.path.basename(path)
         if not os.path.isfile(path):

@@ -68,7 +68,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
 from design_inline import declared_parts, html_files  # noqa: E402
-from design_render import Browser, CannotMeasure, NO_BROWSER, find_browser  # noqa: E402
+from design_render import CannotMeasure, open_browser  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs", "design")
@@ -103,6 +103,19 @@ PROBE = r"""
 
 
 def main():
+    # THE BROWSER IS ASKED FOR FIRST, before the record is listed, as the token and
+    # sidebar checks do. This check used to list the record first and never test
+    # the browser it got: with none it died with a traceback and exit 1, and its
+    # suite, which probes for a browser by pointing it at a record that is not
+    # there, got 2 and never learned there was nothing to render in. One browser
+    # for every file, each render a fresh page in it (ovation#183); nothing starts
+    # until the first page is rendered.
+    try:
+        session = open_browser()
+    except CannotMeasure as why:
+        print("CANNOT MEASURE: %s" % why)
+        return 3
+
     paths = sys.argv[1:]
     if not paths:
         try:
@@ -112,18 +125,9 @@ def main():
                   % (ROOT, why.strerror or why))
             return 2
 
-    try:
-        browser = find_browser()
-    except CannotMeasure as why:
-        print("CANNOT MEASURE: %s" % why)
-        print("                %s" % NO_BROWSER)
-        return 3
-
     measured = []
     skipped = []
     faults = []
-    # One browser for every file, each render a fresh page in it (ovation#183).
-    session = Browser(browser)
     for path in paths:
         name = os.path.basename(path)
         try:

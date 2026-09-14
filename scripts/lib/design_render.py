@@ -39,12 +39,14 @@ NO BROWSER IS ITS OWN OUTCOME. A check that cannot render has no answer to give,
 and giving one would be a green tick over an unrun check, so callers report
 CANNOT MEASURE and exit 3 rather than 0 or 1.
 
-Imported by every rendering check. Never run on its own.
+Imported by every rendering check and by build-design-screenshot.sh, each of
+which gets its browser through `open_browser`. Never run on its own.
 
-Seams: OVATION_HEADLESS_BROWSER names the browser, OVATION_RENDER_TIMEOUT is how
-many seconds the browser has to answer any one request (120), and
-OVATION_RENDER_WAIT_MS overrides how long a loaded page has to produce its
-report.
+Seams: OVATION_HEADLESS_BROWSER names the browser, OVATION_BROWSER_GLOBS replaces
+where the lookup searches (and a refusal for want of a browser then says so),
+OVATION_RENDER_TIMEOUT is how many seconds the browser has to answer any one
+request (120), and OVATION_RENDER_WAIT_MS overrides how long a loaded page has to
+produce its report.
 """
 import atexit
 import fcntl
@@ -74,6 +76,13 @@ import time
 # process, which is the parameter without the replaceability (L394): nothing
 # could then point the lookup at a planted browser to test it.
 def browser_globs():
+    # WHERE TO LOOK CAN BE NARROWED, so a tool's answer to "no browser at all" can
+    # be driven on a machine that has one (L394). A colon separated list of globs
+    # replaces the whole search, and whatever refuses for want of a browser says
+    # the search was narrowed, so the seam can never quietly turn a check off.
+    narrowed = os.environ.get("OVATION_BROWSER_GLOBS", "").strip()
+    if narrowed:
+        return [piece for piece in narrowed.split(":") if piece]
     home = os.path.expanduser("~")
     return [
         # What playwright installed, on either platform, and FIRST: it is the
@@ -360,8 +369,15 @@ class Browser:
             shutil.rmtree(holder, ignore_errors=True)
 
     def _render_page(self, url, width, height, wait):
+        # A NEW WINDOW OF THAT SIZE, not a page given a size. The Linux runner's
+        # browser refused the second (`Target position can only be set for new
+        # windows`) on the first CI run of this renderer, after accepting it for
+        # a page or two, while the Mac browser always accepted it, so the push
+        # gate could not see it. Asked for as a new window, every report on the
+        # committed record matched the --dump-dom renderer's, 27 of 27.
         target = self.call("Target.createTarget",
-                           {"url": "about:blank", "width": width, "height": height})["targetId"]
+                           {"url": "about:blank", "newWindow": True,
+                            "width": width, "height": height})["targetId"]
         session = None
         try:
             session = self.call("Target.attachToTarget",
@@ -424,8 +440,27 @@ class Browser:
             raise CannotMeasure("the probe's report could not be read: %s" % err)
 
 
-def render(browser, path, probe, window="1440,1200", budget=6000, preamble=""):
-    """Render one page in a browser started for it alone. A check that renders
-    more than one page opens a `Browser` itself instead, so it starts one."""
-    with Browser(browser) as session:
-        return session.render(path, probe, window=window, budget=budget, preamble=preamble)
+def open_browser():
+    """The one way a tool gets a browser to render in, or a CannotMeasure saying
+    why there is none.
+
+    EVERY TOOL THAT RENDERS STARTS HERE, so none can skip the question. Each used
+    to call find_browser and test the answer itself, and the window ceiling check
+    never tested it: on a machine with no browser it handed nothing to the
+    renderer and died with a traceback and exit 1, which reads as a refusal,
+    rather than CANNOT MEASURE and exit 3. A tool prints the message after
+    `CANNOT MEASURE: ` and exits 3, and test-design-draws.sh drives every tool
+    through this with no browser to find.
+
+    Nothing is started here: the browser starts when the first page is rendered,
+    so asking first costs nothing when there turns out to be nothing to render.
+    """
+    found = find_browser()
+    if found is None:
+        why = NO_BROWSER[len("CANNOT MEASURE: "):]
+        narrowed = os.environ.get("OVATION_BROWSER_GLOBS", "").strip()
+        if narrowed:
+            why += ("\n  The search was narrowed by OVATION_BROWSER_GLOBS=%s, so only "
+                    "those places were looked in." % narrowed)
+        raise CannotMeasure(why)
+    return Browser(found)

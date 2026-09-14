@@ -89,7 +89,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
-from design_render import Browser, CannotMeasure, NO_BROWSER, find_browser  # noqa: E402
+from design_render import CannotMeasure, open_browser  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs/design")
@@ -393,21 +393,17 @@ def main(argv):
               "list of window widths in pixels.")
         return 2
 
+    # ONE BROWSER FOR EVERY FILE AT EVERY WIDTH, each render a fresh page in it
+    # (ovation#183): the start was most of what each of these renders cost.
     try:
-        browser = find_browser()
+        session = open_browser()
     except CannotMeasure as err:
         print("CANNOT MEASURE: %s" % err)
-        return 3
-    if not browser:
-        print(NO_BROWSER)
         return 3
 
     floor = int(os.environ.get("OVATION_DESIGN_DREW_FLOOR") or DREW_SOMETHING)
     prologue = "<script>window.__ovationFloor = %d;</script>" % floor
     held = failed = edge_groups = pressed = 0
-    # ONE BROWSER FOR EVERY FILE AT EVERY WIDTH, each render a fresh page in it
-    # (ovation#183): the start was most of what each of these renders cost.
-    session = Browser(browser)
     for path in files:
         name = os.path.basename(path)
         for width in at:

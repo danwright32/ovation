@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 58
+harness_begin "design rendering checks" 66
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -306,6 +306,15 @@ while True:
         msg = json.loads(raw)
         method, session, result, events = msg.get("method"), msg.get("sessionId"), {}, []
         if method == "Target.createTarget":
+            # REFUSED AS THE LINUX RUNNER'S BROWSER REFUSED IT, word for word, on
+            # the first CI run of the one browser renderer (PR 310): a size asked
+            # for on a page that is not a new window. The Mac browser accepted
+            # it, so nothing on the machine that pushes could see it.
+            params = msg.get("params", {})
+            if ("width" in params or "height" in params) and not params.get("newWindow"):
+                send({"id": msg["id"], "error": {"code": -32000,
+                      "message": "Target position can only be set for new windows"}})
+                continue
             result = {"targetId": "T1"}
         elif method == "Target.attachToTarget":
             result = {"sessionId": "S1"}
@@ -343,6 +352,33 @@ FAKE_BROWSER_MODE=silent OVATION_HEADLESS_BROWSER="$FAKE_BROWSER" OVATION_RENDER
 check "a browser that never answers cannot measure, rather than hanging" "$?" "3"
 check "and it says the browser did not answer, and for how long it was given" \
     "$(grep -c 'the browser did not answer .* within 0.5 seconds' "$WORK/hung.txt")" "1"
+
+# NO BROWSER TO FIND IS CANNOT MEASURE, IN EVERY TOOL THAT RENDERS. The window
+# ceiling check once asked for a browser and never looked at the answer, so on a
+# machine with none it handed nothing to the renderer and died with a traceback
+# and exit 1, a refusal, instead of exit 3. Every tool that renders now starts its
+# browser through one call that answers this, and each is driven here with the
+# lookup pointed where no browser is, so a tool that goes back to its own lookup
+# is named (L613). The screenshot tool runs in --check mode, which only compares:
+# should the narrowed lookup ever fail to take, it cannot overwrite the committed
+# picture (L2).
+NOWHERE="$WORK/no-browser-here/*"
+for tool in check-design-draws check-invoice-screen-draws check-clients-screen-draws \
+        check-design-tokens-resolve check-design-sidebar-card check-design-window-top; do
+    OVATION_BROWSER_GLOBS="$NOWHERE" OVATION_HEADLESS_BROWSER= OVATION_DESIGN_ROOT= \
+        python3 "scripts/$tool.sh" > "$WORK/no-browser-$tool.txt" 2>&1
+    check "$tool answers cannot measure when no browser can be found" \
+        "$?:$(grep -c 'CANNOT MEASURE: no headless browser found' "$WORK/no-browser-$tool.txt")" "3:1"
+done
+OVATION_BROWSER_GLOBS="$NOWHERE" OVATION_HEADLESS_BROWSER= OVATION_DESIGN_ROOT= \
+    python3 scripts/build-design-screenshot.sh --check > "$WORK/no-browser-screenshot.txt" 2>&1
+check "the screenshot tool answers cannot measure when no browser can be found" \
+    "$?:$(grep -c 'CANNOT MEASURE: no headless browser found' "$WORK/no-browser-screenshot.txt")" "3:1"
+# AND A NARROWED LOOKUP SAYS IT WAS NARROWED. Otherwise the seam inherited by a
+# CI job would turn every rendering check into a quiet CANNOT MEASURE, which that
+# job reads as a warning (L259, L11).
+check "and the refusal names the narrowed lookup as the reason" \
+    "$(grep -c 'OVATION_BROWSER_GLOBS' "$WORK/no-browser-check-design-draws.txt")" "1"
 
 # A COMPLAINT THAT COULD NOT BE READ IS NOT SILENCE (L11). The browser's own
 # output is the diagnosis every refusal above quotes, and when reading it fails

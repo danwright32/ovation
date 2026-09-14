@@ -259,6 +259,14 @@ clock before taking the page, and this reads the report as soon as the page has 
 has written it. No probe writes later than that, and the record's only timer starts when Send is
 pressed.
 
+**Each page is asked for as a new window of its size**, because the Linux runner's browser refused
+a size given to an ordinary page after accepting it once or twice, which the Mac browser never did,
+so only CI could see it. Asked for that way, all 27 reports still matched the old renderer's. And
+**every tool that renders gets its browser through one call** that answers CANNOT MEASURE when there
+is none: the window ceiling check had asked for a browser and never looked at the answer, so on a
+machine without one it died with a traceback instead, and its suite could not reach its own
+CANNOT MEASURE either.
+
 ## Each file's own list of what it does not answer is checked too
 
 **`scripts/check-design-record-open.sh` now reads each design file's own open list as well as this
