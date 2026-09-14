@@ -148,6 +148,10 @@ release_locks() {
 # the command in front of it returns, so a signal sent to this pid alone while
 # xcodebuild is running takes effect when that build finishes. Ctrl+C reaches
 # the whole foreground group, the build included, and is the prompt way to stop.
+# And an INT sent to this pid ALONE can be absorbed outright by bash 5: when a
+# foreground command exits normally after the shell got INT, bash takes that
+# command as having handled it and does not run this trap. Ctrl+C, and `kill`
+# (TERM) to this pid, both stop the run.
 trap release_locks EXIT
 trap 'release_locks; exit 130' INT
 trap 'release_locks; exit 143' TERM

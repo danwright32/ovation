@@ -212,6 +212,18 @@ check "a killed run still releases the directory lock" \
 #     cannot be trapped, so without this the INT case would measure bash's rule
 #     for background jobs rather than the runner. Every seam is set on the one
 #     command, as every other invocation here does (ovation#152).
+#
+#     AND IN A PROCESS GROUP OF ITS OWN, so INT can be sent the way Ctrl+C sends
+#     it: to the runner AND the command it is waiting on. The first version sent
+#     INT to the runner's pid alone and failed on one of CI's two identical Linux
+#     jobs, still running, while passing on this Mac in every run. Measured here,
+#     bash 3.2 ran the INT trap in 12 of 12 trials whether INT went to the pid or
+#     the group. Bash 5 on Linux applies its rule for a foreground command that
+#     exits normally after INT, which is to take the command as having handled
+#     it, so a pid-only INT arriving mid `sleep` was absorbed or not by timing.
+#     A person's Ctrl+C reaches the whole group, and that is the stop this case
+#     is about. TERM stays pid-only below: `kill` sends it that way, and it is
+#     not subject to that rule.
 start_stoppable_runner() {
     OVATION_DIR_LOCK="$DIR_LOCK" \
     OVATION_FILE_LOCK="$FILE_LOCK" \
@@ -222,7 +234,7 @@ start_stoppable_runner() {
     OVATION_HOSTED_TEST_COMMAND="$2" \
     OVATION_UNLOCKED_COMMAND=true \
     OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
-        python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execv(sys.argv[1], sys.argv[1:])' \
+        python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.setpgrp(); os.execv(sys.argv[1], sys.argv[1:])' \
         "./$TARGET" > "$1" 2>&1 &
     STOPPABLE_PID=$!
 }
@@ -268,7 +280,8 @@ wait_for_line() {
     OUT274A="$WORK/run-274a.out"
     start_stoppable_runner "$OUT274A" "$HOSTED_PASSES"
     wait_for_line "$OUT274A" 'Waiting for both test locks'
-    kill -INT "$STOPPABLE_PID"
+    # To the whole group, as Ctrl+C does: the runner and whatever it is waiting on.
+    kill -INT -- "-$STOPPABLE_PID"
     stopped_status "$STOPPABLE_PID"
     check "a run interrupted while waiting for a lock exits, with status 130" \
         "$STOPPED" "130"
