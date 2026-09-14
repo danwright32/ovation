@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 88
+harness_begin "output privacy tests" 90
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -145,6 +145,26 @@ OUT_GUARD="$(OVATION_GUARD_EXPORT="$EXPORT" \
 check "the identity guard found the planted identity, so its reporting branch ran" \
     "$(printf '%s' "$OUT_GUARD" | grep -c 'REFUSED')" "1"
 check "and the identity guard prints no identity" "$(leaks_in "$OUT_GUARD")" "clean"
+
+# 1b. THE EMBEDDED INVOICE PAGE CHECK (ovation#167). It reads the invoice PDF
+#     design, whose fixtures carry client, venue and shoot names, and it reports
+#     drift. The planted names sit in the design's page builder, which is what
+#     reaches the drift branch, so the case prints from the one branch that could
+#     carry them.
+EMBED="$WORK/embedded-design"; mkdir -p "$EMBED"
+cp docs/design/invoice-pdf.html docs/design/review-send.html "$EMBED/"
+python3 - "$EMBED/invoice-pdf.html" "$CLIENT" "$VENUE" <<'PYEMBED'
+import sys
+path, client, venue = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(path, encoding="utf-8").read()
+old = 'mk("div", "lbl", "Amount due")'
+assert old in text, "the planted change matched nothing, so this case tests nothing"
+open(path, "w", encoding="utf-8").write(text.replace(old, 'mk("div", "lbl", "Due to %s at %s")' % (client, venue), 1))
+PYEMBED
+OUT_EMBED="$(OVATION_DESIGN_ROOT="$EMBED" ./scripts/check-design-embedded-page.sh 2>&1)"
+check "the embedded page check reached its drift branch over a design carrying names" \
+    "$(printf '%s' "$OUT_EMBED" | grep -c '^DRIFTED:')" "1"
+check "and the embedded page check prints no identity" "$(leaks_in "$OUT_EMBED")" "clean"
 
 # 2. The booking queue reader, in both the branch that passes and the branch
 #    that names a bad record.

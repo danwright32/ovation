@@ -261,6 +261,13 @@ gate_check check-plan-claims.sh "the plan cites a sibling file that is gone, sho
 # and the two older files never received the fix. Every file went on rendering.
 gate_check check-design-shell-inline.sh "a design file's copy of the shell disagrees with docs/design/shell/."
 
+# ovation#167. review-send.html carries the whole invoice PDF design as one
+# escaped string and runs it in a frame, so its preview is the settled document
+# only while the two agree. Nothing compared them, and on 2026-09-14 the copy was
+# an older page still carrying the blank page bug ovation#170 fixed and a phone
+# number the design had dropped. The remedy is scripts/write-design-embedded-page.sh.
+gate_check check-design-embedded-page.sh "review-send.html's embedded invoice page disagrees with invoice-pdf.html."
+
 # ovation#166 and ovation#148. Each design file was built by copying the last
 # one, so roughly half the largest file's stylesheet described OTHER SCREENS:
 # the Clients rows and panels, the invoice list's row treatments, the switcher
