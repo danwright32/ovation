@@ -298,5 +298,56 @@ GIT_DIR=/nowhere/decoy.git GIT_WORK_TREE=/nowhere GIT_INDEX_FILE=/nowhere/index 
 check "a suite cannot see a GIT_DIR the environment handed it" \
     "$(cat "$WORK/seen-git-env" 2>/dev/null)" "unset|unset|unset"
 
+# ---------------------------------------------------------------------------
+# 13. A CONDITION WAIT THAT RUNS OUT FAILS BY NAME (ovation#303).
+#
+# The runner suite waited on conditions with a hand written loop that broke out
+# after a fixed number of polls and then carried on as if the condition held. A
+# wait that ran out was silent, and the case after it failed on an assertion
+# about a scenario that was never staged, so the failure named the wrong thing
+# (L98, L11). Measured 2026-09-14: making case 236c's wait unmeetable reported
+# "and how many different holders went ahead of it" and nothing about the wait.
+#
+# So the wait is a harness helper, and it is an assertion: met or not, it counts
+# as one, so a suite's declared count does not move with the outcome (L288).
+suite wait_unmet <<SUITE
+#!/bin/bash
+cd "$PWD" || exit 1
+. "$PWD/$HARNESS"
+harness_begin "unmet wait" 1
+harness_wait_for "the sentinel to appear" 3 0.01 test -e "$WORK/never-created"
+echo "\$?" > "$WORK/wait-unmet-status"
+harness_end
+SUITE
+OUT13="$(run wait_unmet)"; ST13=$?
+check "a suite whose condition wait runs out fails" \
+    "$([ "$ST13" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+check "and it names the wait that was not met" \
+    "$(printf '%s' "$OUT13" | grep -c "^FAIL: waited for the sentinel to appear$")" "1"
+check "and says how long it waited, in polls and their interval" \
+    "$(printf '%s' "$OUT13" | grep -c "got 'not met after 3 polls of 0.01s'")" "1"
+check "and tells the suite, so a case can skip what depends on it" \
+    "$(cat "$WORK/wait-unmet-status" 2>/dev/null)" "1"
+
+# A wait that is met passes, counts as exactly one assertion, and keeps polling
+# until it is met rather than judging the first look (L159).
+suite wait_met <<SUITE
+#!/bin/bash
+cd "$PWD" || exit 1
+. "$PWD/$HARNESS"
+harness_begin "met wait" 1
+third_look() {
+    printf 'x' >> "$WORK/looks"
+    [ "\$(wc -c < "$WORK/looks" | tr -d ' ')" -ge 3 ]
+}
+harness_wait_for "the third look" 10 0.01 third_look
+harness_end
+SUITE
+rm -f "$WORK/looks"
+OUT13B="$(run wait_met)"; ST13B=$?
+check "a condition wait that is met passes as one assertion" "$ST13B" "0"
+check "and it looked until the condition held, not once" \
+    "$(wc -c < "$WORK/looks" 2>/dev/null | tr -d ' ')" "3"
+
 echo "test harness tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

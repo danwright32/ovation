@@ -18,7 +18,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ci workflow tests" 30
+harness_begin "ci workflow tests" 35
 
 TARGET="scripts/check-ci-workflow.sh"
 require_target "$TARGET"
@@ -47,6 +47,10 @@ good_workflow() {
     mkdir -p "$1"
     cat > "$1/ci.yml" <<'YML'
 name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
 jobs:
   shell-suites:
     runs-on: macos-26
@@ -282,5 +286,56 @@ check "it says how many check scripts the workflows name" \
 REAL_NAMED="$(run_check ".github/workflows" | grep -oE '[0-9]+ check script' | grep -oE '^[0-9]+' | head -1)"
 check "this repository's own workflows name checks for the rule to judge" \
     "$([ "${REAL_NAMED:-0}" -ge 1 ] && echo named || echo none)" "named"
+
+# ---------------------------------------------------------------------------
+# ONE COMMIT, ONE RUN (ovation#304).
+#
+# ci.yml ran on a push to EVERY branch and on pull_request, and its concurrency
+# group was keyed on github.ref, which is the branch for one event and the pull
+# request's merge ref for the other. So neither run cancelled the other, and
+# every commit on a branch with an open pull request built both configurations
+# twice. On 2026-09-14 a pull request's jobs sat queued over 25 minutes behind
+# those duplicates, and after ovation#15 each one bills macOS minutes.
+#
+# Nothing read the branch push runs: no ruleset or branch protection exists, the
+# liveness workflow reads runs on main only, and the closing keyword check has
+# its own workflow. So the rule is the trigger shape itself, over every workflow
+# file, because a second workflow copied from this one would double the same way
+# (L30): a workflow that runs on pull requests may run on push to main only.
+twice_workflow() {
+    # twice_workflow <dir> <the on: block, as lines>
+    # Assembled with printf and sed rather than `awk -v`, which BSD awk refuses
+    # for a value holding a newline (L434).
+    good_workflow "$1"
+    { printf 'name: CI\n%s\n' "$2"; sed -n '/^jobs:/,$p' "$1/ci.yml"; } > "$1/ci.yml.tmp" \
+        && mv "$1/ci.yml.tmp" "$1/ci.yml"
+}
+
+T1="$WORK/twice-every-branch"
+twice_workflow "$T1" "on:
+  push:
+    branches: ['**']
+  pull_request:"
+check "a workflow on pull requests and on push to every branch is refused" "$(status_of "$T1")" "1"
+check "and it names the file that runs twice" \
+    "$(run_check "$T1" | grep -c 'RUNS TWICE PER PULL REQUEST COMMIT: ci.yml')" "1"
+
+T2="$WORK/twice-unfiltered"
+twice_workflow "$T2" "on:
+  push:
+  pull_request:"
+check "a push with no branch filter beside pull requests is refused" "$(status_of "$T2")" "1"
+
+T3="$WORK/twice-inline"
+twice_workflow "$T3" "on: [push, pull_request]"
+check "the one line spelling of the same two triggers is refused" "$(status_of "$T3")" "1"
+
+T4="$WORK/once-block-list"
+twice_workflow "$T4" "on:
+  push:
+    branches:
+      - main
+  pull_request:"
+check "push to main written as a block list, beside pull requests, passes" "$(status_of "$T4")" "0"
 
 harness_end

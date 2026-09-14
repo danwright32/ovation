@@ -578,12 +578,28 @@ else
       fi
       holders_seen=0
       last_dir_holder=""
+      last_dir_id=""
+      last_dir_owner=""
       last_file_holder=""
       last_file_id=""
       WAIT_OUTCOME=""
       note_holders() {
-        local d f f_id
-        d="$(describe_dir_holder)"
+        local d d_id d_owner f f_id
+        # A DIRECTORY LOCK HOLDER IS THE DIRECTORY IT MADE, NOT ITS DESCRIPTION
+        # (ovation#303). Every change in the words used to count as one more run,
+        # and the words change twice in a hold nobody else took: a holder is
+        # unnamed between its mkdir and its owner line, and again while the lock
+        # is being removed. On a busy machine a look landed in that moment often
+        # enough to make one holder read as two, and the runner's own suite
+        # failed on it. So a new holder is a new directory, or a different NAMED
+        # owner in the same one, which is how a lock handed over faster than one
+        # poll still counts when the filesystem reuses the inode number. An
+        # unnamed moment is never a holder of its own. The one way this misleads
+        # is two holders that never name themselves, back to back in one poll,
+        # on a reused inode number, which can only undercount.
+        d_id="$(dir_lock_identity "${DIR_LOCK}")"
+        d_owner="$(dir_lock_owner "${DIR_LOCK}")"
+        d="$(dir_lock_words "${DIR_LOCK}" "${d_owner}")"
         f="$(describe_file_holder)"
         # A FILE LOCK HOLDER IS ITS LOWEST PID, NOT THE WHOLE LIST. Every process
         # holding the descriptor is listed, and a real Overture run starts and
@@ -596,13 +612,23 @@ else
         f_id="$(printf '%s' "${f}" | grep -oE '[0-9]+ \(' | grep -oE '[0-9]+' | sort -n | head -1)"
         # "free" is nobody, and so is a file lock whose holder cannot be seen: a
         # count must only ever be of holders this run actually observed.
-        case "${d}" in
-          free) ;;
-          *) [ "${d}" != "${last_dir_holder}" ] && holders_seen=$((holders_seen + 1)) ;;
-        esac
+        if [ -n "${d_id}" ]; then
+          if [ "${d_id}" != "${last_dir_id}" ]; then
+            holders_seen=$((holders_seen + 1))
+            last_dir_owner="${d_owner}"
+          elif [ -n "${d_owner}" ]; then
+            if [ -n "${last_dir_owner}" ] && [ "${d_owner}" != "${last_dir_owner}" ]; then
+              holders_seen=$((holders_seen + 1))
+            fi
+            last_dir_owner="${d_owner}"
+          fi
+        else
+          last_dir_owner=""
+        fi
         if [ -n "${f_id}" ] && [ "${f_id}" != "${last_file_id}" ]; then
           holders_seen=$((holders_seen + 1))
         fi
+        last_dir_id="${d_id}"
         last_dir_holder="${d}"
         last_file_holder="${f}"
         last_file_id="${f_id}"

@@ -177,6 +177,37 @@ check() {
     fi
 }
 
+# A CONDITION WAIT IS AN ASSERTION, AND ONE THAT RUNS OUT FAILS BY NAME
+# (ovation#303).
+#
+#     harness_wait_for "what is waited for" <polls> <interval> <command> [args...]
+#
+# Suites waited on a condition with a hand written loop that broke out after a
+# fixed number of polls and then carried on as if the condition held. A wait
+# that ran out said nothing, and the case after it failed on an assertion about a
+# scenario that had never been staged, so the failure named the wrong thing and
+# was read as a fault in the code under test (L98, L11).
+#
+# The command is run until it succeeds. Met or not, the wait counts as ONE
+# assertion, so a suite's declared count does not change with the outcome, and a
+# wait that runs out also returns 1 for a case that should skip what depends on
+# it. A condition that needs a pipe belongs in a small function: under pipefail a
+# `grep -q` ending early fails the command that fed it (L183).
+harness_wait_for() {
+    local what="$1" polls="$2" interval="$3" looked=0
+    shift 3
+    until "$@"; do
+        looked=$((looked+1))
+        if [ "$looked" -ge "$polls" ]; then
+            check "waited for ${what}" "not met after ${polls} polls of ${interval}s" "met"
+            return 1
+        fi
+        sleep "$interval"
+    done
+    check "waited for ${what}" "met" "met"
+    return 0
+}
+
 harness_end() {
     _HARNESS_ENDED=1
     if [ "$_HARNESS_RAN" -ne "$_HARNESS_EXPECTED" ]; then
