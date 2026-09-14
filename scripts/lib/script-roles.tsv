@@ -47,7 +47,11 @@
 #                  reason those entries used to carry. They are not, because
 #                  every push already runs each of them against the COMMITTED
 #                  design files through its sibling suite, and a second call in
-#                  the gate would be a second copy of one policy (L613). What
+#                  the gate would be a second copy of one policy (L613). That
+#                  is held by test-design-suites-judge-committed.sh, which
+#                  damages a committed file in a copy of the tree under each
+#                  suite and requires the suite to go red on its committed
+#                  record case, rather than by anybody's reading (ovation#220). What
 #                  the workflow adds is the Linux job, where running them first
 #                  is the proof that the browser installed rather than three
 #                  checks quietly answering CANNOT MEASURE (ovation#160).
@@ -152,6 +156,7 @@ test-design-shared-components.sh	suite
 test-design-self-contained.sh	suite	
 test-design-dead-rules.sh	suite
 test-rendered-run.sh	suite
+test-design-suites-judge-committed.sh	suite
 test-design-shell-inline.sh	suite	
 test-design-sidebar-card.sh	suite	
 test-design-window-top.sh	suite	
