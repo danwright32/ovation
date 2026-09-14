@@ -893,8 +893,8 @@ So the pass is **one address and 25 tax statuses**, not the mixed pile of four o
 the issue described. Three of the four problem kinds turned out not to be problems.
 
 **The table above is this round's measurement and is kept as it was taken. The address figure is
-now 0**, because Dan corrected that value in Downbeat on 2026-09-11; see the later entry. Nothing
-else in the table moved.
+now 0**, because Dan corrected that value in Downbeat on 2026-09-11, **and so is the tax status
+figure**, because Downbeat answered all 25 on 2026-09-12; see the later entries.
 
 **Ordered by cost, not by count.** One broken address sits above 25 missing statuses. Frequency
 earns real estate on a list read daily; consequence earns it on a list cleared once.
@@ -1050,6 +1050,18 @@ fifth time it has been stated.
 it and its fixture all stay, because a client typed into Ovation by hand can still carry a value
 that is not an address, and the export could carry one again tomorrow. Re-derive the figure from
 the current export with `scripts/measure-booking-export.py`, never from this paragraph (L175).
+
+### The tax half emptied too, 2026-09-14 (ovation#298)
+
+**The live export answers a tax status for 31 of 31 clients, so on the real roster the pass has
+nothing to ask.** Downbeat answered every client it held no status for as exempt on 2026-09-12 and
+starts every client added there as exempt (downbeat#488). Measured 2026-09-13: 30 exempt and 1 not
+exempt, and Ovation's store already holds the same. Dan confirmed the values are intended.
+
+**The pass stays, and so does this file's day with work** (Dan, 2026-09-14, choosing this over
+retiring the pass). Its 25 missing statuses are the 2026-09-05 snapshot, kept because a pass with
+work is the case the screen has to draw, not because it is today's roster. On the real roster the
+screen is the settled day: not in the rail, and back the moment a client has no status.
 
 ### The rail ships with the first screen, settled 2026-09-11 (ovation#40, PRD 44a)
 

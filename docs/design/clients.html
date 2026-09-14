@@ -547,7 +547,9 @@ var NO_TAX = CLIENTS.filter(function (k) { return !k.t; });
 
 /* A BROKEN ADDRESS IS A FACT ABOUT THE DAY, not about the client (ovation#209).
    Dan fixed the one unsendable address in Downbeat on 2026-09-11, at source, so
-   the real pass is now 25 tax statuses and no address section at all. The
+   the real pass became 25 tax statuses and no address section at all, and on
+   2026-09-12 Downbeat answered those 25 too, so the real roster is the settled
+   day (ovation#298) and the day with work is kept to draw a pass that has some. The
    fixture keeps its broken address, because a value typed into Ovation by hand
    can still not be an address, and the day switch has a day on which it has
    been fixed, so the pass with an EMPTY section can be drawn rather than argued

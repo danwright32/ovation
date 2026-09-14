@@ -113,9 +113,10 @@ struct ClientImportTests {
         #expect(store[0].taxStatus == .exempt)
     }
 
-    /// AND IT IS NOT OVERWRITTEN BY AN ABSENCE EITHER, which is the commoner case:
-    /// 25 of 31 rows carry no status at all, so a rule that simply assigned the
-    /// export's value would reset every answer to never recorded.
+    /// AND IT IS NOT OVERWRITTEN BY AN ABSENCE EITHER: 25 of 31 rows had no
+    /// status in the 2026-09-05 snapshot, so a rule that simply assigned the
+    /// export's value would have reset every answer to never recorded. The live
+    /// export of 2026-09-13 has none (ovation#298), and an absence can return.
     @Test("an answer given in Ovation survives a row that carries no status")
     func ovationsAnswerSurvivesAnEmptyUpstreamValue() {
         let id = UUID()
