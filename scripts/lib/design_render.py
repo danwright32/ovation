@@ -141,9 +141,23 @@ def render(browser, path, probe, window="1440,1200", budget=6000, preamble=""):
         # same command and no way to learn why (L148). It is truncated and it is
         # stderr rather than the page, so nothing the page DREW can reach a log.
         said = " ".join((done.stderr or "").split())[:300] or "and said nothing"
-        raise CannotMeasure("the page rendered but the probe wrote nothing, so nothing "
-                            "was measured (browser exit %d). The browser said: %s"
-                            % (done.returncode, said))
+        # NO PAGE AND A PAGE WITHOUT A REPORT ARE TWO FAULTS (ovation#282). Both
+        # used to say the page rendered and the probe wrote nothing, which was
+        # false for the first: nothing came back, so there was no page for the
+        # probe to run in, and the remedy is the browser. The second is a page
+        # that came back without the report, so the probe never ran, threw
+        # before writing, or wrote after the page was taken, and the remedy is
+        # in the page. What came back is given as a SIZE, never as content, for
+        # the same reason stderr is truncated above.
+        if not (done.stdout or "").strip():
+            raise CannotMeasure("the browser returned no page at all, so the probe never "
+                                "had one to run in (browser exit %d). The browser said: %s"
+                                % (done.returncode, said))
+        raise CannotMeasure("the browser returned a page of %d bytes with no probe report "
+                            "in it, so the probe never ran, threw before writing, or wrote "
+                            "after the page was taken, and nothing was measured (browser "
+                            "exit %d). The browser said: %s"
+                            % (len(done.stdout.encode("utf-8")), done.returncode, said))
     body = found.group(1).replace("&quot;", '"').replace("&lt;", "<")
     body = body.replace("&gt;", ">").replace("&amp;", "&")
     try:

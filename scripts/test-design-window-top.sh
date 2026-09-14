@@ -40,8 +40,11 @@ if [ "$BROWSER_PROBE" = "3" ]; then
         "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
 fi
 
-run_on() { OVATION_DESIGN_ROOT="$1" "./$TARGET" 2>&1; }
-status_on() { OVATION_DESIGN_ROOT="$1" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?"; }
+# EACH RECORD IS RENDERED ONCE (ovation#282): its status and what it printed are
+# read from one run, kept beside the record as <record>.out, and a status that
+# does not match quotes what the check said.
+. "$(dirname "$0")/lib/rendered-run.sh"
+judge() { rendered_run "$1" env OVATION_DESIGN_ROOT="$1" "./$TARGET"; OUT="$(cat "$1.out")"; }
 
 # A page whose window sits $2 pixels down, built from a spacer rather than real
 # prose so the number under test is the only thing that varies.
@@ -62,8 +65,8 @@ HTML
 
 # 1. THE COMMITTED RECORD PASSES. A suite that only ever runs against planted
 #    defects never proves the check passes anything real.
-OUT="$("./$TARGET" 2>&1)"; RC=$?
-check "the committed design files are all above the ceiling" "$RC" "0"
+rendered_run "$WORK/committed" "./$TARGET"; OUT="$(cat "$WORK/committed.out")"
+check_rendered_status "the committed design files are all above the ceiling" "$WORK/committed" "0"
 case "$OUT" in
     *800*) check "it says which window height it measured against" "yes" "yes" ;;
     *) check "it says which window height it measured against" "$OUT" "should name the 800px window" ;;
@@ -71,8 +74,8 @@ esac
 
 # 2. A WINDOW THAT STARTS TOO FAR DOWN IS REFUSED, and this is the whole job.
 A="$WORK/toolow"; window_file "$A/deep.html" 700
-check "a window past the ceiling is refused" "$(status_on "$A")" "1"
-OUT="$(run_on "$A")"
+judge "$A"
+check_rendered_status "a window past the ceiling is refused" "$A" "1"
 case "$OUT" in
     *deep.html*) check "it names the file" "yes" "yes" ;;
     *) check "it names the file" "$OUT" "should say deep.html" ;;
@@ -89,7 +92,8 @@ esac
 # 3. AND ONE INSIDE IT IS NOT. Without this the rule above is bought by refusing
 #    every page, which passes any mutation ever written for it (L1).
 B="$WORK/fine"; window_file "$B/shallow.html" 120
-check "a window inside the ceiling passes" "$(status_on "$B")" "0"
+judge "$B"
+check_rendered_status "a window inside the ceiling passes" "$B" "0"
 
 # 4. THE EXEMPTION IS THE FILE'S OWN DECLARATION, read from the same helper the
 #    shell check reads it with, never a list of names kept in the checker (L362).
@@ -100,8 +104,8 @@ cat > "$C/paper.html" <<'HTML'
 <!-- NOT SHELLED: window.css, it draws no app window, it is paper. -->
 <div style="height:900px">a printed invoice, far down a long page</div>
 HTML
-check "a file declaring it draws no app window is not judged" "$(status_on "$C")" "0"
-OUT="$(run_on "$C")"
+judge "$C"
+check_rendered_status "a file declaring it draws no app window is not judged" "$C" "0"
 case "$OUT" in
     *"no app window"*|*"draw no app window"*) check "and it SAYS it was not judged, rather than passing in silence" "yes" "yes" ;;
     *) check "and it SAYS it was not judged, rather than passing in silence" "$OUT" "should say the file draws no window" ;;
@@ -118,8 +122,8 @@ cat > "$D/stale.html" <<'HTML'
 <style>.above { height: 700px; } .screen { height: 300px; }</style>
 <div class="above">prose</div><div class="screen">but here is a window</div>
 HTML
-check "a file that says it draws no window and draws one is refused" "$(status_on "$D")" "1"
-OUT="$(run_on "$D")"
+judge "$D"
+check_rendered_status "a file that says it draws no window and draws one is refused" "$D" "1"
 case "$OUT" in
     *stale*|*STALE*) check "and the refusal names the declaration as the fault" "yes" "yes" ;;
     *) check "and the refusal names the declaration as the fault" "$OUT" "should name the stale declaration" ;;
@@ -130,13 +134,14 @@ esac
 E="$WORK/neither"; mkdir -p "$E"
 printf '<!doctype html>\n<meta charset="utf-8">\n<p>no window, and nothing said about it</p>\n' \
     > "$E/silent.html"
-check "a file with no window and no declaration is refused" "$(status_on "$E")" "1"
+judge "$E"
+check_rendered_status "a file with no window and no declaration is refused" "$E" "1"
 
 # 7. MEASURING NOTHING IS NOT A PASS. A record with no design files in it reports
 #    exactly what a record in perfect health reports, unless it says so (L98).
 F="$WORK/empty"; mkdir -p "$F"
-check "a record holding no design files cannot be measured" "$(status_on "$F")" "2"
-OUT="$(run_on "$F")"
+judge "$F"
+check_rendered_status "a record holding no design files cannot be measured" "$F" "2"
 case "$OUT" in
     *"CANNOT"*) check "and it says so rather than passing" "yes" "yes" ;;
     *) check "and it says so rather than passing" "$OUT" "should say it could not measure" ;;
@@ -144,7 +149,7 @@ esac
 
 # 8. IT REPORTS HOW MANY IT MEASURED, so a run that judged one file and a run
 #    that judged all of them are not the same line of output.
-OUT="$(run_on "$B")"
+OUT="$(cat "$B.out")"
 case "$OUT" in
     *" 1 "*|*"1 file"*) check "it says how many files it measured" "yes" "yes" ;;
     *) check "it says how many files it measured" "$OUT" "should count the files measured" ;;

@@ -56,14 +56,14 @@ mutate() {
     grep -c "$3" "$1"
 }
 
-failed_claims() {
-    "./$TARGET" "$1" 2>&1 | sed -n 's/^  FAIL \([^:]*\):.*/\1/p' | sort | tr '\n' ';'
-}
-
-status_on() {
-    "./$TARGET" "$1" >/dev/null 2>&1
-    printf '%s' "$?"
-}
+# EACH DAMAGED COPY IS RENDERED ONCE, and its status and the claims that fired
+# are read from that one run, which quotes what the check said when either does
+# not match (ovation#282). Asking the two questions of two renders left the
+# invoice suite with `got ''` on CI and nothing to say which render answered.
+. "$(dirname "$0")/lib/rendered-run.sh"
+case_of() { printf '%s' "${1%.html}"; }
+judge() { rendered_run "$(case_of "$1")" "./$TARGET" "$1"; }
+claims_of() { rendered_claims "$(case_of "$1")" 's/^  FAIL \([^:]*\):.*/\1/p'; }
 
 # ---------------------------------------------------------------------------
 # The real file, which is what proves the claims are not simply always failing.
@@ -84,9 +84,10 @@ check "with every claim in it measured" "$([ "$HEALTHY_CLAIMS" -ge 14 ] && echo 
 STALE="$WORK/stale.html"
 check "the repaint's refill is where the mutation expects it" \
     "$(mutate "$STALE" 's/      fillRow(n, byName\[n.dataset.client\]);//' 'classList.toggle("sel"')" "1"
-check "a repaint that never redraws the rows is refused" "$(status_on "$STALE")" "1"
+judge "$STALE"
+check_rendered_status "a repaint that never redraws the rows is refused" "$(case_of "$STALE")" "1"
 check "and the claims that fired are the two about pressing" \
-    "$(failed_claims "$STALE")" \
+    "$(claims_of "$STALE")" \
     "pressing a holder takes the figure off ITS row and leaves the others;pressing another holder moves the figure off it and back onto the one left;"
 
 # ---------------------------------------------------------------------------
@@ -99,9 +100,10 @@ check "and the claims that fired are the two about pressing" \
 INVERTED="$WORK/inverted.html"
 check "the rule's condition is where the mutation expects it" \
     "$(mutate "$INVERTED" 's/if (k.h \&\& !QUIET \&\& k.c !== chosen) {/if (k.h \&\& !QUIET \&\& k.c === chosen) {/' 'k.c === chosen) {')" "1"
-check "a list that marks only the selected client is refused" "$(status_on "$INVERTED")" "1"
+judge "$INVERTED"
+check_rendered_status "a list that marks only the selected client is refused" "$(case_of "$INVERTED")" "1"
 check "and every claim about the rows fires, not only the ones about a press" \
-    "$(failed_claims "$INVERTED")" \
+    "$(claims_of "$INVERTED")" \
     "pressing a client holding nothing leaves every figure drawn;pressing a holder takes the figure off ITS row and leaves the others;pressing another holder moves the figure off it and back onto the one left;with a client holding nothing selected, every holder carries its figure;"
 
 # ---------------------------------------------------------------------------
@@ -112,9 +114,10 @@ check "and every claim about the rows fires, not only the ones about a press" \
 BARE="$WORK/bare.html"
 check "the rule's condition is where this mutation expects it too" \
     "$(mutate "$BARE" 's/if (k.h \&\& !QUIET \&\& k.c !== chosen) {/if (false) {/' 'if (false) {')" "1"
-check "a list with no held figures at all is refused" "$(status_on "$BARE")" "1"
+judge "$BARE"
+check_rendered_status "a list with no held figures at all is refused" "$(case_of "$BARE")" "1"
 check "and the claim that fired is the one about the load state" \
-    "$(failed_claims "$BARE" | cut -d';' -f1)" \
+    "$(claims_of "$BARE" | cut -d';' -f1)" \
     "pressing a client holding nothing leaves every figure drawn"
 
 # ---------------------------------------------------------------------------
@@ -125,13 +128,14 @@ check "and the claim that fired is the one about the load state" \
 NOBOX="$WORK/nobox.html"
 check "the box's label is where the mutation expects it" \
     "$(mutate "$NOBOX" 's/el("div", "mlabel", "Money held")/el("div", "mlabel", "")/' 'el("div", "mlabel", "")')" "1"
-check "a screen that drops the money box is refused" "$(status_on "$NOBOX")" "1"
+judge "$NOBOX"
+check_rendered_status "a screen that drops the money box is refused" "$(case_of "$NOBOX")" "1"
 # THREE claims fire and that is the right answer, not noise. The faces and the
 # arrivals are read from the box labelled Money held (ovation#186), so a box that
 # lost its label is a box those two claims cannot find either, and each says so
 # rather than passing over it (L98).
 check "and the claims that fired all read the box" \
-    "$(failed_claims "$NOBOX")" "a single arrival is never broken down, and a balance of two is;the held money value is in the mono tabular face and the referral credit in the body face;the selected holder's own box still states the money;"
+    "$(claims_of "$NOBOX")" "a single arrival is never broken down, and a balance of two is;the held money value is in the mono tabular face and the referral credit in the body face;the selected holder's own box still states the money;"
 
 # ---------------------------------------------------------------------------
 # THE REST OF THE SCREEN (ovation#186, ovation#209). Eight rounds of decisions
@@ -139,24 +143,17 @@ check "and the claims that fired all read the box" \
 # below gets the defect that would have shipped past it, and each case renders
 # ONCE and reads both the status and the claims that fired from that one run,
 # because a planted file rendered twice is a browser start that proves nothing
-# new (L298).
+# new (L298). Since ovation#282 the cases above do the same, through the one
+# helper every rendered suite shares.
 # ---------------------------------------------------------------------------
-judge() {
-    # $1 the copy. Leaves the exit status in JUDGED_STATUS and the failed claims,
-    # sorted and joined, in JUDGED_CLAIMS.
-    "./$TARGET" "$1" > "$1.out" 2>&1
-    JUDGED_STATUS=$?
-    JUDGED_CLAIMS="$(sed -n 's/^  FAIL \([^:]*\):.*/\1/p' "$1.out" | sort | tr '\n' ';')"
-}
-
 plant() {
     # $1 case name, $2 sed expression, $3 what the edit must have left behind,
     # $4 the refusal's description, $5 the exact claims expected to fire
     local copy="$WORK/$1.html"
     check "the code the '$1' defect edits is where it expects" "$(mutate "$copy" "$2" "$3")" "1"
     judge "$copy"
-    check "$4" "$JUDGED_STATUS" "1"
-    check "and only the claim it breaks fires ($1)" "$JUDGED_CLAIMS" "$5"
+    check_rendered_status "$4" "$(case_of "$copy")" "1"
+    check "and only the claim it breaks fires ($1)" "$(claims_of "$copy")" "$5"
 }
 
 # 6. THE TWO BALANCES DRAWN ALIKE (PRD 14f). The credit loses the class that

@@ -234,6 +234,16 @@ agree. The fault it was aimed at is claim 3.
 checks ran on exactly one machine and both CI jobs answered CANNOT MEASURE, so a push from anywhere
 else was judged without them.
 
+**A failed rendered case says what the check printed** (ovation#282). The suites used to render a
+damaged file once for its exit status and again for the names of the claims that fired, keeping
+nothing of the second run but the lines one pattern matched. On 2026-09-13 on CI one run refused and
+the next came back as an empty string, with no record of what it had said. Every rendered suite now
+renders each case once through `scripts/lib/rendered-run.sh`, and a status, a claim list or a
+sentence that does not match quotes the run, saying whether it printed nothing at all or printed
+something that named no claim. The renderer likewise tells a browser that returned no page from one
+that returned a page with no report in it. It was not reproduced: 286 renders of the same damaged
+file, serial and up to forty at once, all named the one claim.
+
 ## Each file's own list of what it does not answer is checked too
 
 **`scripts/check-design-record-open.sh` now reads each design file's own open list as well as this

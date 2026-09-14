@@ -85,41 +85,45 @@ mutate() {
     grep -c "$3" "$1"
 }
 
-failed_claims() {
-    "./$TARGET" "$1" 2>&1 | sed -n 's/^  FAIL \([^:]*\):.*/\1/p' | sort | tr '\n' ';'
-}
-
-status_on() {
-    "./$TARGET" "$1" >/dev/null 2>&1
-    printf '%s' "$?"
-}
+# EACH DAMAGED COPY IS RENDERED ONCE (ovation#282). This used to run the check
+# twice per copy, once for the status and once for the claims, and keep nothing
+# of the second run but the lines one pattern matched. On 2026-09-13 on CI the
+# first run refused and the second came back as '', with no record of what it
+# had said. Both are now read from one run, and a mismatch quotes it.
+. "$(dirname "$0")/lib/rendered-run.sh"
+case_of() { printf '%s' "${1%.html}"; }
+judge() { rendered_run "$(case_of "$1")" "./$TARGET" "$1"; }
+claims_of() { rendered_claims "$(case_of "$1")" 's/^  FAIL \([^:]*\):.*/\1/p'; }
 
 # 1. THE MENU'S ANCHOR. Putting a large offset back on the menu reproduces the
 #    46px drift that had it opening under File.
 DRIFTED="$WORK/drifted.html"
 check "the menu's anchor is where the mutation expects it" \
     "$(mutate "$DRIFTED" 's/\.menu { position: absolute; top: 100%; left: -7px;/.menu { position: absolute; top: 100%; left: -70px;/' 'left: -70px')" "1"
-check "a menu that opens away from its item is refused" "$(status_on "$DRIFTED")" "1"
+judge "$DRIFTED"
+check_rendered_status "a menu that opens away from its item is refused" "$(case_of "$DRIFTED")" "1"
 check "and the claim that fired names the menu's position" \
-    "$(failed_claims "$DRIFTED")" "the Edit menu opens under Edit;"
+    "$(claims_of "$DRIFTED")" "the Edit menu opens under Edit;"
 
 # 2. THE MENU STAYING OPEN. Taking the close out of the item handler reproduces
 #    a menu left standing over the invoice it just changed.
 STICKY="$WORK/sticky.html"
 check "the close is where the mutation expects it" \
     "$(mutate "$STICKY" 's/^        MENU_OPEN = false;$//' 'item\[1\]();')" "1"
-check "a menu that stays open after a choice is refused" "$(status_on "$STICKY")" "1"
+judge "$STICKY"
+check_rendered_status "a menu that stays open after a choice is refused" "$(case_of "$STICKY")" "1"
 check "and the claim that fired names the menu closing" \
-    "$(failed_claims "$STICKY")" "choosing something closes the menu;"
+    "$(claims_of "$STICKY")" "choosing something closes the menu;"
 
 # 3. THE FIRST LINE'S AMOUNT. Putting the lines total back reproduces the row
 #    that reported 450.00 for a 375.00 line.
 SUMMED="$WORK/summed.html"
 check "the amount is where the mutation expects it" \
     "$(mutate "$SUMMED" 's/  else amt.textContent = money(hours \* RATE);/  else amt.textContent = money(t.lines);/' 'money(t.lines);')" "1"
-check "a first line reporting the lines total is refused" "$(status_on "$SUMMED")" "1"
+judge "$SUMMED"
+check_rendered_status "a first line reporting the lines total is refused" "$(case_of "$SUMMED")" "1"
 check "and the claim that fired names the line's own amount" \
-    "$(failed_claims "$SUMMED")" "the first line shows its own amount, not the lines total;"
+    "$(claims_of "$SUMMED")" "the first line shows its own amount, not the lines total;"
 
 # 3b. THE DRAFT'S MAIN ACTION. Putting `Send` back on it reproduces the state
 #     the two committed design records were in until 2026-09-09: this file said
@@ -128,9 +132,10 @@ check "and the claim that fired names the line's own amount" \
 SAYSSEND="$WORK/sayssend.html"
 check "the foot's word is where the mutation expects it" \
     "$(mutate "$SAYSSEND" 's/return { main: "Review", second: null, said: null };/return { main: "Send", second: null, said: null };/' 'main: "Send", second: null')" "1"
-check "a draft whose main action says Send is refused" "$(status_on "$SAYSSEND")" "1"
+judge "$SAYSSEND"
+check_rendered_status "a draft whose main action says Send is refused" "$(case_of "$SAYSSEND")" "1"
 check "and the claim that fired names what the action does" \
-    "$(failed_claims "$SAYSSEND")" \
+    "$(claims_of "$SAYSSEND")" \
     "the draft's main action names what it does, and it is not Send;"
 
 # 4. THE PALETTE'S SCOPE. Putting the tokens back on the app window takes them
@@ -140,14 +145,15 @@ check "and the claim that fired names what the action does" \
 UNPAINTED="$WORK/unpainted.html"
 check "the palette's block is where the mutation expects it" \
     "$(mutate "$UNPAINTED" 's/^\.screen {$/.win {/' '^\.win {$')" "2"
-check "a palette that does not reach the menu bar is refused" "$(status_on "$UNPAINTED")" "1"
+judge "$UNPAINTED"
+check_rendered_status "a palette that does not reach the menu bar is refused" "$(case_of "$UNPAINTED")" "1"
 # THREE claims fire, and all three are true: the panel that asks before a rare
 # action is outside the app window too, so its accent stops resolving and the
 # destructive word can no longer be compared against it. That third one appeared
 # only after the comparison was made to REFUSE an unreadable accent rather than
 # quietly pass on half of itself.
 check "and the claims that fired name everything that stops being drawn" \
-    "$(failed_claims "$UNPAINTED")" \
+    "$(claims_of "$UNPAINTED")" \
     "the destructive word does not look like the ordinary one;the menu's highlighted row is painted;the open menu's chip in the menu bar is painted;"
 
 # 5. THE ROW CLIPPING ITS OWN CONTROL. Taking the overflow rule off the row
@@ -161,9 +167,10 @@ CLIPPED="$WORK/clipped.html"
 # the rule still standing.
 check "the overflow rule is gone from the mutated copy" \
     "$(mutate "$CLIPPED" 's/^\.lrow\.newrow \.ldesc { overflow: visible; }$//' '^\.lrow\.newrow \.ldesc')" "0"
-check "a list clipped away by its own cell is refused" "$(status_on "$CLIPPED")" "1"
+judge "$CLIPPED"
+check_rendered_status "a list clipped away by its own cell is refused" "$(case_of "$CLIPPED")" "1"
 check "and the claim that fired names the list not being painted" \
-    "$(failed_claims "$CLIPPED")" "the list of types is painted where it sits;"
+    "$(claims_of "$CLIPPED")" "the list of types is painted where it sits;"
 
 # 6. THE PANEL'S SECOND QUESTION GOING NOWHERE. Taking the prefill out leaves
 #    the panel asking what a type usually charges and nothing reading the
@@ -172,9 +179,10 @@ check "and the claim that fired names the list not being painted" \
 DEAFPANEL="$WORK/deaf-panel.html"
 check "the prefill is gone from the mutated copy" \
     "$(mutate "$DEAFPANEL" 's/^    field.value = money(ADDING.amount);$//' 'field.value = money(ADDING.amount)')" "0"
-check "a panel whose answer nothing reads is refused" "$(status_on "$DEAFPANEL")" "1"
+judge "$DEAFPANEL"
+check_rendered_status "a panel whose answer nothing reads is refused" "$(case_of "$DEAFPANEL")" "1"
 check "and the claim that fired names making a type" \
-    "$(failed_claims "$DEAFPANEL")" "a type that does not exist yet can be made from here;"
+    "$(claims_of "$DEAFPANEL")" "a type that does not exist yet can be made from here;"
 
 # 7. A DATE THAT DOES NOT EXIST. Taking out the check that a month has the day
 #    typed lets Date.UTC roll 31 Sep forward to 1 Oct, so the invoice takes a
@@ -182,9 +190,10 @@ check "and the claim that fired names making a type" \
 ROLLED="$WORK/rolled.html"
 check "the day check is gone from the mutated copy" \
     "$(mutate "$ROLLED" 's|^  if (new Date(stamp).getUTCDate() !== day) return null;$||' 'getUTCDate() !== day')" "0"
-check "a date that rolls forward is refused" "$(status_on "$ROLLED")" "1"
+judge "$ROLLED"
+check_rendered_status "a date that rolls forward is refused" "$(case_of "$ROLLED")" "1"
 check "and the claim that fired names the date that does not exist" \
-    "$(failed_claims "$ROLLED")" "a date that does not exist is refused, and says why;"
+    "$(claims_of "$ROLLED")" "a date that does not exist is refused, and says why;"
 
 # 8. TERMS WITHOUT THEIR DATES. Dropping what each term lands on leaves a list
 #    of intervals to count out by hand, which is the whole of what this option
@@ -192,9 +201,10 @@ check "and the claim that fired names the date that does not exist" \
 BARE="$WORK/bare-terms.html"
 check "the dates are gone from the mutated copy's terms" \
     "$(mutate "$BARE" 's|^      when: dateText(ISSUED + term\[1\] \* 86400000),$||' 'when: dateText')" "0"
-check "terms that do not say what they land on are refused" "$(status_on "$BARE")" "1"
+judge "$BARE"
+check_rendered_status "terms that do not say what they land on are refused" "$(case_of "$BARE")" "1"
 check "and the claim that fired names the terms" \
-    "$(failed_claims "$BARE")" "every term says the date it lands on;"
+    "$(claims_of "$BARE")" "every term says the date it lands on;"
 
 #  9. A DESTRUCTIVE WORD DRAWN LIKE AN ORDINARY ONE. Taking out the override
 #     leaves the panel's own rule winning, and the word that will not bill a
@@ -203,9 +213,10 @@ check "and the claim that fired names the terms" \
 SAMEWORD="$WORK/same-word.html"
 check "the override is gone from the mutated copy" \
     "$(mutate "$SAMEWORD" 's|^.newpanel .panelacts button.harm { color: #8C4A3C; font-weight: 600; }$||' 'button.harm {')" "0"
-check "a destructive word drawn like an ordinary one is refused" "$(status_on "$SAMEWORD")" "1"
+judge "$SAMEWORD"
+check_rendered_status "a destructive word drawn like an ordinary one is refused" "$(case_of "$SAMEWORD")" "1"
 check "and the claim that fired names the destructive word" \
-    "$(failed_claims "$SAMEWORD")" "the destructive word does not look like the ordinary one;"
+    "$(claims_of "$SAMEWORD")" "the destructive word does not look like the ordinary one;"
 
 # 10. AN INVOICE LOSING ITS HISTORY ON ONE OF ITS TWO ENDINGS. buildInvoice ends
 #     twice now, ordinarily and for an invoice recorded as not billed, and the
@@ -215,9 +226,10 @@ check "and the claim that fired names the destructive word" \
 LOSTPANE="$WORK/lost-pane.html"
 check "the second ending is where the mutation expects it" \
     "$(mutate "$LOSTPANE" 's|^    return besideItsHistory(inv, t.total);$|    return inv;|' '^    return inv;$')" "1"
-check "an invoice that loses its history is refused" "$(status_on "$LOSTPANE")" "1"
+judge "$LOSTPANE"
+check_rendered_status "an invoice that loses its history is refused" "$(case_of "$LOSTPANE")" "1"
 check "and the claim that fired names the recorded decision" \
-    "$(failed_claims "$LOSTPANE")" "an invoice recorded as not billed says so and keeps its history;"
+    "$(claims_of "$LOSTPANE")" "an invoice recorded as not billed says so and keeps its history;"
 
 # 11. HELD MONEY TREATED AS A PRICE REDUCTION. The one fault here that produces
 #     a WRONG INVOICE rather than a wrong screen: folding an applied payment
@@ -227,9 +239,10 @@ check "and the claim that fired names the recorded decision" \
 NETTED="$WORK/netted.html"
 check "the total line is where the mutation expects it" \
     "$(mutate "$NETTED" 's|sumBox.append(line("Total", money(t.total), "tot totline"));|sumBox.append(line("Total", money(t.total - heldApplied(t.total)), "tot totline"));|' 'money(t.total - heldApplied')" "1"
-check "held money folded into the total is refused" "$(status_on "$NETTED")" "1"
+judge "$NETTED"
+check_rendered_status "held money folded into the total is refused" "$(case_of "$NETTED")" "1"
 check "and the claim that fired names the arithmetic" \
-    "$(failed_claims "$NETTED")" "applying held money leaves the subtotal and the tax alone;"
+    "$(claims_of "$NETTED")" "applying held money leaves the subtotal and the tax alone;"
 
 # 12. REMOVE OFF ITS OWN LINE. Moving it out of the label puts it back where Dan
 #     rejected it on 2026-09-10: present, pressable, and naming nothing.
@@ -242,9 +255,10 @@ check "and the claim that fired names the arithmetic" \
 LOOSE="$WORK/loose-remove.html"
 check "the label's class is where the mutation expects it" \
     "$(mutate "$LOOSE" 's|var label = el("div", "heldlabel");|var label = el("div", "heldnamed");|' 'el("div", "heldnamed")')" "1"
-check "a Remove that is not on the held money line is refused" "$(status_on "$LOOSE")" "1"
+judge "$LOOSE"
+check_rendered_status "a Remove that is not on the held money line is refused" "$(case_of "$LOOSE")" "1"
 check "and the claim that fired names where Remove sits" \
-    "$(failed_claims "$LOOSE")" "Remove is on the held money line itself;"
+    "$(claims_of "$LOOSE")" "Remove is on the held money line itself;"
 
 # 13. THE LEFTOVER GOING UNSAID. An invoice smaller than the balance uses part
 #     of it, and PRD 5.14e leaves exactly the rest held. Without the sentence,
@@ -252,9 +266,10 @@ check "and the claim that fired names where Remove sits" \
 QUIETREST="$WORK/quiet-rest.html"
 check "the leftover sentence is where the mutation expects it" \
     "$(mutate "$QUIETREST" 's|^        "\$" + money(HELD_ON_CLIENT - on) + " stays held on the client."));$|        ""));|' 'stays held on the client')" "0"
-check "a leftover that is never named is refused" "$(status_on "$QUIETREST")" "1"
+judge "$QUIETREST"
+check_rendered_status "a leftover that is never named is refused" "$(case_of "$QUIETREST")" "1"
 check "and the claim that fired names what is left over" \
-    "$(failed_claims "$QUIETREST")" "what is left over stays held, and the invoice says how much;"
+    "$(claims_of "$QUIETREST")" "what is left over stays held, and the invoice says how much;"
 
 # 14. ONE POT OF MONEY APPLIED TO TWO INVOICES. Two allocations of one payment
 #     may never both fit (PRD 5.14b). Applying it whenever there is an invoice
@@ -263,9 +278,10 @@ check "and the claim that fired names what is left over" \
 BOTH="$WORK/both-invoices.html"
 check "the branch is where the mutation expects it" \
     "$(mutate "$BOTH" 's|^  if (OPEN_INVOICES > 1) return HELD_TAKEN ? Math.min(HELD_ON_CLIENT, total) : 0;$|  if (OPEN_INVOICES > 1) return Math.min(HELD_ON_CLIENT, total);|' 'OPEN_INVOICES > 1) return Math.min')" "1"
-check "money applied to both open invoices is refused" "$(status_on "$BOTH")" "1"
+judge "$BOTH"
+check_rendered_status "money applied to both open invoices is refused" "$(case_of "$BOTH")" "1"
 check "and the claim that fired names the second open invoice" \
-    "$(failed_claims "$BOTH")" "with two invoices open it is applied to neither, and says why;"
+    "$(claims_of "$BOTH")" "with two invoices open it is applied to neither, and says why;"
 
 # 15. A FIGURE THE CHECK CANNOT READ. The leftover claim compares two numbers
 #     parsed off the screen, and parseFloat answers NaN rather than failing: NaN
@@ -275,9 +291,10 @@ check "and the claim that fired names the second open invoice" \
 UNREADABLE="$WORK/unreadable-figure.html"
 check "the applied figure is where the mutation expects it" \
     "$(mutate "$UNREADABLE" 's|row.append(label, el("div", "fig", "-" + money(on)));|row.append(label, el("div", "fig", "-" + "n/a"));|' '"-" + "n/a"')" "1"
-check "a figure the check cannot read is refused, not passed" "$(status_on "$UNREADABLE")" "1"
+judge "$UNREADABLE"
+check_rendered_status "a figure the check cannot read is refused, not passed" "$(case_of "$UNREADABLE")" "1"
 check "and the claim that fired names what is left over" \
-    "$(failed_claims "$UNREADABLE")" "what is left over stays held, and the invoice says how much;"
+    "$(claims_of "$UNREADABLE")" "what is left over stays held, and the invoice says how much;"
 
 # 16. HELD MONEY ON AN INVOICE THAT IS ALREADY PAID. This was the real state of
 #     the file for the length of one commit: the foot said Paid in full while the
@@ -292,9 +309,10 @@ ONPAID="$WORK/on-paid.html"
 #     full. Refusing only the arithmetic is the fault wearing its other face.
 check "the paid guard is gone from the mutated copy" \
     "$(mutate "$ONPAID" 's|^  if (INVSTATE === "paid") return;$||' '^  if (INVSTATE === "paid") return;$')" "0"
-check "held money on a paid invoice is refused" "$(status_on "$ONPAID")" "1"
+judge "$ONPAID"
+check_rendered_status "held money on a paid invoice is refused" "$(case_of "$ONPAID")" "1"
 check "and the claim that fired names the paid invoice" \
-    "$(failed_claims "$ONPAID")" "a paid invoice neither applies held money nor offers it;"
+    "$(claims_of "$ONPAID")" "a paid invoice neither applies held money nor offers it;"
 
 # 17. TOTAL AND OUTSTANDING AT THE SAME WEIGHT. This is the state the file was
 #     in until 2026-09-10: two heavy figures two lines apart, with nothing
@@ -304,9 +322,10 @@ check "and the claim that fired names the paid invoice" \
 SAMEWEIGHT="$WORK/same-weight.html"
 check "the totals rule is where the mutation expects it" \
     "$(mutate "$SAMEWEIGHT" 's|\.invsum\.hasout \.sline\.totline|.invsum.neverset .sline.totline|g' 'invsum.neverset .sline.totline')" "2"
-check "two figures at the same weight are refused" "$(status_on "$SAMEWEIGHT")" "1"
+judge "$SAMEWEIGHT"
+check_rendered_status "two figures at the same weight are refused" "$(case_of "$SAMEWEIGHT")" "1"
 check "and the claim that fired names which figure carries" \
-    "$(failed_claims "$SAMEWEIGHT")" "Outstanding is drawn heavier than Total;"
+    "$(claims_of "$SAMEWEIGHT")" "Outstanding is drawn heavier than Total;"
 
 # 18. TOTAL QUIETENED ON EVERY INVOICE. The other half, and the one that would
 #     ship: dropping the `.hasout` scope quietens Total on the invoice that has
@@ -316,15 +335,17 @@ check "and the claim that fired names which figure carries" \
 ALWAYSQUIET="$WORK/always-quiet.html"
 check "the scope is where the mutation expects it" \
     "$(mutate "$ALWAYSQUIET" 's|\.invsum\.hasout \.sline\.totline|.invsum .sline.totline|g' 'invsum .sline.totline')" "2"
-check "a Total quietened on every invoice is refused" "$(status_on "$ALWAYSQUIET")" "1"
+judge "$ALWAYSQUIET"
+check_rendered_status "a Total quietened on every invoice is refused" "$(case_of "$ALWAYSQUIET")" "1"
 check "and the claim that fired names the invoice with no Outstanding line" \
-    "$(failed_claims "$ALWAYSQUIET")" "with no Outstanding line, Total keeps the heavy figure;"
+    "$(claims_of "$ALWAYSQUIET")" "with no Outstanding line, Total keeps the heavy figure;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.
 # ---------------------------------------------------------------------------
-check "a file that is not there is refused rather than passed" \
-    "$(status_on "$WORK/no-such-file.html")" "2"
+judge "$WORK/no-such-file.html"
+check_rendered_status "a file that is not there is refused rather than passed" \
+    "$(case_of "$WORK/no-such-file.html")" "2"
 check "and a browser that is not there answers cannot measure" \
     "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "3"
 # AND IT SAYS SO IN THE WORDS, not only in its exit code (ovation#214). Every

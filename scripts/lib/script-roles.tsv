@@ -114,6 +114,7 @@ lib/ensure-xcode-project.sh	library	Sourced by run-tests.sh and build-install.sh
 lib/json-field.sh	library	Sourced by check-booking-queue.sh and check-sibling-installs.sh. One JSON reader for both, after plutil made every record read as unreadable on Linux (ovation#152); their own suites cover its behaviour.
 lib/design_render.py	library	Imported by check-invoice-screen-draws.sh, check-design-tokens-resolve.sh and check-design-sidebar-card.sh. One way to render a design file headless and read back what its probe reported, rather than the same browser globs and --dump-dom parsing copied into the second checker (L370). Both their suites drive it.
 lib/design_inline.py	library	Imported by check-design-rules-inline.sh, check-design-shell-inline.sh and check-design-sidebar-card.sh. One comparison of a design file's inlined copy against its source, rather than a second longest_run beside the second checker (L370). Both their suites drive it.
+lib/rendered-run.sh	library	Sourced by the suites of the six rendering checks, test-design-draws.sh, test-invoice-screen-draws.sh, test-clients-screen-draws.sh, test-design-tokens-resolve.sh, test-design-sidebar-card.sh and test-design-window-top.sh. Each case renders ONCE and its status and words are read from that run, and a mismatch quotes what the check said, telling a run that printed nothing from one that printed something naming no claim (ovation#282). test-rendered-run.sh drives it with stub checks.
 lib/script-roles.sh	library	The one reader of this file, sourced by both completeness rules so neither parses it itself. It was missing from this list on its first run, which is the rule working before it had a single assertion behind it.
 lib/quit-pid.sh	library	Sourced by smoke-launch.sh to quit the copy it launched, by PID resolved from the executable path.
 lib/test-harness.sh	library	Sourced by every shell suite. test-test-harness.sh covers it directly.
@@ -150,6 +151,7 @@ test-design-collisions.sh	suite
 test-design-shared-components.sh	suite	
 test-design-self-contained.sh	suite	
 test-design-dead-rules.sh	suite
+test-rendered-run.sh	suite
 test-design-shell-inline.sh	suite	
 test-design-sidebar-card.sh	suite	
 test-design-window-top.sh	suite	
