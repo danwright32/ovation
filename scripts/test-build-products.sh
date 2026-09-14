@@ -1,6 +1,6 @@
 #!/bin/bash
-# Building both configurations must be ONE command, and it must take the sibling
-# locks exactly once.
+# Building both configurations must be ONE command, through the runner once, and
+# it takes no sibling lock (ovation#302).
 #
 # ovation#28. scripts/test-built-bundle-identity.sh refuses when a configuration
 # has no built product, which is right on Dan's Mac and wrong on a fresh runner
@@ -12,10 +12,10 @@
 # the command a person needs: assembling it by hand was done repeatedly during
 # Phase 0, each time re-deriving the same lock incantation (L41).
 #
-# THE LOCKS ARE TAKEN ONCE, NOT PER CONFIGURATION. Two acquisitions means
-# releasing between them, so a sibling can take them in the gap and the second
-# build waits again, doubling a wait this exists to pay only once. That is
-# asserted rather than assumed.
+# THE RUNNER IS CALLED ONCE, NOT PER CONFIGURATION, so the project is ensured and
+# the live data bracket taken once for both builds. That is asserted rather than
+# assumed. Section 4 pins that no sibling lock is taken, which is the measured
+# decision recorded in the script's header.
 #
 # NOTHING HERE RUNS xcodebuild. The runner and the build command are seams, so
 # the suite measures the ORCHESTRATION rather than paying for two real builds
@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "build products tests" 14
+harness_begin "build products tests" 16
 
 TARGET="scripts/build-products.sh"
 require_target "$TARGET"
@@ -35,6 +35,7 @@ cat > "$WORK/runner" <<'EOF'
 #!/bin/bash
   echo "runner-invoked" >> "$RECORD"
   echo "skip-seam:${OVATION_SKIP_XCODE_PHASE:-unset}" >> "$RECORD"
+  echo "hosted:${OVATION_HOSTED_TEST_COMMAND:-unset}" >> "$RECORD"
   printf '%s\n' "$OVATION_TEST_COMMAND" >> "$RECORD"
   bash -c "$OVATION_TEST_COMMAND"
 EOF
@@ -70,11 +71,11 @@ check "building both configurations succeeds" "$BUILD_ST" "0"
 check "it asked for Debug" "$(grep -c '^built:Debug$' "$RECORD")" "1"
 check "it asked for Release" "$(grep -c '^built:Release$' "$RECORD")" "1"
 
-# THE LOCK IS TAKEN ONCE. Per configuration would release between builds, and a
-# sibling taking them in that gap makes the second build wait all over again.
-check "the sibling locks are taken exactly once, not once per configuration" \
+# THE RUNNER IS CALLED ONCE. Per configuration would ensure the project and
+# bracket live data twice for one request.
+check "both builds go through the runner once, not once per configuration" \
     "$(grep -c '^runner-invoked$' "$RECORD")" "1"
-check "and the build goes THROUGH the runner, so the locks are taken at all" \
+check "and the build goes THROUGH the runner, so it gets the project and the live data bracket" \
     "$(grep -c '^runner-invoked$' "$RECORD")" "1"
 # Matched on the OUTCOME phrase, not on the configuration names. Written first
 # as a search for "Debug and Release", which the opening announcement also
@@ -130,5 +131,27 @@ check "the skip seam does not reach the runner this script drives" \
     "$(grep -c 'skip-seam:unset' "$RECORD")" "1"
 check "and both configurations were still built" \
     "$(grep -c '^built:' "$RECORD")" "2"
+
+# ---------------------------------------------------------------------------
+# 4. THE BUILDS TAKE NO SIBLING LOCK, AND THAT IS A DECISION (ovation#302).
+#
+# The builds travel as the runner's pure command, which since ovation#271 runs
+# outside both sibling locks, and with no hosted command the runner takes no lock
+# at all. ovation#271 measured that only the hosted suite's TESTING, which orders
+# windows front, collided with a sibling; its unlocked Debug app builds beside
+# Overture's tests saw none of the 21 failures. So this pins what the header now
+# says, rather than a lock the header used to claim.
+#
+# AND AN INHERITED HOSTED COMMAND DOES NOT REACH THE RUNNER. It is an environment
+# variable, so a shell that had one set would have this script run somebody's
+# hosted command under the sibling locks after building, which is not what it was
+# asked to do (L169, L439).
+# ---------------------------------------------------------------------------
+FAIL_ON="" build_once
+check "the runner is handed no hosted command, so it takes no sibling lock for the builds" \
+    "$(grep -c '^hosted:unset$' "$RECORD")" "1"
+FAIL_ON="" OVATION_HOSTED_TEST_COMMAND="echo inherited" run_build >/dev/null 2>&1
+check "and a hosted command inherited from the shell does not reach the runner" \
+    "$(grep -c '^hosted:unset$' "$RECORD")" "1"
 
 harness_end
