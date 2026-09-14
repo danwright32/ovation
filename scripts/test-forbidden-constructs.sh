@@ -27,7 +27,7 @@ FORBIDDEN_COUNT="$(printf '%s\n' "$FORBIDDEN" | grep -c .)"
 DRAWING="$([ -x "./$TARGET" ] && "./$TARGET" --list-drawing 2>/dev/null)"
 DRAWING_COUNT="$(printf '%s\n' "$DRAWING" | grep -c .)"
 
-harness_begin "forbidden construct tests" $((24 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT))
+harness_begin "forbidden construct tests" $((31 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT))
 require_target "$TARGET"
 harness_temp_dir WORK
 
@@ -306,43 +306,82 @@ check "a root that is not there refuses with its own exit code" \
     "$(status_on "$WORK/not-here")" "2"
 
 # ---------------------------------------------------------------------------
-# The allowlist. An entry carrying no written reason is evidence nobody reasoned
-# about it (L233), and one naming a file that is gone outlives its reason.
+# The allowlist. An entry names a FILE AND THE RULE it is exempt from
+# (ovation#210), carries a written reason (L233), and names a file that is there
+# and a rule that exists, or it has outlived its reason.
+#
+# An entry used to name only a file, and the scan skipped that file entirely, so
+# an exemption written for one rule silently covered all of them. The first real
+# one, for the palette's colour channels, took a whole file out of the Task and
+# calendar rules as well, and the scanned file count dropping by one was the
+# only sign.
 # ---------------------------------------------------------------------------
 ALLOWED="$WORK/allowed"
 mkdir -p "$ALLOWED"
 printf 'let progress: Double = 0\n' > "$ALLOWED/Animation.swift"
 printf 'struct Money { let cents: Int64 }\n' > "$ALLOWED/Money.swift"
-check "an allowlisted file with a written reason is not reported" \
-    "$(status_on "$ALLOWED" "Animation.swift # a SwiftUI animation fraction, never money")" "0"
+check "an allowlisted file and rule with a written reason is not reported" \
+    "$(status_on "$ALLOWED" "Animation.swift : floating point money # a SwiftUI animation fraction, never money")" "0"
 check "an allowlist entry with no reason is refused" \
-    "$(status_on "$ALLOWED" "Animation.swift")" "3"
+    "$(status_on "$ALLOWED" "Animation.swift : floating point money")" "3"
 check "an allowlist entry naming a file that is not there is refused" \
-    "$(status_on "$ALLOWED" "Gone.swift # a reason for a file that no longer exists")" "3"
+    "$(status_on "$ALLOWED" "Gone.swift : floating point money # a reason for a file that no longer exists")" "3"
+
+# AN ENTRY NAMING NO RULE IS REFUSED, rather than read as covering every rule,
+# which is the reading this issue was filed against.
+check "an allowlist entry naming a file but no rule is refused" \
+    "$(status_on "$ALLOWED" "Animation.swift # a SwiftUI animation fraction, never money")" "3"
+check "and the refusal says the entry names no rule" \
+    "$(run_on "$ALLOWED" "Animation.swift # a SwiftUI animation fraction, never money" \
+        | grep -c "^  the allowlist entry 'Animation.swift' names no rule")" "1"
+check "an allowlist entry naming a rule that does not exist is refused" \
+    "$(status_on "$ALLOWED" "Animation.swift : floating money # a misspelt rule")" "3"
+check "and the refusal lists the rules an entry can name" \
+    "$(run_on "$ALLOWED" "Animation.swift : floating money # a misspelt rule" \
+        | grep -c '^  the rules are: floating point money, ')" "1"
+
+# THE CLASS, not the instance: an exemption from one rule leaves every other
+# rule applying to that file.
+MIXED="$WORK/allowed-mixed"
+mkdir -p "$MIXED"
+printf 'let progress: Double = 0\nlet zone = TimeZone.current\n' > "$MIXED/Animation.swift"
+check "an exemption from one rule does not exempt the file from another" \
+    "$(status_on "$MIXED" "Animation.swift : floating point money # a SwiftUI animation fraction, never money")" "1"
+check "and the rule still applying is the one reported" \
+    "$(run_on "$MIXED" "Animation.swift : floating point money # a SwiftUI animation fraction, never money" \
+        | grep -c '^  Animation.swift:2: TimeZone.current (ambient calendar)$')" "1"
+check "and the exempted rule is not" \
+    "$(run_on "$MIXED" "Animation.swift : floating point money # a SwiftUI animation fraction, never money" \
+        | grep -c '(floating point money)$')" "0"
+
 # An allowlist that has grown to cover EVERYTHING has scanned nothing, and that
 # is the state in which a scanner reports exactly what a clean tree does (L98).
+# With exemptions per rule, everything means every rule for every file, so the
+# entries are derived from the rules the script declares rather than typed here.
 EVERYTHING="$WORK/everything-allowed"
 mkdir -p "$EVERYTHING"
 printf 'let progress: Double = 0\n' > "$EVERYTHING/Animation.swift"
-check "an allowlist covering every file in the root refuses rather than passing" \
-    "$(status_on "$EVERYTHING" "Animation.swift # the only file, and it is exempt")" "2"
+EVERY_RULE="$([ -x "./$TARGET" ] && "./$TARGET" --list-rules 2>/dev/null \
+    | sed 's/^\(.*\)$/Animation.swift : \1 # the only file, and it is exempt from this rule/')"
+check "an allowlist covering every rule for every file refuses rather than passing" \
+    "$(status_on "$EVERYTHING" "$EVERY_RULE")" "2"
 
 check "a refused allowlist says which entry it refused" \
-    "$(OVATION_CONSTRUCT_SCAN_ROOT="$ALLOWED" OVATION_CONSTRUCT_ALLOWLIST="Gone.swift # a reason" \
-        "./$TARGET" 2>&1 | grep -c 'Gone.swift')" "1"
+    "$(OVATION_CONSTRUCT_SCAN_ROOT="$ALLOWED" \
+        OVATION_CONSTRUCT_ALLOWLIST="Gone.swift : floating point money # a reason" \
+        "./$TARGET" 2>&1 | grep -c "^  the allowlist entry 'Gone.swift' names a file that is not there")" "1"
 
 # ---------------------------------------------------------------------------
 # WHAT THE DEFAULT ALLOWLIST ACTUALLY COSTS, measured rather than assumed.
 #
-# An entry names a FILE, not a file and a rule, so exempting one construct in a
-# file exempts every construct in it. The palette is exempted for the money rule
-# and would now pass carrying a `Task.detached` or a `Calendar.current` as well,
-# silently, with its own comment still claiming it holds nothing but colour
-# (L448, L129).
+# An entry names a file AND A RULE since ovation#210, so the palette's exemption
+# from the money rule no longer lets a `Task.detached` or a `Calendar.current`
+# through: the cases above prove that for every entry, not only this one.
 #
-# So the file is scanned here with the allowlist EMPTY, and the money rule is
-# asserted to be the only one it trips. This fails the day anything else goes in
-# it, which is exactly when the exemption's reason stops being true.
+# What this case still holds is the exemption's REASON. The palette is scanned
+# with the allowlist EMPTY and the money rule is asserted to be the only one it
+# trips, so it fails the day anything else goes in the file, which is when the
+# comment claiming it holds nothing but colour stops being true (L129).
 # ---------------------------------------------------------------------------
 PALETTE="$WORK/palette"
 mkdir -p "$PALETTE"
