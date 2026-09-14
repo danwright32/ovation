@@ -24,6 +24,13 @@ the JSON, can change without anything reading as a changed design (L405).
 EACH ROW IS WRITTEN ON ONE LINE, so a changed figure is a one line difference a
 person can read in review, rather than a value three lines below its label.
 
+EACH FIXTURE CARRIES ITS INPUT beside the text it produces: its number, dates,
+client, tax status, discount, credit and lines, exactly as the design's FIXTURES
+define them. The app's test builds its invoices from that input, so the two sides
+hold ONE copy of the fixtures rather than two that drift apart (L26). A line's
+hours given as null stays null, because the design keeps that spelling on purpose
+(ovation#170), and a key the design omits stays omitted.
+
 Exit codes, one per outcome (L11):
 
     0  written, or --check and the file holds what the design draws
@@ -50,7 +57,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs", "design")
 SOURCE = "invoice-pdf.html"
 EXPECTED = "invoice-pdf.expected.json"
-KEYS = ["label", "head", "strip", "title", "columns", "items", "money", "foot"]
+KEYS = ["label", "input", "head", "strip", "title", "columns", "items", "money", "foot"]
+INPUT_KEYS = ["number", "issued", "due", "client", "exempt", "discount", "credit", "lines"]
 ABOUT = ("The text docs/design/invoice-pdf.html draws for each of its fixture invoices, "
          "written by scripts/build-invoice-pdf-text.sh and read by the app's document "
          "tests (ovation#167). Do not edit by hand: re-run the script, and "
@@ -63,6 +71,16 @@ PROBE = r"""
 <script>
 (function () {
   function text(node) { return node ? node.textContent.replace(/\s+/g, " ").trim() : ""; }
+  /* The fixture as the design defines it. A key the design omits is left out,
+     and a value it gives as null stays null (ovation#170). */
+  function inputOf(f) {
+    return { number: f.number, issued: f.issued, due: f.due, client: f.client,
+             exempt: !!f.exempt, discount: f.discount, credit: f.credit,
+             lines: f.lines.map(function (l) {
+               return { kind: l.kind, shoot: l.shoot, venue: l.venue, date: l.date,
+                        hours: l.hours, rate: l.rate, amount: l.amount };
+             }) };
+  }
   var report;
   try {
     if (typeof FIXTURES === "undefined" || !FIXTURES.length) { throw new Error("the page defines no FIXTURES"); }
@@ -72,6 +90,7 @@ PROBE = r"""
       var due = page.querySelector(".due");
       return {
         label: f.label,
+        input: inputOf(f),
         head: { label: text(due && due.querySelector(".lbl")),
                 amount: text(due && due.querySelector(".big")),
                 due: text(due && due.querySelector(".muted")) },
@@ -106,6 +125,21 @@ PROBE = r"""
 """
 
 
+def serialise_input(given):
+    """A fixture's input, one field per line and one invoice line per row."""
+    parts = []
+    for key in INPUT_KEYS:
+        if key not in given:
+            continue
+        value = given[key]
+        if key == "lines" and value:
+            rows = ",\n".join("          " + json.dumps(line, ensure_ascii=False) for line in value)
+            parts.append('        "lines": [\n%s\n        ]' % rows)
+        else:
+            parts.append("        %s: %s" % (json.dumps(key), json.dumps(value, ensure_ascii=False)))
+    return '      "input": {\n%s\n      }' % ",\n".join(parts)
+
+
 def serialise(fixtures):
     """The file, with every row on one line."""
     out = ["{",
@@ -116,7 +150,9 @@ def serialise(fixtures):
         parts = []
         for key in KEYS:
             value = fixture[key]
-            if isinstance(value, list) and value:
+            if key == "input":
+                parts.append(serialise_input(value))
+            elif isinstance(value, list) and value:
                 inner = ",\n".join("        " + json.dumps(row, ensure_ascii=False) for row in value)
                 parts.append("      %s: [\n%s\n      ]" % (json.dumps(key), inner))
             else:

@@ -17,7 +17,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice PDF text tests" 15
+harness_begin "invoice PDF text tests" 17
 
 TARGET="scripts/build-invoice-pdf-text.sh"
 require_target "$TARGET"
@@ -58,6 +58,15 @@ elif which == "every-element-money":
     print(" / ".join("%s %s" % (label, value) for label, value in rows))
 elif which == "last-money-labels":
     print(",".join(f["money"][-1][0] for f in fixtures))
+elif which == "inputs":
+    keys = ("number", "issued", "due", "client", "exempt", "lines")
+    print(sum(1 for f in fixtures
+              if all(k in f.get("input", {}) for k in keys) and f["input"]["lines"]))
+elif which == "every-element-input":
+    sample = [f for f in fixtures if f.get("label") == "Every element"]
+    given = sample[0].get("input", {}) if len(sample) == 1 else {}
+    print("credit %s, discount %s%%, %d lines" % (given.get("credit"),
+          (given.get("discount") or {}).get("percent"), len(given.get("lines", []))))
 PYFACT
 }
 
@@ -83,6 +92,16 @@ check "the committed file holds all six fixture invoices" \
 check "and the Every element invoice totals its lines above the referral credit (PRD 8)" \
     "$(fact docs/design/invoice-pdf.expected.json every-element-money)" \
     'Services $725.00 / Referral credit -$250.00 / Subtotal $475.00'
+
+# ONE SET OF INPUTS FOR BOTH SIDES (L26). The app's test builds the same six
+# invoices and compares what it writes with what the design draws. If it typed
+# those invoices out again it would hold a second copy of the fixtures, and the
+# two copies would drift, so each fixture's INPUT travels in the same file as the
+# text it produces.
+check "each fixture carries the inputs the design builds it from" \
+    "$(fact docs/design/invoice-pdf.expected.json inputs)" "6"
+check "and the Every element inputs carry its credit, its discount and its three lines" \
+    "$(fact docs/design/invoice-pdf.expected.json every-element-input)" "credit 250, discount 10%, 3 lines"
 
 # ---------------------------------------------------------------------------
 # THE CASE THIS EXISTS FOR: the design changes and the committed text does not.
