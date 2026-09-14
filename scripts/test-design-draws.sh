@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 51
+harness_begin "design rendering checks" 57
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -278,14 +278,101 @@ check "and the message says it said nothing rather than leaving a blank" \
 check "a browser that returned no page at all says so, rather than blaming the probe" \
     "$(OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
         docs/design/invoice-pdf.html 2>&1 | grep -c 'returned no page at all')" "1"
-PAGE_BROWSER="$WORK/page-without-report.sh"
-printf '#!/bin/sh\necho "<html><head></head><body><p>a page</p></body></html>"\nexit 0\n' > "$PAGE_BROWSER"
-chmod +x "$PAGE_BROWSER"
-OVATION_HEADLESS_BROWSER="$PAGE_BROWSER" python3 "$TARGET" docs/design/invoice-pdf.html \
-    > "$WORK/page-without-report.txt" 2>&1
+# A PAGE WITH NO REPORT needs a browser that returns a page, and since
+# ovation#183 the renderer drives the browser over the DevTools pipe rather than
+# reading --dump-dom, so the stand-in speaks just enough of that protocol: it
+# opens a page, fires its load, and hands back a document the probe never wrote
+# into. FAKE_BROWSER_MODE=silent makes it take every message and answer none,
+# which is the browser that hangs.
+FAKE_BROWSER="$WORK/fake-devtools-browser.py"
+cat > "$FAKE_BROWSER" <<'PYEOF'
+#!/usr/bin/env python3
+import json, os, sys
+mode = os.environ.get("FAKE_BROWSER_MODE", "page")
+if "--remote-debugging-pipe" not in sys.argv:
+    sys.exit(5)
+inbox, outbox, buf, url = 3, 4, b"", "about:blank"
+def send(msg):
+    os.write(outbox, json.dumps(msg).encode() + b"\0")
+while True:
+    chunk = os.read(inbox, 65536)
+    if not chunk:
+        sys.exit(0)
+    buf += chunk
+    while b"\0" in buf:
+        raw, buf = buf.split(b"\0", 1)
+        if mode == "silent":
+            continue
+        msg = json.loads(raw)
+        method, session, result, events = msg.get("method"), msg.get("sessionId"), {}, []
+        if method == "Target.createTarget":
+            result = {"targetId": "T1"}
+        elif method == "Target.attachToTarget":
+            result = {"sessionId": "S1"}
+        elif method == "Page.navigate":
+            url = msg["params"]["url"]
+            result = {"frameId": "F1"}
+            events = ["Page.loadEventFired"]
+        elif method == "Runtime.evaluate":
+            # Loaded, at the address asked for, and no report written into it.
+            result = {"result": {"type": "object", "value": {
+                "href": url, "ready": "complete", "report": None, "bytes": 52}}}
+        elif method == "Browser.close":
+            send({"id": msg["id"], "result": {}})
+            sys.exit(0)
+        reply = {"id": msg["id"], "result": result}
+        if session:
+            reply["sessionId"] = session
+        send(reply)
+        for name in events:
+            send({"method": name, "params": {}, "sessionId": "S1"})
+PYEOF
+chmod +x "$FAKE_BROWSER"
+OVATION_HEADLESS_BROWSER="$FAKE_BROWSER" OVATION_RENDER_WAIT_MS=200 python3 "$TARGET" \
+    docs/design/invoice-pdf.html > "$WORK/page-without-report.txt" 2>&1
 check "a browser that returned a page with no report in it cannot measure" "$?" "3"
 check "and it says the page came back and how big it was, without the report" \
     "$(grep -c 'returned a page of [0-9]* bytes with no probe report in it' "$WORK/page-without-report.txt"):$(grep -c 'returned no page at all' "$WORK/page-without-report.txt")" "1:0"
+
+# A BROWSER THAT TAKES THE REQUEST AND NEVER ANSWERS is a wait with no end unless
+# the renderer sets one (L110). It is bounded, the bound is a seam so this case
+# costs half a second rather than two minutes (L524), and running out of it is its
+# own sentence rather than a hang or an empty report.
+FAKE_BROWSER_MODE=silent OVATION_HEADLESS_BROWSER="$FAKE_BROWSER" OVATION_RENDER_TIMEOUT=0.5 \
+    python3 "$TARGET" docs/design/invoice-pdf.html > "$WORK/hung.txt" 2>&1
+check "a browser that never answers cannot measure, rather than hanging" "$?" "3"
+check "and it says the browser did not answer, and for how long it was given" \
+    "$(grep -c 'the browser did not answer .* within 0.5 seconds' "$WORK/hung.txt")" "1"
+
+# ---------------------------------------------------------------------------
+# ONE BROWSER PER CHECK, HOWEVER MANY RENDERS (ovation#183). Every render used to
+# start its own browser, and a start was most of what a render cost: measured on
+# 2026-09-14, 0.13s of a 0.16s render of invoice.html was the start. A check that
+# renders every file, at two widths for this one, now starts ONE browser and
+# opens each render as a fresh page in it, so no render can see another's
+# presses. The count is taken from a wrapper that records each start and then
+# runs the real browser, so the renders still really happen and pass.
+# ---------------------------------------------------------------------------
+REAL_BROWSER="$(python3 -c 'import sys; sys.path.insert(0, "scripts/lib"); import design_render; print(design_render.find_browser() or "")')"
+COUNTING="$WORK/counting-browser.sh"
+printf '#!/bin/sh\necho started >> "$BROWSER_STARTS"\nexec %q "$@"\n' "$REAL_BROWSER" > "$COUNTING"
+chmod +x "$COUNTING"
+starts_for() {
+    # $1 a check. Prints its exit status and how many browsers it started.
+    local log="$WORK/starts-$(basename "$1" .sh)"
+    : > "$log"
+    BROWSER_STARTS="$log" OVATION_HEADLESS_BROWSER="$COUNTING" OVATION_DESIGN_ROOT= \
+        python3 "$1" > "$log.out" 2>&1
+    printf '%s:%s' "$?" "$(grep -c started "$log")"
+}
+check "this check renders every file at both widths in one browser" \
+    "$(starts_for scripts/check-design-draws.sh)" "0:1"
+check "the token check renders every file in one browser" \
+    "$(starts_for scripts/check-design-tokens-resolve.sh)" "0:1"
+check "the sidebar card check renders every rail in one browser" \
+    "$(starts_for scripts/check-design-sidebar-card.sh)" "0:1"
+check "the window ceiling check renders every file in one browser" \
+    "$(starts_for scripts/check-design-window-top.sh)" "0:1"
 
 # ---------------------------------------------------------------------------
 # AND THE LINUX JOB ACTUALLY RUNS THEM (ovation#160). A workflow that installs a

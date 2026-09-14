@@ -68,7 +68,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
 from design_inline import declared_parts, html_files  # noqa: E402
-from design_render import CannotMeasure, NO_BROWSER, find_browser, render  # noqa: E402
+from design_render import Browser, CannotMeasure, NO_BROWSER, find_browser  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs", "design")
@@ -122,6 +122,8 @@ def main():
     measured = []
     skipped = []
     faults = []
+    # One browser for every file, each render a fresh page in it (ovation#183).
+    session = Browser(browser)
     for path in paths:
         name = os.path.basename(path)
         try:
@@ -132,7 +134,7 @@ def main():
             continue
 
         try:
-            report = render(browser, path, PROBE, window=WINDOW)
+            report = session.render(path, PROBE, window=WINDOW)
         except CannotMeasure as why:
             faults.append((name, "could not be rendered: %s" % why))
             continue
