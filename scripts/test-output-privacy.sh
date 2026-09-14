@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 76
+harness_begin "output privacy tests" 79
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -128,8 +128,14 @@ check "while counts, ids and field names are not" \
 #    that names the files it found and is therefore the one that could leak.
 TREE="$WORK/tree"; mkdir -p "$TREE"
 printf 'a file mentioning %s and %s\n' "$CLIENT" "$VENUE" > "$TREE/notes.md"
+# EVERY SOURCE IS A FIXTURE (ovation#278). This run used to set three of the
+# guard's five, so the store and the booking queue fell back to Dan's live ones
+# on every push. The check at the end of this file refuses any guard run in any
+# suite that leaves one unset.
 OUT_GUARD="$(OVATION_GUARD_EXPORT="$EXPORT" \
     OVATION_GUARD_CUSTODY_DIR="$WORK/no-custody" \
+    OVATION_GUARD_STORE="$WORK/no-store/Ovation.store" \
+    OVATION_GUARD_QUEUE_DIR="$WORK/no-queue" \
     OVATION_GUARD_SCAN_ROOT="$TREE" \
     ./scripts/check-identity-leaks.sh 2>&1)"
 check "the identity guard found the planted identity, so its reporting branch ran" \
@@ -845,5 +851,76 @@ check "the CI workflow guard prints no identity when it refuses" \
     "$(leaks_in "$(OVATION_WORKFLOW_DIR="$WF" ./scripts/check-ci-workflow.sh 2>&1)")" "clean"
 check "and that refusal really did print a job name, so the case reached it" \
     "$(OVATION_WORKFLOW_DIR="$WF" ./scripts/check-ci-workflow.sh 2>&1 | grep -c 'NO TIMEOUT: a-job')" "1"
+
+# ---------------------------------------------------------------------------
+# EVERY TEST RUN OF THE IDENTITY GUARD POINTS EVERY SOURCE AT A FIXTURE
+# (ovation#278).
+#
+# This suite promises at its head that it touches no live data, and its own
+# guard run above set three of the guard's five sources, so the other two fell
+# back to Dan's live store and booking queue on every push. A run that sets SOME
+# of a script's seams runs every unset one for real, and nothing looked (L284,
+# L2).
+#
+# So this is the class rather than the instance (L30): every place any suite
+# RUNS the real guard must set every source the guard reads. The list is read
+# from the guard's own environment lookups rather than typed out here, so a
+# source added to the guard tomorrow is covered without anybody remembering
+# (L41). The guard's name is assembled from pieces, because a scanner that
+# spells out what it hunts for finds itself (L245).
+# ---------------------------------------------------------------------------
+unfixtured_guard_runs() {
+    python3 -B - "$1" "scripts/check-identity-leaks.sh" <<'PYSEAMS'
+import glob, os, re, sys
+scan_dir, guard_path = sys.argv[1], sys.argv[2]
+seams = sorted(set(re.findall(r'os\.environ\.get\("(OVATION_GUARD_[A-Z_]+)"',
+                              open(guard_path, encoding="utf-8").read())))
+if not seams:
+    # A scanner that found no seams would pass every run it reads, which is the
+    # silence this check exists to end, so it says so instead (L98).
+    print("NO SEAMS FOUND in " + guard_path)
+    sys.exit(0)
+name = "check-" + "identity-leaks.sh"
+direct = ["./scripts/" + name, "bash scripts/" + name, "python3 scripts/" + name]
+found = []
+for path in sorted(glob.glob(os.path.join(scan_dir, "test-*.sh"))):
+    lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+    target_is_guard = any(re.match(r'^\s*TARGET="scripts/' + re.escape(name) + '"', l)
+                          for l in lines)
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("#"):
+            continue
+        runs = any(d in line for d in direct) or bool(
+            target_is_guard and re.search(r'\./\$TARGET\b', line))
+        if not runs:
+            continue
+        # The whole command, continuation lines and all, because that is where a
+        # run sets its environment.
+        start = i
+        while start > 0 and lines[start - 1].rstrip().endswith("\\"):
+            start -= 1
+        command = " ".join(l.strip() for l in lines[start:i + 1])
+        missing = [s for s in seams if s + "=" not in command]
+        if missing:
+            found.append("%s:%d %s" % (os.path.basename(path), i + 1,
+                         ",".join(s[len("OVATION_GUARD_"):] for s in missing)))
+print(" ".join(found))
+PYSEAMS
+}
+
+# SEEN TO FAIL, on a staged suite, before it is trusted on the real tree (L1).
+SEAMSCAN="$WORK/seamscan"; mkdir -p "$SEAMSCAN"
+GUARD_CALL="./scripts/check-""identity-leaks.sh"
+printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    %s 2>&1)"\n' \
+    "$GUARD_CALL" > "$SEAMSCAN/test-offender.sh"
+printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_CUSTODY_DIR=x \\\n    OVATION_GUARD_STORE=x \\\n    OVATION_GUARD_QUEUE_DIR=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    %s 2>&1)"\n' \
+    "$GUARD_CALL" > "$SEAMSCAN/test-clean.sh"
+SEAMS_SCANNED="$(unfixtured_guard_runs "$SEAMSCAN")"
+check "a guard run that leaves a source unset is reported" \
+    "$(printf '%s' "$SEAMS_SCANNED" | grep -c 'test-offender.sh')" "1"
+check "and a guard run that sets every source is not" \
+    "$(printf '%s' "$SEAMS_SCANNED" | grep -c 'test-clean.sh')" "0"
+check "every suite that runs the identity guard points every source at a fixture" \
+    "$(unfixtured_guard_runs "scripts")" ""
 
 harness_end
