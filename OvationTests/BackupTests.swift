@@ -32,6 +32,25 @@ final class RefusingFileManager: FileManager {
     }
 }
 
+/// A file manager that refuses to LIST one directory, so a restore can be stopped
+/// partway by a refusal Ovation raises itself rather than one Foundation raises
+/// (ovation#269). Every other operation is the real one.
+final class UnlistableFileManager: FileManager {
+    private let refusedPath: String
+
+    init(refusing directory: URL) {
+        refusedPath = directory.standardizedFileURL.path
+        super.init()
+    }
+
+    override func contentsOfDirectory(atPath path: String) throws -> [String] {
+        if URL(fileURLWithPath: path).standardizedFileURL.path == refusedPath {
+            throw CocoaError(.fileReadNoPermission)
+        }
+        return try super.contentsOfDirectory(atPath: path)
+    }
+}
+
 /// Plan 1.8, ovation#57. Dated backups, verified by enumerating every referenced
 /// document rather than by asking whether anything opens.
 struct BackupTests {
@@ -1183,9 +1202,52 @@ struct BackupTests {
         }
 
         let snapshot = try #require(try world.service.preRestoreSnapshots().first)
-        #expect(thrown as? BackupError == .restoredPartway(replaced: ["problems.jsonl"],
-                                                             failedAt: "documents",
-                                                             snapshot: snapshot.lastPathComponent))
+        // THE CAUSE TRAVELS TOO (ovation#269). A full disk, a permission macOS
+        // withdrew and a drive that went away need three different actions, so
+        // the refused write's own description is carried rather than discarded at
+        // the boundary (L11). The fixture refuses with a known error, so the
+        // expected text is that error's, not a string typed here.
+        #expect(thrown as? BackupError == .restoredPartway(
+            replaced: ["problems.jsonl"],
+            failedAt: "documents",
+            snapshot: snapshot.lastPathComponent,
+            cause: CocoaError(.fileWriteNoPermission).localizedDescription))
+    }
+
+    /// A CAUSE OVATION RAISED ITSELF IS SAID IN WORDS (ovation#269). The queue is
+    /// read through `bookingsMissing`, which turns a refused listing into
+    /// `BackupError.couldNotRead`, and that error's `localizedDescription` is
+    /// Foundation's "The operation couldn't be completed" with a type name and a
+    /// number: a sentence that claims a cause without stating one (L11).
+    @Test("a restore stopped by Ovation's own refusal names what could not be read")
+    func aPartwayCauseFromOvationItselfNamesThePath() throws {
+        let world = try World()
+        _ = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000021", "a queued booking", in: world)
+        let archive = try world.service.takeBackup(now: world.instant)
+        let archivedQueue = archive.appendingPathComponent("booking-queue", isDirectory: true)
+        let reference = world.receiptReference
+        let service = BackupService(
+            dataDirectory: world.dataDirectory,
+            backupsDirectory: world.backupsDirectory,
+            dailyKeep: world.dailyKeep,
+            referencedDocuments: { [reference] },
+            fileManager: UnlistableFileManager(refusing: archivedQueue))
+
+        var thrown: Error?
+        do {
+            try service.restore(from: archive, now: world.instant.addingTimeInterval(60))
+        } catch {
+            thrown = error
+        }
+
+        guard case .restoredPartway(_, let failedAt, _, let cause) = thrown as? BackupError else {
+            Issue.record("a restore refused while reading the queue was reported as \(String(describing: thrown))")
+            return
+        }
+        #expect(failedAt == "booking-queue")
+        #expect(cause.contains(archivedQueue.standardizedFileURL.path),
+                "the cause did not name what could not be read: \(cause)")
+        #expect(!cause.contains("BackupError"))
     }
 
     @Test("a restore whose snapshot cannot be taken changes nothing, and does not say otherwise")

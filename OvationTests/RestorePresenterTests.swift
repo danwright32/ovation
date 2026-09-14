@@ -245,6 +245,14 @@ struct RestorePresenterTests {
         #expect(detail.contains(snapshot.lastPathComponent))
         #expect(detail.contains("custody"))
         #expect(!detail.contains("Nothing in Ovation has been changed"))
+        // AND WHY IT STOPPED (ovation#269), because freeing space, granting access
+        // again and reconnecting a drive are different remedies (L11). The
+        // fixture's file manager refuses with a permission error, so the sentence
+        // must carry that error's own words.
+        let cause = CocoaError(.fileWriteNoPermission).localizedDescription
+        #expect(!cause.isEmpty)
+        #expect(detail.contains(cause),
+                "the partway sentence did not say why the write failed: \(detail)")
     }
 
     /// A presenter over the fixture's folders whose file manager refuses one copy
