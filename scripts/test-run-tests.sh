@@ -234,6 +234,7 @@ start_stoppable_runner() {
     OVATION_HOSTED_TEST_COMMAND="$2" \
     OVATION_UNLOCKED_COMMAND=true \
     OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
         python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.setpgrp(); os.execv(sys.argv[1], sys.argv[1:])' \
         "./$TARGET" > "$1" 2>&1 &
     STOPPABLE_PID=$!
@@ -1126,6 +1127,7 @@ stale_project_run() {
     OVATION_FLOCK_BIN="$SUITE_FLOCK" \
     OVATION_TEST_COMMAND="echo PURE-SUITE-RAN" OVATION_UNLOCKED_COMMAND="true" \
     OVATION_HOSTED_TEST_COMMAND="$HOSTED_PASSES" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
     OVATION_XCODE_PROJECT="$1" \
         "./$TARGET" 2>&1
 }
