@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 86
+harness_begin "output privacy tests" 88
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -868,6 +868,25 @@ check "the Xcode selector prints no identity, even from a pin somebody edited" \
     "$(leaks_in "$XSEL_OUT")" "clean"
 check "and it really did refuse the pin, so the case reached the line that quotes one" \
     "$(printf '%s' "$XSEL_OUT" | grep -c 'CANNOT MEASURE')" "1"
+
+# ---------------------------------------------------------------------------
+# THE XCODE PROJECT CURRENCY CHECK (ovation#206). It prints file paths and
+# counts, never a line of the project file or of project.yml, and both of those
+# carry a client and a venue here, which is where a comment about a real booking
+# would sit.
+# ---------------------------------------------------------------------------
+PROJTREE="$WORK/projtree"
+mkdir -p "$PROJTREE/App" "$PROJTREE/Ovation.xcodeproj"
+printf '# sources for %s at %s\ntargets:\n  Ovation:\n    sources:\n      - path: App\n' \
+    "$CLIENT" "$VENUE" > "$PROJTREE/project.yml"
+printf 'struct Listed {}\n' > "$PROJTREE/App/Listed.swift"
+printf 'struct Unlisted {}\n' > "$PROJTREE/App/Unlisted.swift"
+printf '// %s at %s\n{\n\t\t000000000000000000000001 /* Listed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Listed.swift; sourceTree = "<group>"; };\n}\n' \
+    "$CLIENT" "$VENUE" > "$PROJTREE/Ovation.xcodeproj/project.pbxproj"
+check "the Xcode project currency check prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_REPO_ROOT="$PROJTREE" OVATION_XCODE_PROJECT="$PROJTREE/Ovation.xcodeproj" ./scripts/check-xcode-project-current.sh 2>&1)")" "clean"
+check "and that refusal really did name a file, so the case reached the line that prints" \
+    "$(OVATION_REPO_ROOT="$PROJTREE" OVATION_XCODE_PROJECT="$PROJTREE/Ovation.xcodeproj" ./scripts/check-xcode-project-current.sh 2>&1 | grep -c 'App/Unlisted.swift')" "1"
 
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever

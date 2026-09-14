@@ -34,7 +34,9 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL \
       OVATION_XCODE_PROJECT OVATION_XCODEGEN OVATION_XCODEBUILD_LISTER \
       OVATION_LOCK_WAIT_LOG OVATION_XCODEBUILD OVATION_XCODE_VERSION_FILE \
-      OVATION_DEFAULTS_DOMAINS_COMMAND
+      OVATION_DEFAULTS_DOMAINS_COMMAND \
+      OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
+      OVATION_REPO_ROOT
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -65,7 +67,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 128
+harness_begin "test runner lock tests" 149
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -191,6 +193,128 @@ check "the directory lock is taken before the file lock" \
 run_runner "kill -9 \$\$" >/dev/null 2>&1
 check "a killed run still releases the directory lock" \
     "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
+
+# 6b. A RUN TOLD TO STOP STOPS (ovation#274).
+#
+#     The trap was `trap release_locks EXIT INT TERM`, and a trap on INT or TERM
+#     that only cleans up RETURNS to the script: the runner let go of its locks
+#     and carried on, back to waiting for them or on into xcodebuild. Seen
+#     2026-09-13: two push gate runs stopped with an ordinary signal were still
+#     alive and still waiting seconds later, and needed `kill -9`, which skips the
+#     trap entirely and can leave Downbeat's lock planted for every sibling.
+#
+#     So each case asserts the run has EXITED, with the conventional status, and
+#     only then that the locks are free. Free locks alone are what the broken
+#     trap also produced, so asserting only that would pass on the defect (L140).
+#
+#     THE RUNNER IS STARTED WITH INT RESTORED. A background job in a shell with
+#     no job control starts with SIGINT IGNORED, and a signal ignored on entry
+#     cannot be trapped, so without this the INT case would measure bash's rule
+#     for background jobs rather than the runner. Every seam is set on the one
+#     command, as every other invocation here does (ovation#152).
+#
+#     AND IN A PROCESS GROUP OF ITS OWN, so INT can be sent the way Ctrl+C sends
+#     it: to the runner AND the command it is waiting on. The first version sent
+#     INT to the runner's pid alone and failed on one of CI's two identical Linux
+#     jobs, still running, while passing on this Mac in every run. Measured here,
+#     bash 3.2 ran the INT trap in 12 of 12 trials whether INT went to the pid or
+#     the group. Bash 5 on Linux applies its rule for a foreground command that
+#     exits normally after INT, which is to take the command as having handled
+#     it, so a pid-only INT arriving mid `sleep` was absorbed or not by timing.
+#     A person's Ctrl+C reaches the whole group, and that is the stop this case
+#     is about. TERM stays pid-only below: `kill` sends it that way, and it is
+#     not subject to that rule.
+start_stoppable_runner() {
+    OVATION_DIR_LOCK="$DIR_LOCK" \
+    OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_TIMEOUT=120 \
+    OVATION_LOCK_POLL_INTERVAL=0.05 \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" \
+    OVATION_TEST_COMMAND=true \
+    OVATION_HOSTED_TEST_COMMAND="$2" \
+    OVATION_UNLOCKED_COMMAND=true \
+    OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
+        python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.setpgrp(); os.execv(sys.argv[1], sys.argv[1:])' \
+        "./$TARGET" > "$1" 2>&1 &
+    STOPPABLE_PID=$!
+}
+# Waits for the run to exit, on the condition rather than for a fixed time, and
+# sets STOPPED to its status or `still-running`. A run still alive after the
+# budget is the defect, so it is killed here rather than left behind this suite
+# (L290). IT SETS A VARIABLE AND IS NEVER CALLED INSIDE `$(...)`: a substitution
+# is a subshell, the runner is not ITS child, and `wait` there answers nonsense
+# about a process it never started (the first version read -1).
+stopped_status() {
+    local pid="$1" polls=0
+    while kill -0 "$pid" 2>/dev/null && [ "$polls" -lt 200 ]; do
+        polls=$((polls+1)); sleep 0.05
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+        STOPPED=still-running
+        return
+    fi
+    wait "$pid" 2>/dev/null
+    STOPPED=$?
+}
+wait_for_line() {
+    local waited=0
+    until grep -q "$2" "$1" 2>/dev/null; do
+        waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
+    done
+}
+
+# 6b-i. INT while WAITING on Overture's held lock: the case the issue saw.
+#        Indented like every other holder in this file, because the suite level
+#        argument scan below reads unindented lines and the holder's inner `$1`
+#        belongs to its own shell.
+    rm -rf "$DIR_LOCK"
+    : > "$FILE_LOCK"
+    HOLD_SENTINEL274="$WORK/hold-274"; : > "$HOLD_SENTINEL274"
+    ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c 'while [ -e "$1" ]; do sleep 0.02; done' _ "$HOLD_SENTINEL274" ) &
+    HOLDER274=$!
+    waited=0
+    while "$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null; do
+        waited=$((waited+1)); [ "$waited" -gt 100 ] && break; sleep 0.05
+    done
+    OUT274A="$WORK/run-274a.out"
+    start_stoppable_runner "$OUT274A" "$HOSTED_PASSES"
+    wait_for_line "$OUT274A" 'Waiting for both test locks'
+    # To the whole group, as Ctrl+C does: the runner and whatever it is waiting on.
+    kill -INT -- "-$STOPPABLE_PID"
+    stopped_status "$STOPPABLE_PID"
+    check "a run interrupted while waiting for a lock exits, with status 130" \
+        "$STOPPED" "130"
+    check "and it left Downbeat's lock free behind it" \
+        "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
+    rm -f "$HOLD_SENTINEL274"; wait "$HOLDER274" 2>/dev/null || true
+    # A killed broken run can leave the directory lock planted, which would
+    # then answer for the next case.
+    rm -rf "$DIR_LOCK"
+
+# 6b-ii. TERM while HOLDING BOTH, inside the hosted suite. The signal is handled
+#        when the command it is running returns, and the broken trap then ran
+#        on to report that suite's verdict as the run's. The hosted command
+#        blocks on a sentinel this case removes, so nothing here is timed.
+rm -rf "$DIR_LOCK"
+IN_HOSTED="$WORK/in-hosted-274"; HOLD_HOSTED="$WORK/hold-hosted-274"
+rm -f "$IN_HOSTED"; : > "$HOLD_HOSTED"
+OUT274B="$WORK/run-274b.out"
+start_stoppable_runner "$OUT274B" "touch '$IN_HOSTED'; while [ -e '$HOLD_HOSTED' ]; do sleep 0.02; done; $HOSTED_PASSES"
+waited=0
+until [ -e "$IN_HOSTED" ]; do
+    waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
+done
+kill -TERM "$STOPPABLE_PID"
+rm -f "$HOLD_HOSTED"
+stopped_status "$STOPPABLE_PID"
+check "a run terminated while holding both locks exits, with status 143" \
+    "$STOPPED" "143"
+check "and Downbeat's lock is free" \
+    "$([ -e "$DIR_LOCK" ] && echo held || echo free)" "free"
+check "and Overture's lock is free" \
+    "$("$SUITE_FLOCK" -n "$FILE_LOCK" true 2>/dev/null && echo free || echo held)" "free"
 
 # 7. Missing flock: say so BY NAME with the remedy, rather than failing
 #    obscurely. Ovation inherits this dependency from Overture and does not own
@@ -982,6 +1106,153 @@ OUT151D="$(run_with_project "$PROJ/still-absent.xcodeproj" "$PROJ/quiet-xcodegen
 check "a generator that reports success and writes nothing is refused" \
     "$([ "$ST151D" -ne 0 ] && echo refused || echo allowed)" "refused"
 
+
+# ---------------------------------------------------------------------------
+# A PROJECT THAT DOES NOT LIST THE SWIFT FILES ON DISK STOPS THE RUN BY NAME
+# (ovation#206).
+#
+# project.yml lists directories and the generated project lists files, so a new
+# Swift file is invisible to every build until the project is regenerated. On
+# 2026-09-10 that surfaced as `cannot find 'YearEndExportCommand' in scope`,
+# which names the code rather than the project. The runner asks
+# check-xcode-project-current.sh before either Swift suite, so a direct run is
+# told the real subject and the command that fixes it. The stale project here
+# lists one name that is in no tree, against this repository's real sources.
+STALE="$WORK/stale.xcodeproj"; mkdir -p "$STALE"
+printf '{\n\t\t000000000000000000000001 /* NotInAnyTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotInAnyTree.swift; sourceTree = "<group>"; };\n}\n' \
+    > "$STALE/project.pbxproj"
+stale_project_run() {
+    OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_TIMEOUT=2 OVATION_LOCK_POLL_INTERVAL=0.05 \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" \
+    OVATION_TEST_COMMAND="echo PURE-SUITE-RAN" OVATION_UNLOCKED_COMMAND="true" \
+    OVATION_HOSTED_TEST_COMMAND="$HOSTED_PASSES" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
+    OVATION_XCODE_PROJECT="$1" \
+        "./$TARGET" 2>&1
+}
+OUT206="$(stale_project_run "$STALE")"; ST206=$?
+check "a project that does not list the Swift files on disk fails the run" "$ST206" "1"
+check "and it stops before the pure suite is built from it" \
+    "$(mentions "$OUT206" "PURE-SUITE-RAN")" "no"
+check "and it gives the command that regenerates the project" \
+    "$(mentions "$OUT206" "bash scripts/regenerate-xcode-project.sh")" "yes"
+
+# ---------------------------------------------------------------------------
+# TWO RUNS CREATING THE SAME PROJECT AT ONCE MAKE IT ONCE (ovation#207).
+#
+# ovation#202 put regeneration under the lock every build takes and left the
+# CREATE alone, on purpose: a fresh checkout must not queue behind a sibling's
+# build for a file nothing can be reading. That holds against a build and not
+# against a second create. Two runs starting together on a fresh tree both saw no
+# project and both ran xcodegen at the same path, and a second run could see the
+# project DIRECTORY the first had only begun to write and build from it.
+#
+# So a create takes a lock scoped to the project path, and a run that finds one
+# held waits for that run's result rather than generating over it. The helper is
+# driven directly, with generators that block on a sentinel this suite removes,
+# so the overlap is staged on conditions rather than on timing (L290).
+[ -n "${WORK:-}" ] || { echo "REFUSED: no temp directory"; exit 1; }
+CREATE="$WORK/create"; rm -rf "$CREATE"; mkdir -p "$CREATE"
+CREATE_LIB="$PWD/scripts/lib/ensure-xcode-project.sh"
+# stage_generator <name> <mkdir-first|mkdir-last|fail>
+stage_generator() {
+    local body
+    case "$2" in
+        mkdir-first) body="mkdir -p '$CREATE/Ovation.xcodeproj'; touch '$CREATE/started'; while [ -e '$CREATE/hold' ]; do sleep 0.02; done" ;;
+        mkdir-last) body="touch '$CREATE/started'; while [ -e '$CREATE/hold' ]; do sleep 0.02; done; mkdir -p '$CREATE/Ovation.xcodeproj'" ;;
+        fail) body="exit 1" ;;
+    esac
+    printf '#!/bin/bash\necho GENERATOR-RAN >> "%s"\n%s\n' "$CREATE/generated.log" "$body" > "$CREATE/$1"
+    chmod +x "$CREATE/$1"
+}
+reset_create() {
+    rm -rf "$CREATE/Ovation.xcodeproj" "$CREATE/started" "$CREATE/generated.log"
+    : > "$CREATE/hold"
+}
+# create_in_background <output file> <generator>: sets CREATE_PID.
+create_in_background() {
+    OVATION_PROJECT_CREATE_POLL=0.05 \
+        bash -c '. "$1"; ensure_xcode_project "$2" "$3" "$4"' _ \
+        "$CREATE_LIB" "$CREATE" "$CREATE/Ovation.xcodeproj" "$CREATE/$2" > "$1" 2>&1 &
+    CREATE_PID=$!
+}
+wait_for_file() {
+    local waited=0
+    until [ -e "$1" ]; do
+        waited=$((waited+1)); [ "$waited" -gt 200 ] && break; sleep 0.05
+    done
+}
+# create_now <generator> [timeout]: runs the helper in the foreground. The inner
+# `$1` belongs to `bash -c`, which is why every call lives inside a function: the
+# suite level argument scan below reads unindented lines.
+create_now() {
+    OVATION_PROJECT_CREATE_POLL=0.05 OVATION_PROJECT_CREATE_TIMEOUT="${2:-300}" \
+        bash -c '. "$1"; ensure_xcode_project "$2" "$3" "$4"' _ \
+        "$CREATE_LIB" "$CREATE" "$CREATE/Ovation.xcodeproj" "$CREATE/$1" 2>&1
+}
+create_lock_of() {
+    bash -c '. "$1"; xcode_project_create_lock "$2"' _ "$CREATE_LIB" "$1"
+}
+CREATE_LOCK="$(create_lock_of "$CREATE/Ovation.xcodeproj")"
+check "the create lock is a real path derived from the project" \
+    "$([ -n "$CREATE_LOCK" ] && [ "$CREATE_LOCK" != "$CREATE/Ovation.xcodeproj" ] && echo derived || echo "none:$CREATE_LOCK")" "derived"
+
+# 207a. The generator writes the project only when it finishes, so a second run
+#       that does not wait generates a second time.
+reset_create; stage_generator gen-last mkdir-last
+create_in_background "$CREATE/a.out" gen-last; FIRST_CREATE=$CREATE_PID
+wait_for_file "$CREATE/started"
+create_in_background "$CREATE/b.out" gen-last; SECOND_CREATE=$CREATE_PID
+wait_for_line "$CREATE/b.out" 'creating'
+rm -f "$CREATE/hold"
+wait "$FIRST_CREATE"; ST207A1=$?
+wait "$SECOND_CREATE"; ST207A2=$?
+check "two runs creating one project at once both succeed" "$ST207A1:$ST207A2" "0:0"
+check "and the generator ran once, not once for each" \
+    "$(grep -c GENERATOR-RAN "$CREATE/generated.log" 2>/dev/null)" "1"
+check "and the second run says it waited for the first rather than generating" \
+    "$(grep -c 'waiting for it rather than generating over it' "$CREATE/b.out")" "1"
+
+# 207b. The generator makes the directory FIRST, which is what a half written
+#       project looks like from outside. A run must not take that as ready.
+reset_create; stage_generator gen-first mkdir-first
+create_in_background "$CREATE/a.out" gen-first; FIRST_CREATE=$CREATE_PID
+wait_for_file "$CREATE/started"
+create_in_background "$CREATE/b.out" gen-first; SECOND_CREATE=$CREATE_PID
+wait_for_line "$CREATE/b.out" 'creating'
+check "a project still being created is waited for, not built from" \
+    "$(kill -0 "$SECOND_CREATE" 2>/dev/null && echo waiting || echo returned-early)" "waiting"
+rm -f "$CREATE/hold"
+wait "$FIRST_CREATE"; wait "$SECOND_CREATE"; ST207B=$?
+check "and once it is made the waiting run goes on with it" "$ST207B" "0"
+
+# 207c. A LOCK LEFT BY A RUN THAT DIED is claimed, not waited on for ever. A mkdir
+#       lock is not released by the kernel, and run-tests.sh exits on INT and TERM
+#       (ovation#274), so a stopped create leaves one behind (L409).
+reset_create; rm -f "$CREATE/hold"; stage_generator gen-last mkdir-last
+bash -c 'exit 0' & DEAD_PID=$!; wait "$DEAD_PID"
+mkdir -p "$CREATE_LOCK"; printf 'Ovation create:%s\n' "$DEAD_PID" > "$CREATE_LOCK/owner"
+OUT207C="$(create_now gen-last)"; ST207C=$?
+check "a create lock left by a run that died is claimed and the project made" "$ST207C" "0"
+check "and it says whose lock it claimed" "$(mentions "$OUT207C" "left by a run that is no longer alive")" "yes"
+check "and the lock is gone afterwards" "$([ -e "$CREATE_LOCK" ] && echo held || echo free)" "free"
+
+# 207d. A generator that fails still gives the lock back, or every later run on
+#       this tree would wait on a create that is not happening.
+reset_create; rm -f "$CREATE/hold"; stage_generator gen-fail fail
+create_now gen-fail >/dev/null; ST207D=$?
+check "a generator that failed is refused" "$ST207D" "2"
+check "and the create lock is released anyway" "$([ -e "$CREATE_LOCK" ] && echo held || echo free)" "free"
+
+# 207e. A create by a LIVE run that does not finish is a refusal naming it, not a
+#       wait with no end (L110). This suite's own pid is the live holder.
+reset_create; rm -f "$CREATE/hold"
+mkdir -p "$CREATE_LOCK"; printf 'Ovation create:%s\n' "$$" > "$CREATE_LOCK/owner"
+OUT207E="$(create_now gen-last 1)"; ST207E=$?
+check "a create that a live run never finishes is refused after the deadline" "$ST207E" "2"
+check "and the refusal names the run holding it" "$(mentions "$OUT207E" "Ovation create:$$")" "yes"
+rm -rf "$CREATE_LOCK"
 
 # AND EVERY ROUTE TO xcodebuild GOES THROUGH THE SAME HELPER (ovation#151).
 #

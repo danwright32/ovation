@@ -131,7 +131,30 @@ release_locks() {
   DIR_LOCK_HELD=""
   FLOCK_FD=""
 }
-trap release_locks EXIT INT TERM
+# AND A RUN TOLD TO STOP, STOPS (ovation#274). This was one trap for EXIT, INT
+# and TERM, and a trap on INT or TERM that only cleans up RETURNS to the script:
+# a runner told to stop let go of its locks and carried on, back to waiting for
+# them or on into xcodebuild, and reported whatever that reached as its verdict.
+# Seen 2026-09-13: two push gate runs stopped with an ordinary signal were still
+# alive and still waiting seconds later. Stopping one for real then needed
+# `kill -9`, which skips every trap, and the directory lock is the half that does
+# not clear when its holder dies (L473).
+#
+# So EXIT keeps the cleanup, and INT and TERM release and then EXIT with the
+# conventional status, 128 plus the signal, so a caller can tell a stopped run
+# from a red one. The EXIT trap runs again on the way out and finds nothing held.
+#
+# WHAT A SIGNAL CANNOT DO, said so it is not expected: bash runs the trap when
+# the command in front of it returns, so a signal sent to this pid alone while
+# xcodebuild is running takes effect when that build finishes. Ctrl+C reaches
+# the whole foreground group, the build included, and is the prompt way to stop.
+# And an INT sent to this pid ALONE can be absorbed outright by bash 5: when a
+# foreground command exits normally after the shell got INT, bash takes that
+# command as having handled it and does not run this trap. Ctrl+C, and `kill`
+# (TERM) to this pid, both stop the run.
+trap release_locks EXIT
+trap 'release_locks; exit 130' INT
+trap 'release_locks; exit 143' TERM
 
 # Ovation does not own flock, it inherits the dependency from Overture, so this
 # is the one that will be absent on a fresh machine. Say so BY NAME with the
@@ -277,6 +300,12 @@ else
   # be reading. REGENERATING an existing one is a different act and does take the
   # lock, in regenerate-xcode-project.sh: it rewrites a file a running build is
   # reading, which happened on 2026-09-10 and survived on luck (ovation#202).
+  # A create does take a lock of its own, scoped to the project path, so a second
+  # run creating the same project waits for the first's result instead of
+  # generating over it, and nothing about a sibling's build can hold it
+  # (ovation#207). The create itself is the ensure_xcode_project call below the
+  # Xcode version note.
+  #
   # WHICH XCODE THIS RUN BUILDS WITH, AGAINST THE ONE CI BUILDS WITH (ovation#270).
   #
   # The push gate is meant to predict CI, and it can only do that while both
@@ -313,6 +342,25 @@ else
   # shellcheck source=lib/ensure-xcode-project.sh
   . "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
   ensure_xcode_project "${REPO_ROOT}" "${XCODE_PROJECT}" "${XCODEGEN}" || exit 2
+
+  # AND THE PROJECT THAT IS THERE LISTS THE SWIFT FILES THAT ARE THERE
+  # (ovation#206). The helper above deliberately never regenerates, so a Swift
+  # file added after the project was made is invisible to both suites, and the
+  # build then fails with `cannot find ... in scope`, naming the code rather than
+  # the project. Asked here, before anything is built from it, through the same
+  # script the push gate runs, so the two cannot disagree about "current" (L70).
+  #
+  # 0 is current and 2 is nothing to compare (no project file to read), and both
+  # go on: xcodebuild says plainly when a project is absent. Anything else stops
+  # the run with the check's own words and status, which is a real fault in the
+  # tree rather than something that went unmeasured.
+  OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
+    "${REPO_ROOT}/scripts/check-xcode-project-current.sh"
+  PROJECT_CURRENT_STATUS=$?
+  case "${PROJECT_CURRENT_STATUS}" in
+    0|2) ;;
+    *) exit "${PROJECT_CURRENT_STATUS}" ;;
+  esac
 
   if [ ! -x "${FLOCK_BIN}" ]; then
     echo "Error: flock was not found at ${FLOCK_BIN}." >&2

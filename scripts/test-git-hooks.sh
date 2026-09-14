@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 64
+harness_begin "git hooks tests" 73
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -205,6 +205,22 @@ stage_tree() {
         chmod +x "$r/scripts/$c"
     done
     cp "$REPO_ROOT/$HOOK" "$r/scripts/git-hooks/pre-push"
+    # THE REAL PRODUCT PREDICATE, WITH ONLY THE BUILD LOCATION STAGED
+    # (ovation#273). The gate refuses a push that will need built products before
+    # running anything, through the same lib the bundle suites read, so the lib
+    # is copied rather than stubbed and what counts as "built" is the real rule.
+    # Only the xcodebuild query that says WHERE products live is replaced, by a
+    # later definition, so no case here runs xcodebuild or needs a project (L2).
+    # Both configurations are built by default; a case removes what it needs.
+    mkdir -p "$r/scripts/lib"
+    cp "$REPO_ROOT/scripts/lib/built-product.sh" "$r/scripts/lib/built-product.sh"
+    printf '\nbuilt_product_path() { printf "%%s/%%s" "%s/products" "$1"; }\n' "$r" \
+        >> "$r/scripts/lib/built-product.sh"
+    local config
+    for config in Debug Release; do
+        mkdir -p "$r/products/$config/Ovation.app/Contents/MacOS"
+        : > "$r/products/$config/Ovation.app/Contents/MacOS/Ovation"
+    done
     printf '%s' "$r"
 }
 
@@ -554,5 +570,59 @@ D22="$( cd "$R22" && printf 'z\n' > docs/four.md && git add docs/four.md \
 OUT22I="$(hook_with_range "$R22" "refs/heads/main $D22 refs/heads/main $S22B")"
 check "a docs only push still skips the xcode phase" \
     "$(printf '%s' "$OUT22I" | grep -c 'SKIP=1')" "1"
+
+# ---------------------------------------------------------------------------
+# A PUSH THAT WILL NEED BUILT PRODUCTS IS TOLD SO BEFORE ANYTHING RUNS
+# (ovation#273).
+#
+# The refusal for missing products came at the END: after every shell suite,
+# after the wait for the sibling locks, after the pure and hosted suites. Measured
+# 2026-09-13: two branches in fresh worktrees each waited minutes, once behind a
+# sibling's build, to be told to run build-products.sh, and each doomed push was
+# stopped by hand. The suite stub here prints SUITE-FROM-<tree>, so "refused up
+# front" is asserted as the suite never having started, not only as a refusal.
+P273="$(stage_tree gate273 0)"
+B273="$(commit_file "$P273" "docs/one.md")"
+S273="$(commit_file "$P273" "Ovation/Domain/Thing.swift")"
+rm -rf "$P273/products/Release"
+OUT273A="$(hook_with_range "$P273" "refs/heads/main $S273 refs/heads/main $B273")"; ST273A=$?
+check "a push the Xcode phase judges is refused when Release was never built" \
+    "$([ "$ST273A" -ne 0 ] && echo refused || echo allowed)" "refused"
+check "and it is refused before the suite starts, not after it" \
+    "$(printf '%s' "$OUT273A" | grep -c 'SUITE-FROM-')" "0"
+check "and it names the configuration that is missing" \
+    "$(printf '%s' "$OUT273A" | grep -c 'no Release product')" "1"
+check "and it gives the command that builds both" \
+    "$(printf '%s' "$OUT273A" | grep -c 'bash scripts/build-products.sh')" "1"
+
+# THE SECOND HALF OF THE SAME PREDICATE: a bundle with no executable inside is
+# not built either, which is what the bundle suites say and so what this says.
+P273B="$(stage_tree gate273b 0)"
+B273B="$(commit_file "$P273B" "docs/one.md")"
+S273B="$(commit_file "$P273B" "Ovation/Domain/Thing.swift")"
+rm -f "$P273B/products/Debug/Ovation.app/Contents/MacOS/Ovation"
+OUT273B="$(hook_with_range "$P273B" "refs/heads/main $S273B refs/heads/main $B273B")"; ST273B=$?
+check "a Debug bundle with no executable inside is refused up front too" \
+    "$([ "$ST273B" -ne 0 ] && echo refused || echo allowed):$(printf '%s' "$OUT273B" | grep -c 'SUITE-FROM-')" "refused:0"
+check "and it says the bundle has no executable, not that it is absent" \
+    "$(printf '%s' "$OUT273B" | grep -c 'Debug bundle has no executable')" "1"
+
+# A PUSH THE XCODE PHASE DOES NOT JUDGE IS NOT HELD TO IT, products or not: the
+# late rule allows it, and an early refusal stricter than the late one would be
+# two rules about one question (L70, L667).
+D273="$(commit_file "$P273" "docs/two.md")"
+OUT273C="$(hook_with_range "$P273" "refs/heads/main $D273 refs/heads/main $S273")"; ST273C=$?
+check "a docs only push with no products still runs the suite and is allowed" \
+    "$ST273C:$(printf '%s' "$OUT273C" | grep -c 'SUITE-FROM-gate273')" "0:1"
+
+# AND A TREE WITHOUT THE LIB IS REFUSED, NOT WAVED ON. It is the pushed tree's own
+# definition of built; a gate that skipped it would drop the check while still
+# reporting green, which is the rule gate_check already holds for its scripts.
+P273D="$(stage_tree gate273d 0)"; rm -f "$P273D/scripts/lib/built-product.sh"
+OUT273D="$(hook_from_tree_in "$P273D" "$P273D")"; ST273D=$?
+check "a tree with no built product lib is refused" \
+    "$([ "$ST273D" -ne 0 ] && echo refused || echo allowed)" "refused"
+check "and it names the lib it could not find" \
+    "$(printf '%s' "$OUT273D" | grep -c 'lib/built-product.sh')" "1"
 
 harness_end

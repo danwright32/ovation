@@ -38,7 +38,10 @@ cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/built-product.sh"
 . "$(dirname "$0")/lib/bundle-identity-checks.sh"
 
-CONFIGURATIONS="Debug Release"
+# From the lib, because the push gate asks whether these same configurations are
+# built before it runs this suite (ovation#273), and two lists would let it ask
+# about a different set than this judges (L70).
+CONFIGURATIONS="$BUILT_PRODUCT_CONFIGURATIONS"
 
 # The declared total is DERIVED, never written out a second time. Two numbers
 # that have to agree drift, and the one that drifts is the declaration nobody
