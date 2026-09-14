@@ -427,6 +427,62 @@ else
 fi
 
 TEST_COMMAND="${OVATION_HOOK_TEST_COMMAND:-}"
+
+# ---------------------------------------------------------------------------
+# A PUSH THAT WILL NEED BUILT PRODUCTS IS REFUSED BEFORE ANYTHING RUNS
+# (ovation#273).
+#
+# The refusal below, for a suite that could not measure, is the rule. But it is
+# learned at the END: after every shell suite, after the wait for the sibling
+# locks, after the pure and hosted suites. Measured 2026-09-13, two branches in
+# fresh worktrees each waited several minutes, once behind a sibling's build, to
+# be told to run build-products.sh, and each doomed push was stopped by hand.
+#
+# So when the Xcode phase is going to run, both configurations are asked for
+# first, through scripts/lib/built-product.sh: the same location query and the
+# same test for "built" the two bundle suites refuse by. That is what makes this
+# an earlier answer to the late refusal's question rather than a second rule that
+# can disagree with it (L70, L667). It is a strict subset of the late refusal:
+# products missing means those suites cannot measure, so this refuses only a push
+# the late refusal was certain to refuse.
+#
+# NOT ASKED WHEN THE COMMAND IS INJECTED. The early refusal exists to save the
+# cost of a real run, and an injected command is no real run; the late rule still
+# judges its status, as it always did.
+#
+# A TREE WITHOUT THE LIB IS REFUSED, NOT SKIPPED. The hook and the lib come from
+# the same revision (ovation#138), so its absence is an inconsistent tree, and
+# skipping would be the gate dropping a check while still reporting green (L96).
+if [ -z "${SKIP_XCODE}" ] && [ -z "${TEST_COMMAND}" ]; then
+    PRODUCT_LIB="${REPO_ROOT}/scripts/lib/built-product.sh"
+    if [ ! -f "${PRODUCT_LIB}" ]; then
+        echo "pre-push: scripts/lib/built-product.sh is not in ${REPO_ROOT}, so this gate" >&2
+        echo "pre-push: cannot tell whether the products this push needs are built." >&2
+        echo "pre-push: Push refused." >&2
+        exit 1
+    fi
+    # shellcheck source=../lib/built-product.sh
+    . "${PRODUCT_LIB}"
+    PRODUCTS_MISSING=""
+    for config in ${BUILT_PRODUCT_CONFIGURATIONS}; do
+        # From the top of the pushed tree, which is where the location query
+        # expects to find the project.
+        app="$(cd "${REPO_ROOT}" && built_product_path "${config}")/Ovation.app"
+        reason="$(built_product_absence "${config}" "${app}")" \
+            || PRODUCTS_MISSING="${PRODUCTS_MISSING}pre-push:     ${reason}
+"
+    done
+    if [ -n "${PRODUCTS_MISSING}" ]; then
+        echo "pre-push: this push contains something the built bundle suites judge, and" >&2
+        echo "pre-push: they cannot measure a product that was never built:" >&2
+        printf '%s' "${PRODUCTS_MISSING}" >&2
+        echo "pre-push: Push refused before running anything, rather than after the whole" >&2
+        echo "pre-push: suite. Build both configurations, then push again:" >&2
+        echo "pre-push:     bash scripts/build-products.sh" >&2
+        exit 1
+    fi
+fi
+
 if [ -n "${TEST_COMMAND}" ]; then
     bash -c "${TEST_COMMAND}"
 else

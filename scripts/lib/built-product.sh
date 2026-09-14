@@ -41,18 +41,46 @@ built_product_path() {
 # nobody can run leaves the reader facing the same refusal with no way out
 # (L148, L406).
 built_product_require() {
-    local config="$1" app="$2"
+    local config="$1" app="$2" reason
     # The remedy names the command that fixes BOTH configurations, not just this
     # one. A refusal here almost always means neither has been built (a fresh
     # clone, cleared DerivedData, or a runner), so a remedy naming one leaves the
     # reader to hit the same wall again on the next configuration (L148, L406).
     local build_it="bash scripts/build-products.sh   (builds Debug and Release under the sibling locks)"
 
+    reason="$(built_product_absence "$config" "$app")"
+    case $? in
+        0) ;;
+        1) harness_cannot_measure "$reason" "build it first: $build_it" ;;
+        *) harness_cannot_measure "$reason" "rebuild it: $build_it" ;;
+    esac
+}
+
+# THE CONFIGURATIONS A BUNDLE SUITE JUDGES, named once (ovation#273). The push
+# gate asks whether each is built before it runs anything, and a gate reading a
+# different list from the suites it is predicting would refuse, or pass, a
+# different question (L70).
+BUILT_PRODUCT_CONFIGURATIONS="Debug Release"
+
+# WHAT "BUILT" MEANS, and the ONE place it is decided (ovation#273). The bundle
+# suites refuse through `built_product_require` above, and the push gate refuses
+# up front through this, before the shell suites, the sibling locks and both
+# Swift suites have been paid for. Two copies of the test would let the early
+# refusal and the late one disagree, and the disagreement would be found as a
+# push waved on to a refusal minutes later, or refused for nothing (L70, L667).
+#
+# Prints nothing and answers 0 when the bundle is built. Otherwise prints the
+# reason and answers 1 for no bundle at all, 2 for a bundle with no executable,
+# because those want different words of remedy and nothing else.
+built_product_absence() {
+    local config="$1" app="$2"
     if [ ! -d "$app" ]; then
-        harness_cannot_measure "there is no $config product at $app" "build it first: $build_it"
+        printf 'there is no %s product at %s' "$config" "$app"
+        return 1
     fi
     if [ ! -f "$app/Contents/MacOS/Ovation" ]; then
-        harness_cannot_measure "the $config bundle has no executable inside it" \
-            "rebuild it: $build_it"
+        printf 'the %s bundle has no executable inside it' "$config"
+        return 2
     fi
+    return 0
 }
