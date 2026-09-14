@@ -126,8 +126,18 @@ window.addEventListener("unhandledrejection", function (e) {
 </script>
 """
 
+# What counts as a control, in one place, because the render that COUNTS them
+# and the renders that PRESS them must select the same list in the same order or
+# control N in one is not control N in the other (L16).
+CONTROLS = 'button, [role="button"], summary, input[type="checkbox"], input[type="radio"]'
+
+# The claim made from the pressing renders, named once so the report reads it
+# from the same place the pressing loop writes it.
+DRIVEN = "the console is still silent after every control has been pressed"
+
 PROBE = r"""
 <script>
+var CONTROLS = '__CONTROLS__';
 window.addEventListener("load", function () {
   var result = { claims: {} };
   function claim(name, ok, saw) { result.claims[name] = { ok: !!ok, saw: saw }; }
@@ -312,40 +322,11 @@ window.addEventListener("load", function () {
           drawnTwice.length ? "drawn twice: " + drawnTwice.join(", ")
                             : Object.keys(seenNumbers).length + " numbered row(s), each once");
 
-    /* 7. AND IT STAYS SILENT WHEN THE PAGE IS DRIVEN.
-
-       A design file shows one state at rest and carries several: the invoice
-       PDF holds six fixtures behind six buttons, and the fixture a page happens
-       to open on is the only one every check has ever seen. That is how
-       ovation#170 survived: `invoice-pdf.html` threw on any line carrying an
-       explicitly empty hours value, the page rendered as a blank white sheet,
-       and the only fixture with such a line was three buttons away.
-
-       SO EVERY CONTROL IS PRESSED, in one render, and the console is read
-       again. The console only, deliberately: pressing a control legitimately
-       opens menus and panels that sit outside their container, so re-checking
-       the layout here would refuse a screen for doing what it is for. What
-       cannot be legitimate is throwing.
-
-       THE COUNT IS REPORTED, because a page whose controls stopped being
-       buttons would otherwise report exactly what a page that survived every
-       press reports (L98). */
-    var controls = document.querySelectorAll(
-      'button, [role="button"], summary, input[type="checkbox"], input[type="radio"]');
-    var pressed = 0;
-    Array.prototype.forEach.call(controls, function (c) {
-      try { c.click(); pressed++; } catch (e) {
-        window.__ovationConsole.push("pressing a control threw: " + e);
-      }
-    });
-    result.pressed = pressed;
-    var after = (window.__ovationConsole || []).map(function (m) {
-      return String(m).slice(0, 120);
-    });
-    claim("the console is still silent after every control has been pressed",
-          after.length === 0,
-          after.length ? after.slice(0, 3).join(" // ")
-                       : pressed + " control(s) pressed, nothing logged");
+    /* 7. AND IT STAYS SILENT WHEN THE PAGE IS DRIVEN. This render only COUNTS
+       the controls the page has at rest; each one is pressed in a render of
+       its own, by PRESS_PROBE, and the claim is made from those (ovation#184).
+       Nothing is pressed here, so every claim above is about the page at rest. */
+    result.controls = document.querySelectorAll(CONTROLS).length;
   } catch (err) {
     result.threw = String(err);
   }
@@ -356,7 +337,77 @@ window.addEventListener("load", function () {
   document.body.appendChild(pre);
 });
 </script>
-"""
+""".replace("__CONTROLS__", CONTROLS)
+
+# 7, THE PAGE DRIVEN, ONE CONTROL AT A TIME FROM REST (ovation#184).
+#
+# A design file shows one state at rest and carries several: the invoice PDF
+# holds six fixtures behind six buttons, and the fixture a page happens to open
+# on is the only one every check has ever seen. That is how ovation#170
+# survived: `invoice-pdf.html` threw on any line carrying an explicitly empty
+# hours value, the page rendered as a blank white sheet, and the only fixture
+# with such a line was three buttons away. So every control is pressed and the
+# console is read again. The console only, deliberately: pressing a control
+# legitimately opens menus and panels that sit outside their container, so
+# re-checking the layout here would refuse a screen for doing what it is for.
+# What cannot be legitimate is throwing.
+#
+# EACH CONTROL IN ITS OWN PAGE, pressed from the page at rest. They used to be
+# pressed in ONE page in document order, so a control an earlier press had taken
+# off the page was pressed while detached, where a handler listening on the
+# document never hears it: the invoice screen's do not bill confirmation replaces
+# the foot, and on 2026-09-14 five of its fourteen controls, and five of the
+# review sheet's sixteen, were off the page by the time the pass reached them. A
+# floor on the count pressed could not see that, because a detached control is
+# still counted as pressed. Measured on the one browser renderer of ovation#183,
+# a page costs about 0.065s, so pressing all 78 controls of the record at both
+# widths costs about five seconds where the single pass cost none.
+#
+# THE COUNT IS REPORTED, because a page whose controls stopped being buttons
+# would otherwise report exactly what a page that survived every press reports
+# (L98).
+PRESS_PROBE = r"""
+<script>
+window.addEventListener("load", function () {
+  var controls = document.querySelectorAll('__CONTROLS__');
+  var which = window.__ovationPressOnly, result = { pressed: 0, there: controls.length };
+  if (which < controls.length) {
+    try { controls[which].click(); result.pressed = 1; } catch (e) {
+      window.__ovationConsole.push("pressing a control threw: " + e);
+    }
+  }
+  result.said = (window.__ovationConsole || []).map(function (m) {
+    return String(m).slice(0, 120);
+  });
+  var pre = document.createElement("pre");
+  pre.id = "ovation-probe";
+  pre.textContent = JSON.stringify(result);
+  document.body.appendChild(pre);
+});
+</script>
+""".replace("__CONTROLS__", CONTROLS)
+
+
+def driven(session, path, width, preamble, controls):
+    """Press each of `controls` at-rest controls in a page of its own and make
+    the one claim about the console from all of them. A control that is not
+    there when the page is rendered again is said so, since the page then does
+    not render the same way twice and nothing pressed it."""
+    said, pressed = [], 0
+    for which in range(controls):
+        report = session.render(path, PRESS_PROBE, window="%d,1200" % width,
+                                preamble=preamble
+                                + "<script>window.__ovationPressOnly = %d;</script>" % which)
+        if not report.get("pressed") and which >= (report.get("there") or 0):
+            said.append("control %d of %d was not there when the page was rendered again"
+                        % (which + 1, controls))
+        pressed += report.get("pressed") or 0
+        for line in report.get("said") or []:
+            if line not in said:
+                said.append(line)
+    return pressed, {"ok": not said,
+                     "saw": " // ".join(said[:3]) if said
+                     else "%d control(s) pressed, nothing logged" % pressed}
 
 
 def widths():
@@ -420,12 +471,18 @@ def main(argv):
                 failed += 1
                 continue
             edge_groups += report.get("edgeGroups") or 0
-            pressed += report.get("pressed") or 0
             claims = report.get("claims") or {}
             if not claims:
                 print("CANNOT MEASURE: %s at %dpx reported no claim at all, "
                       "which is not a pass." % (name, width))
                 return 3
+            try:
+                count, claims[DRIVEN] = driven(session, path, width, PREAMBLE + prologue,
+                                               report.get("controls") or 0)
+            except CannotMeasure as err:
+                print("CANNOT MEASURE: %s at %dpx: %s" % (name, width, err))
+                return 3
+            pressed += count
             for label in sorted(claims):
                 answer = claims[label]
                 if answer["ok"]:
