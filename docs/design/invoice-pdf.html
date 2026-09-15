@@ -211,8 +211,18 @@ have told most of them, in writing, that Dan was unsure whether they should have
 been charged. Every client has one now (ovation#298), and the rule stands for
 the client that arrives without one.</p>
 
+<h3>With money already applied, the page asks for what is still owed</h3>
+<p>A deposit or an overpayment carried over can already sit on an invoice when it
+is sent (PRD 14h). The figure at the top is then the balance, and the money block
+ends Total, Payments received and Balance due, with the balance carrying the
+weight as it does on the invoice screen (PRD 14m). Dan chose that on 2026-09-14
+(ovation#167), first that the top asks for the balance rather than the total, then
+the three labels by looking at four wordings on the Deposit applied invoice. The
+screen's own words were not carried over: held money is Dan's term, and a client
+has only ever paid.</p>
+
 <h2>Every measurement in it was checked, not eyeballed</h2>
-<p>Nothing overflows or wraps on any of the six invoices below, including the one
+<p>Nothing overflows or wraps on any of the seven invoices below, including the one
 carrying the longest real names in the roster: client 33, shoot 50 and venue 36
 characters, which are the measured maxima from the live export. The longest shoot
 name uses 241px of a 434px column.</p>
@@ -402,6 +412,13 @@ var FIXTURES = [
     client: "Marrowbone Percussion Group Trust", exempt: false,
     lines: [photoLine("Spring Festival of New Percussion, Song and Dances",
                       "The Rothersay Memorial Concert Rooms", "February 6, 2027", 2.0)]
+  },
+  {
+    label: "Deposit applied",
+    note: "PRD 14k. A $100.00 deposit is already applied, so the top asks for what is still owed and the money block ends Total, Payments received, Balance due (Dan, 2026-09-14).",
+    number: "1129", issued: "March 6, 2027", due: "March 20, 2027",
+    client: "Calder Street Theatre", exempt: false, paid: 100,
+    lines: [photoLine("Spring Recital", "Calder Street Theatre", "March 6, 2027", 1.0)]
   }
 ];
 
@@ -418,9 +435,16 @@ var SETTINGS = {
 function daysBetween(fromWritten, toWritten) {
   var months = ["January", "February", "March", "April", "May", "June", "July",
                 "August", "September", "October", "November", "December"];
+  /* A DATE IT CANNOT READ STOPS THE PAGE (L50). Parsed as NaN it would reach
+     terms() and print "within NaN days", which reads as a page rather than a
+     fault. */
   function utc(written) {
-    var w = written.replace(",", "").split(" ");
-    return Date.UTC(parseInt(w[2], 10), months.indexOf(w[0]), parseInt(w[1], 10));
+    var w = String(written).replace(",", "").split(" ");
+    var year = parseInt(w[2], 10), month = months.indexOf(w[0]), day = parseInt(w[1], 10);
+    if (w.length !== 3 || month < 0 || !isFinite(year) || !isFinite(day)) {
+      throw new Error(written + " is not a date the fixtures write");
+    }
+    return Date.UTC(year, month, day);
   }
   return Math.round((utc(toWritten) - utc(fromWritten)) / 86400000);
 }
@@ -527,10 +551,24 @@ function moneyBlock(inv) {
     row("Taxable", money(t.taxable));
   }
   row(inv.exempt ? "Sales tax (exempt)" : "Sales tax (8.875%)", money(t.tax));
-  var tot = mk("div", "row total");
-  tot.append(mk("span", null, "Total due"));
-  tot.append(mk("span", "amt", money(t.total)));
-  m.append(tot);
+  /* MONEY ALREADY APPLIED SITS BELOW THE TOTAL (PRD 14k), and the heavy figure
+     is then what is still owed (PRD 14m). Total, Payments received and Balance
+     due were Dan's choice by looking at four wordings on this page (2026-09-14,
+     ovation#167). With nothing applied the total is what is owed, and reads
+     Total due as before. */
+  if (inv.paid > 0) {
+    row("Total", money(t.total));
+    row("Payments received", money(-inv.paid));
+    var owed = mk("div", "row total");
+    owed.append(mk("span", null, "Balance due"));
+    owed.append(mk("span", "amt", money(t.total - inv.paid)));
+    m.append(owed);
+  } else {
+    var tot = mk("div", "row total");
+    tot.append(mk("span", null, "Total due"));
+    tot.append(mk("span", "amt", money(t.total)));
+    m.append(tot);
+  }
   return m;
 }
 
@@ -545,7 +583,8 @@ function buildPage(inv) {
   head.append(ident);
   var due = mk("div", "due");
   due.append(mk("div", "lbl", "Amount due"));
-  due.append(mk("div", "big", money(t.total)));
+  /* What is still owed, which is the total unless money is already applied. */
+  due.append(mk("div", "big", money(t.total - (inv.paid || 0))));
   due.append(mk("div", "muted", "by " + inv.due));
   head.append(due);
   pad.append(head);

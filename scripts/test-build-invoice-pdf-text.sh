@@ -2,7 +2,7 @@
 # The suite for scripts/build-invoice-pdf-text.sh.
 #
 # ovation#167. The app's invoice PDF is checked against the settled design by
-# the TEXT the design draws: every figure, label and line of its six fixture
+# the TEXT the design draws: every figure, label and line of its seven fixture
 # invoices, rendered in a browser and committed as
 # docs/design/invoice-pdf.expected.json, which OvationTests reads. A test that
 # asserts agreement with a designed artifact has to READ that artifact, never a
@@ -17,7 +17,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice PDF text tests" 17
+harness_begin "invoice PDF text tests" 19
 
 TARGET="scripts/build-invoice-pdf-text.sh"
 require_target "$TARGET"
@@ -86,20 +86,20 @@ PYDAMAGE
 # ---------------------------------------------------------------------------
 check "the committed expected text is what the design draws" "$(status_in "$(pwd)/docs/design" --check)" "0"
 check "and the answer says how much it compared" \
-    "$(run_in "$(pwd)/docs/design" --check | grep -c '6 fixture(s)')" "1"
-check "the committed file holds all six fixture invoices" \
-    "$(fact docs/design/invoice-pdf.expected.json count)" "6"
+    "$(run_in "$(pwd)/docs/design" --check | grep -c '7 fixture(s)')" "1"
+check "the committed file holds all seven fixture invoices" \
+    "$(fact docs/design/invoice-pdf.expected.json count)" "7"
 check "and the Every element invoice totals its lines above the referral credit (PRD 8)" \
     "$(fact docs/design/invoice-pdf.expected.json every-element-money)" \
     'Services $725.00 / Referral credit -$250.00 / Subtotal $475.00'
 
-# ONE SET OF INPUTS FOR BOTH SIDES (L26). The app's test builds the same six
+# ONE SET OF INPUTS FOR BOTH SIDES (L26). The app's test builds the same seven
 # invoices and compares what it writes with what the design draws. If it typed
 # those invoices out again it would hold a second copy of the fixtures, and the
 # two copies would drift, so each fixture's INPUT travels in the same file as the
 # text it produces.
 check "each fixture carries the inputs the design builds it from" \
-    "$(fact docs/design/invoice-pdf.expected.json inputs)" "6"
+    "$(fact docs/design/invoice-pdf.expected.json inputs)" "7"
 check "and the Every element inputs carry its credit, its discount and its three lines" \
     "$(fact docs/design/invoice-pdf.expected.json every-element-input)" "credit 250, discount 10%, 3 lines"
 
@@ -116,7 +116,7 @@ check "and it names the remedy" \
 check "rewriting it makes it current again" "$(status_in "$D1")" "0"
 check "and every fixture now carries the design's new wording" \
     "$(fact "$D1/invoice-pdf.expected.json" last-money-labels)" \
-    "Balance due,Balance due,Balance due,Balance due,Balance due,Balance due"
+    "Balance due,Balance due,Balance due,Balance due,Balance due,Balance due,Balance due"
 
 # ---------------------------------------------------------------------------
 # A HAND EDIT TO THE COMMITTED FILE IS CAUGHT TOO, because the file is judged
@@ -135,6 +135,15 @@ damage "$D3/invoice-pdf.html" 'function buildPage(inv) {' 'function buildPageGon
 check "a design page the tool cannot read is refused, never written from" "$(status_in "$D3")" "4"
 check "and it says the design could not be read" \
     "$(run_in "$D3" | grep -c 'could not be read')" "1"
+
+# A FIXTURE DATE THE PAGE CANNOT READ IS A REFUSAL, NOT A PAGE (L50). Parsed as
+# NaN it would reach the terms rule and be written as "within NaN days", which
+# reads as text rather than as a fault.
+D5="$(fresh baddate)"
+damage "$D5/invoice-pdf.html" 'due: "March 20, 2027"' 'due: "Smarch 20, 2027"'
+check "a fixture date the page cannot read is refused, never written as a term" "$(status_in "$D5")" "4"
+check "and it names the date it could not read" \
+    "$(run_in "$D5" | grep -c 'Smarch 20, 2027 is not a date')" "1"
 
 D4="$WORK/nodesign"; mkdir -p "$D4"
 check "a record with no design file is nothing to render, not a pass" "$(status_in "$D4" --check)" "2"

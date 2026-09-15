@@ -6,7 +6,7 @@
 //
 // THE SHAPE IS THE DESIGN RECORD'S. docs/design/invoice-pdf.html builds its page
 // from the same sections in the same order, and OvationTests/InvoiceDocumentTests
-// holds this to what that page draws for its six fixtures, read from
+// holds this to what that page draws for its seven fixtures, read from
 // docs/design/invoice-pdf.expected.json rather than restated (L638).
 import Foundation
 
@@ -90,7 +90,9 @@ struct InvoiceDocument: Equatable, Sendable {
         guard let terms = PDFText.terms(days: days) else { throw Refusal.dueBeforeInvoiceDate }
 
         amountDueLabel = "Amount due"
-        amountDue = PDFText.money(invoice.total)
+        // What is still owed, which is the total unless money is already applied
+        // (Dan, 2026-09-14, ovation#167).
+        amountDue = PDFText.money(invoice.amountOutstanding)
         dueLine = "by " + due
         strip = [["Bill to", client.name], ["Invoice", String(number)], ["Issued", issued]]
         title = "Invoice"
@@ -143,7 +145,16 @@ struct InvoiceDocument: Equatable, Sendable {
         }
         let rate = taxed ? invoice.taxRate.description : "exempt"
         rows.append(["Sales tax (\(rate))", PDFText.money(invoice.tax)])
-        rows.append(["Total due", PDFText.money(invoice.total)])
+        // Money already applied sits BELOW the total (PRD 14k), and the page then
+        // ends on what is still owed: Total, Payments received, Balance due (Dan,
+        // 2026-09-14, ovation#167, chosen by looking at four wordings).
+        if invoice.amountPaid > .zero {
+            rows.append(["Total", PDFText.money(invoice.total)])
+            rows.append(["Payments received", PDFText.money(-invoice.amountPaid)])
+            rows.append(["Balance due", PDFText.money(invoice.amountOutstanding)])
+        } else {
+            rows.append(["Total due", PDFText.money(invoice.total)])
+        }
         return rows
     }
 

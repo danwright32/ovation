@@ -5,7 +5,7 @@ import Testing
 /// ovation#167, PRD 50 to 50f. WHAT THE INVOICE PDF SAYS, before anything is drawn.
 ///
 /// THE EXPECTATION IS THE DESIGN'S OWN TEXT. `docs/design/invoice-pdf.expected.json`
-/// is what the settled page draws for its six fixture invoices, written by
+/// is what the settled page draws for its seven fixture invoices, written by
 /// `scripts/build-invoice-pdf-text.sh` from a rendering of `invoice-pdf.html`, and a
 /// test asserting agreement with a design has to read the design (L638).
 ///
@@ -34,6 +34,8 @@ struct InvoiceDocumentTests {
         let exempt: Bool
         let discount: [String: Double]?
         let credit: Double?
+        /// Money already applied to the invoice (PRD 14k).
+        let paid: Double?
         let lines: [Line]
     }
     private struct Head: Decodable { let label: String; let amount: String; let due: String }
@@ -130,14 +132,28 @@ struct InvoiceDocumentTests {
             }
             invoice.add(item)
         }
+        if let paid = given.paid {
+            // Applied the only way the app records it: a payment from the client and
+            // one allocation of it to this invoice.
+            let received = try businessDate(given.issued)
+            let payment = Payment(client: client, amount: Money(cents: cents(paid)),
+                                  method: .zelle, receivedOn: received)
+            context.insert(payment)
+            let allocation = PaymentAllocation(payment: payment, invoice: invoice,
+                                               amount: Money(cents: cents(paid)), allocatedOn: received)
+            context.insert(allocation)
+            payment.allocations.append(allocation)
+            invoice.allocations.append(allocation)
+            #expect(invoice.amountPaid == Money(cents: cents(paid)), "the payment reached the invoice")
+        }
         return invoice
     }
 
     // MARK: agreement with the design
 
-    @Test("all six design fixtures are read, so no comparison below runs over nothing")
+    @Test("all seven design fixtures are read, so no comparison below runs over nothing")
     func theFixturesAreThere() throws {
-        #expect(try Self.expected().count == 6)
+        #expect(try Self.expected().count == 7)
     }
 
     @Test("each fixture's page says what the settled design draws, section by section")

@@ -58,7 +58,7 @@ ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs", "desi
 SOURCE = "invoice-pdf.html"
 EXPECTED = "invoice-pdf.expected.json"
 KEYS = ["label", "input", "head", "strip", "title", "columns", "items", "money", "foot"]
-INPUT_KEYS = ["number", "issued", "due", "client", "exempt", "discount", "credit", "lines"]
+INPUT_KEYS = ["number", "issued", "due", "client", "exempt", "discount", "credit", "paid", "lines"]
 ABOUT = ("The text docs/design/invoice-pdf.html draws for each of its fixture invoices, "
          "written by scripts/build-invoice-pdf-text.sh and read by the app's document "
          "tests (ovation#167). Do not edit by hand: re-run the script, and "
@@ -75,7 +75,7 @@ PROBE = r"""
      and a value it gives as null stays null (ovation#170). */
   function inputOf(f) {
     return { number: f.number, issued: f.issued, due: f.due, client: f.client,
-             exempt: !!f.exempt, discount: f.discount, credit: f.credit,
+             exempt: !!f.exempt, discount: f.discount, credit: f.credit, paid: f.paid,
              lines: f.lines.map(function (l) {
                return { kind: l.kind, shoot: l.shoot, venue: l.venue, date: l.date,
                         hours: l.hours, rate: l.rate, amount: l.amount };
