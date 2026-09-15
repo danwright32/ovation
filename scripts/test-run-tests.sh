@@ -36,7 +36,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_LOCK_WAIT_LOG OVATION_XCODEBUILD OVATION_XCODE_VERSION_FILE \
       OVATION_DEFAULTS_DOMAINS_COMMAND \
       OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
-      OVATION_REPO_ROOT
+      OVATION_REPO_ROOT \
+      OVATION_ONLY_TESTING OVATION_PROJECT_CURRENT_COMMAND OVATION_REGENERATE_COMMAND
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -67,7 +68,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 170
+harness_begin "test runner lock tests" 211
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -1545,6 +1546,237 @@ check "and named without its separator" \
 printf 'com.apple.finder\n' > "$DOMAINS"
 
 
+# ---------------------------------------------------------------------------
+# ONE SUITE, OR ONE TEST, THROUGH THE RUNNER'S OWN PATH (ovation#321).
+#
+# The runner had no way to run one test file, so every red and green run of a
+# test first cycle called xcodebuild with -only-testing by hand: outside the
+# project checks, outside the lock protocol the siblings rely on, and behind a
+# hand written wait on the build lock that kept only the last line of a
+# regeneration's refusal. And a narrowed run that matches nothing prints ** TEST
+# SUCCEEDED ** and exits 0, which the runner already refused for the hosted suite
+# and a hand run did not (L98, L288).
+#
+# EVERY INVOCATION HERE SETS EVERY SEAM, the usage refusals included. A refusal
+# that is not implemented yet runs the whole runner, and without the seams that
+# is the real shell suites, this file among them, and a real xcodebuild (L2, L284).
+#
+# THE REAL COMMAND LINE IS JUDGED TOO, not only the variable an injected command
+# can read. A stand in xcodebuild first on PATH records the arguments it was given,
+# so a runner that exported the filter and forgot to pass it to xcodebuild fails
+# here by name. The version seam points elsewhere, so the stand in answers only the
+# build (L52 is why it records rather than judges).
+# ---------------------------------------------------------------------------
+[ -n "${WORK:-}" ] || { echo "REFUSED: no temp directory"; exit 1; }
+ONLY="$WORK/only"; rm -rf "$ONLY"; mkdir -p "$ONLY/bin"
+cat > "$ONLY/bin/xcodebuild" <<STUB
+#!/bin/bash
+printf '%s\n' "\$@" > "$ONLY/xcodebuild-args"
+echo "Test run with 3 tests in 1 suite passed"
+STUB
+chmod +x "$ONLY/bin/xcodebuild"
+
+# What an injected command prints by default: the filter it can see, and a count.
+ONLY_COUNTED='echo "FILTER=${OVATION_ONLY_TESTING:-none}"; echo "Test run with 3 tests in 1 suite passed"'
+
+# only_run [runner arguments]. Overrides are prefixes on the call, and every call
+# sits inside a `$(...)`, so none of them outlives its case (L439).
+only_run() {
+    PATH="${ONLY_PATH:-$PATH}" \
+    OVATION_XCODEBUILD="$WORK/no-xcodebuild-given" \
+    OVATION_XCODE_VERSION_FILE="$WORK/no-xcode-pin-given" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
+    OVATION_DIR_LOCK="$DIR_LOCK" OVATION_FILE_LOCK="$FILE_LOCK" \
+    OVATION_LOCK_TIMEOUT="${TIMEOUT_OVERRIDE:-2}" OVATION_LOCK_POLL_INTERVAL=0.05 \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" \
+    OVATION_TEST_FLOOR="${ONLY_FLOOR:-}" \
+    OVATION_TEST_COMMAND="${ONLY_PURE-$ONLY_COUNTED}" \
+    OVATION_HOSTED_TEST_COMMAND="${ONLY_HOSTED-$ONLY_COUNTED}" \
+    OVATION_UNLOCKED_COMMAND="echo UNLOCKED-RAN" \
+    OVATION_SKIP_XCODE_PHASE="${ONLY_SKIP:-}" \
+    OVATION_PROJECT_CURRENT_COMMAND="${ONLY_CURRENT:-exit 2}" \
+    OVATION_REGENERATE_COMMAND="${ONLY_REGENERATE:-echo REGENERATE-RAN; exit 99}" \
+    OVATION_LOCK_WAIT_LOG="$ONLY/lock-waits.tsv" \
+    OVATION_XCODEBUILD_LISTER=true \
+    OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
+        "./$TARGET" "$@" 2>&1
+}
+count_of() { printf '%s\n' "$1" | grep -cE -- "$2" || true; }
+
+# 321a. USAGE. Anything but no argument or one well formed --only is refused
+#       before anything runs, with the forms that are accepted.
+OUT321A="$(only_run --only)"; ST321A=$?
+check "--only with no value is refused as a usage error" "$ST321A" "2"
+check "and the refusal names both accepted forms" \
+    "$(count_of "$OUT321A" '--only (OvationTests|OvationHostedTests)/<Suite>')" "2"
+check "and nothing ran before it was refused" \
+    "$(count_of "$OUT321A" 'UNLOCKED-RAN|FILTER=')" "0"
+OUT321B="$(only_run --only DownbeatTests/SomeSuite)"; ST321B=$?
+check "a target other than OvationTests or OvationHostedTests is refused, naming what it was given" \
+    "$ST321B:$(count_of "$OUT321B" 'DownbeatTests/SomeSuite')" "2:1"
+OUT321C="$(only_run --verbose)"; ST321C=$?
+check "an unknown argument is refused, naming it" \
+    "$ST321C:$(count_of "$OUT321C" "'--verbose'")" "2:1"
+OUT321D="$(only_run --only OvationTests)"; ST321D=$?
+check "a whole target with no suite is refused, since running all of it is the full run" \
+    "$ST321D:$(count_of "$OUT321D" 'UNLOCKED-RAN')" "2:0"
+OUT321E="$(ONLY_SKIP=1 only_run --only OvationTests/SomeSuiteTests)"; ST321E=$?
+check "a narrowed run the caller also told to skip the Xcode phase is refused, since it would test nothing" \
+    "$ST321E:$(count_of "$OUT321E" 'test nothing')" "2:1"
+
+# 321b. A NARROWED PURE RUN takes no lock (ovation#271), so a sibling holding
+#       Downbeat's lock does not stop it, and it hands the filter to its command.
+rm -rf "$DIR_LOCK"; mkdir -p "$DIR_LOCK"
+OUT321F="$(ONLY_HOSTED='echo HOSTED-SUITE-RAN; echo "Test run with 5 tests in 1 suite passed"' \
+    only_run --only OvationTests/SomeSuiteTests)"; ST321F=$?
+check "a narrowed pure run passes while a sibling holds Downbeat's lock, because it takes none" "$ST321F" "0"
+check "and the sibling's lock is still where it was" \
+    "$([ -d "$DIR_LOCK" ] && echo held || echo free)" "held"
+rm -rf "$DIR_LOCK"
+check "and the command it ran was handed the filter" \
+    "$(count_of "$OUT321F" '^FILTER=OvationTests/SomeSuiteTests$')" "1"
+check "and it never asked for the sibling locks" \
+    "$(count_of "$OUT321F" 'Waiting for both test locks')" "0"
+check "and no shell suite ran" "$(count_of "$OUT321F" 'UNLOCKED-RAN')" "0"
+check "and it said the shell suites were skipped, in one line" \
+    "$(count_of "$OUT321F" 'Shell suites SKIPPED: this run is narrowed to OvationTests/SomeSuiteTests')" "1"
+check "and the hosted suite did not run, and it said so" \
+    "$(count_of "$OUT321F" 'HOSTED-SUITE-RAN'):$(count_of "$OUT321F" 'Hosted suite SKIPPED: this run is narrowed to OvationTests/SomeSuiteTests')" "0:1"
+
+# 321c. THE PURE TEST FLOOR IS NOT APPLIED to a run that is part of the suite by
+#       design, and that is said rather than skipped quietly (L98).
+OUT321G="$(ONLY_FLOOR=500 only_run --only OvationTests/SomeSuiteTests)"; ST321G=$?
+check "the pure test floor is not applied to a narrowed run" "$ST321G" "0"
+check "and the run says the floor was not applied" \
+    "$(count_of "$OUT321G" 'test floor NOT APPLIED')" "1"
+
+# 321d. A RUN WITH NO --only HANDS ITS COMMANDS NO FILTER, EVEN ONE INHERITED. The
+#       variable is exported to children, so a value left in the launching shell
+#       would otherwise narrow a full run nobody asked to narrow (L169).
+OUT321H="$(OVATION_ONLY_TESTING=OvationTests/Inherited only_run)"
+check "a full run clears an inherited filter before its commands can see it" \
+    "$(count_of "$OUT321H" '^FILTER=none$')" "2"
+
+# 321e. THE REAL PURE COMMAND LINE CARRIES THE FILTER, and is still the pure scheme.
+rm -f "$ONLY/xcodebuild-args"
+OUT321I="$(ONLY_PATH="$ONLY/bin:$PATH" ONLY_PURE="" only_run --only OvationTests/SomeSuiteTests/itCountsRows)"; ST321I=$?
+check "the real pure xcodebuild is narrowed with -only-testing" \
+    "$ST321I:$(grep -cx -- '-only-testing:OvationTests/SomeSuiteTests/itCountsRows' "$ONLY/xcodebuild-args" 2>/dev/null)" "0:1"
+check "and it still builds the pure scheme, so the app is not part of it" \
+    "$(grep -cx 'OvationCore' "$ONLY/xcodebuild-args" 2>/dev/null)" "1"
+
+# 321f. A NARROWED HOSTED RUN takes both locks, skips the pure suite and says so,
+#       and hands the filter to its command.
+OUT321J="$(ONLY_PURE='echo PURE-SUITE-RAN; echo "Test run with 3 tests in 1 suite passed"' \
+    ONLY_HOSTED='echo "HOSTED-FILTER=${OVATION_ONLY_TESTING:-none}"; echo "Test run with 2 tests in 1 suite passed"' \
+    only_run --only OvationHostedTests/LaunchTests)"; ST321J=$?
+check "a narrowed hosted run passes" "$ST321J" "0"
+check "and its command was handed the filter" \
+    "$(count_of "$OUT321J" '^HOSTED-FILTER=OvationHostedTests/LaunchTests$')" "1"
+check "and it ran only once both sibling locks were held" \
+    "$([ "$(line_of "$OUT321J" 'Holding both locks')" -lt "$(line_of "$OUT321J" 'HOSTED-FILTER=')" ] 2>/dev/null && echo held-first || echo not-held)" "held-first"
+check "and the pure suite did not run, and it said so" \
+    "$(count_of "$OUT321J" 'PURE-SUITE-RAN'):$(count_of "$OUT321J" 'Pure suite SKIPPED: this run is narrowed to OvationHostedTests/LaunchTests')" "0:1"
+mkdir -p "$DIR_LOCK"
+OUT321K="$(TIMEOUT_OVERRIDE=1 ONLY_HOSTED='echo "HOSTED-FILTER=${OVATION_ONLY_TESTING:-none}"; echo "Test run with 2 tests in 1 suite passed"' \
+    only_run --only OvationHostedTests/LaunchTests)"; ST321K=$?
+rm -rf "$DIR_LOCK"
+check "a narrowed hosted run waits on Downbeat's lock and does not run past it" \
+    "$ST321K:$(count_of "$OUT321K" 'HOSTED-FILTER=')" "3:0"
+
+# 321g. THE REAL HOSTED COMMAND LINE carries the filter IN PLACE of the whole
+#       hosted target, not beside it.
+rm -f "$ONLY/xcodebuild-args"
+OUT321L="$(ONLY_PATH="$ONLY/bin:$PATH" ONLY_PURE="" ONLY_HOSTED="" only_run --only OvationHostedTests/LaunchTests)"; ST321L=$?
+check "the real hosted xcodebuild is narrowed to the filter in place of the whole hosted target" \
+    "$ST321L:$(grep -cx -- '-only-testing:OvationHostedTests/LaunchTests' "$ONLY/xcodebuild-args" 2>/dev/null):$(grep -cx -- '-only-testing:OvationHostedTests' "$ONLY/xcodebuild-args" 2>/dev/null)" "0:1:0"
+
+# 321h. NO TESTS EXECUTED IS A REFUSAL, whatever the exit code said (L98, L288).
+check "a narrowed run that reported success and printed no count is refused" \
+    "$(ONLY_PURE='echo "** TEST SUCCEEDED **"' only_run --only OvationTests/NoSuchSuite >/dev/null 2>&1; printf '%s' "$?")" "6"
+OUT321M="$(ONLY_PURE='echo "Test run with 0 tests in 0 suites passed"' only_run --only OvationTests/NoSuchSuite)"; ST321M=$?
+check "and so is one whose count says zero tests" "$ST321M" "6"
+check "and it says the filter matched nothing, naming the filter" \
+    "$(count_of "$OUT321M" 'OvationTests/NoSuchSuite matched nothing')" "1"
+check "a narrowed run that FAILED keeps its own status rather than the refusal's" \
+    "$(ONLY_PURE='echo "Test run with 3 tests in 1 suite failed"; exit 65' only_run --only OvationTests/SomeSuiteTests >/dev/null 2>&1; printf '%s' "$?")" "65"
+OUT321N="$(ONLY_HOSTED='echo "** TEST SUCCEEDED **"' only_run --only OvationHostedTests/NoSuchSuite)"; ST321N=$?
+check "a narrowed hosted run that executed no tests is refused, naming the filter" \
+    "$ST321N:$(count_of "$OUT321N" 'OvationHostedTests/NoSuchSuite matched nothing')" "6:1"
+
+# 321i. A STALE PROJECT IS REGENERATED FOR A NARROWED RUN. A new test file is the
+#       normal case in test first work, so stopping would send every such run back
+#       to a hand regeneration. The regeneration refuses WITHOUT waiting while the
+#       build lock is held, so the runner waits for it, and says so (L110).
+#
+#       Both commands are stand ins: the currency check answers stale until the
+#       regeneration has happened, and the regeneration refuses as many times as
+#       it is told to first, with the real refusal's shape, on stderr.
+REGEN="$ONLY/regen"; mkdir -p "$REGEN"
+cat > "$REGEN/current" <<CURRENT
+#!/bin/bash
+if [ -e "$REGEN/regenerated" ]; then echo "OK: the generated project lists all 9 Swift files."; exit 0; fi
+echo "REFUSED: the generated project does not list the Swift files on disk."
+echo "    on disk, not in the project: OvationTests/BrandNewSuiteTests.swift"
+exit 1
+CURRENT
+cat > "$REGEN/regenerate" <<REGENERATE
+#!/bin/bash
+echo "attempt \$OVATION_XCODE_PROJECT \$OVATION_DIR_LOCK" >> "$REGEN/attempts"
+left="\$(cat "$REGEN/refusals" 2>/dev/null || echo 0)"
+if [ "\$left" -gt 0 ]; then
+    printf '%s\n' "\$((left - 1))" > "$REGEN/refusals"
+    echo "REFUSED: $DIR_LOCK is held by downbeat:4242." >&2
+    echo "         Nothing was touched." >&2
+    exit 1
+fi
+if [ -e "$REGEN/fails" ]; then echo "REFUSED: xcodegen is not at /nowhere/xcodegen." >&2; exit 2; fi
+[ -e "$REGEN/stays-stale" ] || : > "$REGEN/regenerated"
+echo "OK: regenerated the stand in project."
+REGENERATE
+chmod +x "$REGEN/current" "$REGEN/regenerate"
+reset_regen() { rm -f "$REGEN/regenerated" "$REGEN/attempts" "$REGEN/refusals" "$REGEN/stays-stale" "$REGEN/fails"; }
+regen_run() { ONLY_CURRENT="'$REGEN/current'" ONLY_REGENERATE="'$REGEN/regenerate'" only_run "$@"; }
+PURE_MARKED='echo PURE-SUITE-RAN; echo "Test run with 3 tests in 1 suite passed"'
+
+reset_regen; printf '3\n' > "$REGEN/refusals"
+OUT321O="$(ONLY_PURE="$PURE_MARKED" regen_run --only OvationTests/BrandNewSuiteTests)"; ST321O=$?
+check "a narrowed run over a stale project regenerates it and passes" "$ST321O" "0"
+check "and it waited out the regeneration's refusals rather than stopping at the first" \
+    "$(grep -c attempt "$REGEN/attempts" 2>/dev/null)" "4"
+check "and it printed the refusal's own words once, when it first refused" \
+    "$(count_of "$OUT321O" 'held by downbeat:4242')" "1"
+check "and the regeneration was pointed at this run's project and build lock" \
+    "$(sort -u "$REGEN/attempts" 2>/dev/null)" "attempt $STANDIN_PROJECT $DIR_LOCK"
+check "and the suite ran only after the project was regenerated" \
+    "$([ "$(line_of "$OUT321O" 'OK: regenerated')" -lt "$(line_of "$OUT321O" 'PURE-SUITE-RAN')" ] 2>/dev/null && echo regenerated-first || echo ran-first)" "regenerated-first"
+
+reset_regen; : > "$REGEN/stays-stale"
+OUT321P="$(ONLY_PURE="$PURE_MARKED" regen_run --only OvationTests/BrandNewSuiteTests)"; ST321P=$?
+check "a project still stale after regenerating is refused by name" \
+    "$ST321P:$(count_of "$OUT321P" "$STANDIN_PROJECT was regenerated and still does not list")" "1:1"
+check "and the suite was not built from it" "$(count_of "$OUT321P" 'PURE-SUITE-RAN')" "0"
+
+reset_regen; printf '100000\n' > "$REGEN/refusals"
+OUT321Q="$(TIMEOUT_OVERRIDE=1 ONLY_PURE="$PURE_MARKED" regen_run --only OvationTests/BrandNewSuiteTests)"; ST321Q=$?
+check "a regeneration refused for the whole wait gives up with the lock wait's status and says so" \
+    "$ST321Q:$(count_of "$OUT321Q" 'gave up waiting to regenerate')" "3:1"
+check "and the suite was not built from the stale project" "$(count_of "$OUT321Q" 'PURE-SUITE-RAN')" "0"
+
+reset_regen; : > "$REGEN/fails"
+OUT321R="$(ONLY_PURE="$PURE_MARKED" regen_run --only OvationTests/BrandNewSuiteTests)"; ST321R=$?
+check "a regeneration that fails outright is not waited on, and keeps its own status and words" \
+    "$ST321R:$(count_of "$OUT321R" 'xcodegen is not at'):$(grep -c attempt "$REGEN/attempts" 2>/dev/null)" "2:1:1"
+
+# 321j. THE FULL RUN KEEPS TODAY'S BEHAVIOUR for a stale project: it stops, by the
+#       check's own words, and regenerates nothing (ovation#206).
+reset_regen
+OUT321S="$(regen_run)"; ST321S=$?
+check "a full run over a stale project still stops without regenerating" \
+    "$ST321S:$([ -e "$REGEN/attempts" ] && echo regenerated || echo untouched)" "1:untouched"
+reset_regen
+
+
 # EVERY INVOCATION OF THE REAL RUNNER SETS BOTH MACHINE SEAMS (ovation#152).
 #
 # An invocation that leaves `OVATION_FLOCK_BIN` or `OVATION_XCODE_PROJECT` unset
@@ -1561,15 +1793,19 @@ printf 'com.apple.finder\n' > "$DOMAINS"
 TARGET_SUITE="scripts/test-run-tests.sh"
 check "every invocation of the real runner sets flock, the project and the domain lister" \
     "$(python3 - "$TARGET_SUITE" <<'PYSEAMS'
+import re
 import sys
 lines = open(sys.argv[1]).read().splitlines()
 # ASSEMBLED FROM PIECES so this program contains no literal instance of what it
 # looks for. Written whole, it matched its own source and reported itself as an
 # offender, which is the same trap `check-ported-artifacts.sh` records (L245).
-needle = "$TARGET" + '" 2>&1'
+# ANY ARGUMENTS BETWEEN THE RUNNER AND ITS REDIRECT STILL COUNT (ovation#321). The
+# needle was the runner followed directly by the redirect, so the first calls
+# that passed the runner an argument walked past this guard unexamined (L247).
+needle = re.compile(re.escape("$TAR" + "GET") + '"' + r"( .*)? 2>&1")
 missing = []
 for index, line in enumerate(lines):
-    if needle not in line:
+    if not needle.search(line):
         continue
     window = "\n".join(lines[max(0, index - 15):index + 1])
     for seam in ("OVATION_FLOCK_BIN", "OVATION_XCODE_PROJECT", "OVATION_DEFAULTS_DOMAINS_COMMAND"):

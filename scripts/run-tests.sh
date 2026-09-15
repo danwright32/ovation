@@ -77,6 +77,29 @@
 # taken, in the same fixed order, around the hosted suite only. The lock does not
 # make that Overture test safe from focus changes in general (anything taking
 # focus trips it, which is overture#3876's to fix); it stops Ovation being one.
+#
+# HOW TO RUN IT, AND HOW TO RUN ONE SUITE (ovation#321):
+#
+#     scripts/run-tests.sh
+#         Everything: the shell suites, then the pure Swift suite, then the hosted
+#         suite under both sibling locks.
+#
+#     scripts/run-tests.sh --only OvationTests/<Suite>[/<testFunction>]
+#     scripts/run-tests.sh --only OvationHostedTests/<Suite>[/<testFunction>]
+#         One Swift suite, or one test in it, through everything below that
+#         protects a run: the project is made current, the live data and
+#         preference domain brackets are held, the hosted half takes both sibling
+#         locks, and a filter that matched NOTHING is refused rather than reported
+#         as a pass. The shell suites are skipped, and so is the half of the Swift
+#         suite the filter is not in, and each skip is said out loud.
+#
+# WHY THE NARROWED RUN EXISTS AT ALL. Without it a test first cycle called
+# xcodebuild by hand, which is outside the lock protocol the three apps on this
+# Mac share and outside the project checks: on 2026-09-14 a hand written wait loop
+# nearly reported a false failure, because the regeneration a new test file needs
+# refuses WITHOUT waiting while a build holds the lock, and the loop kept only the
+# last line of that refusal (ovation#321). A red and a green run happen many times
+# in a feature, so the cheap path is the one that has to be the safe one (L378).
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -102,6 +125,85 @@ SKIP_XCODE_PHASE="${OVATION_SKIP_XCODE_PHASE:-}"
 # runner's own suite must judge a list it controls (L375).
 DOMAINS_COMMAND="${OVATION_DEFAULTS_DOMAINS_COMMAND:-defaults domains}"
 DOMAINS_BRACKETED=""
+# What answers whether the project lists every Swift file on disk, and what makes
+# it list them again. Seams for the same reason every other command here is one:
+# a narrowed run over a stale project has to be measured without a real xcodegen
+# and without a real project to rewrite (L2, L291). The defaults are the scripts
+# the push gate runs, so nothing here has a second opinion about "current" (L70).
+PROJECT_CURRENT_COMMAND="${OVATION_PROJECT_CURRENT_COMMAND:-}"
+REGENERATE_COMMAND="${OVATION_REGENERATE_COMMAND:-}"
+
+# ---------------------------------------------------------------------------
+# THE ARGUMENTS, READ BEFORE ANYTHING RUNS (ovation#321).
+#
+# No argument is exactly what it always was. `--only <Target>/<Suite>` narrows the
+# run to one Swift suite, or to one test in it.
+#
+# EVERYTHING ELSE IS REFUSED, BY NAME, WITH THE FORMS THAT ARE ACCEPTED. A runner
+# that ignored an argument it did not understand would run the whole suite while
+# the person watching believed it was running one file, and the only symptom would
+# be how long it took (L98, L320). The refusal happens before the shell suites,
+# before any lock and before anything is built, so a mistyped invocation costs
+# nothing.
+# ---------------------------------------------------------------------------
+ONLY_TESTING=""
+ONLY_TARGET=""
+# A suite name, and optionally one test in it. Swift Testing writes a function
+# with parentheses and XCTest without, so both are accepted; a target other than
+# the two this repository has is not, because -only-testing with an unknown target
+# is precisely the filter that matches nothing (L98).
+ONLY_PATTERN='^(OvationTests|OvationHostedTests)/[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*(\(\))?)?$'
+
+only_usage() {
+  echo "Usage: scripts/run-tests.sh" >&2
+  echo "       scripts/run-tests.sh --only OvationTests/<Suite>[/<testFunction>]" >&2
+  echo "       scripts/run-tests.sh --only OvationHostedTests/<Suite>[/<testFunction>]" >&2
+  echo "       With no argument every suite runs. With --only, one Swift suite runs," >&2
+  echo "       under the same project checks and sibling locks as the whole run, and" >&2
+  echo "       the rest is skipped and said out loud." >&2
+}
+refuse_usage() {
+  echo "Error: $1" >&2
+  only_usage
+  exit 2
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --only)
+      [ -z "${ONLY_TESTING}" ] || refuse_usage "--only was given twice, and a narrowed run runs one thing."
+      [ "$#" -ge 2 ] || refuse_usage "--only needs a suite to run."
+      [[ "${2:-}" =~ ${ONLY_PATTERN} ]] \
+        || refuse_usage "'${2:-}' is not a suite in OvationTests or OvationHostedTests."
+      ONLY_TESTING="$2"
+      shift 2
+      ;;
+    *)
+      refuse_usage "unknown argument '$1'."
+      ;;
+  esac
+done
+
+if [ -n "${ONLY_TESTING}" ]; then
+  ONLY_TARGET="${ONLY_TESTING%%/*}"
+  # THE COMMANDS CAN SEE THE FILTER. The injected seams are what the runner's own
+  # suite measures, and a filter that reached xcodebuild but not the seam could
+  # not be asserted on at all (L52). It is EXPORTED, so it also reaches a real
+  # xcodebuild's environment, and it is the one place the value lives.
+  export OVATION_ONLY_TESTING="${ONLY_TESTING}"
+  if [ -n "${SKIP_XCODE_PHASE}" ]; then
+    echo "Error: --only runs a Swift suite and OVATION_SKIP_XCODE_PHASE skips the Swift" >&2
+    echo "       suites, so this run would test nothing at all. Refusing rather than" >&2
+    echo "       printing a pass over a run that did nothing." >&2
+    exit 2
+  fi
+else
+  # A FULL RUN NARROWS NOTHING, whatever the shell that started it holds. The
+  # variable is exported to every child, so a value left over from a narrowed run
+  # in the same shell would otherwise reach the commands below and quietly run a
+  # fraction of the suite (L169, L439).
+  unset OVATION_ONLY_TESTING
+fi
 
 # STATUS IS THE RUN'S VERDICT AND IT EXISTS FROM THE TOP. The locked phase used to
 # be the only thing that set it, so the skip path above reached the exit with it
@@ -218,7 +320,12 @@ SUITE_DIR="${OVATION_SHELL_SUITE_DIR:-${REPO_ROOT}/scripts}"
 SUITE_FLOOR="${OVATION_SHELL_SUITE_FLOOR:-}"
 SHELL_UNMEASURED=""
 
-if [ -n "${UNLOCKED_COMMAND}" ]; then
+if [ -n "${ONLY_TESTING}" ]; then
+  # A NARROWED RUN IS ABOUT ONE SWIFT SUITE, and the shell suites take minutes and
+  # answer a different question. Said in one line rather than simply not happening,
+  # because a skip nobody is told about reads as a check that passed (L98, L320).
+  echo "==> Shell suites SKIPPED: this run is narrowed to ${ONLY_TESTING}, so only that Swift suite runs. Run scripts/run-tests.sh with no argument for the whole gate."
+elif [ -n "${UNLOCKED_COMMAND}" ]; then
   bash -c "${UNLOCKED_COMMAND}" || exit $?
 else
   echo "==> Running the shell suites (no lock needed)"
@@ -367,6 +474,114 @@ else
     echo "    pass this gate and still fail to build in CI (ovation#270). The run continues."
   fi
 
+  # THE TWO COMMANDS THAT JUDGE AND REPAIR THE PROJECT, in one place each, so the
+  # narrowed run below and the check further down cannot come to mean different
+  # things by "current" (L70, L613).
+  project_current() {
+    if [ -n "${PROJECT_CURRENT_COMMAND}" ]; then
+      OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
+        bash -c "${PROJECT_CURRENT_COMMAND}"
+    else
+      OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
+        "${REPO_ROOT}/scripts/check-xcode-project-current.sh"
+    fi
+  }
+  regenerate_project() {
+    if [ -n "${REGENERATE_COMMAND}" ]; then
+      OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
+      OVATION_DIR_LOCK="${DIR_LOCK}" OVATION_XCODEGEN="${XCODEGEN}" \
+        bash -c "${REGENERATE_COMMAND}"
+    else
+      OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
+      OVATION_DIR_LOCK="${DIR_LOCK}" OVATION_XCODEGEN="${XCODEGEN}" \
+        "${REPO_ROOT}/scripts/regenerate-xcode-project.sh"
+    fi
+  }
+
+  # ---------------------------------------------------------------------------
+  # A NARROWED RUN REGENERATES A STALE PROJECT RATHER THAN STOPPING (ovation#321).
+  #
+  # A Swift file the project does not list is the NORMAL state of test first work:
+  # the test file was written a minute ago, project.yml lists directories and the
+  # generated project lists files. A full run stops and names the command, which is
+  # right for a push gate; stopping a red-then-green cycle to run one command by
+  # hand is what sent every such cycle around this runner in the first place.
+  #
+  # AND IT WAITS, WHERE THE REGENERATOR ITSELF REFUSES. regenerate-xcode-project.sh
+  # refuses WITHOUT waiting while a build holds the lock or a run is reading the
+  # project, deliberately, because it is normally a person at a keyboard who can
+  # try again (scripts/regenerate-xcode-project.sh). Nobody is at the keyboard
+  # inside this run, so this waits for it, at the same poll and deadline as the
+  # sibling locks, SAYING the refusal's own words the first time and how long it
+  # has been waiting as it goes: a wait that cannot be told from a hang is the
+  # worse of the two (L110, L148).
+  #
+  # IT HAPPENS BEFORE THIS RUN REGISTERS AS A READER, because a regeneration
+  # refuses while any live registration stands, and this run's own would be one
+  # (ovation#299).
+  if [ -n "${ONLY_TESTING}" ]; then
+    CURRENT_WORDS="$(project_current 2>&1)"
+    CURRENT_STATUS=$?
+    if [ "${CURRENT_STATUS}" -eq 1 ]; then
+      printf '%s\n' "${CURRENT_WORDS}"
+      echo "==> The project does not list every Swift file on disk, which a new test file is."
+      echo "    Regenerating ${XCODE_PROJECT} for this narrowed run, waiting up to ${TIMEOUT}s if"
+      echo "    another run is using it."
+      regen_started="$(date +%s)"
+      regen_announced=0
+      regen_refused=""
+      while :; do
+        REGEN_WORDS="$(regenerate_project 2>&1)"
+        REGEN_STATUS=$?
+        # 1 is the regenerator's "a lock is held, or a build is reading it", the
+        # one outcome worth waiting on. Anything else is a fault in the tree that
+        # waiting cannot mend, and it keeps its own status and its own words.
+        [ "${REGEN_STATUS}" -eq 1 ] || break
+        if [ -z "${regen_refused}" ]; then
+          regen_refused=1
+          echo "    The regeneration refused, so this run waits for it rather than stopping. It said:"
+          printf '%s\n' "${REGEN_WORDS}" | sed 's/^/    /'
+        fi
+        regen_elapsed=$(( $(date +%s) - regen_started ))
+        if [ "$((regen_elapsed / 30))" -gt "${regen_announced}" ]; then
+          regen_announced=$((regen_elapsed / 30))
+          echo "    still waiting to regenerate after ${regen_elapsed}s of ${TIMEOUT}s: ${REGEN_WORDS%%$'\n'*}"
+        fi
+        if [ "${regen_elapsed}" -gt "${TIMEOUT}" ]; then
+          echo "Error: gave up waiting to regenerate ${XCODE_PROJECT} after ${TIMEOUT}s." >&2
+          echo "       Nothing was built, and the project still does not list every Swift" >&2
+          echo "       file on disk. The last refusal said:" >&2
+          printf '%s\n' "${REGEN_WORDS}" | sed 's/^/       /' >&2
+          exit 3
+        fi
+        sleep "${POLL}"
+      done
+      if [ "${REGEN_STATUS}" -ne 0 ]; then
+        echo "Error: ${XCODE_PROJECT} could not be regenerated (the regenerator exited ${REGEN_STATUS})," >&2
+        echo "       so this narrowed run stops rather than building the old set of files." >&2
+        printf '%s\n' "${REGEN_WORDS}" | sed 's/^/       /' >&2
+        exit "${REGEN_STATUS}"
+      fi
+      printf '%s\n' "${REGEN_WORDS}"
+      # ASKED AGAIN AFTERWARDS. A regeneration that reported success and left the
+      # project still missing a file is a run that would fail as a compiler error
+      # about the code rather than about the project (ovation#206, L100).
+      CURRENT_WORDS="$(project_current 2>&1)"
+      CURRENT_STATUS=$?
+      if [ "${CURRENT_STATUS}" -ne 0 ]; then
+        printf '%s\n' "${CURRENT_WORDS}" >&2
+        if [ "${CURRENT_STATUS}" -eq 1 ]; then
+          echo "Error: ${XCODE_PROJECT} was regenerated and still does not list every Swift file" >&2
+          echo "       on disk, so nothing here would be built from the tree as it is." >&2
+        else
+          echo "Error: ${XCODE_PROJECT} was regenerated and then could not be judged current" >&2
+          echo "       (the check exited ${CURRENT_STATUS}), which is not a verdict that it is." >&2
+        fi
+        exit "${CURRENT_STATUS}"
+      fi
+    fi
+  fi
+
   # shellcheck source=lib/ensure-xcode-project.sh
   . "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
   xcode_project_read_begin "${REPO_ROOT}" "${XCODE_PROJECT}" "${XCODEGEN}" \
@@ -384,8 +599,7 @@ else
   # go on: xcodebuild says plainly when a project is absent. Anything else stops
   # the run with the check's own words and status, which is a real fault in the
   # tree rather than something that went unmeasured.
-  OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
-    "${REPO_ROOT}/scripts/check-xcode-project-current.sh"
+  project_current
   PROJECT_CURRENT_STATUS=$?
   case "${PROJECT_CURRENT_STATUS}" in
     0|2) ;;
@@ -483,13 +697,25 @@ else
   # the terminal silent, so a person watching could not tell a slow run from a hung
   # one. PIPESTATUS[0] is the run's own status: the pipe's is tee's (L183, L184).
   PURE_OUTPUT="$(mktemp)"
-  if [ -z "${TEST_COMMAND}" ]; then
-    xcodebuild -project "${XCODE_PROJECT}" -scheme OvationCore \
-      -destination 'platform=macOS' test 2>&1 | tee "${PURE_OUTPUT}"
+  if [ "${ONLY_TARGET}" = "OvationHostedTests" ]; then
+    # A run narrowed to the hosted suite builds the pure scheme for nothing, so it
+    # is skipped, and said: a suite that did not run must never look like one that
+    # passed (L98).
+    echo "==> Pure suite SKIPPED: this run is narrowed to ${ONLY_TESTING}, which is in the hosted suite."
+    STATUS=0
   else
-    bash -c "${TEST_COMMAND}" 2>&1 | tee "${PURE_OUTPUT}"
+    # THE FILTER IS ONE WORD OR NOTHING. `${X:+...}` expands to a single argument
+    # when the filter is set and to NO argument at all when it is not, so the full
+    # run's command line is exactly what it was.
+    if [ -z "${TEST_COMMAND}" ]; then
+      xcodebuild -project "${XCODE_PROJECT}" -scheme OvationCore \
+        -destination 'platform=macOS' ${ONLY_TESTING:+"-only-testing:${ONLY_TESTING}"} \
+        test 2>&1 | tee "${PURE_OUTPUT}"
+    else
+      bash -c "${TEST_COMMAND}" 2>&1 | tee "${PURE_OUTPUT}"
+    fi
+    STATUS="${PIPESTATUS[0]}"
   fi
-  STATUS="${PIPESTATUS[0]}"
 
   # THE PURE SUITE HAS STOPPED READING THE PROJECT, so a regeneration may go ahead
   # (ovation#299). The hosted suite reads it under the directory build lock, which
@@ -512,7 +738,34 @@ else
   # catch the total loss and miss every partial one, which is the likelier and
   # quieter failure. A change that adds tests bumps the file, which is what makes
   # a DROP visible rather than a matter of somebody noticing.
-  if [ "${STATUS}" -eq 0 ] && [ -n "${TEST_COMMAND}" ] && [ -z "${OVATION_TEST_FLOOR:-}" ]; then
+  if [ "${STATUS}" -eq 0 ] && [ -n "${ONLY_TESTING}" ]; then
+    # THE FLOOR IS NOT APPLIED TO ANY NARROWED RUN, the hosted one included, where
+    # the pure suite did not run at all and its skip is said above.
+    #
+    # A NARROWED RUN IS PART OF THE SUITE BY DESIGN, so the floor cannot judge it,
+    # and that is said rather than silently not done (L98, L320).
+    #
+    # WHAT REPLACES IT IS THE ONE THING STILL WORTH REFUSING: that the filter
+    # matched SOMETHING. `-only-testing:` with a path that resolves to no tests
+    # makes xcodebuild print ** TEST SUCCEEDED ** and exit 0, so a misspelled suite
+    # name reads as a passing test file, which is the exact failure a hand run of
+    # one file produced and this option exists to end (L98, L288).
+    #
+    # THE COUNT IS ONLY READ WHEN THE PURE SUITE ACTUALLY RAN. A run narrowed to
+    # the hosted suite skipped it, and reading an empty output there would refuse
+    # every hosted narrowed run for having matched nothing, which was true of a
+    # suite nobody asked to run (L11, L530). The hosted half reads its own count.
+    if [ "${ONLY_TARGET}" = "OvationTests" ]; then
+      echo "==> Pure test floor NOT APPLIED: this run is narrowed to ${ONLY_TESTING}, so it runs part"
+      echo "    of the suite on purpose. It must still have executed at least one test."
+      if ! grep -qE 'Test run with [1-9][0-9]* test' "${PURE_OUTPUT}"; then
+        echo "Error: the filter ${ONLY_TESTING} matched nothing: the run reported success and" >&2
+        echo "       executed NO tests. Check the suite and test names against the source," >&2
+        echo "       and note that the suite name is the TYPE's name, not its display name." >&2
+        STATUS=6
+      fi
+    fi
+  elif [ "${STATUS}" -eq 0 ] && [ -n "${TEST_COMMAND}" ] && [ -z "${OVATION_TEST_FLOOR:-}" ]; then
     # Said out loud rather than skipped silently, the same way the hosted skip is:
     # the runner is being measured with an injected command, which prints no count,
     # so a floor would refuse every test of the locking. A skip nobody is told
@@ -575,7 +828,13 @@ else
   # stayed green (L98, L288). The count is read back and a run that executed no
   # tests is refused.
   if [ "${STATUS}" -eq 0 ]; then
-    if [ -n "${TEST_COMMAND}" ] && [ -z "${HOSTED_TEST_COMMAND}" ]; then
+    if [ "${ONLY_TARGET}" = "OvationTests" ]; then
+      # The filter is in the pure suite, so the hosted half has nothing to run and
+      # NEITHER SIBLING LOCK IS TAKEN for it: the pure suite takes none by design
+      # (ovation#271), and a narrowed run that queued behind another app's build
+      # for a suite it is not running would be the cheap path made expensive (L378).
+      echo "==> Hosted suite SKIPPED: this run is narrowed to ${ONLY_TESTING}, which is in the pure suite, so no sibling lock was taken."
+    elif [ -n "${TEST_COMMAND}" ] && [ -z "${HOSTED_TEST_COMMAND}" ]; then
       # Said out loud rather than skipped silently: the runner is being measured
       # with an injected command, so the real hosted run would be meaningless here.
       # No lock is taken for a suite that does not run.
@@ -792,8 +1051,12 @@ else
     if [ -n "${HOSTED_TEST_COMMAND}" ]; then
       HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1)"
     else
+      # NARROWED IN PLACE OF THE WHOLE HOSTED TARGET, never beside it: two
+      # -only-testing arguments are a union, so a filter added beside the target
+      # would run the whole hosted suite while reading as one test (ovation#321).
       HOSTED_OUTPUT="$(xcodebuild -project "${XCODE_PROJECT}" -scheme Ovation \
-        -destination 'platform=macOS' -only-testing:OvationHostedTests test 2>&1)"
+        -destination 'platform=macOS' \
+        "-only-testing:${ONLY_TESTING:-OvationHostedTests}" test 2>&1)"
     fi
     HOSTED_STATUS=$?
     printf '%s\n' "${HOSTED_OUTPUT}"
@@ -812,9 +1075,14 @@ else
     # and a hosted run of 26 tests. A here string is a file rather than a pipe,
     # so there is no producer left to kill.
     elif ! grep -qE 'Test run with [1-9][0-9]* test' <<<"${HOSTED_OUTPUT}"; then
-      echo "Error: the hosted run reported success and executed NO tests." >&2
-      echo "       A -only-testing: path that matches nothing does exactly this." >&2
-      echo "       Nothing about the launch surface was verified." >&2
+      if [ -n "${ONLY_TESTING}" ]; then
+        echo "Error: the filter ${ONLY_TESTING} matched nothing: the run reported success and" >&2
+        echo "       executed NO tests. Check the suite and test names against the source." >&2
+      else
+        echo "Error: the hosted run reported success and executed NO tests." >&2
+        echo "       A -only-testing: path that matches nothing does exactly this." >&2
+        echo "       Nothing about the launch surface was verified." >&2
+      fi
       STATUS=6
     fi
 
