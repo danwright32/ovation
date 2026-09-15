@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 90
+harness_begin "output privacy tests" 93
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -249,6 +249,37 @@ check "the construct guard prints no identity when it finds a forbidden type" \
 printf 'struct Pricing {\n    let rateInCents: Int64\n}\n' > "$MONEY_ROOT/Pricing.swift"
 check "and none when the sources are clean" \
     "$(leaks_in "$(OVATION_CONSTRUCT_SCAN_ROOT="$MONEY_ROOT" ./scripts/check-forbidden-constructs.sh 2>&1)")" \
+    "clean"
+
+# ---------------------------------------------------------------------------
+# The motion owner guard (ovation#124). It walks Swift sources and prints paths,
+# line numbers and construct names. A comment beside an animation is as good a
+# place for a client's name as any other, so the line itself must never travel
+# out with the refusal.
+# ---------------------------------------------------------------------------
+MOTION_ROOT="$WORK/motion-sources"
+mkdir -p "$MOTION_ROOT/Roster" "$MOTION_ROOT/App"
+cat > "$MOTION_ROOT/Roster/OvationMotion.swift" <<'SWIFT'
+enum OvationMotion {
+    static func animation(_ kind: Kind, reduceMotion: Bool) -> Animation? { nil }
+}
+SWIFT
+cat > "$MOTION_ROOT/App/Screen.swift" <<SWIFT
+// The pane $CLIENT opens for the $SHOOT at $VENUE.
+func open() {
+    withAnimation(.easeInOut) { showing = true }
+}
+SWIFT
+check "the motion owner guard prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_MOTION_SCAN_ROOT="$MOTION_ROOT" ./scripts/check-motion-owner.sh 2>&1)")" \
+    "clean"
+check "and that refusal really did name the construct, so the case reached the line that prints" \
+    "$(OVATION_MOTION_SCAN_ROOT="$MOTION_ROOT" ./scripts/check-motion-owner.sh 2>&1 \
+        | grep -c 'App/Screen.swift:3: withAnimation')" "1"
+printf 'struct Screen: View {\n    var body: some View { list.ovationMotion(.slide, value: open) }\n}\n' \
+    > "$MOTION_ROOT/App/Screen.swift"
+check "and none when every screen goes through the component" \
+    "$(leaks_in "$(OVATION_MOTION_SCAN_ROOT="$MOTION_ROOT" ./scripts/check-motion-owner.sh 2>&1)")" \
     "clean"
 
 # ---------------------------------------------------------------------------
