@@ -211,8 +211,27 @@ have told most of them, in writing, that Dan was unsure whether they should have
 been charged. Every client has one now (ovation#298), and the rule stands for
 the client that arrives without one.</p>
 
+<h3>With money already applied, the page asks for what is still owed</h3>
+<p>A deposit or an overpayment carried over can already sit on an invoice when it
+is sent (PRD 14h). The figure at the top is then the balance, and the money block
+ends Total, Payments received and Balance due, with the balance carrying the
+weight as it does on the invoice screen (PRD 14m). Dan chose that on 2026-09-14
+(ovation#167), first that the top asks for the balance rather than the total, then
+the three labels by looking at four wordings on the Deposit applied invoice. The
+screen's own words were not carried over: held money is Dan's term, and a client
+has only ever paid.</p>
+
+<h3>The small capital labels keep their letter spacing, and copy as separate letters</h3>
+<p>The labels (Amount due, Bill to, Invoice, Issued, the column headings, Payment,
+Note, Contact) are tracked 0.14em. In the rendered PDF that spacing makes the text
+layer read each label as separate letters, so a client who copies one gets
+"A M O U N T D U E"; every name, date and figure is untracked and copies exactly.
+Tagging the labels with their real text did not change what PDFKit reads. Dan
+looked at the page with the spacing and without it and kept the spacing
+(2026-09-14, ovation#167).</p>
+
 <h2>Every measurement in it was checked, not eyeballed</h2>
-<p>Nothing overflows or wraps on any of the six invoices below, including the one
+<p>Nothing overflows or wraps on any of the seven invoices below, including the one
 carrying the longest real names in the roster: client 33, shoot 50 and venue 36
 characters, which are the measured maxima from the live export. The longest shoot
 name uses 241px of a 434px column.</p>
@@ -283,16 +302,48 @@ which is the argument for this shape, but that was measured on screen.</p>
 var RATE = 250;
 var TAX_RATE = 0.08875;
 
+/* HOW MONEY AND HOURS ARE WRITTEN ON THE INVOICE PDF (ovation#167, PRD 50c).
+   The page a client receives writes a dollar sign and a comma between thousands.
+   The invoice screen writes its figures without either, on purpose, with a
+   formatter of its own, so this rule belongs to the PDF alone.
+   ONE SET OF CASES FOR BOTH IMPLEMENTATIONS. pdf-text.cases.json is read by
+   scripts/test-design-rules.sh against this rule and by
+   OvationTests/PDFTextTests.swift against the app, because two implementations
+   each tested by cases of their own agree on the day they are written and then
+   drift, and the page the client receives is where it would show (L26).
+   HOURS KEEP ONE DECIMAL UNLESS THE VALUE NEEDS TWO. "1.0 hr" and "1.5 hrs" are
+   the settled spelling. A quarter hour written to one decimal printed 1.3, so
+   the hours times the rate stopped adding up to the amount beside them, and
+   PRD 50c exists so a client can reconstruct every figure. */
 function money(n) {
   var s = Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return (n < 0 ? "-$" : "$") + s;
 }
 
-function hours(h) { return h.toFixed(1) + (h === 1 ? " hr" : " hrs"); }
+function hours(h) {
+  var hundredths = Math.round(h * 100);
+  var written = hundredths % 10 === 0 ? h.toFixed(1) : h.toFixed(2);
+  return written + (hundredths === 100 ? " hr" : " hrs");
+}
+
+/* THE TERMS COUNT THE INVOICE'S OWN DAYS (Dan, 2026-09-14). PRD 7 lets a due date
+   move per client or per invoice, and a fixed "14 days" would then contradict the
+   due date at the top of the same page. null is a refusal: a due date before the
+   invoice date is not a term, and printing one would hide the mistake. */
+function terms(days) {
+  if (days < 0) return null;
+  if (days === 0) return "Payment due on the invoice date.";
+  return "Payment due within " + days + (days === 1 ? " day" : " days") + " of the invoice date.";
+}
 
 function totals(inv) {
-  var subtotal = 0;
-  inv.lines.forEach(function (l) { subtotal += l.amount; });
+  var lines = 0;
+  inv.lines.forEach(function (l) { lines += l.amount; });
+  /* THE REFERRAL CREDIT IS ITS OWN BLOCK, NOT A LINE (PRD 8, corrected
+     2026-09-07). It is still inside the subtotal, so the arithmetic is the same
+     as when it was drawn as a negative line; what moved is where it is shown. */
+  var credit = inv.credit || 0;
+  var subtotal = lines - credit;
   var discount = 0;
   if (inv.discount) {
     discount = inv.discount.percent
@@ -301,8 +352,8 @@ function totals(inv) {
   }
   var taxable = subtotal + discount;
   var tax = inv.exempt ? 0 : Math.round(taxable * TAX_RATE * 100) / 100;
-  return { subtotal: subtotal, discount: discount, taxable: taxable,
-           tax: tax, total: taxable + tax };
+  return { lines: lines, credit: credit, subtotal: subtotal, discount: discount,
+           taxable: taxable, tax: tax, total: taxable + tax };
 }
 
 function photoLine(shoot, venue, date, h) {
@@ -334,19 +385,18 @@ var FIXTURES = [
   },
   {
     label: "Every element",
-    note: "Extras, a referral credit as a negative line inside the subtotal (PRD 5.8), and a discount below it (PRD 5.4a). PRD 5.4b requires those two never read as one thing.",
+    note: "Extras, a referral credit in its own block above the subtotal (PRD 8), and a discount below it (PRD 5.4a). PRD 5.4b requires those two never read as one thing.",
     number: "1125", issued: "December 5, 2026", due: "December 19, 2026",
     client: "Westfield Choral Society", exempt: false, discount: { percent: 10 },
+    credit: 250,
     lines: [
       photoLine("Winter Gala Concert", "St Bride's Hall", "December 5, 2026", 2.0),
       /* ONE OF THESE OMITS THE KEYS AND ONE CARRIES THEM EMPTY, on purpose
          (ovation#170). They mean the same thing to anyone writing a fixture,
          and until this line existed no fixture anywhere used the second
          spelling, so the throw it caused could not be reached by any check. */
-      { kind: "Rush turnaround", detail: "Gallery delivered within 24 hours",
-        hours: null, rate: null, amount: 150 },
-      { kind: "Preview images", detail: "Six images delivered the same night", amount: 75 },
-      { kind: "Referral credit", detail: "Earned on Yarrow Street Collective, 1.0 hr", amount: -250 }
+      { kind: "Rush turnaround", hours: null, rate: null, amount: 150 },
+      { kind: "Preview images", amount: 75 }
     ]
   },
   {
@@ -371,6 +421,13 @@ var FIXTURES = [
     client: "Marrowbone Percussion Group Trust", exempt: false,
     lines: [photoLine("Spring Festival of New Percussion, Song and Dances",
                       "The Rothersay Memorial Concert Rooms", "February 6, 2027", 2.0)]
+  },
+  {
+    label: "Deposit applied",
+    note: "PRD 14k. A $100.00 deposit is already applied, so the top asks for what is still owed and the money block ends Total, Payments received, Balance due (Dan, 2026-09-14).",
+    number: "1129", issued: "March 6, 2027", due: "March 20, 2027",
+    client: "Calder Street Theatre", exempt: false, paid: 100,
+    lines: [photoLine("Spring Recital", "Calder Street Theatre", "March 6, 2027", 1.0)]
   }
 ];
 
@@ -378,11 +435,28 @@ var FIXTURES = [
    sentence is outbound copy and owes the cold read PRD 5.41a requires. */
 var SETTINGS = {
   email: "dan@danwrightphotography.com",
-  phone: "(631) 793 7858",
   payment: "Payment instructions available upon request.",
-  noteToCustomer: "Thank you for having me at your performance. Galleries are delivered within five business days.",
-  terms: "Payment due within 14 days of the invoice date."
+  noteToCustomer: "Thank you for having me at your performance. Galleries are delivered within five business days."
 };
+
+/* Whole days between two of the fixtures' written dates, counted on UTC calendar
+   days so no clock change can make one 23 hours long. */
+function daysBetween(fromWritten, toWritten) {
+  var months = ["January", "February", "March", "April", "May", "June", "July",
+                "August", "September", "October", "November", "December"];
+  /* A DATE IT CANNOT READ STOPS THE PAGE (L50). Parsed as NaN it would reach
+     terms() and print "within NaN days", which reads as a page rather than a
+     fault. */
+  function utc(written) {
+    var w = String(written).replace(",", "").split(" ");
+    var year = parseInt(w[2], 10), month = months.indexOf(w[0]), day = parseInt(w[1], 10);
+    if (w.length !== 3 || month < 0 || !isFinite(year) || !isFinite(day)) {
+      throw new Error(written + " is not a date the fixtures write");
+    }
+    return Date.UTC(year, month, day);
+  }
+  return Math.round((utc(toWritten) - utc(fromWritten)) / 86400000);
+}
 
 function mk(tag, cls, text) {
   var n = document.createElement(tag);
@@ -425,7 +499,9 @@ function itemsTable(inv) {
     var r = document.createElement("tr");
     var d = mk("td");
     d.append(mk("span", "desc", l.shoot || l.kind));
-    var second = l.shoot ? l.venue + ", " + l.date : (l.detail || "");
+    /* AN EXTRA IS A TYPE AND AN AMOUNT (PRD 51f), and the app holds no field for
+       a line of detail beneath it, so the page draws none (ovation#167). */
+    var second = l.shoot ? l.venue + ", " + l.date : "";
     if (second) d.append(mk("span", "sub2", second));
     r.append(d);
     /* THE VALUE IS GUARDED, NOT THE KEY (ovation#170). `l.hours !== undefined`
@@ -461,21 +537,47 @@ function moneyBlock(inv) {
     r.append(mk("span", "num", v));
     m.append(r);
   }
+  /* PRD 8. The referral credit is its own block above the subtotal. On the PDF
+     that was Dan's choice over a line among the charges, made by looking at both
+     on this page (2026-09-14, ovation#131), rather than the invoice screen's
+     treatment carried over. When there is no credit the lines and the subtotal
+     are the same number, and a figure stated twice is not drawn. The lines are
+     totalled as Services (Dan, 2026-09-14, ovation#167), chosen by looking at the
+     page beside Photography, Charges and Before credit: Photography is wrong on
+     an invoice that also carries rush or preview charges. */
+  if (t.credit > 0) {
+    row("Services", money(t.lines));
+    row("Referral credit", money(-t.credit));
+  }
   row("Subtotal", money(t.subtotal));
   if (inv.discount) {
     /* PRD 5.4a. A discount is not a line item: it sits BELOW the subtotal and
        the tax is charged on what is left. PRD 5.4b keeps it apart from a
-       referral credit, which is a negative LINE inside the subtotal. */
+       referral credit, which sits in its own block ABOVE the subtotal. */
     row("Discount" + (inv.discount.percent ? " (" + inv.discount.percent + "%)" : ""),
         money(t.discount));
     m.append(mk("div", "rule"));
     row("Taxable", money(t.taxable));
   }
   row(inv.exempt ? "Sales tax (exempt)" : "Sales tax (8.875%)", money(t.tax));
-  var tot = mk("div", "row total");
-  tot.append(mk("span", null, "Total due"));
-  tot.append(mk("span", "amt", money(t.total)));
-  m.append(tot);
+  /* MONEY ALREADY APPLIED SITS BELOW THE TOTAL (PRD 14k), and the heavy figure
+     is then what is still owed (PRD 14m). Total, Payments received and Balance
+     due were Dan's choice by looking at four wordings on this page (2026-09-14,
+     ovation#167). With nothing applied the total is what is owed, and reads
+     Total due as before. */
+  if (inv.paid > 0) {
+    row("Total", money(t.total));
+    row("Payments received", money(-inv.paid));
+    var owed = mk("div", "row total");
+    owed.append(mk("span", null, "Balance due"));
+    owed.append(mk("span", "amt", money(t.total - inv.paid)));
+    m.append(owed);
+  } else {
+    var tot = mk("div", "row total");
+    tot.append(mk("span", null, "Total due"));
+    tot.append(mk("span", "amt", money(t.total)));
+    m.append(tot);
+  }
   return m;
 }
 
@@ -490,7 +592,8 @@ function buildPage(inv) {
   head.append(ident);
   var due = mk("div", "due");
   due.append(mk("div", "lbl", "Amount due"));
-  due.append(mk("div", "big", money(t.total)));
+  /* What is still owed, which is the total unless money is already applied. */
+  due.append(mk("div", "big", money(t.total - (inv.paid || 0))));
   due.append(mk("div", "muted", "by " + inv.due));
   head.append(due);
   pad.append(head);
@@ -515,9 +618,12 @@ function buildPage(inv) {
     lines.forEach(function (x) { d.append(mk("p", null, x)); });
     foot.append(d);
   }
-  block("Payment", [SETTINGS.payment, SETTINGS.terms]);
+  /* The terms count this invoice's own days (Dan, 2026-09-14), so a due date
+     moved per client or per invoice (PRD 7) is never contradicted here. */
+  block("Payment", [SETTINGS.payment, terms(daysBetween(inv.issued, inv.due))]);
   block("Note", [SETTINGS.noteToCustomer]);
-  block("Contact", [SETTINGS.email, SETTINGS.phone]);
+  /* No phone number is printed (Dan, 2026-09-14, PRD 50d). */
+  block("Contact", [SETTINGS.email]);
   pad.append(foot);
 
   p.append(pad);
