@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 93
+harness_begin "output privacy tests" 95
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -943,6 +943,35 @@ check "the Xcode project currency check prints no identity when it refuses" \
 check "and that refusal really did name a file, so the case reached the line that prints" \
     "$(OVATION_REPO_ROOT="$PROJTREE" OVATION_XCODE_PROJECT="$PROJTREE/Ovation.xcodeproj" ./scripts/check-xcode-project-current.sh 2>&1 | grep -c 'App/Unlisted.swift')" "1"
 
+# ---------------------------------------------------------------------------
+# THE FINDING REPORTER (ovation#339). It is handed a TITLE and a BODY FILE that
+# a workflow composed, and both are free text that could carry anything, so this
+# plants an identity in each and asserts that what the script itself prints
+# carries neither. It prints issue numbers and counts, which name the finding
+# exactly and carry nothing (L15). The tracker is an injected stub that answers
+# from a file and writes nowhere, so this reaches nothing real (L2).
+# ---------------------------------------------------------------------------
+REPORT="$WORK/report"; mkdir -p "$REPORT/bin"
+cat > "$REPORT/bin/gh" <<'STUB'
+#!/bin/bash
+# Answers the lookup with two issues carrying one marker title, so the run takes
+# the MANY refusal: that is the outcome which prints the most about what it
+# found, and it writes nothing. Indented because scripts/test-run-tests.sh reads
+# a heredoc's lines exactly like a suite's own and refuses a `$1` on one of them.
+    [ "${1:-} ${2:-}" = "issue list" ] && printf '%s' "$OVATION_TEST_LIST_JSON"
+    exit 0
+STUB
+chmod +x "$REPORT/bin/gh"
+printf 'A finding about %s at %s.\n' "$CLIENT" "$VENUE" > "$REPORT/body.md"
+REPORT_OUT="$(OVATION_GH="$REPORT/bin/gh" \
+    OVATION_TEST_LIST_JSON='[{"number":44,"title":"A finding naming '"$CLIENT"'"},{"number":91,"title":"A finding naming '"$CLIENT"'"}]' \
+    ./scripts/report-finding.sh stands --title "A finding naming $CLIENT" \
+        --body-file "$REPORT/body.md" --comment-file "$REPORT/body.md" 2>&1)"
+check "the finding reporter prints no identity from the title or the body it was given" \
+    "$(leaks_in "$REPORT_OUT")" "clean"
+check "and it really did report a refusal, so the case reached the lines that print" \
+    "$(printf '%s' "$REPORT_OUT" | grep -c 'MANY')" "1"
+
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever
 # nobody remembered to add, and the exempted one is the one this suite exists for
@@ -966,7 +995,10 @@ MUST_BE_COVERED="$( { roles_with gated; roles_with reads-real-data; roles_with w
 # covered, and it is not called check-: it CHANGES which Xcode a machine builds
 # with, and a name that reads like an inspection must not modify anything
 # (L206). A pattern blind to it would refuse a script this suite covers (L63).
-EXERCISED="$(grep -oE './scripts/(check|measure|select)-[a-z-]+\.(sh|py)' "$0" \
+# `report-` joined it for the same reason (ovation#339): scripts/report-finding.sh
+# is run by two workflows, so the inventory puts it in the set, and it WRITES to
+# the tracker rather than inspecting anything.
+EXERCISED="$(grep -oE './scripts/(check|measure|report|select)-[a-z-]+\.(sh|py)' "$0" \
     | sed 's|^./scripts/||' | sort -u | tr '\n' ' ' | sed 's/ $//')"
 check "every script that can print about real data is covered by this suite" \
     "$EXERCISED" "$MUST_BE_COVERED"

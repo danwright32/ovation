@@ -133,6 +133,11 @@ jobs:
       # of that string ENDED the YAML block scalar: the workflow failed to parse,
       # ran no jobs at all, and reported a failure with no log to read. A run with
       # zero jobs is what an invalid workflow file looks like.
+      #
+      # THE MECHANISM IS scripts/report-finding.sh (ovation#339): the lookup, the
+      # exact match, the comment, the creation and the refusals live there, where
+      # a suite drives every one of them against an injected `gh`. This step owns
+      # the words, which is the half that is about CI rather than about reporting.
       - name: Say so, once
         if: steps.judge.outputs.status == '1' || steps.judge.outputs.status == '3'
         env:
@@ -175,22 +180,30 @@ jobs:
             } > issue-body.md
           fi
 
-          existing="$(gh issue list --state open --search "in:title \"${TITLE}\"" \
-            --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -1)"
+          {
+            echo "Still true on $(date -u +%Y-%m-%d):"
+            echo
+            sed 's/^/    /' verdict.txt
+          } > comment-body.md
 
-          if [ -n "${existing}" ]; then
-            {
-              echo "Still true on $(date -u +%Y-%m-%d):"
-              echo
-              sed 's/^/    /' verdict.txt
-            } > comment-body.md
-            gh issue comment "${existing}" --body-file comment-body.md
-          else
-            gh issue create --title "${TITLE}" \
-              --milestone Ungrouped \
-              --label priority-p1 --label ci-hygiene --label monitoring \
-              --body-file issue-body.md
-          fi
+          set +e
+          bash scripts/report-finding.sh stands \
+            --title "${TITLE}" \
+            --body-file issue-body.md \
+            --comment-file comment-body.md \
+            --milestone Ungrouped \
+            --label priority-p1 --label ci-hygiene --label monitoring
+          reported=$?
+          set -e
+          # EVERY OUTCOME HAS ITS OWN CODE, so the ones that mean the finding is
+          # where it should be are named rather than assumed: 0 filed the issue,
+          # 1 commented on the one already open. Anything else is a refusal the
+          # script has already explained, and it fails this job rather than
+          # passing quietly (L184).
+          case "${reported}" in
+            0|1) ;;
+            *) exit "${reported}" ;;
+          esac
 
       # AND SAID ONCE WHEN IT IS OVER (ovation#212). A FAILING issue left open
       # after main went green is a finding that reads as outstanding, and teaches
@@ -206,18 +219,24 @@ jobs:
           TITLE: CI is failing on main
         run: |
           set -uo pipefail
-          existing="$(gh issue list --state open --search "in:title \"${TITLE}\"" \
-            --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -1)"
-          if [ -z "${existing}" ]; then
-            echo "No open \"${TITLE}\" issue, so there is nothing to close."
-            exit 0
-          fi
           {
             echo "The newest CI run on main succeeded on $(date -u +%Y-%m-%d), so this is closed."
             echo
             sed 's/^/    /' verdict.txt
           } > close-body.md
-          gh issue close "${existing}" --comment "$(cat close-body.md)"
+
+          set +e
+          bash scripts/report-finding.sh cleared \
+            --title "${TITLE}" \
+            --comment-file close-body.md
+          reported=$?
+          set -e
+          # 2 closed it, 3 means no such issue was open, which is the ordinary
+          # state on every green day and is not a fault.
+          case "${reported}" in
+            2|3) ;;
+            *) exit "${reported}" ;;
+          esac
 
       # A FAILURE TO MEASURE FAILS THE JOB, so it is visible in the checks of the
       # push that ran it rather than passing quietly. It does not open an issue:
