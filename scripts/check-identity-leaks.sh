@@ -29,6 +29,7 @@ from real business names WILL over match, and an over match reads exactly like
 the feature working (L104). A multi word name is matched as a phrase, because
 half a name is not the name.
 """
+import hashlib
 import json
 import os
 import re
@@ -47,6 +48,29 @@ QUEUE = os.environ.get("OVATION_GUARD_QUEUE_DIR",
                        os.path.expanduser("~/Library/Application Support/Ovation/booking-queue"))
 SCAN_ROOT = os.environ.get("OVATION_GUARD_SCAN_ROOT",
                            os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# PRIVATE VALUES THAT ARE NOT IN ANY RECORD, CAUGHT BY FINGERPRINT (ovation#167).
+#
+# Every needle above is derived from client, venue and vendor records, and Dan is
+# in none of them, so his own phone number sat in two committed design files of
+# this public repository with nothing looking for it. The guard cannot carry the
+# number to search for it, because the guard is published too, so the committed
+# file holds a SHA-256 of the digits and the tree is searched for phone shaped
+# runs of digits whose fingerprint matches.
+#
+# IT NEEDS NO LOCAL DATA, which is the difference that matters: the needles can
+# only be derived on a machine holding Dan's records, while a fingerprint is
+# checked on every machine, a CI runner included, and a hit refuses there too.
+FINGERPRINTS = os.environ.get("OVATION_GUARD_FINGERPRINTS",
+                              os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                           "docs", "privacy-fingerprints.txt"))
+
+# A North American number however it is spaced: an optional +1, three digits in
+# optional brackets, three, four, separated by a space, dot or hyphen or nothing.
+# Never inside a longer run of digits, so an order number or an identifier that
+# happens to contain the same ten digits is not a phone number (L104).
+PHONE_SHAPED = re.compile(r"(?<![0-9])(?:\+?1[\s.\-]?)?\(?[0-9]{3}\)?[\s.\-]?[0-9]{3}[\s.\-]?[0-9]{4}(?![0-9])")
+FINGERPRINT_LINE = re.compile(r"^([0-9a-f]{64})(?:\s+.*)?$")
 
 # Directories a recursive walk must never descend into, BY NAME. A nested
 # checkout holds a full second copy of everything.
@@ -290,6 +314,91 @@ def needles_from_store_copy(path, source_name, problems):
     return out
 
 
+def read_fingerprints(path, problems):
+    """The fingerprints in the committed file, or an empty set and a problem.
+
+    AN EMPTY FILE IS ZERO FINGERPRINTS, stated in the output, and not a fault. A
+    file that cannot be read, or a line that is not a SHA-256 followed by a label,
+    is a fault, because the file is committed with the tree it guards (L11).
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError as err:
+        problems.append("the fingerprint file is not readable at %s (%s)"
+                        % (path, type(err).__name__))
+        return set()
+    out = set()
+    for number, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = FINGERPRINT_LINE.match(stripped.lower())
+        if not match:
+            problems.append("line %d of the fingerprint file is not a SHA-256 followed by a label"
+                            % number)
+            continue
+        out.add(match.group(1))
+    return out
+
+
+def fingerprint_matches(text, fingerprints):
+    """How many phone shaped runs of digits in the text carry a fingerprint.
+
+    The digits are compared, never the spelling, so a number is caught whether it
+    is written with brackets, dots, hyphens, spaces, a leading +1 or nothing.
+    """
+    if not fingerprints:
+        return 0
+    found = 0
+    for match in PHONE_SHAPED.finditer(text):
+        digits = re.sub(r"[^0-9]", "", match.group(0))
+        if len(digits) == 11 and digits.startswith("1"):
+            digits = digits[1:]
+        if len(digits) == 10 and hashlib.sha256(digits.encode()).hexdigest() in fingerprints:
+            found += 1
+    return found
+
+
+def scan_tree(matchers, fingerprints):
+    """ONE walk of the tree: identity hits by file, private value hits by file,
+    and how many files were read. One walk rather than two, so a file skipped by
+    one search cannot be read by the other (L70)."""
+    files = 0
+    hits = {}
+    private = {}
+    for root, dirs, filenames in os.walk(SCAN_ROOT):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith("agent-")]
+        for fn in filenames:
+            if fn.endswith(SKIP_SUFFIXES):
+                continue
+            full = os.path.join(root, fn)
+            rel = os.path.relpath(full, SCAN_ROOT)
+            try:
+                with open(full, encoding="utf-8", errors="ignore") as fh:
+                    text = fh.read()
+            except Exception:
+                continue
+            files += 1
+            count = sum(len(rx.findall(text)) for _name, rx in matchers)
+            if count:
+                hits[rel] = count
+            owned = fingerprint_matches(text, fingerprints)
+            if owned:
+                private[rel] = owned
+    return files, hits, private
+
+
+def report_private(private):
+    """Paths and counts only: the value is neither stored here nor printed."""
+    print()
+    print("REFUSED: a private value appears in %d file(s)." % len(private))
+    print("    Matched by fingerprint against docs/privacy-fingerprints.txt, so the")
+    print("    value itself is neither stored in this repository nor printed here.")
+    for rel in sorted(private):
+        print("    %s  (%d occurrence(s))" % (rel, private[rel]))
+
+
 def build_matcher(needles):
     """One regex per needle, anchored on word boundaries.
 
@@ -383,6 +492,19 @@ POPULATIONS = [
 
 
 def main():
+    # THE FINGERPRINTS ARE READ FIRST, because they need nothing from this machine
+    # and every branch below, the cannot measure ones included, still searches for
+    # them before it answers.
+    fingerprint_problems = []
+    fingerprints = read_fingerprints(FINGERPRINTS, fingerprint_problems)
+    if fingerprint_problems:
+        print("CANNOT MEASURE: the fingerprint file could not be read.")
+        for p in fingerprint_problems:
+            print("    " + p)
+        print("    It is committed with the repository, so this is a fault in the tree")
+        print("    rather than a machine that was never equipped. Nothing was verified.")
+        return 4
+
     problems = []
     needles = set()
     coverage = []
@@ -415,12 +537,18 @@ def main():
     custody_present = os.path.isdir(CUSTODY)
 
     if not export_present and not custody_present:
+        files, _hits, private = scan_tree([], fingerprints)
+        if private:
+            report_private(private)
+            return 1
         print("CANNOT MEASURE: no needle source exists on this machine.")
         print("    the live export is not at: " + EXPORT)
         print("    the custody directory is not at: " + CUSTODY)
         print("    Nothing was verified, and nothing here ever could have been.")
         print("    This machine never held the sources, so this is not evidence")
         print("    of a clean tree and not a fault in the tree either.")
+        print("    Checked %d fingerprint(s) across %d file(s), and none appears."
+              % (len(fingerprints), files))
         return 2
 
     # An absent live export on a machine that HOLDS custody data is this second
@@ -431,12 +559,18 @@ def main():
         problems.append("the live export is not at the configured path")
 
     if problems:
+        files, _hits, private = scan_tree([], fingerprints)
+        if private:
+            report_private(private)
+            return 1
         print("CANNOT MEASURE: a needle source is present here and could not be read.")
         for p in problems:
             print("    " + p)
         print("    Nothing was verified. The sources are on this machine, so this")
         print("    is a fault here rather than a machine that never had them.")
         print("    This is not a pass.")
+        print("    Checked %d fingerprint(s) across %d file(s), and none appears."
+              % (len(fingerprints), files))
         return 4
 
     # WHAT WAS ACTUALLY CONSULTED, said before any verdict, so a pass can never
@@ -467,6 +601,10 @@ def main():
         print("Dropped %d placeholder value(s) that identify nobody." % len(dropped))
 
     if not needles:
+        _files, _hits, private = scan_tree([], fingerprints)
+        if private:
+            report_private(private)
+            return 1
         print("REFUSED: no needles could be derived, so nothing was searched for.")
         print("    Populations consulted: "
               + ", ".join(k for k, state, _c in coverage if state == "consulted"))
@@ -475,32 +613,15 @@ def main():
         return 3
 
     matchers = build_matcher(needles)
-
-    files = 0
-    hits = {}
-    for root, dirs, filenames in os.walk(SCAN_ROOT):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith("agent-")]
-        for fn in filenames:
-            if fn.endswith(SKIP_SUFFIXES):
-                continue
-            full = os.path.join(root, fn)
-            rel = os.path.relpath(full, SCAN_ROOT)
-            try:
-                with open(full, encoding="utf-8", errors="ignore") as fh:
-                    text = fh.read()
-            except Exception:
-                continue
-            files += 1
-            count = 0
-            for _name, rx in matchers:
-                found = len(rx.findall(text))
-                count += found
-            if count:
-                hits[rel] = count
+    files, hits, private = scan_tree(matchers, fingerprints)
 
     print("Derived %d needle(s) from %d population(s) present here."
           % (len(needles), sum(1 for _k, state, _c in coverage if state == "consulted")))
     print("Examined %d file(s) under %s." % (files, SCAN_ROOT))
+    print("Checked %d fingerprint(s)." % len(fingerprints))
+
+    if private:
+        report_private(private)
 
     if hits:
         print()
@@ -509,6 +630,8 @@ def main():
         print("    this output reaches transcripts and scrollback (L222).")
         for rel in sorted(hits):
             print("    %s  (%d occurrence(s))" % (rel, hits[rel]))
+
+    if hits or private:
         return 1
 
     print("No derived identity appears anywhere under the scan root.")
