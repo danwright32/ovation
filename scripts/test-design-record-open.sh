@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design record status tests" 40
+harness_begin "design record status tests" 42
 
 TARGET="scripts/check-design-record-open.sh"
 require_target "$TARGET"
@@ -138,6 +138,28 @@ REAL=$?
 KNOWN="no, it exited $REAL"
 if [ "$REAL" = "0" ] || [ "$REAL" = "1" ] || [ "$REAL" = "2" ]; then KNOWN="yes"; fi
 check "the committed record answers with one of this check's own outcomes" "$KNOWN" "yes"
+
+# AND THE COMMITTED FILES' SHAPE IS JUDGED ON EVERY PUSH (ovation#331).
+#
+# The shape rules of ovation#204 read the files and nothing else, so unlike the
+# tracker half they can refuse here, where a badly shaped entry is cheapest to
+# fix. Until this, they ran only in the Design record workflow: an entry citing
+# nothing could sit on main for up to a day, and the case above cannot see it
+# because a real lookup makes the exit code 0, 1 or 2 for reasons of its own.
+#
+# THE TRACKER IS ANSWERED FROM A STUB, so this needs no network and no
+# credentials: a gate that refuses on every machine without them is one people
+# learn to skip (L376, L571). That is the arrangement scripts/lib/script-roles.tsv
+# records for the rendering checks, which the gate does not call because every
+# push already runs them against the COMMITTED files through their sibling suite,
+# and a second call in the gate would be a second copy of one policy (L613).
+COMMITTED="$(OVATION_ISSUE_STATE_COMMAND='echo OPEN' python3 "$TARGET" 2>&1)"
+check "every committed design file's open list is correctly shaped" \
+    "$(printf '%s' "$COMMITTED" | grep -cE '^  (UNCITED|NOT AN ENTRY|EMPTY)')" "0"
+# AND THE RUN THAT SAID SO ACTUALLY READ THEM. A check on the absence of a word
+# is answered just as well by a run that refused before reaching the files (L159).
+check "and that run really did read the files' own lists" \
+    "$(printf '%s' "$COMMITTED" | grep -c 'carries its own .What is deliberately still open. list')" "3"
 
 # ---------------------------------------------------------------------------
 # EACH DESIGN FILE'S OWN LIST OF WHAT IT DOES NOT ANSWER (ovation#200). The
