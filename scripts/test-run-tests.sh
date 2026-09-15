@@ -68,7 +68,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 214
+harness_begin "test runner lock tests" 217
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -799,6 +799,34 @@ check "a suite that lost its executable bit is refused, not silently skipped" \
     "$([ "$ST11F" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
 check "and it names the count it ran against the floor" \
     "$(printf '%s' "$OUT11F" | grep -c '2 .*3')" "1"
+
+# 11f2. AND A RUN ABOVE THE FLOOR IS REFUSED TOO (ovation#329), which is the same
+#       reversal ovation#157 made to the pure floor and the shell one never got.
+#       Refusing only a run BELOW it let the committed number sit at 59 while 65
+#       suites sat in scripts/: six suites could lose their executable bit, be
+#       renamed or be deleted and the count would still clear a floor six beneath
+#       it, which is precisely the partial run the floor exists to refuse (L63,
+#       L182, L354). Nothing made the number move, so it was a rule living in
+#       whoever remembered it (L27).
+clear_suites
+stage_suite "a-pass" 0
+stage_suite "b-pass" 0
+stage_suite "c-pass" 0
+stage_suite "d-pass" 0
+OUT11F2="$(shell_run 3)"; ST11F2=$?
+check "a run ABOVE the suite floor is refused, so the floor cannot stand still" \
+    "$ST11F2" "7"
+# READ THE LINE THIS CASE IS ABOUT, never the whole output (L135, L178): the
+# remedy line below carries the same two numbers, and a path holding a digit
+# answers a loose pattern as readily as the sentence does. That is the third time
+# in one day a check counting a phrase was answered by a second line (#316, #337).
+check "and it names both numbers, so what moved is readable" \
+    "$(printf '%s' "$OUT11F2" | grep -c '^Error: the shell suites ran 4 and the floor says 3\.$')" "1"
+# THE MESSAGE IS THE COMMAND THAT FIXES IT, not a description of one (L399, L406),
+# exactly as the pure floor's is, so the reader pastes a line rather than
+# composing it from a sentence about a file they have to go and find.
+check "and the remedy is the command that moves the floor, ready to paste" \
+    "$(printf '%s' "$OUT11F2" | grep -c "printf '%s.n' 4 > .*scripts/shell-suite-floor.txt")" "1"
 
 # 11g. The floor is a real committed number, not only a seam (L96). It is NOT
 #      compared against the real suite count here: the runner does exactly that
