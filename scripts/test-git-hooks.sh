@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 78
+harness_begin "git hooks tests" 85
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -214,6 +214,10 @@ stage_tree() {
     # Both configurations are built by default; a case removes what it needs.
     mkdir -p "$r/scripts/lib"
     cp "$REPO_ROOT/scripts/lib/built-product.sh" "$r/scripts/lib/built-product.sh"
+    # THE REAL DERIVATION OF WHAT THE XCODE PHASE READS (ovation#358), copied for
+    # the same reason: a stub would let these cases pass on a rule the gate does
+    # not actually apply. It reads this staged tree, whose runner names nothing.
+    cp "$REPO_ROOT/scripts/lib/xcode-phase-inputs.sh" "$r/scripts/lib/xcode-phase-inputs.sh"
     printf '\nbuilt_product_path() { printf "%%s/%%s" "%s/products" "$1"; }\n' "$r" \
         >> "$r/scripts/lib/built-product.sh"
     local config
@@ -528,21 +532,13 @@ OUT22F="$(hook_with_range "$R22" "refs/heads/main $WF22 refs/heads/main $MIXED22
 check "a push touching only the workflow skips the xcode phase" \
     "$(printf '%s' "$OUT22F" | grep -c 'SKIP=1')" "1"
 
-# BUT scripts/ IS NOT SKIPPABLE, because the build command lives there
-# (ovation#154). scripts/lib/build-one-configuration.sh IS the xcodebuild
-# invocation and scripts/build-products.sh orchestrates it, so a change to
-# either is a change to how the app is compiled, and the old entry claimed
-# exactly the opposite: that no Xcode build or test could read it.
-#
-# THE ENTRY WAS DROPPED RATHER THAN NARROWED to the scripts that genuinely
-# cannot reach a build. A narrowed list is a hand maintained registry, and the
-# reason to avoid one here is not that its omissions are unsafe (an unlisted
-# script would run the full thing, which is the safe direction) but that it has
-# to be kept honest for ever by whoever adds the next script, which is a rule
-# living in a prompt (L27, L96). The cost is real and accepted: a push touching
-# only shell now pays the Xcode phase and the wait for the sibling locks.
+# A SCRIPT THAT BUILDS IS NOT SKIPPABLE (ovation#154). scripts/lib/build-one-
+# configuration.sh IS the xcodebuild invocation and scripts/build-products.sh
+# orchestrates it, so a change to either is a change to how the app is compiled.
+# Since ovation#358 that is derived rather than listed: a script whose code runs
+# xcodebuild is part of the phase, so it is staged here with that code in it.
 S22="$( cd "$R22" && mkdir -p scripts/lib \
-    && printf 'x\n' > scripts/lib/build-one-configuration.sh \
+    && printf '#!/bin/bash\nxcodebuild -scheme Ovation build\n' > scripts/lib/build-one-configuration.sh \
     && git add scripts/lib/build-one-configuration.sh \
     && git commit -qm build >/dev/null 2>&1 && git rev-parse HEAD )"
 OUT22G="$(hook_with_range "$R22" "refs/heads/main $S22 refs/heads/main $WF22")"
@@ -550,24 +546,41 @@ check "a push touching the build command runs the xcode phase" \
     "$(printf '%s' "$OUT22G" | grep -c 'SKIP=$')" "1"
 check "and it names the build command as the reason" \
     "$(printf '%s' "$OUT22G" | grep -c 'build-one-configuration.sh')" "1"
+check "and it says why that file counts" \
+    "$(printf '%s' "$OUT22G" | grep -c 'builds or runs the Xcode phase')" "1"
 
-# AND THE RULE IS ABOUT scripts/, not about the one file named in the issue.
-# A fix written as an exception for the build command would leave every other
-# script claiming it cannot reach a build, which is the same unmeasured claim
-# one file smaller (L30, L362).
+# A SCRIPT NOTHING IN THE PHASE REACHES IS SKIPPABLE (ovation#358). This case
+# asserted the opposite from ovation#154 until the derivation replaced the blanket
+# rule, and it is inverted rather than deleted because the reversal is the
+# decision: seven changes on 2026-09-15 touched only scripts and design files and
+# each paid the whole phase for it (L252, L430).
 S22B="$( cd "$R22" && printf 'x\n' > scripts/check-something.sh \
     && git add scripts/check-something.sh \
     && git commit -qm runner >/dev/null 2>&1 && git rev-parse HEAD )"
 OUT22H="$(hook_with_range "$R22" "refs/heads/main $S22B refs/heads/main $S22")"
-check "a push touching any other script also runs the xcode phase" \
-    "$(printf '%s' "$OUT22H" | grep -c 'SKIP=$')" "1"
+check "a push touching a script the xcode phase never reaches skips it" \
+    "$(printf '%s' "$OUT22H" | grep -c 'SKIP=1')" "1"
+
+# A DOCS FILE A SWIFT TEST OPENS IS NOT SKIPPABLE (ovation#358). The tests read
+# files under docs/design/ through #filePath, and docs/ was skippable wholesale
+# since ovation#22, so a push changing only an expected output skipped the test
+# that compares against it (L88).
+SW22="$( cd "$R22" && mkdir -p OvationTests \
+    && printf 'let url = root.appending(path: "docs/design/expected.json")\n' > OvationTests/Reads.swift \
+    && git add OvationTests/Reads.swift && git commit -qm reader >/dev/null 2>&1 && git rev-parse HEAD )"
+DR22="$(commit_file "$R22" "docs/design/expected.json")"
+OUT22J="$(hook_with_range "$R22" "refs/heads/main $DR22 refs/heads/main $SW22")"
+check "a push touching a docs file a Swift test opens runs the xcode phase" \
+    "$(printf '%s' "$OUT22J" | grep -c 'SKIP=$')" "1"
+check "and it says a Swift file names it" \
+    "$(printf '%s' "$OUT22J" | grep -c 'a Swift file names docs/design/expected.json')" "1"
 
 # DOCS AND WORKFLOWS STAY SKIPPABLE. The point of ovation#154 is that one entry
 # on that list was untrue, not that the list is a bad idea, and a change that
 # quietly took the whole optimisation away would pass every case above.
 D22="$( cd "$R22" && printf 'z\n' > docs/four.md && git add docs/four.md \
     && git commit -qm docs >/dev/null 2>&1 && git rev-parse HEAD )"
-OUT22I="$(hook_with_range "$R22" "refs/heads/main $D22 refs/heads/main $S22B")"
+OUT22I="$(hook_with_range "$R22" "refs/heads/main $D22 refs/heads/main $DR22")"
 check "a docs only push still skips the xcode phase" \
     "$(printf '%s' "$OUT22I" | grep -c 'SKIP=1')" "1"
 
@@ -624,6 +637,36 @@ check "a tree with no built product lib is refused" \
     "$([ "$ST273D" -ne 0 ] && echo refused || echo allowed)" "refused"
 check "and it names the lib it could not find" \
     "$(printf '%s' "$OUT273D" | grep -c 'lib/built-product.sh')" "1"
+
+# THE SAME FOR THE DERIVATION OF WHAT THE XCODE PHASE READS (ovation#358). It
+# comes from the pushed tree like the hook does (ovation#138), so its absence is
+# an inconsistent tree, and deciding without it would be a skip nobody decided.
+P358="$(stage_tree gate358 0)"
+B358="$(commit_file "$P358" "docs/one.md")"
+D358="$(commit_file "$P358" "docs/two.md")"
+rm -f "$P358/scripts/lib/xcode-phase-inputs.sh"
+OUT358A="$(hook_with_range "$P358" "refs/heads/main $D358 refs/heads/main $B358")"; ST358A=$?
+check "a tree with no xcode phase inputs lib is refused before the suite" \
+    "$([ "$ST358A" -ne 0 ] && echo refused || echo allowed):$(printf '%s' "$OUT358A" | grep -c 'SUITE-FROM-')" "refused:0"
+check "and it names that lib" \
+    "$(printf '%s' "$OUT358A" | grep -c 'lib/xcode-phase-inputs.sh')" "1"
+
+# AND A TREE WHOSE INPUTS CANNOT BE WORKED OUT RUNS EVERYTHING. With no runner in
+# the tree there is nothing to derive from, and not knowing what the phase reads
+# is not knowing it reads nothing (L98). The suite command is injected, since the
+# runner it would have run is the thing removed.
+P358B="$(stage_tree gate358b 0)"
+B358B="$(commit_file "$P358B" "docs/one.md")"
+D358B="$(commit_file "$P358B" "docs/two.md")"
+rm -f "$P358B/scripts/run-tests.sh"
+OUT358B="$( cd "$P358B" && printf '%s\n' "refs/heads/main $D358B refs/heads/main $B358B" \
+    | env -u SKIP_TEST_RUN -u FORCE_TEST_RUN -u SKIP_STYLE_CHECK -u SKIP_TEST_CHECK \
+      OVATION_HOOK_TEST_COMMAND='echo "SKIP=${OVATION_SKIP_XCODE_PHASE:-}"' \
+      bash "$P358B/scripts/git-hooks/pre-push" origin "$P358B" 2>&1 )"
+check "a tree whose xcode phase inputs cannot be worked out does not skip" \
+    "$(printf '%s' "$OUT358B" | grep -c 'skipping the Xcode phase')" "0"
+check "and it says why the full suite runs" \
+    "$(printf '%s' "$OUT358B" | grep -c 'could not work out what the Xcode phase reads')" "1"
 
 # ---------------------------------------------------------------------------
 # A TREE WITH NO PROJECT TO ASK IS TOLD THAT, NOT SENT TO "/Ovation.app"
