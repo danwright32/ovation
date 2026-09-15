@@ -221,6 +221,15 @@ the three labels by looking at four wordings on the Deposit applied invoice. The
 screen's own words were not carried over: held money is Dan's term, and a client
 has only ever paid.</p>
 
+<h3>The small capital labels keep their letter spacing, and copy as separate letters</h3>
+<p>The labels (Amount due, Bill to, Invoice, Issued, the column headings, Payment,
+Note, Contact) are tracked 0.14em. In the rendered PDF that spacing makes the text
+layer read each label as separate letters, so a client who copies one gets
+"A M O U N T D U E"; every name, date and figure is untracked and copies exactly.
+Tagging the labels with their real text did not change what PDFKit reads. Dan
+looked at the page with the spacing and without it and kept the spacing
+(2026-09-14, ovation#167).</p>
+
 <h2>Every measurement in it was checked, not eyeballed</h2>
 <p>Nothing overflows or wraps on any of the seven invoices below, including the one
 carrying the longest real names in the roster: client 33, shoot 50 and venue 36
