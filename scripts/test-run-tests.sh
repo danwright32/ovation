@@ -68,7 +68,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 211
+harness_begin "test runner lock tests" 214
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -729,7 +729,23 @@ check "a suite that cannot measure does not stop the ones after it" \
     "$(printf '%s' "$OUT11" | grep -c 'RAN-b-pass')" "1"
 check "and the run's own verdict is CANNOT MEASURE, not a pass" "$ST11" "2"
 check "and the summary names the suite that could not measure" \
-    "$(printf '%s' "$OUT11" | grep -c 'test-a-cannot.sh')" "1"
+    "$(printf '%s' "$OUT11" | grep '^    could not measure:' | grep -c 'test-a-cannot.sh')" "1"
+
+# 11a2. EACH SUITE IS NAMED BEFORE IT RUNS (ovation#337). The macOS shell suites
+#       job is cancelled at its cap intermittently, and the log then ends after
+#       the last suite that FINISHED, so the one that was running is whichever
+#       comes next in a glob nobody has in front of them. Twice on 2026-09-15 that
+#       cost an hour of reading to answer "where was it", and the first answer was
+#       wrong. A name printed before the work costs nothing and cannot be lost,
+#       because it is already out when the kill arrives.
+check "each suite is named before it runs, so a killed job says where it was" \
+    "$(printf '%s' "$OUT11" | grep -c '^==> test-a-cannot.sh$')" "1"
+named_at="$(printf '%s' "$OUT11" | grep -n '^==> test-a-cannot.sh$' | head -1 | cut -d: -f1)"
+ran_at="$(printf '%s' "$OUT11" | grep -n '^RAN-a-cannot$' | head -1 | cut -d: -f1)"
+check "and the name comes BEFORE that suite's own output, never after it" \
+    "$([ -n "$named_at" ] && [ -n "$ran_at" ] && [ "$named_at" -lt "$ran_at" ] && echo before || echo "not before ($named_at, $ran_at)")" "before"
+check "and every suite is named, not only the first" \
+    "$(printf '%s' "$OUT11" | grep -c '^==> test-b-pass.sh$')" "1"
 
 # 11b. AND IT DOES NOT STOP THE LOCKED PHASE EITHER. This is the whole cost the
 #      issue was filed about: a change touching only scripts or docs could not
@@ -746,7 +762,7 @@ stage_suite "b-pass" 0
 OUT11C="$(shell_run)"; ST11C=$?
 check "a failing suite fails the run with its own status" "$ST11C" "3"
 check "and the summary names the suite that failed" \
-    "$(printf '%s' "$OUT11C" | grep -c 'test-a-fail.sh')" "1"
+    "$(printf '%s' "$OUT11C" | grep '^    failed:' | grep -c 'test-a-fail.sh')" "1"
 check "and a failure still stops the run before the locked phase" \
     "$(printf '%s' "$OUT11C" | grep -c 'Holding both locks')" "0"
 check "and the suites after a failure are not run" \
@@ -766,7 +782,7 @@ stage_suite "b-fail" 4
 OUT11E="$(shell_run)"; ST11E=$?
 check "a failure outranks a cannot measure in the verdict" "$ST11E" "4"
 check "and both are still named, so neither is hidden by the other" \
-    "$(printf '%s' "$OUT11E" | grep -c 'test-a-cannot.sh\|test-b-fail.sh')" "2"
+    "$(printf '%s' "$OUT11E" | grep '^    \(failed\|could not measure\):' | grep -c 'test-a-cannot.sh\|test-b-fail.sh')" "2"
 
 # 11f. THE COUNT OF SUITES IS JUDGED, NOT ONLY THEIR VERDICTS (L288).
 #      `[ -x "$s" ] || continue` skips a suite that lost its executable bit in

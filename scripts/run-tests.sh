@@ -337,6 +337,14 @@ else
   for s in "${SUITE_DIR}"/test-*.sh; do
     [ -x "$s" ] || continue
     suites_ran=$((suites_ran+1))
+    # NAMED BEFORE IT RUNS, NEVER AFTER (ovation#337). A suite says nothing until
+    # it finishes, so a job killed part way through ends after the last suite that
+    # COMPLETED and says nothing about the one that was running: the reader is left
+    # working out what comes next in a glob they do not have in front of them.
+    # Twice on 2026-09-15 that cost an hour, and the first diagnosis was wrong.
+    # A name printed first cannot be lost, because it is already out when the kill
+    # arrives.
+    echo "==> $(basename "$s")"
     "$s"
     suite_status=$?
     suite_name="$(basename "$s")"
