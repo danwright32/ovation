@@ -106,6 +106,26 @@ OUT4="$(run over)"; ST4=$?
 check "a run that executed MORE assertions than declared is refused too" \
     "$([ "$ST4" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
 
+# 4b. AND THE REFUSAL IS THE LINE TO WRITE (ovation#346). The declared count is an
+#     aggregate over the whole file committed beside it, so any two branches that
+#     add cases to one suite conflict on that line, and NEITHER side's number is
+#     right (L554). On 2026-09-15 ovation#124 took one suite to 93 and ovation#339
+#     took the same suite to 92; the true figure was 95 and could only be had by
+#     running it. The safe resolution is to run the suite and copy what it
+#     reports, and nothing taught that, so the message is the line itself rather
+#     than a description of one (L399, L406).
+check "and the refusal is the declaration to write, ready to paste" \
+    "$(printf '%s' "$OUT4" | grep -c 'harness_begin "over run" 2')" "1"
+check "and it says the number came from this run, not from adding up two diffs" \
+    "$(printf '%s' "$OUT4" | grep -c 'two diffs')" "1"
+
+# 4c. AND A SHORT RUN IS NEVER HANDED A NUMBER TO PASTE. Writing what a short run
+#     executed is exactly how the check stops noticing dropped assertions, which
+#     is the defect it exists to prevent, so the remedy belongs to one direction
+#     only (L11, L93).
+check "a short run is given no number to paste, because that would silence the check" \
+    "$(printf '%s' "$OUT3" | grep -c 'harness_begin "short run"')" "0"
+
 # 5. The target refusal. Every suite so far opens with a variant of "the thing
 #    under test is missing, so nothing was checked". A suite that finds nothing
 #    to test must never exit 0 (L98), and one implementation means it cannot be
