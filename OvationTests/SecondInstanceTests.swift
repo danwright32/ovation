@@ -143,21 +143,44 @@ struct SecondInstanceTests {
         #expect(SecondInstance.sentence(for: .theOnlyCopy) == nil)
     }
 
-    @Test("the real lookup answers about a process that IS running, which is this test")
+    @Test("the real lookup finds a running process by its exact path, and nothing once it exits")
     func therealLookupWorks() throws {
         // The seam is not the only thing ever exercised (L246). This asks the
-        // real pgrep about the running test process's own executable and expects
-        // to find it, which is the one case that proves the anchored pattern and
-        // the parsing both work.
-        let executable = try #require(Bundle.main.executableURL?.path
-            ?? ProcessInfo.processInfo.arguments.first)
-        let pids = SecondInstance.pidsRunning(executable)
+        // real pgrep about a process this test starts at a path only it owns, which
+        // is the one case that proves the anchored pattern and the parsing both work.
+        //
+        // IT DOES NOT LOOK FOR THIS TEST PROCESS. pgrep never lists its own
+        // ancestors (`man pgrep`, -a), so that answer is always empty, and the
+        // pure suite runs as the xctest agent's bare path, which every hostless test
+        // run on the Mac shares. The version that looked for itself only ever passed
+        // on its empty branch, and failed whenever another project's tests overlapped
+        // (ovation#324). A copy of a system binary is killed at launch, so the child
+        // is a symlink to cat, kept alive by holding its input open.
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ovation-lookup-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let probe = folder.appendingPathComponent("probe")
+        try FileManager.default.createSymbolicLink(
+            atPath: probe.path, withDestinationPath: "/bin/cat")
 
-        #expect(pids.contains(ProcessInfo.processInfo.processIdentifier)
-                || pids.isEmpty || pids == [-1],
-                Comment(rawValue: "either it found this process, or the harness runs under a "
-                    + "path pgrep reports differently, which is a fact about the harness "
-                    + "rather than a defect"))
-        #expect(!pids.contains(0), "zero is never a pid, so a parse that produced one is broken")
+        let child = Process()
+        child.executableURL = probe
+        let input = Pipe()
+        child.standardInput = input
+        child.standardOutput = FileHandle.nullDevice
+        try child.run()
+        defer { if child.isRunning { child.terminate() } }
+
+        #expect(SecondInstance.pidsRunning(probe.path) == [child.processIdentifier],
+                "the child is running at exactly this path, so the lookup names it and nothing else")
+        #expect(SecondInstance.pidsRunning(String(probe.path.dropLast())).isEmpty,
+                "a PREFIX of the child's path is another executable, so the anchored pattern must not match it")
+
+        try input.fileHandleForWriting.close()
+        child.waitUntilExit()
+
+        #expect(SecondInstance.pidsRunning(probe.path).isEmpty,
+                "the child has exited, so a lookup still naming it is reading something else")
     }
 }
