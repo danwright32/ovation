@@ -32,13 +32,18 @@ NAMED rather than passed over, because invoice.html and invoice-pdf.html keep
 their records in the README and having none is correct there, while a file that
 LOST its list looks exactly the same (L98).
 
-WHAT IT STILL CANNOT CATCH, and this is the larger half. The lists are prose, so
-what is checkable is what they CITE. An entry that quietly stops being true while
-naming nothing, or while naming a requirement that has since been corrected to
-say the opposite, passes. The entry that caused ovation#200 was one of those: it
-named no issue at all. Requiring a citation per entry was considered and not
-done here, because splitting prose into entries is a guess about markup, and a
-guard that guesses is one whose refusals cannot be trusted.
+EVERY ENTRY NAMES WHAT IT HANGS ON (ovation#204). The entry that caused
+ovation#200 named no issue at all, so nothing could ever re-check it. Requiring a
+citation was first held back because splitting prose into entries is a guess about
+markup, and a guard that guesses cannot be trusted; so the entries now have a
+DECLARED shape instead of a guessed one. A design file's open list is one list item
+per entry, every item names an `ovation#N` or a `PRD` number, prose outside any
+item is refused as not an entry, and a heading with no items under it is refused
+as empty rather than read as nothing being open.
+
+WHAT IT STILL CANNOT CATCH. An entry that stops being true while citing a
+requirement that has since been corrected to say the opposite still passes: a
+citation says what to re-read, not that anybody did.
 
 IT IS NOT A PUSH GATE, and that is deliberate. It asks GitHub, so on a machine
 with no network, no `gh`, or no credentials it can prove nothing, and a gate
@@ -52,14 +57,21 @@ this check, and would fail the day an issue is closed (L2, L291).
 Outcomes, one per issue, each said differently because distinct causes need
 distinct messages (L11):
 
-    OPEN      the tracker says it is open, so the sentence is true
-    CLOSED    the tracker says it is closed, and the section still names it
-    UNKNOWN   nothing could be learned about it, which is not a pass
+    OPEN          the tracker says it is open, so the sentence is true
+    CLOSED        the tracker says it is closed, and the section still names it
+    UNKNOWN       nothing could be learned about it, which is not a pass
+
+And, for each design file's own list, read from the file alone:
+
+    UNCITED       a list item names no ovation#N and no PRD number
+    NOT AN ENTRY  prose in the list that is not inside a list item
+    EMPTY         the heading is there and no item is under it
 
 Exit codes:
 
     0  every issue the section names is open
-    1  at least one is closed
+    1  at least one is closed, or a design file's list has an uncited item,
+       prose outside an item, or no items
     2  the section, or an issue's state, could not be read: not a pass
     3  used wrongly
 
@@ -160,6 +172,51 @@ def file_section_lines(text):
     return out
 
 
+# ovation#204. The entries of a design file's open list, by their declared shape.
+ITEM = re.compile(r"<li\b[^>]*>(.*?)</li\s*>", re.I | re.S)
+ANY_TAG = re.compile(r"<[^>]+>")
+REQUIREMENT = re.compile(r"\bPRD\s+\d")
+
+
+def entry_faults(lines):
+    """Faults in a design file's open list, as (kind, line number) pairs.
+
+    THE SHAPE IS DECLARED, NOT GUESSED: one list item per entry. An item citing
+    neither an issue nor a requirement is UNCITED, at the line the item starts on.
+    Text outside every item is NOT AN ENTRY, at the line it starts on, because an
+    entry written as a paragraph is one this check cannot see and the rule would
+    then pass it by not reading it (L98). A list with no items is EMPTY, which is
+    a heading left behind rather than a record with nothing open.
+    """
+    if not lines:
+        return [("EMPTY", None)]
+    first = lines[0][0]
+    text = "\n".join(line for _, line in lines)
+
+    def line_at(offset):
+        return first + text.count("\n", 0, offset)
+
+    faults = []
+    items = list(ITEM.finditer(text))
+    for item in items:
+        body = item.group(1)
+        if not (ISSUE.search(body) or REQUIREMENT.search(body)):
+            faults.append(("UNCITED", line_at(item.start())))
+    # PROSE, NOT MARKUP. The section runs to the next heading or the script, so it
+    # carries the tags that CLOSE the section around it, and those are not entries
+    # anybody wrote. Every tag is blanked and what is left is the text a reader
+    # sees: an entry written as a paragraph survives this, and `</section>` does
+    # not. Blanked rather than removed so the offsets still name the right line.
+    outside = ITEM.sub(lambda m: " " * len(m.group(0)), text)
+    outside = ANY_TAG.sub(lambda m: " " * len(m.group(0)), outside)
+    for loose in re.finditer(r"\S", outside):
+        faults.append(("NOT AN ENTRY", line_at(loose.start())))
+        break
+    if not items and not faults:
+        faults.append(("EMPTY", None))
+    return faults
+
+
 def state_of(number, command):
     """OPEN, CLOSED, or None when nothing could be learned.
 
@@ -205,7 +262,7 @@ def main(argv):
         return 2
 
     # ovation#200. The same question, asked of each design file's own list.
-    with_list, without_list = [], []
+    with_list, without_list, shaped = [], [], []
     for name in sorted(html_files(os.listdir(ROOT))):
         with open(os.path.join(ROOT, name), encoding="utf-8", errors="replace") as handle:
             lines = file_section_lines(handle.read())
@@ -213,6 +270,8 @@ def main(argv):
             without_list.append(name)
             continue
         with_list.append(name)
+        for kind, line_no in entry_faults(lines):
+            shaped.append((kind, name, line_no))
         for line_no, line in lines:
             for number in ISSUE.findall(line):
                 seen.setdefault(int(number), []).append((name, line_no))
@@ -221,6 +280,18 @@ def main(argv):
     for name in without_list:
         print("  %s carries no `%s` list, and keeps its record elsewhere"
               % (name, FILE_SECTION))
+
+    # READ FROM THE FILES ALONE, so these need no tracker and are said first.
+    for kind, name, line_no in shaped:
+        if kind == "UNCITED":
+            print("  UNCITED      line %d of %s: this entry names no ovation#N and no PRD "
+                  "number, so nothing can ever re-check it" % (line_no, name))
+        elif kind == "NOT AN ENTRY":
+            print("  NOT AN ENTRY line %d of %s: prose in the open list that is not inside "
+                  "a list item, so it is not read as an entry at all" % (line_no, name))
+        else:
+            print("  EMPTY        %s: the open list heading has no item under it; remove "
+                  "the heading or write the entry" % name)
 
     command = os.environ.get("OVATION_ISSUE_STATE_COMMAND") or DEFAULT_COMMAND
     closed, unknown, open_count = [], [], 0
@@ -240,10 +311,17 @@ def main(argv):
             print("  UNKNOWN ovation#%d, named on %s: nothing could be learned "
                   "about it" % (number, places))
 
-    if closed:
-        print("REFUSED: %d of %d issue(s) the design record calls still open "
-              "are closed. Correct the sentence, or reopen the issue."
-              % (len(closed), len(seen)))
+    if closed or shaped:
+        if closed:
+            print("REFUSED: %d of %d issue(s) the design record calls still open "
+                  "are closed. Correct the sentence, or reopen the issue."
+                  % (len(closed), len(seen)))
+        if shaped:
+            # A FAULT IN THE FILE OUTRANKS A LOOKUP THAT FAILED, because it was
+            # measured without the tracker and is true whatever the tracker says.
+            print("REFUSED: %d entr%s in the design files' open lists cannot be "
+                  "re-checked. Each is one list item naming an ovation#N or a PRD number."
+                  % (len(shaped), "y" if len(shaped) == 1 else "ies"))
         return 1
     if unknown:
         print("CANNOT MEASURE: %d of %d issue(s) could not be looked up, so "
