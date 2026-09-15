@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 95
+harness_begin "output privacy tests" 98
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -415,6 +415,32 @@ check "the rule inlining guard prints no identity when a copy has drifted" \
 check "and none when it cannot compare anything at all" \
     "$(leaks_in "$(OVATION_DESIGN_ROOT="$RULES_ROOT/nowhere" \
         ./scripts/check-design-rules-inline.sh 2>&1)")" "clean"
+
+# THE MEASUREMENT MARKING GUARD (ovation#201). It reads the design record's PROSE,
+# which is where a client name would sit, and it QUOTES back the inside of a
+# marking it could not read. So the fixture puts an identity in the prose, in the
+# marking itself, and in the paragraph whose unmarked numbers get counted, which
+# are the three places anything it prints could come from.
+MARKS_ROOT="$WORK/design-with-markings"
+mkdir -p "$MARKS_ROOT/lib"
+printf '# A fixture inventory.\ncheck-nothing.sh\tgated\tA repo wide guard.\n' \
+    > "$MARKS_ROOT/lib/script-roles.tsv"
+cat > "$MARKS_ROOT/README.md" <<MD
+# The design record
+
+The band for $CLIENT at $VENUE was 318px wide, \`measured $CLIENT\`.
+
+$SHOOT drew 12 rows at 1246px and nothing behind it.
+MD
+check "the measurement marking guard prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$MARKS_ROOT" OVATION_SCRIPTS_ROOT="$MARKS_ROOT" \
+        ./scripts/check-design-measurements-marked.sh 2>&1)")" "clean"
+check "and that refusal really did reach the line that quotes a marking" \
+    "$(OVATION_DESIGN_ROOT="$MARKS_ROOT" OVATION_SCRIPTS_ROOT="$MARKS_ROOT" \
+        ./scripts/check-design-measurements-marked.sh 2>&1 | grep -c 'UNREADABLE DATE line 3')" "1"
+check "and none when it is only counting the numbers nothing marks" \
+    "$(leaks_in "$(OVATION_DESIGN_ROOT="$MARKS_ROOT" OVATION_SCRIPTS_ROOT="$MARKS_ROOT" \
+        ./scripts/check-design-measurements-marked.sh 2>&1 | grep unmarked)")" "clean"
 
 # The shell inlining guard (ovation#120) has the same three ways of speaking
 # about a file it disagrees with, and one more the rules guard does not have: it

@@ -1,5 +1,28 @@
 # The design record
 
+## How a number in this record is marked
+
+This record argues from measured numbers, and some of them are asserted by a check while most are
+not. On the page the two look exactly alike, so a number nothing owns goes stale the first time the
+thing it measures changes and goes on reading as though something were still watching it. Two
+markings tell them apart, and `scripts/check-design-measurements-marked.sh` refuses one that points
+at nothing (ovation#201).
+
+**A number a check OWNS names that check**, like this: `asserted by check-design-draws.sh`. Go and
+read it, because what is enforced is whatever that check actually asserts and not the sentence
+beside it.
+
+**A number nothing owns says when it was measured**, like this: `measured 2026-09-10`. It was true
+on that day and nothing has looked since.
+
+**A marking covers the paragraph it sits in**, which is a block Markdown itself separates, so
+nothing has to guess where one argument ends.
+
+**Most numbers here carry neither marking yet, and that is expected.** The check COUNTS those and
+says which paragraphs they are in; it never refuses them. A sweep that refused until every number
+was marked would be answered by marking numbers to silence it, which is worse than the gap. The
+count is what says whether the gap is closing.
+
 ## The invoice list
 
 `invoice-list.html` is the agreed design for Ovation's main screen, settled with Dan
@@ -197,14 +220,16 @@ headless before and after and the images hashed).
 ## Something measures what these files DRAW
 
 **`scripts/check-design-draws.sh` renders every file at 1440px and 1280px and asserts what is true
-of every one of them** (ovation#141). Until it existed the record was checked for source properties
-and no rendered ones: one check asserts a file reaches outside itself never, one asserts its copy of
-each rule matches `rules/`, one runs 150 executable cases. Every one reads TEXT, so the class of
-fault a design record exists to catch was the class nothing could see. Five were found by a person
-looking on 2026-09-08 alone.
+of every one of them** (ovation#141, `asserted by check-design-draws.sh`). Until it existed the
+record was checked for source properties and no rendered ones: one check asserts a file reaches
+outside itself never, one asserts its copy of each rule matches `rules/`, one runs 150 executable
+cases (`asserted by test-design-rules.sh`). Every one reads TEXT, so the class of fault a design
+record exists to catch was the class nothing could see. Five were found by a person looking on
+2026-09-08 alone.
 
 **Two widths, because a list judged at one size is half judged.** 1440 is the window these files
-were designed in and 1280 is the narrowest laptop they are opened on.
+were designed in and 1280 is the narrowest laptop they are opened on
+(`asserted by check-design-draws.sh`).
 
 What it claims, each seen to fail on a planted defect before it was believed:
 
@@ -305,7 +330,8 @@ about markup and a guard that guesses is one whose refusals cannot be trusted.
 file draws under it** (ovation#198, PRD 46a). Until then it proved the four files draw the SAME
 card, line for line, and nothing proved any of those figures agreed with the screen it sits on. The
 only thing keeping them in step was that a person wrote both, which is the fault Dan found on
-2026-09-10 in the invoice list: a band saying 2 above a list that did not hold 2.
+2026-09-10 in the invoice list: a band saying 2 above a list that did not hold 2
+(`asserted by check-design-sidebar-card.sh`).
 
 **The mapping lives in `invoice-list.html`, not in the check.** `CARD_LINES` names, for each line,
 the row ACTIONS it rolls up. The card's figure is counted from that, and every row is stamped with
@@ -346,12 +372,14 @@ refused by name rather than passed over.
 
 **Where the invoice screen's switch went was measured, not chosen.** On its own row it would have
 cost 40px above a window already starting 437px down, and on the second state row it wrapped that
-row and put the window at 477px, past the 460px ceiling. On the first row it fits.
+row and put the window at 477px (`measured 2026-09-14`), past the 460px ceiling
+(`asserted by check-design-window-top.sh`). On the first row it fits.
 
 ## The window comes before the reading, and something measures it
 
 **`scripts/check-design-window-top.sh` renders every file in an 800px laptop window and refuses one
-whose app window starts more than 460px down the page** (ovation#192). The number cannot be read
+whose app window starts more than 460px down the page** (ovation#192,
+`asserted by check-design-window-top.sh`). The number cannot be read
 from any stylesheet: it is the sum of whatever masthead, prose, notice and switches happen to sit
 above the window, at that width, in whatever the browser makes of them.
 
@@ -613,7 +641,8 @@ the person who asked their Mac to reduce motion is not the person building the s
 ## Every measurement in it was checked, not eyeballed
 
 Contrast was audited across all candidate palettes and then re-measured in a live browser,
-not just computed on paper. The rail palettes cleared 4.5 to 1 on 72 pairs, worst 4.83.
+not just computed on paper. The rail palettes cleared 4.5 to 1 on 72 pairs, worst 4.83
+(`measured 2026-09-06`).
 Two faults were caught that way and would not have been caught by looking: a sidebar that
 rendered fully transparent because a stale rule pointed at a variable the new palettes did
 not define, and a disclosure triangle that arrived as broken characters because it was a
@@ -1264,7 +1293,8 @@ rule whose first line is a comment somebody reworded, which is the wrong diagnos
 inlined and running.
 
 The page prints its own verdict line above the window, and it reports the same 150 across the same 6
-suites that `scripts/test-design-rules.sh` reports. Two numbers that must agree, from two places,
+suites that `scripts/test-design-rules.sh` reports (`asserted by check-design-rules-inline.sh`,
+which is what makes the two copies one). Two numbers that must agree, from two places,
 which is the cheapest possible check that the copy is the copy.
 
 **The 12 hour cap above which a duration prices nothing is Dan's**, settled 2026-09-08 against 8, 7
@@ -1363,7 +1393,8 @@ line under Outstanding it named nothing: "it's not clear what I'm removing there
 were rendered and all three were measured against the fault this exact row already has a history of,
 because the discount's controls do NOT fit the totals row's 208px label column and two attempts to
 widen it put the discount's figure off the one shared right edge, once 24px left and once 24px
-right. `Remove` fits: the row stays 318px and all five figures keep the edge at 1246px.
+right. `Remove` fits: the row stays 318px (`measured 2026-09-10`) and all five figures keep the edge
+at 1246px (`asserted by check-design-draws.sh`).
 
 **Round C3. With more than one invoice open, nothing is applied to either.** Two allocations of one
 payment may never both fit (PRD 5.14b), so something has to choose, and a chooser nobody can see is
@@ -1405,12 +1436,14 @@ fixture can reach is the branch that ships untested, which is the same reason th
 switch beside it exists.
 
 **It shares that switch's ROW, and the first attempt did not.** A third statebar cost 40px above
-the window, and it broke the CI check that presses the due date and measures where the terms are
+the window (`measured 2026-09-10`), and it broke the CI check that presses the due date and measures
+where the terms are
 painted: on the Linux runner the page renders about 40px taller than it does here, so the list
 opened below the fold and the claim refused, correctly, because it could not measure it. That is
 this file's own recorded decision arriving again from the other side, since two prose blocks were
 cut from above the window for exactly the same reason. Folded onto one row the page is back to
-the height it was, measured at 1440, 1280, 1180 and 1024 and identical at all four. Each group
+the height it was, measured at 1440, 1280, 1180 and 1024 and identical at all four
+(`measured 2026-09-10`). Each group
 marks its own buttons: one row holding two vocabularies cannot be marked by position, because a
 loop over every button in it would index the amounts against the counts and light the wrong
 pair.
