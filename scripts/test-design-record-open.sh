@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design record status tests" 29
+harness_begin "design record status tests" 40
 
 TARGET="scripts/check-design-record-open.sh"
 require_target "$TARGET"
@@ -164,7 +164,7 @@ HTML
 
 FILEOPEN="$WORK/fileopen"
 record "$FILEOPEN" 'The record itself names `ovation#100`.'
-design_file "$FILEOPEN" "invoice-list.html" '<p>Where the times live, ovation#95.</p>'
+design_file "$FILEOPEN" "invoice-list.html" '<ol><li>Where the times live, ovation#95.</li></ol>'
 printf '95 OPEN\n100 OPEN\n998 CLOSED\n' > "$STATES"
 check "a design file whose own open list names an open issue passes" \
     "$(status_on "$FILEOPEN")" "0"
@@ -176,7 +176,7 @@ check "and the file's list is actually read, not just the record's" \
 # THE FAULT: a file's own list naming an issue that has since closed.
 FILECLOSED="$WORK/fileclosed"
 record "$FILECLOSED" 'The record itself names `ovation#100`.'
-design_file "$FILECLOSED" "clients.html" '<p>The pane scrolls sideways, ovation#110.</p>'
+design_file "$FILECLOSED" "clients.html" '<ol><li>The pane scrolls sideways, ovation#110.</li></ol>'
 printf '100 OPEN\n110 CLOSED\n998 CLOSED\n' > "$STATES"
 check "a design file calling a closed issue still open is refused" \
     "$(status_on "$FILECLOSED")" "1"
@@ -199,7 +199,7 @@ mkdir -p "$SCRIPTED"
 cat > "$SCRIPTED/invoice-list.html" <<'HTML'
 <meta charset="utf-8">
 <h2>What is deliberately still open</h2>
-<p>Where the times live, ovation#95.</p>
+<ol><li>Where the times live, ovation#95.</li></ol>
 <script>
 /* Settled in ovation#997, which is closed and must never be looked up. */
 var x = 1;
@@ -220,5 +220,83 @@ printf '100 OPEN\n' > "$STATES"
 check "a design file carrying no open list does not refuse" "$(status_on "$NOLIST")" "0"
 check "and it is named, so a list that disappeared is visible" \
     "$(run_on "$NOLIST" | grep -c 'invoice.html carries no')" "1"
+
+
+# ---------------------------------------------------------------------------
+# EVERY ENTRY NAMES WHAT IT HANGS ON (ovation#204).
+#
+# An entry that cites nothing is checked by nothing, and that is the entry that
+# caused ovation#200: invoice-list.html said held money had no surface there,
+# citing nothing, while two requirements had made it untrue the same day.
+# Splitting prose into entries was a guess about markup, so the entries now have a
+# DECLARED shape, one list item each, and every one must name an ovation#N or a
+# PRD number. Two refusals, told apart, because the remedies differ (L11): an item
+# citing nothing needs a citation or deleting, and prose outside any item needs
+# writing as an item.
+# ---------------------------------------------------------------------------
+CITED="$WORK/cited"
+record "$CITED" 'The record itself names `ovation#100`.'
+design_file "$CITED" "clients.html" '<ol>
+<li>The pane scrolls sideways, ovation#110.</li>
+<li><b>A decision, not a gap</b> (Dan, 2026-09-10,
+PRD 5a). The citation is on the second line of the item.</li>
+</ol>'
+printf '100 OPEN\n110 OPEN\n' > "$STATES"
+check "a list whose every item cites an issue or a requirement passes" "$(status_on "$CITED")" "0"
+check "and a PRD citation on an item's second line counts" \
+    "$(run_on "$CITED" | grep -c 'UNCITED')" "0"
+
+UNCITED="$WORK/uncited"
+record "$UNCITED" 'The record itself names `ovation#100`.'
+design_file "$UNCITED" "clients.html" '<ol>
+<li>The pane scrolls sideways, ovation#110.</li>
+<li><b>Nothing here refuses a term the invoice would not offer.</b> Two copies,
+and nothing yet compares them.</li>
+</ol>'
+check "an item that cites nothing is refused" "$(status_on "$UNCITED")" "1"
+check "and the refusal names the file and the line the item starts on" \
+    "$(run_on "$UNCITED" | grep -cE 'UNCITED +line 7 of clients.html')" "1"
+check "and the cited item beside it is not accused" \
+    "$(run_on "$UNCITED" | grep -cE 'UNCITED +line 6 of clients.html')" "0"
+
+LOOSE="$WORK/loose"
+record "$LOOSE" 'The record itself names `ovation#100`.'
+design_file "$LOOSE" "review-send.html" '<p>Every outbound sentence owes its cold read (PRD 41a).</p>'
+check "prose outside any list item is refused, even when it cites something" \
+    "$(status_on "$LOOSE")" "1"
+check "and it is told apart from an uncited item, naming the line" \
+    "$(run_on "$LOOSE" | grep -cE 'NOT AN ENTRY +line 5 of review-send.html')" "1"
+
+EMPTYITEMS="$WORK/emptyitems"
+record "$EMPTYITEMS" 'The record itself names `ovation#100`.'
+design_file "$EMPTYITEMS" "clients.html" '<ol>
+</ol>'
+check "a list heading with no items in it is refused rather than read as nothing open" \
+    "$(status_on "$EMPTYITEMS")" "1"
+check "and says the list is empty" \
+    "$(run_on "$EMPTYITEMS" | grep -cE 'EMPTY +clients.html')" "1"
+
+
+# THE TAGS THAT CLOSE THE SECTION ARE NOT ENTRIES. The list runs to the next
+# heading or the script, so it carries the markup wrapping it, and a rule reading
+# raw characters accused `</section>` on two real files the first time it ran.
+WRAPPED="$WORK/wrapped"
+record "$WRAPPED" 'The record itself names `ovation#100`.'
+mkdir -p "$WRAPPED"
+cat > "$WRAPPED/clients.html" <<'HTML'
+<meta charset="utf-8">
+<div class="record"><section>
+<h2>What is deliberately still open</h2>
+<ol>
+<li>The pane scrolls sideways, ovation#110.</li>
+</ol>
+</section>
+</div>
+<script>var x = 1;</script>
+HTML
+printf '100 OPEN\n110 OPEN\n' > "$STATES"
+check "the markup that closes the section is not read as an entry" "$(status_on "$WRAPPED")" "0"
+check "and nothing in it is reported" \
+    "$(run_on "$WRAPPED" | grep -cE 'NOT AN ENTRY|UNCITED')" "0"
 
 harness_end
