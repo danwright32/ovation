@@ -143,6 +143,15 @@ jobs:
     name: Shell suites on Linux
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # WHERE A BROWSER RESTART IS WRITTEN DOWN (ovation#332). This is the only job
+    # with a browser to restart, and a runner is destroyed when it finishes, so
+    # the record is named into the workspace and kept as an artifact rather than
+    # left under a home directory that goes with the machine. Everything the
+    # renderer says about a restart otherwise reaches a log and nothing else, and
+    # a log expires: 32 of this repository's unsuccessful runs could no longer be
+    # read on the day the fault was looked for.
+    env:
+      OVATION_RENDER_RESTART_LOG: ${{ github.workspace }}/browser-restarts.tsv
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
@@ -199,6 +208,21 @@ jobs:
             2) echo "::warning::Some shell suites could not measure on Linux. See the log for which." ;;
             *) exit $status ;;
           esac
+
+      # KEPT WHATEVER THE VERDICT WAS. A restart is most interesting in a run
+      # that went on to fail, so this cannot hang off a green one (L514).
+      # `if-no-files-found: ignore` is the ordinary case: no restart, no file, and
+      # nothing to carry. The browser-restarts workflow reads this artifact and
+      # reports what it holds to the tracker, which is the one store here that
+      # does not expire.
+      - name: Keep any browser restart this run recorded
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: browser-restarts
+          path: browser-restarts.tsv
+          if-no-files-found: ignore
+          retention-days: 7
 
   # The half Dan's decision is about.
   build-and-test:

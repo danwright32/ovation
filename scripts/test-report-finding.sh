@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "report finding tests" 52
+harness_begin "report finding tests" 64
 
 TARGET="scripts/report-finding.sh"
 require_target "$TARGET"
@@ -270,5 +270,54 @@ run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN"
 check "it does not print the title back" "$(says "$OUT" "$TITLE")" "no"
 check "and it does not print the body it was given" \
     "$(says "$OUT" "The body of a newly filed finding.")" "no"
+
+# ---------------------------------------------------------------------------
+# 12. A CALLER THAT MAY NOT OPEN AN ISSUE AT ALL (ovation#332).
+#
+#     `stands` files one when none is open, which is right for a condition a
+#     workflow measures and nobody has asked about. A RECURRENCE COUNT is the
+#     other shape: Dan opens the issue that carries it, deliberately, and the
+#     workflow adds one comment each time it happens. An automated write that
+#     opens an issue on a public tracker is his decision to make, not this
+#     script's, and he made it on 2026-09-15.
+#
+#     NOTHING OPEN IS ITS OWN OUTCOME, never a quiet success. A recurrence that
+#     was measured and reported to nobody is exactly the silent loss this script
+#     exists to prevent, so it refuses and says which title it looked for is not
+#     open (L98, L11).
+# ---------------------------------------------------------------------------
+stage recurred "$EXACT"
+run_report recurred --title "$TITLE" --comment-file "$AGAIN"
+check "a recurrence on an open issue is commented on" "$STATUS" "1"
+check "and it says so in its own word" "$(says "$OUT" "COMMENTED")" "yes"
+check "and gh was asked to comment exactly once" "$(calls 'issue comment')" "1"
+check "and it was never asked to create anything" "$(calls 'issue create')" "0"
+
+stage recurred-none '[]'
+run_report recurred --title "$TITLE" --comment-file "$AGAIN"
+check "a recurrence with no issue open refuses rather than filing one" "$STATUS" "8"
+check "and it says there is nothing open carrying it" \
+    "$(says "$OUT" "NOTHING OPEN")" "yes"
+check "and nothing at all was written" \
+    "$(($(calls 'issue create') + $(calls 'issue comment') + $(calls 'issue close')))" "0"
+
+# AND THE REFUSALS IT SHARES WITH THE OTHER COMMANDS STILL ANSWER (L151).
+stage recurred-many "$TWICE"
+run_report recurred --title "$TITLE" --comment-file "$AGAIN"
+check "a recurrence with two issues carrying the title refuses as MANY" "$STATUS" "4"
+stage recurred-cannot '[]' 1
+run_report recurred --title "$TITLE" --comment-file "$AGAIN"
+check "a recurrence whose lookup failed refuses as CANNOT ASK" "$STATUS" "5"
+stage recurred-mute "$EXACT" 0 1
+run_report recurred --title "$TITLE" --comment-file "$AGAIN"
+check "a recurrence whose comment failed says nobody was told" "$STATUS" "6"
+
+# A BODY IS AN OPTION THIS COMMAND HAS NO USE FOR, and an option that is ignored
+# rather than refused is how a caller believes it can open one after all (L320).
+stage recurred-body "$EXACT"
+run_report recurred --title "$TITLE" --comment-file "$AGAIN" --body-file "$NEW"
+check "a recurrence given a body to file with is refused, not quietly obeyed" "$STATUS" "7"
+check "and it names the option this command has no use for" \
+    "$(says "$OUT" "--body-file")" "yes"
 
 harness_end

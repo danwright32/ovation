@@ -29,7 +29,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design renderer tests" 12
+harness_begin "design renderer tests" 27
 
 TARGET="scripts/lib/design_render.py"
 require_target "$TARGET"
@@ -120,6 +120,21 @@ render() {
         export OVATION_RENDER_WAIT_MS=200
         [ -n "${NO_REPORT_OVERRIDE:-}" ] && export FAKE_NO_REPORT="$NO_REPORT_OVERRIDE"
         [ -n "${RESTARTS_OVERRIDE:-}" ] && export OVATION_RENDER_RESTARTS="$RESTARTS_OVERRIDE"
+        # NAMED OR CLEARED, never inherited (L439, L284). CI SETS this seam for
+        # the whole Linux job, so a case that merely left it alone would write a
+        # fault this suite STAGED into the record the workflow carries to the
+        # tracker, and a staged fault would be reported as a real one.
+        if [ -n "${LOG_OVERRIDE:-}" ]; then
+            export OVATION_RENDER_RESTART_LOG="$LOG_OVERRIDE"
+        else
+            unset OVATION_RENDER_RESTART_LOG
+        fi
+        # A HOME OF ITS OWN, on every case (ovation#332). The default record lives
+        # under the home directory, and a case that forgot to name one would
+        # otherwise append to Dan's real record from a fault this suite STAGED
+        # (L2). It is exported here rather than in the one case that asserts it,
+        # so no case written later can reach the real file by omission (L284).
+        export HOME="$WORK/home"
         python3 "$WORK/render-once.py" 2>&1
     )
 }
@@ -175,5 +190,116 @@ check "a page that loaded and wrote no report is refused, not rendered again" \
     "$(render "" | grep -c 'no probe report')" "1"
 check "and no second browser was started for it" "$(browsers_started)" "1"
 unset NO_REPORT_OVERRIDE
+
+# ---------------------------------------------------------------------------
+# AND THE RESTART IS WRITTEN DOWN, NOT ONLY PRINTED (ovation#332).
+#
+# The print reaches a CI log and nothing else, and a CI log expires: scanning
+# every unsuccessful run of this repository on 2026-09-15 found ONE occurrence
+# and 32 runs whose logs could no longer be read at all. So the horizon for
+# counting this was however long the logs live, and the next occurrence would
+# have looked like the first all over again, which is the whole thing ovation#316
+# printed the line to prevent (L293).
+# ---------------------------------------------------------------------------
+LOG_OVERRIDE="$WORK/restarts.tsv"
+
+rm -f "$LOG_OVERRIDE"
+render "" >/dev/null 2>&1
+check "an ordinary render records nothing, so the record counts restarts only" \
+    "$([ -s "$LOG_OVERRIDE" ] && echo written || echo empty)" "empty"
+
+rm -f "$LOG_OVERRIDE"
+render 1 >/dev/null 2>&1
+check "a restart is appended to a record that outlives the log" \
+    "$(wc -l < "$LOG_OVERRIDE" | tr -d ' ')" "1"
+check "and the line carries the day it happened, the request, and the page" \
+    "$(awk -F'\t' 'NR == 1 && $1 ~ /^20[0-9][0-9]-[01][0-9]-[0-3][0-9]T/ && $2 == "Page.navigate" && $3 == "page.html" { print "all three" }' "$LOG_OVERRIDE")" \
+    "all three"
+# THE PAGE IS NAMED BY ITS BASENAME, never its path. A CI job carries this record
+# out to the tracker (ovation#332), and a full path names a home directory or a
+# runner's workspace, which is somebody's business and nobody's evidence.
+check "and the page is named without the directories it sat in" \
+    "$(awk -F'\t' 'NR == 1 { print $3 }' "$LOG_OVERRIDE" | grep -c '/')" "0"
+
+render 1 >/dev/null 2>&1
+check "a second restart is a second line, which is what counting recurrence needs" \
+    "$(wc -l < "$LOG_OVERRIDE" | tr -d ' ')" "2"
+check "and the restart says how many the record now holds, the way a lock wait does" \
+    "$(render 1 | grep -cE '3 browser restart\(s\) recorded since 20[0-9][0-9]-[01][0-9]-[0-3][0-9]')" "1"
+
+# A RECORD THAT CANNOT BE WRITTEN IS SAID, AND IS NEVER THE VERDICT. It is a
+# measurement of a fault, not part of judging the page, so a check that rendered
+# perfectly well must not fail because a log directory was read only (L11, L632).
+LOG_OVERRIDE="/dev/null/there-is-no-directory-here/restarts.tsv"
+OUT332="$(render 1 2>&1)"
+check "a record that cannot be written does not cost the render its result" \
+    "$(printf '%s' "$OUT332" | grep -c '^REPORT {"ran": 2}')" "1"
+check "and it says the record could not be written rather than swallowing it" \
+    "$(printf '%s' "$OUT332" | grep -c 'restart record .* could not be written')" "1"
+unset LOG_OVERRIDE
+
+# AND A RUN DRIVEN WITH A STAND IN BROWSER WRITES NOTHING ANYWHERE unless it
+# names a record. Every case above names one; this is the case that proves the
+# default cannot be reached from a staged fault (L2).
+render 1 >/dev/null 2>&1
+check "a staged fault with no record named writes nothing under the home directory" \
+    "$(find "$WORK/home" -type f 2>/dev/null | wc -l | tr -d ' ')" "0"
+
+# AND NOT INTO AN INHERITED ONE EITHER, which is the case that matters on CI:
+# the Linux job SETS this seam for every step, this suite runs inside that job,
+# and a fault it staged would otherwise be appended to the record the workflow
+# carries out to the tracker and reported as a real one (L439).
+AMBIENT="$WORK/ambient.tsv"
+rm -f "$AMBIENT"
+OVATION_RENDER_RESTART_LOG="$AMBIENT" render 1 >/dev/null 2>&1
+check "and a staged fault never reaches a record the environment named" \
+    "$([ -e "$AMBIENT" ] && echo written || echo untouched)" "untouched"
+
+# ---------------------------------------------------------------------------
+# AND CI'S RECORD LEAVES THE RUNNER (ovation#332).
+#
+# A CI job runs on a fresh runner every time, so a file under its home directory
+# is destroyed with the machine and records nothing anybody can count. The job
+# names the record, keeps it as an artifact, and a second workflow carries what
+# it holds to the tracker, which is the only store in this system that does not
+# expire.
+#
+# THE ARTIFACT'S NAME IS ONE FACT IN TWO FILES and nothing in YAML can derive one
+# from the other, so the agreement is asserted here rather than left to be
+# noticed the day a restart is written down and reported to nobody (L41, L58).
+CI_YML=".github/workflows/ci.yml"
+RESTARTS_YML=".github/workflows/browser-restarts.yml"
+check "the CI job names the record, so it lands somewhere the job can keep" \
+    "$(grep -c 'OVATION_RENDER_RESTART_LOG' "$CI_YML")" "1"
+# Each side's name is READ OUT of its own file and the two are compared, rather
+# than both being compared against a name written a third time here, which would
+# only ever prove this suite agrees with itself (L70).
+# READ FROM INSIDE A FUNCTION, and that is not a style choice. These awk programs
+# name their own first FIELD as $1, and the rule in test-run-tests.sh that refuses
+# a suite reading its own first ARGUMENT matches an unindented $1 whatever it
+# belongs to. It refused this file until these moved, which is the same over match
+# ovation#344 records for a quoted heredoc's body.
+kept_artifact() {
+    awk '/uses: actions\/upload-artifact/ { seen = 1 } seen && $1 == "name:" { print $2; exit }' "$CI_YML"
+}
+asked_artifact() {
+    awk '$1 == "ARTIFACT:" { print $2; exit }' "$RESTARTS_YML"
+}
+KEPT_AS="$(kept_artifact)"
+ASKED_FOR="$(asked_artifact)"
+check "and CI keeps that record as an artifact with a name of its own" \
+    "$([ -n "$KEPT_AS" ] && echo "$KEPT_AS" || echo "nothing is uploaded")" "browser-restarts"
+check "and the reporting workflow asks for the artifact CI actually keeps" \
+    "$([ -n "$ASKED_FOR" ] && [ "$ASKED_FOR" = "$KEPT_AS" ] && echo agree || echo "kept as $KEPT_AS, asked for $ASKED_FOR")" \
+    "agree"
+# AND IT MAY NOT OPEN AN ISSUE, which is Dan's decision of 2026-09-15 and the one
+# thing about this workflow that cannot be read off its own words: `stands` files
+# one when none is open and `recurred` refuses to, and they differ by a word.
+check "the reporting workflow adds to an issue and never files one" \
+    "$([ "$(grep -cE '^ *bash scripts/report-finding\.sh recurred' "$RESTARTS_YML")" = "1" ] && [ "$(grep -cE '^ *bash scripts/report-finding\.sh stands' "$RESTARTS_YML")" = "0" ] && echo adds || echo files)" \
+    "adds"
+check "and it reports through the one script that owns reporting, not its own gh issue calls" \
+    "$([ "$(grep -c 'report-finding.sh' "$RESTARTS_YML")" -ge 1 ] && [ "$(grep -c 'gh issue' "$RESTARTS_YML")" -eq 0 ] && echo through || echo "its own")" \
+    "through"
 
 harness_end
