@@ -224,6 +224,17 @@ gate_check check-design-self-contained.sh "a design file reaches outside itself.
 # the design record IS went on holding the defect, and nothing could say so.
 gate_check check-design-rules-inline.sh "a design file's copy of a rule disagrees with docs/design/rules/."
 
+# ovation#201. The design record argues from measured numbers, some asserted by a
+# check and most not, and on the page the two look exactly alike. A number nothing
+# owns goes stale the first time the thing it measures changes and goes on reading
+# as though something were still watching it (L210). The record now marks which is
+# which, and this refuses a marking that points at nothing: a check that is not
+# there, a check no inventory watches, or a day that is not a date. It does NOT
+# refuse a number nobody has marked, and that is the whole design: a gate refusing
+# until all of them were marked would be unlandable, and would be answered by
+# marking numbers to silence it. Those are counted and reported instead.
+gate_check check-design-measurements-marked.sh "a measurement marking in the design record points at nothing."
+
 # ovation#98 round D. The same shape again, for the payment terms. PRD 51h makes
 # a client's standing terms and an invoice's own due date ONE list, and the two
 # screens that offer it are two files that cannot load a shared constant, so each
