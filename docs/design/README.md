@@ -401,6 +401,26 @@ is refused, which is the long list its own header warns about caught one entry a
 stylesheet that is not there is refused rather than read as an empty one, which would report a clean
 round for a mistyped path.
 
+**`scripts/lift-design-harness.sh` is the other round tool** (ovation#196), and it does the step
+before the switcher. A round redraws a screen that is already settled here, so it starts by getting
+that screen OUT of its design file: the stylesheet and the builder pulled out, the rules that belong
+to the page retargeted onto the screen, the file's own mounting code left behind, and one variable
+per value the round moves wired through a `buildScreen(variant)` that picks its fixture by label and
+refuses a label that is not on exactly one. That was done by hand twice on 2026-09-10, for
+ovation#191 and ovation#98.
+
+**What it adds is the proof the lift was faithful**, which is the half that was skipped both times.
+A lifted screen loses whatever it was inheriting from the page around it SILENTLY, because the
+extracted copy still renders and still looks finished, so `--check` renders the design file and the
+harness in one browser and compares option 1 element by element, tag, classes and box. The harness is
+drawn in a page the screen has never met, with its own `body` rule declared after the lifted
+stylesheet, so a page rule the lift left behind loses there exactly as it would lose to the
+switcher's chrome. What may legitimately differ is a PARAMETER rather than a constant, because the
+two harnesses lifted so far differ in it: the spec names a tolerance in pixels and the selectors
+whose elements are not compared, every run prints both, and a selector that matches nothing is
+refused rather than passed. The same comparison is what found ovation#194, where two renderings
+differed by 3px in one row and the cause was the document mode rather than the lift.
+
 ## Nothing carries CSS for a screen it does not draw
 
 **`scripts/check-design-dead-rules.sh` refuses a rule the file that holds it can never apply.** Each
