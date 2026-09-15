@@ -395,6 +395,28 @@ else
       echo "       was deleted. Nothing about the missing ones was judged." >&2
       echo "       If suites were deliberately removed, lower ${SHELL_FLOOR_FILE}." >&2
       exit 7
+    elif [ "${suites_ran}" -gt "${SUITE_FLOOR}" ]; then
+      # AND A FLOOR THAT DOES NOT MOVE STOPS BEING A FLOOR (ovation#329), which
+      # is the same reversal ovation#157 made to the pure floor, and this one
+      # never got it. It said 59 on 2026-09-15 with 65 suites in scripts/: six
+      # could lose their executable bit, be renamed or be deleted and the count
+      # would still clear a floor six beneath it, which is exactly the partial
+      # run it exists to refuse, and it passed the whole time (L63, L182, L354).
+      # Nothing made the number move, so it was a rule living in whoever
+      # remembered it (L27).
+      #
+      # REFUSED RATHER THAN PRINTED, for the pure floor's reason: a notice on a
+      # green run is one nobody reads, and this is the only moment both numbers
+      # are in front of anybody. The message is the command that fixes it rather
+      # than a description of it (L399).
+      echo "Error: the shell suites ran ${suites_ran} and the floor says ${SUITE_FLOOR}." >&2
+      echo "       That is suites being ADDED, which is good, and the floor has to" >&2
+      echo "       move with them or it stops being able to see a run that loses" >&2
+      echo "       some. Run this, then push:" >&2
+      echo "" >&2
+      echo "       printf '%s\\n' ${suites_ran} > ${SHELL_FLOOR_FILE}" >&2
+      echo "" >&2
+      exit 7
     fi
   fi
 
