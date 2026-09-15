@@ -62,6 +62,16 @@ enum PDFText {
         return "\(monthNames[month - 1]) \(dayOfMonth), \(year)"
     }
 
+    /// "Payment due within 30 days of the invoice date.", counted from the invoice's
+    /// own dates (Dan, 2026-09-14), so a due date moved per client or per invoice
+    /// (PRD 7) is never contradicted by the footer. Nil for a due date before the
+    /// invoice date, which is refused rather than written as a term.
+    static func terms(days: Int) -> String? {
+        guard days >= 0 else { return nil }
+        guard days > 0 else { return "Payment due on the invoice date." }
+        return "Payment due within \(days) \(days == 1 ? "day" : "days") of the invoice date."
+    }
+
     private static let monthNames = [
         "January", "February", "March", "April", "May", "June",
         "July", "August", "September", "October", "November", "December",

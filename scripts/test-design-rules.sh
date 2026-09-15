@@ -75,10 +75,16 @@ function runPdfTextTests() {
     var amount = Math.round(readBack * c.rateCents / 100);
     if (amount !== c.amountCents) failures.push("printed " + hours(c.hundredths / 100) + " at " + c.rateCents + " cents is " + amount + ", expected " + c.amountCents + " (" + c.why + ")");
   });
+  /* Dan, 2026-09-14: the terms count the invoice's real days. null is the refusal. */
+  PDF_TEXT_CASES.terms.forEach(function (c) {
+    ran++;
+    var got = terms(c.days);
+    if (got !== c.text) failures.push(c.days + " days wrote " + JSON.stringify(got) + ", expected " + JSON.stringify(c.text) + " (" + c.why + ")");
+  });
   return { ran: ran, failures: failures };
 }
 var isolation = checkSuitesAreIsolated();
-["money", "hours", "hourly"].forEach(function (k) {
+["money", "hours", "hourly", "terms"].forEach(function (k) {
   if (!Array.isArray(PDF_TEXT_CASES[k]) || !PDF_TEXT_CASES[k].length)
     isolation.push("PDF_TEXT_CASES." + k + " is missing or empty, so a suite is running against nothing");
 });

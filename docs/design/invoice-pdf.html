@@ -307,6 +307,16 @@ function hours(h) {
   return written + (hundredths === 100 ? " hr" : " hrs");
 }
 
+/* THE TERMS COUNT THE INVOICE'S OWN DAYS (Dan, 2026-09-14). PRD 7 lets a due date
+   move per client or per invoice, and a fixed "14 days" would then contradict the
+   due date at the top of the same page. null is a refusal: a due date before the
+   invoice date is not a term, and printing one would hide the mistake. */
+function terms(days) {
+  if (days < 0) return null;
+  if (days === 0) return "Payment due on the invoice date.";
+  return "Payment due within " + days + (days === 1 ? " day" : " days") + " of the invoice date.";
+}
+
 function totals(inv) {
   var lines = 0;
   inv.lines.forEach(function (l) { lines += l.amount; });
@@ -400,9 +410,20 @@ var FIXTURES = [
 var SETTINGS = {
   email: "dan@danwrightphotography.com",
   payment: "Payment instructions available upon request.",
-  noteToCustomer: "Thank you for having me at your performance. Galleries are delivered within five business days.",
-  terms: "Payment due within 14 days of the invoice date."
+  noteToCustomer: "Thank you for having me at your performance. Galleries are delivered within five business days."
 };
+
+/* Whole days between two of the fixtures' written dates, counted on UTC calendar
+   days so no clock change can make one 23 hours long. */
+function daysBetween(fromWritten, toWritten) {
+  var months = ["January", "February", "March", "April", "May", "June", "July",
+                "August", "September", "October", "November", "December"];
+  function utc(written) {
+    var w = written.replace(",", "").split(" ");
+    return Date.UTC(parseInt(w[2], 10), months.indexOf(w[0]), parseInt(w[1], 10));
+  }
+  return Math.round((utc(toWritten) - utc(fromWritten)) / 86400000);
+}
 
 function mk(tag, cls, text) {
   var n = document.createElement(tag);
@@ -549,7 +570,9 @@ function buildPage(inv) {
     lines.forEach(function (x) { d.append(mk("p", null, x)); });
     foot.append(d);
   }
-  block("Payment", [SETTINGS.payment, SETTINGS.terms]);
+  /* The terms count this invoice's own days (Dan, 2026-09-14), so a due date
+     moved per client or per invoice (PRD 7) is never contradicted here. */
+  block("Payment", [SETTINGS.payment, terms(daysBetween(inv.issued, inv.due))]);
   block("Note", [SETTINGS.noteToCustomer]);
   /* No phone number is printed (Dan, 2026-09-14, PRD 50d). */
   block("Contact", [SETTINGS.email]);

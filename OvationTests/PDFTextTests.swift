@@ -17,10 +17,13 @@ struct PDFTextTests {
     private struct HourlyCase: Decodable {
         let hundredths: Int64; let rateCents: Int64; let amountCents: Int64; let why: String
     }
+    /// `text` is null where the design refuses to write terms at all.
+    private struct TermsCase: Decodable { let days: Int; let text: String?; let why: String }
     private struct Cases: Decodable {
         let money: [MoneyCase]
         let hours: [HoursCase]
         let hourly: [HourlyCase]
+        let terms: [TermsCase]
     }
 
     /// Located from this file, never from the working directory, which is wherever
@@ -39,6 +42,17 @@ struct PDFTextTests {
         #expect(cases.money.count >= 8)
         #expect(cases.hours.count >= 9)
         #expect(cases.hourly.count >= 4)
+        #expect(cases.terms.count >= 4)
+        #expect(cases.terms.contains { $0.text == nil }, "the refusal is a case too, or it is never exercised")
+    }
+
+    /// Dan, 2026-09-14: the terms count the invoice's real days, so they cannot
+    /// contradict a due date that was moved for a client or an invoice.
+    @Test("the payment terms name the invoice's own number of days, and refuse a due date before it")
+    func theTermsAreWrittenAsTheDesignWritesThem() throws {
+        for item in try Self.cases().terms {
+            #expect(PDFText.terms(days: item.days) == item.text, "\(item.why)")
+        }
     }
 
     @Test("money is written the way the settled invoice PDF writes it")

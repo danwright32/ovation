@@ -21,3 +21,13 @@ function hours(h) {
   var written = hundredths % 10 === 0 ? h.toFixed(1) : h.toFixed(2);
   return written + (hundredths === 100 ? " hr" : " hrs");
 }
+
+/* THE TERMS COUNT THE INVOICE'S OWN DAYS (Dan, 2026-09-14). PRD 7 lets a due date
+   move per client or per invoice, and a fixed "14 days" would then contradict the
+   due date at the top of the same page. null is a refusal: a due date before the
+   invoice date is not a term, and printing one would hide the mistake. */
+function terms(days) {
+  if (days < 0) return null;
+  if (days === 0) return "Payment due on the invoice date.";
+  return "Payment due within " + days + (days === 1 ? " day" : " days") + " of the invoice date.";
+}

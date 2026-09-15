@@ -213,6 +213,28 @@ struct InvoiceDocumentTests {
         #expect(Self.refusal(invoice) == .discountExceedsSubtotal)
     }
 
+    /// Dan, 2026-09-14: the footer's terms count the days between THIS invoice's date
+    /// and its due date, because PRD 7 lets a due date move per client or per invoice
+    /// and a fixed "14 days" would then contradict the date at the top of the page.
+    /// Every design fixture is due in 14, so the moved date is asserted here (L101).
+    @Test("a due date moved to 30 days is what the terms say, beside the due date at the top")
+    func movedTermsFollowTheDueDate() throws {
+        let invoice = try Self.ordinary(try Self.store())
+        invoice.dueDate = try Self.businessDate("November 24, 2026")
+        let document = try InvoiceDocument(invoice: invoice, footer: .fixed)
+        #expect(document.dueLine == "by November 24, 2026")
+        let payment = try #require(document.foot.first { $0.label == "Payment" })
+        #expect(payment.lines.contains("Payment due within 30 days of the invoice date."))
+        #expect(!payment.lines.contains { $0.contains("14") }, "no line may still state the old term")
+    }
+
+    @Test("a due date before the invoice date is refused rather than printed as a negative term")
+    func aDueDateBeforeTheInvoiceIsRefused() throws {
+        let invoice = try Self.ordinary(try Self.store())
+        invoice.dueDate = try Self.businessDate("October 24, 2026")
+        #expect(Self.refusal(invoice) == .dueBeforeInvoiceDate)
+    }
+
     /// A day key is stored beside its instant, and a store can hold one that is not a
     /// calendar day. Both places a date is written are asserted, because each reaches
     /// the refusal by its own route (L173).

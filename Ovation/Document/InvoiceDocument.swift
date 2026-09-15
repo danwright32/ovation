@@ -14,15 +14,17 @@ import Foundation
 ///
 /// PRD 9: these come from settings, and until ovation#319 gives them a place there
 /// they are fixed here, in one place. No phone number is printed (Dan, 2026-09-14).
+///
+/// THE PAYMENT TERMS ARE NOT HERE. They count the invoice's own days (Dan,
+/// 2026-09-14), so they belong to the invoice rather than to a sentence fixed in
+/// advance; `PDFText.terms(days:)` writes them.
 struct InvoiceFooter: Equatable, Sendable {
     let payment: String
-    let terms: String
     let note: String
     let contact: String
 
     static let fixed = InvoiceFooter(
         payment: "Payment instructions available upon request.",
-        terms: "Payment due within 14 days of the invoice date.",
         note: "Thank you for having me at your performance. Galleries are delivered within five business days.",
         contact: "dan@danwrightphotography.com")
 }
@@ -45,6 +47,9 @@ struct InvoiceDocument: Equatable, Sendable {
         /// A stored day key that is not a calendar day. Refused rather than printed
         /// as something plausible (L50).
         case unreadableDate
+        /// The terms would be a negative number of days, which is a mistake in the
+        /// dates rather than a term to print.
+        case dueBeforeInvoiceDate
     }
 
     struct FootBlock: Equatable, Sendable {
@@ -74,9 +79,15 @@ struct InvoiceDocument: Equatable, Sendable {
         // The invoice's own predicate, so the page and the send cannot disagree
         // about what an oversized discount is (L16).
         if invoice.refusals.contains(.discountExceedsSubtotal) { throw Refusal.discountExceedsSubtotal }
-        guard let issued = PDFText.date(invoiceDate), let due = PDFText.date(dueDate) else {
-            throw Refusal.unreadableDate
-        }
+        guard let issued = PDFText.date(invoiceDate), let due = PDFText.date(dueDate),
+              let issuedStart = BusinessCalendar.startOfDay(forDayKey: invoiceDate.dayKey),
+              let dueStart = BusinessCalendar.startOfDay(forDayKey: dueDate.dayKey)
+        else { throw Refusal.unreadableDate }
+        // Counted by business day from the recorded day keys, through the one
+        // calendar that decides what a day is (L39). Signed, because the clamped
+        // `wholeDays` would read a due date before the invoice date as due that day.
+        let days = BusinessCalendar.dayNumber(for: dueStart) - BusinessCalendar.dayNumber(for: issuedStart)
+        guard let terms = PDFText.terms(days: days) else { throw Refusal.dueBeforeInvoiceDate }
 
         amountDueLabel = "Amount due"
         amountDue = PDFText.money(invoice.total)
@@ -87,7 +98,7 @@ struct InvoiceDocument: Equatable, Sendable {
         items = try invoice.orderedLineItems.map(Self.row)
         money = Self.moneyRows(invoice, taxed: client.taxStatus.isTaxed)
         foot = [
-            FootBlock(label: "Payment", lines: [footer.payment, footer.terms]),
+            FootBlock(label: "Payment", lines: [footer.payment, terms]),
             FootBlock(label: "Note", lines: [footer.note]),
             FootBlock(label: "Contact", lines: [footer.contact]),
         ]

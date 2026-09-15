@@ -26,5 +26,12 @@
     {"hundredths": 175, "rateCents": 25000, "amountCents": 43750, "why": "the commonest quarter"},
     {"hundredths": 215, "rateCents": 25000, "amountCents": 53750, "why": "a value on neither a quarter nor a tenth"},
     {"hundredths": 100, "rateCents": 0, "amountCents": 0, "why": "a comped hour prints a rate and an amount of nothing"}
+  ],
+  "terms": [
+    {"days": 14, "text": "Payment due within 14 days of the invoice date.", "why": "the ordinary term, PRD 7, and every design fixture's"},
+    {"days": 30, "text": "Payment due within 30 days of the invoice date.", "why": "a due date moved for a client or an invoice is what the terms say (Dan, 2026-09-14)"},
+    {"days": 1, "text": "Payment due within 1 day of the invoice date.", "why": "one day is singular"},
+    {"days": 0, "text": "Payment due on the invoice date.", "why": "due the day it is issued names no count of days"},
+    {"days": -1, "text": null, "why": "a due date before the invoice date is refused rather than printed as a negative term"}
   ]
 }
