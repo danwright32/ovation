@@ -1,0 +1,6 @@
+# Fingerprints of private values that must never appear in this public repository.
+#
+# Read by scripts/check-identity-leaks.sh (ovation#167). One per line: the SHA-256
+# of the value's digits, then a label. The values themselves are never written
+# here, in any spelling, because this file is published with everything else.
+6a72640a4b84b95d9a166a42969068ab6fa70752998ac0f77d08afe50efdbc16 Dan's phone number
