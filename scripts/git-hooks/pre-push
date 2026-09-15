@@ -422,46 +422,70 @@ done
 [ -n "${SAW_A_REF}" ] || RANGE_UNKNOWN=1
 
 
-# The one list of what an Xcode build and test cannot read. Everything else is
-# relevant by default.
+# WHAT THE XCODE PHASE READS IS DERIVED FROM THE PUSHED TREE (ovation#358).
 #
-# scripts/ IS NOT ON IT (ovation#154). The build command itself lives there:
-# scripts/lib/build-one-configuration.sh is the xcodebuild invocation and
-# scripts/build-products.sh orchestrates it, so the old entry claimed that a
-# change to how the app is compiled could not affect the build. It was dropped
-# rather than narrowed to the scripts that genuinely cannot reach one, because
-# a narrowed list is a registry somebody has to keep honest for ever and its
-# accuracy would live only in whoever remembers the rule (L27, L96). The cost is
-# accepted and it is real: a push touching only shell now pays the Xcode phase
-# and the wait for the sibling locks.
-skippable_path() {
-    case "$1" in
-        docs/*|.github/*|*.md|.gitignore|.gitattributes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
+# This was a fixed list of paths no build could open. ovation#154 took scripts/
+# off it, because the build command lives there, and rejected narrowing the
+# entry because a list of the scripts that cannot reach a build is a registry
+# somebody has to keep honest for ever (L27, L96). That left every design and
+# shell change paying the whole phase: seven changes on 2026-09-15, about twenty
+# five minutes a push, and not one of them touched anything the app builds from.
+# The same list also called docs/ unreadable while three Swift tests open files
+# in docs/design/ (L88).
+#
+# scripts/lib/xcode-phase-inputs.sh works the answer out instead: the scripts
+# the runner and every xcodebuild caller reach through their code, the paths the
+# Swift files name, and the old short list for everything else. The reasoning,
+# and what a text search cannot see, live there once rather than here as well.
+#
+# A TREE WITHOUT THE LIB IS REFUSED, like the built product lib below and for the
+# same reason: the hook and the lib come from one revision (ovation#138), so its
+# absence is an inconsistent tree, and deciding without it would be a skip nobody
+# decided. A lib that is there and CANNOT answer runs everything instead, because
+# that is a question about this push rather than a fault in the tree.
+INPUTS_LIB="${REPO_ROOT}/scripts/lib/xcode-phase-inputs.sh"
+if [ ! -f "${INPUTS_LIB}" ]; then
+    echo "pre-push: scripts/lib/xcode-phase-inputs.sh is not in ${REPO_ROOT}, so this" >&2
+    echo "pre-push: gate cannot tell what the Xcode phase reads. Push refused." >&2
+    exit 1
+fi
+# shellcheck source=../lib/xcode-phase-inputs.sh
+. "${INPUTS_LIB}"
 
+INPUTS_UNKNOWN=""
 FIRST_RELEVANT=""
+RELEVANT_WHY=""
 PATH_COUNT=0
-while IFS= read -r one; do
-    [ -n "${one}" ] || continue
-    PATH_COUNT=$((PATH_COUNT+1))
-    if [ -z "${FIRST_RELEVANT}" ] && ! skippable_path "${one}"; then
-        FIRST_RELEVANT="${one}"
+if [ -z "${RANGE_UNKNOWN}" ]; then
+    if ! xcode_phase_inputs_load "${REPO_ROOT}"; then
+        INPUTS_UNKNOWN="${XPI_ERROR}"
+    else
+        while IFS= read -r one; do
+            [ -n "${one}" ] || continue
+            PATH_COUNT=$((PATH_COUNT+1))
+            if [ -z "${FIRST_RELEVANT}" ] && xcode_phase_reads "${one}"; then
+                FIRST_RELEVANT="${one}"
+                RELEVANT_WHY="${XPI_WHY}"
+            fi
+        done <<< "${PUSHED_PATHS}"
     fi
-done <<< "${PUSHED_PATHS}"
+fi
 
 SKIP_XCODE=""
 if [ -n "${RANGE_UNKNOWN}" ]; then
     echo "pre-push: could not work out what this push contains, so the full suite" >&2
     echo "pre-push: runs. That is the safe direction, not a fault." >&2
+elif [ -n "${INPUTS_UNKNOWN}" ]; then
+    echo "pre-push: could not work out what the Xcode phase reads, so the full suite" >&2
+    echo "pre-push: runs: ${INPUTS_UNKNOWN}" >&2
 elif [ -n "${FIRST_RELEVANT}" ]; then
     echo "pre-push: ${FIRST_RELEVANT} is in this push, so the full suite runs." >&2
+    echo "pre-push: the Xcode phase reads it: ${RELEVANT_WHY}." >&2
 else
     SKIP_XCODE=1
-    echo "pre-push: ${PATH_COUNT} path(s) in this push, none of them readable by an" >&2
-    echo "pre-push: Xcode build or test, so skipping the Xcode phase and the wait" >&2
-    echo "pre-push: for the sibling locks. The shell suites still run." >&2
+    echo "pre-push: ${PATH_COUNT} path(s) in this push, none of them read by the Xcode" >&2
+    echo "pre-push: phase, so skipping the Xcode phase and the wait for the sibling" >&2
+    echo "pre-push: locks. The shell suites still run." >&2
 fi
 
 TEST_COMMAND="${OVATION_HOOK_TEST_COMMAND:-}"
