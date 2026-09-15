@@ -59,8 +59,10 @@ Seams: OVATION_HEADLESS_BROWSER names the browser, OVATION_BROWSER_GLOBS replace
 where the lookup searches (and a refusal for want of a browser then says so),
 OVATION_RENDER_TIMEOUT is how many seconds the browser has to answer any one
 request (120), OVATION_RENDER_WAIT_MS overrides how long a loaded page has to
-produce its report, and OVATION_RENDER_RESTARTS is how many times a browser that
-stopped answering is started again (1).
+produce its report, OVATION_RENDER_RESTARTS is how many times a browser that
+stopped answering is started again (1), and OVATION_RENDER_RESTART_LOG is the file
+every restart is appended to (~/Library/Logs/Ovation/browser-restarts.tsv by
+default, and nothing at all when the browser was injected and no file was named).
 """
 import atexit
 import fcntl
@@ -74,6 +76,19 @@ import subprocess
 import sys
 import tempfile
 import time
+
+# THE RESTART RECORD (ovation#332). A restart printed to stderr reaches a CI log
+# and nothing else, and a CI log expires: scanning every unsuccessful run of this
+# repository on 2026-09-15 found ONE occurrence and 32 runs whose logs could no
+# longer be read at all. The print was there so recurrence could be counted, and
+# a record with that horizon cannot count anything (L293).
+#
+# So every restart is also one line in a file, the way scripts/run-tests.sh
+# records every lock wait, and the next restart quotes the count back. The file
+# on this Mac records this Mac only: a CI job runs on a fresh runner every time,
+# which is why the workflow carries this record out to the tracker rather than
+# leaving it to die with the job.
+RESTART_RECORD = os.path.join("Library", "Logs", "Ovation", "browser-restarts.tsv")
 
 # Where playwright puts the headless shell. Named as a glob rather than a pinned
 # version, because the version moves with whatever last installed it and a check
@@ -286,6 +301,53 @@ class Browser:
         self._out = to_browser_w
         self._in = from_browser_r
 
+    def _record_restart(self, request, page):
+        """Append this restart to the record, and say what the record now holds.
+
+        WRITTEN BY A REAL BROWSER, or by a run that NAMES a record (L2). A suite
+        drives this library with a stand in browser and stages the fault on
+        purpose, so a run whose browser was injected and which named no record
+        writes nothing: no test can reach the real record by forgetting a seam.
+
+        THE PAGE IS ITS BASENAME. A CI job carries this record out to the tracker,
+        and a full path names a home directory or a runner's workspace, which is
+        somebody's business and nobody's evidence (docs/PRIVACY-FLOOR.md).
+
+        SAID, NEVER FATAL. This is a measurement of a fault, not part of judging
+        the page: a check that rendered perfectly well must not fail because a log
+        directory was read only (L632).
+        """
+        named = os.environ.get("OVATION_RENDER_RESTART_LOG", "").strip()
+        if named:
+            record = named
+        elif os.environ.get("OVATION_HEADLESS_BROWSER", "").strip():
+            return
+        else:
+            record = os.path.join(os.path.expanduser("~"), RESTART_RECORD)
+        line = "%s\t%s\t%s\n" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                 request or "no request named", os.path.basename(page))
+        try:
+            holder = os.path.dirname(record)
+            if holder:
+                os.makedirs(holder, exist_ok=True)
+            with open(record, "a", encoding="utf-8") as handle:
+                handle.write(line)
+        except OSError as err:
+            print("    (the browser restart record at %s could not be written: %s)"
+                  % (record, err), file=sys.stderr)
+            return
+        # QUOTED BACK, the way a lock wait quotes its own history: the count is
+        # only useful to whoever is reading the run it happened in, and nobody
+        # opens a TSV under ~/Library on the strength of one line of stderr.
+        try:
+            with open(record, encoding="utf-8") as handle:
+                lines = [row for row in handle.read().splitlines() if row.strip()]
+        except OSError:
+            return
+        if lines:
+            print("    %d browser restart(s) recorded since %s."
+                  % (len(lines), lines[0].split("\t")[0][:10]), file=sys.stderr)
+
     def restart(self):
         """Stop this browser and start another, for one more attempt at a page.
 
@@ -453,6 +515,7 @@ class Browser:
                           "browser and rendered the page again."
                           % (" its %s request" % stopped.request if stopped.request else ""),
                           file=sys.stderr)
+                    self._record_restart(stopped.request, path)
                     self.restart()
         finally:
             shutil.rmtree(holder, ignore_errors=True)

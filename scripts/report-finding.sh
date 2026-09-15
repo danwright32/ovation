@@ -3,9 +3,10 @@
 # Started with bash, the line above runs this file under python3 instead (ovation#257).
 __doc__ = """Report a finding on the tracker once, and stop reporting it when it is over.
 
-    report-finding.sh stands  --title T --body-file NEW --comment-file AGAIN
-                              [--milestone M] [--label L]...
-    report-finding.sh cleared --title T --comment-file CLOSING
+    report-finding.sh stands   --title T --body-file NEW --comment-file AGAIN
+                               [--milestone M] [--label L]...
+    report-finding.sh recurred --title T --comment-file AGAIN
+    report-finding.sh cleared  --title T --comment-file CLOSING
 
 ovation#339. Two workflows reported a finding the same way, and both carried the
 whole mechanism inside a YAML step: the lookup, the comment, the creation with
@@ -72,6 +73,8 @@ Exit codes, one per outcome, each with its own sentence (L11):
                          was measured and nobody was told
     7  USED WRONGLY      a missing argument, an unreadable file, or an option the
                          command has no use for
+    8  NOTHING OPEN      `recurred` found no open issue carrying the title, and
+                         that command may not file one, so nobody was told
 
 Seam:
 
@@ -89,6 +92,7 @@ import sys
 
 OPENED, COMMENTED, CLOSED, NOTHING_TO_CLOSE = 0, 1, 2, 3
 MANY, CANNOT_ASK, COULD_NOT_SAY_IT, USED_WRONGLY = 4, 5, 6, 7
+NOTHING_OPEN = 8
 
 # HOW MANY THE LOOKUP MAY RETURN. `gh issue list` pages at 30 by default, and a
 # ceiling that silently truncates would turn "many" into "one" on a tracker that
@@ -96,9 +100,10 @@ MANY, CANNOT_ASK, COULD_NOT_SAY_IT, USED_WRONGLY = 4, 5, 6, 7
 LOOKUP_LIMIT = "100"
 
 USAGE = [
-    "    report-finding.sh stands  --title T --body-file NEW --comment-file AGAIN",
-    "                              [--milestone M] [--label L]...",
-    "    report-finding.sh cleared --title T --comment-file CLOSING",
+    "    report-finding.sh stands   --title T --body-file NEW --comment-file AGAIN",
+    "                               [--milestone M] [--label L]...",
+    "    report-finding.sh recurred --title T --comment-file AGAIN",
+    "    report-finding.sh cleared  --title T --comment-file CLOSING",
 ]
 
 
@@ -186,11 +191,12 @@ def read_arguments(argv):
     if len(argv) < 2:
         return None, "no command was given"
     command = argv[1]
-    if command not in ("stands", "cleared"):
+    if command not in ("stands", "recurred", "cleared"):
         return None, "there is no `%s` command" % command
     options = {"title": None, "body-file": None, "comment-file": None,
                "milestone": None, "labels": []}
     takes = {"stands": ["--title", "--body-file", "--comment-file", "--milestone", "--label"],
+             "recurred": ["--title", "--comment-file"],
              "cleared": ["--title", "--comment-file"]}[command]
     rest = argv[2:]
     while rest:
@@ -238,6 +244,34 @@ def main(argv):
               "but one by hand, and this reports on that one from the next run."
               % (len(numbers), ", ovation#".join(str(n) for n in numbers)))
         return MANY
+
+    # A CALLER THAT MAY NOT OPEN AN ISSUE AT ALL (ovation#332). `stands` files one
+    # when none is open, which is right for a condition a workflow measures and
+    # nobody has asked about. A RECURRENCE COUNT is the other shape: the issue
+    # that carries it is opened deliberately, by a person, and each occurrence is
+    # one more comment on it. An automated write that opens an issue on a public
+    # tracker is Dan's decision rather than this script's, and he made it on
+    # 2026-09-15.
+    #
+    # NOTHING OPEN IS ITS OWN OUTCOME, never a quiet success: a recurrence
+    # measured and reported to nobody is the silent loss this exists to prevent
+    # (L98, L11).
+    if command == "recurred":
+        if not numbers:
+            print("NOTHING OPEN: no open issue carries this finding, and this "
+                  "command may not file one, so nobody was told about this "
+                  "occurrence. Open the issue that is to carry it, or call "
+                  "`stands` instead.")
+            return NOTHING_OPEN
+        if not tell(["issue", "comment", str(numbers[0]),
+                     "--body-file", options["comment-file"]]):
+            print("COULD NOT SAY IT: ovation#%d carries this finding and the "
+                  "comment recording this occurrence could not be added. It was "
+                  "measured and nobody was told." % numbers[0])
+            return COULD_NOT_SAY_IT
+        print("COMMENTED: ovation#%d carries this finding, so this occurrence was "
+              "added to it." % numbers[0])
+        return COMMENTED
 
     if command == "stands":
         if numbers:
