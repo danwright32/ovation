@@ -55,8 +55,8 @@ struct MoneyTests {
     @Test("no sequence of line items can make the sum of the parts disagree with the total")
     func theSumOfPartsAlwaysAgreesWithTheTotal() {
         // What this proves is narrow and worth stating: that `sum` is addition
-        // over every item, in any order, including negative lines (a referral
-        // credit is one). It does not prove anything about a stored total, which
+        // over every item, in any order, including negative lines (correcting an
+        // overcharge is one). It does not prove anything about a stored total, which
         // arrives with the invoice model. The seed is fixed, so a failure is
         // reproducible and two runs measure the same thing (L339).
         var rng = SeededGenerator(seed: 1_057)

@@ -3,7 +3,8 @@
    They net out to the same tax, which is exactly why they are easy to merge and
    must not be. The difference is WHERE each one acts:
 
-   A REFERRAL CREDIT IS A NEGATIVE LINE, so it is INSIDE the subtotal. It is
+   A REFERRAL CREDIT IS INSIDE the subtotal, in its own block between the lines
+   and the subtotal rather than as a line (PRD 8, corrected 2026-09-07). It is
    earned against a ledger, one hour per hour of the referred client's first
    booking, and it is spent.
 

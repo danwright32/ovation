@@ -4,8 +4,8 @@
 // arithmetic rather than a presentational preference. It sits BELOW the
 // subtotal, and the tax is charged on what is left, so an implementer who makes
 // it a negative line changes the tax base and the invoice is wrong by the tax on
-// the discount. A referral credit IS a negative line, inside the subtotal, and
-// the two net to the same tax, which is exactly why they are easy to merge and
+// the discount. A referral credit IS inside the subtotal, in its own block
+// (PRD 8), and the two net to the same tax, which is exactly why they are easy to merge and
 // must not be (PRD 5.4b): the export has to answer how much was given away in a
 // year, and merging them makes that unanswerable.
 //
