@@ -68,7 +68,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 214
+harness_begin "test runner lock tests" 219
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -504,17 +504,67 @@ check "and the hosted suite does not run" "$(mentions "$OUT12D" "HOSTED-SUITE-RA
 # The over match direction is checked as deliberately as the under match one,
 # because the shape being matched is not unique to the defect and a guard that
 # fires on healthy files is one people learn to skip (L104, L378).
+#
+# A QUOTED HEREDOC'S BODY IS DATA AND IS NOT READ (ovation#344). `<<'SH' ... SH`
+# passes its body through untouched, so nothing in it is ever read by the suite's
+# own shell: a suite that STAGES a stub inspecting the arguments IT was given is
+# innocent, and two of them, test-report-finding.sh and test-output-privacy.sh,
+# tripped this rule on their stub's body while ovation#339 was built. An UNQUOTED
+# heredoc is a different thing and is still read, because its body IS expanded by
+# the suite's own shell, so a $1 in it is a genuine read of the suite's first
+# argument. The exemption is written as that reason rather than as "a heredoc"
+# (L362, L615).
+#
+# A heredoc that is never terminated is REPORTED. Everything after the opener
+# goes unread, and a file nothing was read from otherwise reports exactly like a
+# clean one, which is the way this kind of tracking fails quietly (L98, L11).
+# The candidate terminator is matched with its leading whitespace stripped, which
+# is what `<<-` means and is looser than a plain heredoc allows: ending the skip
+# EARLY costs a false positive somebody reads, and ending it late costs a file
+# nobody checks (L93).
+#
+# EACH FINDING NAMES THE LINE, as `<suite>:<line>:<the line>`. Naming only the
+# file sent the reader hunting for a parameter through a suite that takes none,
+# with the remedy invisible from what the message said (L11, L148).
 positional_readers() {
-    local dir="$1" f found=""
+    local dir="$1" f
     for f in "$dir"/test-*.sh; do
         [ -f "$f" ] || continue
-        if grep -nE '^[^[:space:]#]' "$f" \
-            | grep -vE ':[A-Za-z_][A-Za-z0-9_]*\(\)' \
-            | grep -qE '(^|[^\\])\$\{?1([^0-9]|$)'; then
-            found="${found}$(basename "$f") "
-        fi
+        awk -v name="$(basename "$f")" -v q="'" '
+            BEGIN {
+                single = "<<-?[ \t]*" q "[A-Za-z_][A-Za-z0-9_]*" q
+                double = "<<-?[ \t]*\"[A-Za-z_][A-Za-z0-9_]*\""
+            }
+            inhd {
+                candidate = $0
+                sub(/^[ \t]+/, "", candidate)
+                if (candidate == term) inhd = 0
+                next
+            }
+            {
+                opened = 0
+                if (match($0, single) || match($0, double)) {
+                    term = substr($0, RSTART, RLENGTH)
+                    sub("^<<-?[ \t]*", "", term)
+                    gsub(q, "", term)
+                    gsub("\"", "", term)
+                    opened = 1
+                    openedat = NR
+                }
+                if ($0 ~ /^[^ \t#]/ \
+                    && $0 !~ /[A-Za-z_][A-Za-z0-9_]*\(\)/ \
+                    && $0 ~ /(^|[^\\])\$\{?1([^0-9]|$)/) {
+                    printf "%s:%d:%s\n", name, NR, $0
+                }
+                if (opened) inhd = 1
+            }
+            END {
+                if (inhd) {
+                    printf "%s:%d:a quoted heredoc opened here is never terminated, so the rest of this file was never read\n", name, openedat
+                }
+            }
+        ' "$f"
     done
-    printf '%s' "${found% }"
 }
 
 STAGE="$WORK/suitescan"
@@ -642,7 +692,13 @@ check "with no hosted command injected, the skip is announced rather than silent
        OVATION_TEST_COMMAND="true" "$TARGET" 2>&1 | grep -c 'Hosted suite skipped')" "1"
 
 check "a suite reading its own \$1 is caught" \
-    "$(positional_readers "$STAGE")" "test-offender.sh"
+    "$(positional_readers "$STAGE" | cut -d: -f1)" "test-offender.sh"
+# AND THE REFUSAL NAMES THE LINE, not only the file (ovation#344). A message
+# naming the file sends the reader hunting for a parameter through a suite that
+# takes none, and the remedy is invisible from what it says (L11, L148). The
+# line number and the line itself are what the rule already knows.
+check "and it names the line number and the line, so the reader is not sent hunting" \
+    "$(positional_readers "$STAGE")" 'test-offender.sh:2:CONFIG="${1:-Debug}"'
 
 # 2. AND IT DOES NOT FIRE ON THE LEGITIMATE USES EVERY SUITE HERE ALREADY MAKES.
 rm -f "$STAGE/test-offender.sh"
@@ -662,6 +718,76 @@ STUB
 INNOCENT
 check "and a suite using \$1 only inside its own functions is not" \
     "$(positional_readers "$STAGE")" ""
+
+# 2b. A QUOTED HEREDOC IS DATA, NOT THE SUITE'S OWN CODE (ovation#344).
+#
+#     Several suites here stage a stub script that inspects the arguments it was
+#     given, and `<<'SH' ... SH` passes its body through untouched: nothing in it
+#     is ever read by the suite's own shell. The rule read those lines exactly
+#     like the suite's, so test-report-finding.sh and test-output-privacy.sh both
+#     tripped it on their stub's body while building ovation#339, and the message
+#     named the suite file rather than the line.
+rm -f "$STAGE"/test-*.sh
+cat > "$STAGE/test-stager.sh" <<'STAGER'
+#!/bin/bash
+cat > "$WORK/gh" <<'SH'
+case "$1" in
+  issue) echo '{}' ;;
+esac
+SH
+echo staged
+STAGER
+check "a stub staged in a quoted heredoc is not read as the suite's own parameter" \
+    "$(positional_readers "$STAGE")" ""
+
+# 2c. AND THE SKIP ENDS AT THE TERMINATOR. A heredoc tracker that swallows the
+#     rest of the file is the way this direction goes wrong quietly: the guard
+#     keeps passing while it stops reading (L98, L182). So the real defect is
+#     staged AFTER a heredoc and still caught, and the line number proves it is
+#     the line after it rather than a coincidence.
+rm -f "$STAGE"/test-*.sh
+cat > "$STAGE/test-after.sh" <<'AFTER'
+#!/bin/bash
+cat > /dev/null <<'SH'
+case "$1" in
+  find-identity) echo none ;;
+esac
+SH
+CONFIG="${1:-Debug}"
+AFTER
+check "and the code after the terminator is still read" \
+    "$(positional_readers "$STAGE")" 'test-after.sh:7:CONFIG="${1:-Debug}"'
+
+# 2d. AN UNQUOTED HEREDOC IS NOT DATA. Its body IS expanded by the suite's own
+#     shell, so a $1 in it is a genuine read of the suite's first argument and
+#     the exemption must not reach it. Written as the REASON for exempting, which
+#     is that the body is passed through untouched, rather than as "a heredoc"
+#     (L362, L615).
+rm -f "$STAGE"/test-*.sh
+cat > "$STAGE/test-expanding.sh" <<'EXPANDING'
+#!/bin/bash
+cat > /dev/null <<SH
+the configuration this suite was given is $1
+SH
+EXPANDING
+check "an UNQUOTED heredoc is expanded by the suite's own shell, so its \$1 is caught" \
+    "$(positional_readers "$STAGE" | cut -d: -f1)" "test-expanding.sh"
+
+# 2e. AND A HEREDOC THAT IS NEVER TERMINATED SAYS SO. It is the one state this
+#     tracker cannot represent any other way: everything after the opener goes
+#     unread, and a file nothing was read from reports exactly like a clean one
+#     (L98, L11). Named as its own outcome rather than folded into the others.
+rm -f "$STAGE"/test-*.sh
+#     Staged from INSIDE a function for the reason case 1 records: a guard that
+#     hunts for a pattern has to name that pattern to look for it, and at the top
+#     level of this file the line is a finding about this very suite (L245).
+stage_unterminated() {
+    printf '#!/bin/bash\ncat > /dev/null <<%sSH%s\nCONFIG="${1:-Debug}"\n' "'" "'" > "$1"
+}
+stage_unterminated "$STAGE/test-unterminated.sh"
+check "a quoted heredoc that is never terminated is reported, not silently skipped" \
+    "$(positional_readers "$STAGE")" \
+    'test-unterminated.sh:2:a quoted heredoc opened here is never terminated, so the rest of this file was never read'
 
 # 3. And the real tree is clean, which is the assertion that goes red the day
 #    somebody writes the twelfth suite with a parameter.
