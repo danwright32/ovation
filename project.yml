@@ -39,6 +39,24 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
+    # EVERY MACHINE SPLITS EACH TARGET INTO THE SAME COMPILE JOBS (ovation#297).
+    #
+    # In its default batch mode the Swift driver makes more, smaller groups of
+    # files on a machine with more cores, and some diagnostics depend on which
+    # files share a job. Commit ed13a42 passed the push gate on this 12 core Mac
+    # and failed to compile on CI's 3 core runner, on the same Xcode, with a non
+    # Sendable capture error at OvationTests/RestorePresenterTests.swift:261. With
+    # the count pinned at 6, this Mac makes the runner's groups and reports the
+    # runner's error, and the fix commit bd2fc7b builds (measured 2026-09-14).
+    #
+    # DAN'S DECISION, 2026-09-14: pin it here, so the push gate and CI answer the
+    # same question by construction, accepting somewhat slower local test builds.
+    # Whole module mode at push time and imitating the runner's core count were
+    # both rejected. It makes the two agree; it does not promise that no other
+    # grouping would show a further diagnostic. A target that sets its own
+    # OTHER_SWIFT_FLAGS must keep $(inherited) or it loses this, which
+    # scripts/test-project-configuration.sh reads back per target.
+    OTHER_SWIFT_FLAGS: "$(inherited) -driver-batch-count 6"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     # Ovation reads a backup folder Dan chooses (PRD 5.29) and its own

@@ -16,7 +16,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "project configuration tests" 28
+harness_begin "project configuration tests" 31
 
 require_target "project.yml"
 
@@ -298,5 +298,36 @@ check "the hosted suite actually holds something to check" \
     "$([ "$(hosted_swift_count)" -gt 0 ] && printf 'yes' || printf 'no')" "yes"
 check "and every file in the hosted suite, which does keep a host, imports it" \
     "$(app_module_importers OvationHostedTests | wc -w | tr -d ' ')" "$(hosted_swift_count)"
+
+
+# EVERY MACHINE SPLITS EACH TARGET INTO THE SAME COMPILE JOBS (ovation#297).
+#
+# Commit ed13a42 passed the push gate on this Mac and failed to compile in CI on the
+# same Xcode (26.6, 17F113), with a non Sendable capture error at
+# OvationTests/RestorePresenterTests.swift:261. Reproduced on 2026-09-14: in its
+# default batch mode the Swift driver makes more, smaller groups of files on a machine
+# with more cores, CI's 3 core runner made 6 groups of about 22 files and this
+# 12 core Mac made groups of about 11, and whether that error is reported depends on
+# which files share a job. With `-driver-batch-count 6` this Mac made CI's exact groups
+# and failed with CI's exact error, and the fix commit bd2fc7b built.
+#
+# Dan's decision, 2026-09-14: fix the batching in the project, so every machine
+# answers the same question by construction, accepting slower local test builds.
+# Not whole module mode at push time, and not imitating the runner's core count.
+#
+# READ RESOLVED, PER TARGET, because a target that set its own OTHER_SWIFT_FLAGS
+# without $(inherited) would silently drop the project level value (L188), and the
+# check has to see that rather than the line in project.yml.
+target_setting() {
+    # $1 target, $2 configuration, $3 setting name.
+    xcodebuild -project Ovation.xcodeproj -target "$1" -configuration "$2" \
+        -showBuildSettings 2>/dev/null \
+        | awk -v k="$3" '$1 == k && $2 == "=" { $1=""; $2=""; sub(/^  */,""); print; exit }'
+}
+for batched_target in Ovation OvationTests OvationHostedTests; do
+    flags="$(target_setting "$batched_target" Debug OTHER_SWIFT_FLAGS)"
+    check "$batched_target compiles in the same six driver batches on every machine (ovation#297)" \
+        "$(printf '%s' "$flags" | grep -cE -- '(^| )-driver-batch-count 6( |$)')" "1"
+done
 
 harness_end
