@@ -42,11 +42,25 @@ CANNOT MEASURE and exit 3 rather than 0 or 1.
 Imported by every rendering check and by build-design-screenshot.sh, each of
 which gets its browser through `open_browser`. Never run on its own.
 
+A BROWSER THAT STOPS ANSWERING IS STARTED AGAIN, ONCE (ovation#316). CI run
+34882448119 lost two cases of one check to `the browser did not answer its
+Page.navigate request within 120 seconds`, while the browser printed `Trying to
+load the allocator multiple times`, on a page whose only change was comment text.
+That is the browser failing, not the page, and it cost an unrelated pull request
+its green. So a render whose browser stops talking is tried once more in a FRESH
+browser, and the restart is PRINTED: a fault that heals silently cannot be
+counted, and the next occurrence would look like the first (L293).
+
+It is one more attempt, never a loop, because a check that hangs is worse than one
+that fails (L110). And only a browser that STOPPED is retried: a page that loaded
+and wrote no report is the page's fault, and rendering it again would hide it.
+
 Seams: OVATION_HEADLESS_BROWSER names the browser, OVATION_BROWSER_GLOBS replaces
 where the lookup searches (and a refusal for want of a browser then says so),
 OVATION_RENDER_TIMEOUT is how many seconds the browser has to answer any one
-request (120), and OVATION_RENDER_WAIT_MS overrides how long a loaded page has to
-produce its report.
+request (120), OVATION_RENDER_WAIT_MS overrides how long a loaded page has to
+produce its report, and OVATION_RENDER_RESTARTS is how many times a browser that
+stopped answering is started again (1).
 """
 import atexit
 import fcntl
@@ -116,6 +130,22 @@ class CannotMeasure(Exception):
     """Raised when nothing could be rendered, which is never a pass."""
 
 
+class _BrowserStopped(CannotMeasure):
+    """The browser died, or stopped answering. It is told apart from every other
+    CannotMeasure because it is the only one worth trying again in a fresh browser:
+    it says nothing about the page (ovation#316).
+
+    It CARRIES the request it was waiting for, so a restart can name that without
+    repeating the whole complaint. Saying the complaint twice, once on the way to
+    the retry and once in the refusal, made every check that counts a phrase in
+    this library's output find two where it asserts one (measured on
+    test-design-draws.sh, five cases)."""
+
+    def __init__(self, said, request=None):
+        super().__init__(said)
+        self.request = request
+
+
 class _Refused(CannotMeasure):
     """The browser answered a request with an error rather than a result."""
 
@@ -135,6 +165,27 @@ def find_browser():
         if found:
             return found[-1]
     return None
+
+
+def _count(name, default):
+    """A seam that is a WHOLE NUMBER OF TIMES, zero included.
+
+    `_number` below reads durations and refuses zero, because a deadline of no
+    time is a mistake. None of that is true of a count of attempts: zero restarts
+    is a legitimate answer, and a suite has to be able to ask for it to show that
+    the restart is what saved a render rather than something about its fixture
+    (L1). A value that is not a whole number is refused rather than replaced by
+    the default, for the reason `_number` gives (L50, L320)."""
+    said = os.environ.get(name, "").strip()
+    if not said:
+        return default
+    try:
+        value = int(said)
+    except ValueError:
+        raise CannotMeasure("%s must be a whole number of times, and it says %r" % (name, said))
+    if value < 0:
+        raise CannotMeasure("%s cannot be fewer than no times, and it says %r" % (name, said))
+    return value
 
 
 def _number(name, default):
@@ -170,6 +221,10 @@ class Browser:
         self.path = path
         self.proc = None
         self.timeout = _number("OVATION_RENDER_TIMEOUT", 120.0)
+        # How many times a browser that stopped answering is started again
+        # (ovation#316). A seam, so a suite can stage the fault with the retry off
+        # and see that the retry is what saves the render rather than the fixture.
+        self.restarts = _count("OVATION_RENDER_RESTARTS", 1)
         self._next = 0
         self._buffer = b""
         self._events = []
@@ -231,6 +286,17 @@ class Browser:
         self._out = to_browser_w
         self._in = from_browser_r
 
+    def restart(self):
+        """Stop this browser and start another, for one more attempt at a page.
+
+        The buffered bytes and the pending events belong to the browser that is
+        going, and a fresh one numbers nothing the same way, so both are dropped
+        rather than carried across (ovation#316)."""
+        self.close()
+        self._buffer = b""
+        self._events = []
+        self.start()
+
     def close(self):
         if self.proc is None:
             return
@@ -281,9 +347,9 @@ class Browser:
         except subprocess.TimeoutExpired:
             self.proc.kill()
             status = self.proc.wait()
-        return CannotMeasure("the browser returned no page at all, so the probe never had one "
-                             "to run in (browser exit %d). The browser said: %s"
-                             % (status, self._said()))
+        return _BrowserStopped("the browser returned no page at all, so the probe never had one "
+                               "to run in (browser exit %d). The browser said: %s"
+                               % (status, self._said()))
 
     def _send(self, method, params, session=None):
         self._next += 1
@@ -305,9 +371,10 @@ class Browser:
                 # own sentence. It is stopped, since nothing it says after this
                 # could be believed.
                 self.proc.kill()
-                raise CannotMeasure("the browser did not answer its %s request within %g "
-                                    "seconds, so nothing was measured. The browser said: %s"
-                                    % (waiting_for, self.timeout, self._said()))
+                raise _BrowserStopped("the browser did not answer its %s request within %g "
+                                      "seconds, so nothing was measured. The browser said: %s"
+                                      % (waiting_for, self.timeout, self._said()),
+                                      request=waiting_for)
             ready, _, _ = select.select([self._in], [], [], left)
             if not ready:
                 continue
@@ -364,7 +431,29 @@ class Browser:
             probed = os.path.join(holder, "probed.html")
             with open(probed, "w", encoding="utf-8") as handle:
                 handle.write(page + probe)
-            return self._render_page(pathlib.Path(probed).as_uri(), width, height, wait)
+            url = pathlib.Path(probed).as_uri()
+            attempts = max(self.restarts, 0) + 1
+            for attempt in range(attempts):
+                try:
+                    return self._render_page(url, width, height, wait)
+                except _BrowserStopped as stopped:
+                    if attempt + 1 >= attempts:
+                        if attempt == 0:
+                            raise
+                        raise CannotMeasure(
+                            "%s A fresh browser was started and the page rendered again, "
+                            "and it answered no better, so this is not one browser's fault."
+                            % stopped)
+                    # SAID, NOT SWALLOWED. This is the only record that it happened,
+                    # and counting recurrences is what ovation#316 could not do.
+                    # NAMED, NOT QUOTED. The complaint itself belongs in the refusal,
+                    # and printing it here as well is what made a phrase this library's
+                    # own checks count once appear twice.
+                    print("==> the browser stopped answering%s, so this started a fresh "
+                          "browser and rendered the page again."
+                          % (" its %s request" % stopped.request if stopped.request else ""),
+                          file=sys.stderr)
+                    self.restart()
         finally:
             shutil.rmtree(holder, ignore_errors=True)
 

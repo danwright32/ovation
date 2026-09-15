@@ -155,6 +155,7 @@ test-design-draws.sh	suite
 test-design-record-open.sh	suite	
 test-design-rules-inline.sh	suite	
 test-design-terms-agree.sh	suite
+test-design-render.sh	suite	
 test-design-rules.sh	suite	
 test-design-screenshot.sh	suite	
 test-design-collisions.sh	suite	
