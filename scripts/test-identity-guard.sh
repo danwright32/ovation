@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 52
+harness_begin "identity guard tests" 59
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -48,11 +48,19 @@ tree() { [ -n "$WORK" ] || exit 1; local d="$WORK/$1"; rm -rf "$d"; mkdir -p "$d
 says() { if printf '%s' "$1" | grep -qiF "$2"; then echo yes; else echo no; fi; }
 
 EXPORT="$WORK/export.json"; make_export "$EXPORT"
+# A fingerprint of a number reserved for fiction (555 0100 to 0199), never a real
+# one: a suite holding a real private value would publish it (L155). Assembled
+# from pieces so this file carries no ten digit run of its own.
+FAKE_DIGITS="212""555""0199"
+FINGERPRINTS="$WORK/fingerprints.txt"
+python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest(), "a fictional number")' \
+    "$FAKE_DIGITS" > "$FINGERPRINTS"
 run_guard() {
     OVATION_GUARD_EXPORT="${2-$EXPORT}" \
     OVATION_GUARD_CUSTODY_DIR="${3-$WORK/nocustody}" \
     OVATION_GUARD_STORE="${4-$WORK/nostore/Ovation.store}" \
     OVATION_GUARD_QUEUE_DIR="${5-$WORK/noqueue}" \
+    OVATION_GUARD_FINGERPRINTS="${6-$FINGERPRINTS}" \
     OVATION_GUARD_SCAN_ROOT="$1" \
         "./$TARGET" 2>&1
 }
@@ -431,5 +439,66 @@ check "a client name in a queued booking is a needle" "$ST23G" "1"
 printf 'not json at all\n' > "$QUEUE23/C2E5A1F3-9D4B-4A22-B5E6-1F2A3B4C5D6E.json"
 OUT23H="$(run_guard "$T23D" "$EXPORT" "" "" "$QUEUE23")"; ST23H=$?
 check "a queued record that cannot be read REFUSES rather than being skipped" "$ST23H" "4"
+
+# ---------------------------------------------------------------------------
+# A PRIVATE VALUE CAUGHT BY ITS FINGERPRINT (ovation#167).
+#
+# Dan's phone number sat in two committed design files of this public repository
+# and nothing looked for it: every needle above comes from client, venue and
+# vendor records, and Dan is in none of them. The guard cannot carry the number
+# in order to look for it, because the guard is published too, so it carries a
+# SHA-256 of the digits and compares every phone shaped run of digits in the tree
+# against it.
+#
+# A FINGERPRINT NEEDS NO LOCAL DATA, so unlike the needles it is checked on every
+# machine, a CI runner included, and a hit refuses there as well.
+# ---------------------------------------------------------------------------
+TF1="$(tree fingerprint)"; printf 'call (212) 555 0199 for access\n' > "$TF1/notes.md"
+OUTF1="$(run_guard "$TF1" "$NOEXPORT" "$NOCUSTODY")"; STF1=$?
+check "a fingerprinted number is refused on a machine with no needle source at all" "$STF1" "1"
+
+TF2="$(tree fingerprintspacing)"
+printf 'tel 212-555-0199\n' > "$TF2/a.txt"
+printf 'tel 212.555.0199\n' > "$TF2/b.txt"
+printf 'tel +1 212 555 0199\n' > "$TF2/c.txt"
+printf 'tel %s\n' "$FAKE_DIGITS" > "$TF2/d.txt"
+OUTF2="$(run_guard "$TF2" "$NOEXPORT" "$NOCUSTODY")"
+check "and it is found however the number is spaced, in each of four files" \
+    "$(printf '%s' "$OUTF2" | grep -cE '^ +[abcd]\.txt ')" "4"
+check "and the digits themselves are never printed" \
+    "$(printf '%s\n%s' "$OUTF1" "$OUTF2" | grep -c '0199')" "0"
+
+# WHAT IT MUST PRESERVE (L104): digits inside a longer number, an invoice number
+# and a date are not a phone number, so a tree holding only those is not refused.
+TF4="$(tree fingerprintpreserve)"
+printf 'order 9%s1\ninvoice 1123\nissued 2026-09-14\n' "$FAKE_DIGITS" > "$TF4/a.txt"
+OUTF4="$(run_guard "$TF4" "$NOEXPORT" "$NOCUSTODY")"; STF4=$?
+check "digits inside a longer number, an invoice number and a date are not a match" "$STF4" "2"
+
+# THE DEFAULT IS THE COMMITTED FILE, and it holds at least one fingerprint. Read
+# through the guard's own module rather than by running it without the seam,
+# because every run of the guard in a suite must point every source somewhere
+# (test-output-privacy.sh, ovation#278).
+check "by default the guard reads the committed fingerprint file, and it is not empty" \
+    "$(env -u OVATION_GUARD_FINGERPRINTS python3 -B - "$TARGET" <<'PYDEFAULT'
+import importlib.util, os, sys
+from importlib.machinery import SourceFileLoader
+loader = SourceFileLoader("guard", sys.argv[1])
+spec = importlib.util.spec_from_loader("guard", loader)
+guard = importlib.util.module_from_spec(spec)
+loader.exec_module(guard)
+problems = []
+found = guard.read_fingerprints(guard.FINGERPRINTS, problems)
+print(os.path.relpath(guard.FINGERPRINTS, os.getcwd()), "yes" if found and not problems else "no")
+PYDEFAULT
+)" "docs/privacy-fingerprints.txt yes"
+
+# A MISSING FINGERPRINT FILE IS ITS OWN REFUSAL. It is committed, so its absence
+# is a fault in the tree, never a machine that was not equipped (L11, L98).
+TF6="$(tree fingerprintmissing)"; printf 'nothing\n' > "$TF6/a.txt"
+OUTF6="$(run_guard "$TF6" "$EXPORT" "" "" "" "$WORK/no-such-fingerprints.txt")"; STF6=$?
+check "a missing fingerprint file refuses as a fault rather than passing" "$STF6" "4"
+check "and it says the fingerprints are what could not be read" \
+    "$(printf '%s' "$OUTF6" | grep -c 'CANNOT MEASURE: the fingerprint file could not be read')" "1"
 
 harness_end

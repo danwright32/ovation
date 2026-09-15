@@ -1,0 +1,37 @@
+{
+  "about": "How money and hours are WRITTEN on the invoice PDF (ovation#167, PRD 50c). Read by scripts/test-design-rules.sh against docs/design/rules/pdf-text.js and by OvationTests/PDFTextTests.swift against the app, so the settled design and the rendered PDF cannot write one figure two ways (L26). The invoice screen writes figures differently on purpose and has its own formatter.",
+  "money": [
+    {"cents": 0, "text": "$0.00", "why": "a comped invoice totals nothing, and nothing is still drawn (PRD 5.1b)"},
+    {"cents": 5, "text": "$0.05", "why": "a single digit of cents keeps its leading zero"},
+    {"cents": -5, "text": "-$0.05", "why": "below zero the minus sits before the dollar sign, even under a dollar"},
+    {"cents": 25000, "text": "$250.00", "why": "the hourly rate, the commonest figure on the page"},
+    {"cents": -25000, "text": "-$250.00", "why": "a referral credit of one hour"},
+    {"cents": 76213, "text": "$762.13", "why": "an ordinary total with tax"},
+    {"cents": 123456, "text": "$1,234.56", "why": "thousands are separated by a comma"},
+    {"cents": 100000000, "text": "$1,000,000.00", "why": "every group of three is separated, not only the first"}
+  ],
+  "hours": [
+    {"hundredths": 100, "text": "1.0 hr", "why": "the one hour shoot, 16 of 19 real bookings, keeps its settled spelling"},
+    {"hundredths": 50, "text": "0.5 hrs", "why": "under an hour is plural"},
+    {"hundredths": 150, "text": "1.5 hrs", "why": "a half hour needs one decimal"},
+    {"hundredths": 200, "text": "2.0 hrs", "why": "whole hours keep one decimal, as the design writes them"},
+    {"hundredths": 125, "text": "1.25 hrs", "why": "a quarter needs two decimals; one decimal printed 1.3 and the arithmetic stopped adding up"},
+    {"hundredths": 175, "text": "1.75 hrs", "why": "the commonest quarter in Dan's history, eleven lines"},
+    {"hundredths": 215, "text": "2.15 hrs", "why": "on neither a quarter nor a tenth, and in the history"},
+    {"hundredths": 625, "text": "6.25 hrs", "why": "the longest line Dan has ever billed"},
+    {"hundredths": 1000, "text": "10.0 hrs", "why": "two digits of whole hours"}
+  ],
+  "hourly": [
+    {"hundredths": 125, "rateCents": 25000, "amountCents": 31250, "why": "a quarter hour line reconstructs from what is printed"},
+    {"hundredths": 175, "rateCents": 25000, "amountCents": 43750, "why": "the commonest quarter"},
+    {"hundredths": 215, "rateCents": 25000, "amountCents": 53750, "why": "a value on neither a quarter nor a tenth"},
+    {"hundredths": 100, "rateCents": 0, "amountCents": 0, "why": "a comped hour prints a rate and an amount of nothing"}
+  ],
+  "terms": [
+    {"days": 14, "text": "Payment due within 14 days of the invoice date.", "why": "the ordinary term, PRD 7, and every design fixture's"},
+    {"days": 30, "text": "Payment due within 30 days of the invoice date.", "why": "a due date moved for a client or an invoice is what the terms say (Dan, 2026-09-14)"},
+    {"days": 1, "text": "Payment due within 1 day of the invoice date.", "why": "one day is singular"},
+    {"days": 0, "text": "Payment due on the invoice date.", "why": "due the day it is issued names no count of days"},
+    {"days": -1, "text": null, "why": "a due date before the invoice date is refused rather than printed as a negative term"}
+  ]
+}

@@ -52,6 +52,14 @@ struct Discount: Equatable, Hashable, Codable, Sendable {
         self.form = .percentBasisPoints(percentBasisPoints)
     }
 
+    /// The share, where this discount is one, so the invoice page can say which
+    /// share was given (PRD 5.4a). Nil for a fixed amount. Read only: the two
+    /// initialisers above stay the only ways a discount is made.
+    var percentBasisPoints: Int64? {
+        if case .percentBasisPoints(let points) = form { return points }
+        return nil
+    }
+
     /// What comes off a subtotal of this size.
     ///
     /// A percentage goes through `Rounding`, the one implementation both the tax
