@@ -401,6 +401,26 @@ is refused, which is the long list its own header warns about caught one entry a
 stylesheet that is not there is refused rather than read as an empty one, which would report a clean
 round for a mistyped path.
 
+**`scripts/lift-design-harness.sh` is the other round tool** (ovation#196), and it does the step
+before the switcher. A round redraws a screen that is already settled here, so it starts by getting
+that screen OUT of its design file: the stylesheet and the builder pulled out, the rules that belong
+to the page retargeted onto the screen, the file's own mounting code left behind, and one variable
+per value the round moves wired through a `buildScreen(variant)` that picks its fixture by label and
+refuses a label that is not on exactly one. That was done by hand twice on 2026-09-10, for
+ovation#191 and ovation#98.
+
+**What it adds is the proof the lift was faithful**, which is the half that was skipped both times.
+A lifted screen loses whatever it was inheriting from the page around it SILENTLY, because the
+extracted copy still renders and still looks finished, so `--check` renders the design file and the
+harness in one browser and compares option 1 element by element, tag, classes and box. The harness is
+drawn in a page the screen has never met, with its own `body` rule declared after the lifted
+stylesheet, so a page rule the lift left behind loses there exactly as it would lose to the
+switcher's chrome. What may legitimately differ is a PARAMETER rather than a constant, because the
+two harnesses lifted so far differ in it: the spec names a tolerance in pixels and the selectors
+whose elements are not compared, every run prints both, and a selector that matches nothing is
+refused rather than passed. The same comparison is what found ovation#194, where two renderings
+differed by 3px in one row and the cause was the document mode rather than the lift.
+
 ## Nothing carries CSS for a screen it does not draw
 
 **`scripts/check-design-dead-rules.sh` refuses a rule the file that holds it can never apply.** Each
@@ -553,6 +573,43 @@ moves the moment the screen is drawn differently.
 Instrument Serif for the window title. Archivo for everything else. IBM Plex Mono for
 every figure, date and invoice number, always with tabular figures so money aligns.
 
+## Motion
+
+**There is ONE curve and there are TWO durations, and every number here is quoted from a file that
+draws it rather than from a sentence about it** (ovation#124, L638). Nothing recorded how movement
+works until this was written, so the first transition was about to become the precedent by accident
+and the next screen would have copied it by eye.
+
+**The slide is 280ms on `cubic-bezier(.32,.72,0,1)`.** `docs/design/invoice.html:852` draws it, on
+the invoice's audit history pane: the pane's own width goes from 0 to 300px, so it arrives from the
+right edge and the invoice beside it gives up width to the left rather than being covered (Dan,
+2026-09-07, "it should push the invoice over, not cover it", PRD 51d). It was measured rather than
+trusted once the width was settled: the browser reported the slide running 3ms to 278ms against the
+280 it is written to take, recorded under the invoice screen below.
+
+**The list to invoice arrival is written as THAT SAME motion, and no committed file draws it.** The
+invoice screen's own table says the list stands aside to the left by 18% while the invoice comes in
+from the right, 280ms; `docs/design/invoice.html:803` says the pane slides "with the same easing as
+the list to invoice transition settled in round 1b, so the app has one motion rather than two"; and
+PRD 51d says it a third time. None of the three is a rendering. So the easing of the arrival has
+exactly one written value anywhere in this repository, the pane's, and that is the one the app
+carries. It is said here rather than left for the next reader, because three sentences citing each
+other are not a measurement.
+
+**The fade is 120ms linear.** `docs/design/invoice.html:643` draws it, on the tip that names what a
+refused Send is waiting on. That is the whole vocabulary: something arriving in place fades, and
+something that displaces its neighbour slides. A screen that needs a third duration is a decision
+rather than a detail, and belongs in a round.
+
+**REDUCE MOTION TURNS BOTH OFF, AND IT IS NOT A RULE EACH SCREEN IS ASKED TO FOLLOW.** Each of the
+two rules in the design file carries its own `prefers-reduced-motion: reduce` counterpart, at
+`docs/design/invoice.html:855` and `:647`, and both remove the transition outright rather than
+shortening it. In the app, `Ovation/Roster/OvationMotion.swift` holds the two durations, the curve
+and the reading of the environment's `accessibilityReduceMotion`, and `scripts/check-motion-owner.sh`
+refuses an animation written anywhere else under `Ovation/`. A rule living only in a document is
+followed by whoever read it (L27, L621), and this is the one nobody notices being skipped, because
+the person who asked their Mac to reduce motion is not the person building the screen.
+
 ## Every measurement in it was checked, not eyeballed
 
 Contrast was audited across all candidate palettes and then re-measured in a live browser,
@@ -577,7 +634,9 @@ machine without a network is one people learn to skip.
 
 Where the venue and the real shoot times live, `ovation#95`. The receipts queue, `ovation#100`, is
 the only screen not designed at all. The Clients detail pane scrolls sideways once the window is
-narrowed, `ovation#110`, which needs a decision from Dan about a minimum window width.
+narrowed, `ovation#110`, which needs a decision from Dan about a minimum window width. How the review
+and send sheet arrives and leaves, `ovation#318`, which is the one surface carrying motion that no
+file draws and no number describes, so it cannot be recorded above without inventing a duration.
 
 ## What was open here and is now settled
 

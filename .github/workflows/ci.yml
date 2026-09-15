@@ -74,7 +74,23 @@ jobs:
   shell-suites:
     name: Shell suites
     runs-on: macos-26
-    timeout-minutes: 20
+    # FORTY, AND THE NUMBER IS MEASURED (ovation#337). This was 20 while the job
+    # itself took 16.7 to 20.3 minutes, so it crossed its own cap intermittently
+    # and the run was CANCELLED: the last twelve runs on 2026-09-15 read 19.3,
+    # 17.9, 20.3 cancelled, 19.0, 16.7, 19.0, 17.6, 17.2 and 13.3 minutes. A
+    # cancelled job is a required check that never answers, so a pull request that
+    # changed nothing related cannot be merged and looks broken.
+    #
+    # It is raised rather than tuned to the current figure because the work grows
+    # deliberately: three suites were added on 2026-09-15 alone. A cap this close
+    # to the work measures the runner's mood rather than the tests (L224).
+    #
+    # WHAT IS GIVEN UP, said rather than discovered later: a suite that genuinely
+    # hangs now costs 40 minutes of a runner before anything says so. That is the
+    # trade, and the reason it is acceptable is that the job now NAMES each suite
+    # before running it, so a cancelled job says where it was instead of leaving
+    # the reader to guess from a glob.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
