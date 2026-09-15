@@ -10,157 +10,30 @@ import Testing
 /// test asserting agreement with a design has to read the design (L638).
 ///
 /// THE INVOICES ARE BUILT FROM THE SAME FILE. Each fixture carries the input the
-/// design builds it from, so this test holds no second copy of the fixtures to drift
-/// from the first (L26). What it asserts is that the app, given what the design was
-/// given, writes what the design wrote.
+/// design builds it from, and InvoiceFixtures builds it, the one builder this suite and
+/// InvoicePDFRendererTests share, so no second copy of the fixtures can drift (L26).
+/// What it asserts is that the app, given what the design was given, writes what the
+/// design wrote.
 struct InvoiceDocumentTests {
 
-    // MARK: the committed expectation
-
-    private struct Line: Decodable {
-        let kind: String
-        let shoot: String?
-        let venue: String?
-        let date: String?
-        let hours: Double?
-        let rate: Double?
-        let amount: Double
-    }
-    private struct Given: Decodable {
-        let number: String
-        let issued: String
-        let due: String
-        let client: String
-        let exempt: Bool
-        let discount: [String: Double]?
-        let credit: Double?
-        /// Money already applied to the invoice (PRD 14k).
-        let paid: Double?
-        let lines: [Line]
-    }
-    private struct Head: Decodable { let label: String; let amount: String; let due: String }
-    private struct Fixture: Decodable {
-        let label: String
-        let input: Given
-        let head: Head
-        let strip: [[String]]
-        let title: String
-        let columns: [String]
-        let items: [[String]]
-        let money: [[String]]
-        let foot: [FootBlock]
-    }
-    /// `["Payment", ["one line", "another"]]` in the file.
-    private struct FootBlock: Decodable {
-        let label: String
-        let lines: [String]
-        init(from decoder: Decoder) throws {
-            var pair = try decoder.unkeyedContainer()
-            label = try pair.decode(String.self)
-            lines = try pair.decode([String].self)
-        }
-    }
-    private struct Expected: Decodable { let fixtures: [Fixture] }
-
-    /// Located from this file, never from the working directory (L372).
-    private static func expected(_ file: StaticString = #filePath) throws -> [Fixture] {
-        let repository = URL(fileURLWithPath: "\(file)")
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let url = repository.appending(path: "docs/design/invoice-pdf.expected.json")
-        return try JSONDecoder().decode(Expected.self, from: Data(contentsOf: url)).fixtures
-    }
-
-    // MARK: building an invoice from a fixture's input
+    // MARK: the design's invoices, from the one shared builder
 
     private static func store() throws -> ModelContext {
         ModelContext(try OvationSchema.container(inMemory: true))
-    }
-
-    private static func cents(_ dollars: Double) -> Int64 { Int64((dollars * 100).rounded()) }
-
-    /// "December 5, 2026" as noon on that day in New York, so the business day is
-    /// that day whatever the host's zone (L39).
-    private static func businessDate(_ written: String) throws -> BusinessDate {
-        let months = ["January", "February", "March", "April", "May", "June", "July",
-                      "August", "September", "October", "November", "December"]
-        let words = written.replacingOccurrences(of: ",", with: "").split(separator: " ")
-        let month = try #require(words.count == 3 ? months.firstIndex(of: String(words[0])) : nil,
-                                 "\(written) is not a date the fixtures write")
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try #require(TimeZone(identifier: "America/New_York"))
-        let components = DateComponents(year: Int(words[2]), month: month + 1, day: Int(words[1]), hour: 12)
-        return .stamping(try #require(calendar.date(from: components)))
-    }
-
-    private static func invoice(from given: Given, in context: ModelContext) throws -> Invoice {
-        let client = Client(name: given.client, taxStatus: given.exempt ? .exempt : .notExempt)
-        context.insert(client)
-        let rate = Money(dollars: 250)
-        let invoice = Invoice(client: client, kind: .fromABooking,
-                              invoiceDate: try businessDate(given.issued),
-                              hourlyRate: rate, taxRate: .newYorkCity)
-        context.insert(invoice)
-        invoice.number = try #require(Int64(given.number))
-        invoice.dueDate = try businessDate(given.due)
-        if let percent = given.discount?["percent"] {
-            invoice.discount = Discount(percentBasisPoints: Int64((percent * 100).rounded()))
-        } else if let amount = given.discount?["amount"] {
-            invoice.discount = Discount(dollars: Money(cents: cents(amount)))
-        }
-        if let credit = given.credit {
-            // Earned in hours at the invoice's rate. The fixtures' credits are whole
-            // multiples of it, and a fixture that is not cannot be expressed.
-            let hundredths = cents(credit) * 100 / rate.cents
-            #expect(hundredths * rate.cents == cents(credit) * 100, "a credit the rate cannot express")
-            invoice.referralCredit = ReferralCredit(hours: Hours(hundredths: hundredths), at: rate,
-                                                    earnedFrom: nil)
-        }
-        for line in given.lines {
-            let item: LineItem
-            if let hours = line.hours, let lineRate = line.rate {
-                item = LineItem.hourly(hours: Hours(hundredths: cents(hours)),
-                                       at: Money(cents: cents(lineRate)), describedAs: line.kind)
-            } else {
-                item = LineItem.flat(Money(cents: cents(line.amount)), describedAs: line.kind)
-            }
-            if let name = line.shoot {
-                let date = try line.date.map { try businessDate($0) }
-                let shoot = Shoot(name: name, when: date.map { .dayOnly($0) }, venue: line.venue)
-                invoice.add(shoot)
-                item.shoot = shoot
-            }
-            invoice.add(item)
-        }
-        if let paid = given.paid {
-            // Applied the only way the app records it: a payment from the client and
-            // one allocation of it to this invoice.
-            let received = try businessDate(given.issued)
-            let payment = Payment(client: client, amount: Money(cents: cents(paid)),
-                                  method: .zelle, receivedOn: received)
-            context.insert(payment)
-            let allocation = PaymentAllocation(payment: payment, invoice: invoice,
-                                               amount: Money(cents: cents(paid)), allocatedOn: received)
-            context.insert(allocation)
-            payment.allocations.append(allocation)
-            invoice.allocations.append(allocation)
-            #expect(invoice.amountPaid == Money(cents: cents(paid)), "the payment reached the invoice")
-        }
-        return invoice
     }
 
     // MARK: agreement with the design
 
     @Test("all seven design fixtures are read, so no comparison below runs over nothing")
     func theFixturesAreThere() throws {
-        #expect(try Self.expected().count == 7)
+        #expect(try InvoiceFixtures.expected().count == 7)
     }
 
     @Test("each fixture's page says what the settled design draws, section by section")
     func eachFixtureSaysWhatTheDesignDraws() throws {
-        for fixture in try Self.expected() {
+        for fixture in try InvoiceFixtures.expected() {
             let context = try Self.store()
-            let document = try InvoiceDocument(invoice: try Self.invoice(from: fixture.input, in: context),
+            let document = try InvoiceDocument(invoice: try InvoiceFixtures.invoice(from: fixture.input, in: context),
                                                footer: .fixed)
             let name = fixture.label
             #expect(document.amountDueLabel == fixture.head.label, "\(name): the amount due label")
@@ -179,8 +52,7 @@ struct InvoiceDocumentTests {
     // MARK: refusals, each by name (L11, L100)
 
     private static func ordinary(_ context: ModelContext) throws -> Invoice {
-        let fixture = try #require(try expected().first { $0.label == "Ordinary" })
-        return try invoice(from: fixture.input, in: context)
+        try InvoiceFixtures.invoice("Ordinary", in: context)
     }
 
     private static func refusal(_ invoice: Invoice) -> InvoiceDocument.Refusal? {
@@ -236,7 +108,7 @@ struct InvoiceDocumentTests {
     @Test("a due date moved to 30 days is what the terms say, beside the due date at the top")
     func movedTermsFollowTheDueDate() throws {
         let invoice = try Self.ordinary(try Self.store())
-        invoice.dueDate = try Self.businessDate("November 24, 2026")
+        invoice.dueDate = try InvoiceFixtures.businessDate("November 24, 2026")
         let document = try InvoiceDocument(invoice: invoice, footer: .fixed)
         #expect(document.dueLine == "by November 24, 2026")
         let payment = try #require(document.foot.first { $0.label == "Payment" })
@@ -247,7 +119,7 @@ struct InvoiceDocumentTests {
     @Test("a due date before the invoice date is refused rather than printed as a negative term")
     func aDueDateBeforeTheInvoiceIsRefused() throws {
         let invoice = try Self.ordinary(try Self.store())
-        invoice.dueDate = try Self.businessDate("October 24, 2026")
+        invoice.dueDate = try InvoiceFixtures.businessDate("October 24, 2026")
         #expect(Self.refusal(invoice) == .dueBeforeInvoiceDate)
     }
 
@@ -273,7 +145,7 @@ struct InvoiceDocumentTests {
     // MARK: the discount's label
 
     /// PRD 5.4a: a discount is given as a percentage or an amount, and the page says
-    /// which. The six fixtures only reach a whole ten percent, so a share with a
+    /// which. The seven fixtures only reach a whole ten percent, so a share with a
     /// fraction, and an amount, are asserted here where nothing else would (L101).
     /// Labels only, so no rounding of the figures can move what is judged.
     @Test("a percentage discount names its share to the precision given, and an amount names none")
