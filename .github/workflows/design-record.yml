@@ -1,0 +1,151 @@
+name: Design record
+
+# ovation#218. `scripts/check-design-record-open.sh` reads the LIVE tracker, so
+# its verdict changes with NO COMMIT IN BETWEEN: it answered OK during the roster
+# work on 2026-09-11 and refused about an hour later, because closing ovation#40
+# made a design file cite a closed issue in its list of what is still open.
+#
+# WHILE IT RAN IN ci.yml THAT ARRIVED AS A RED BUILD ON AN UNRELATED PUSH. The
+# tree was wrong before that push and stays wrong after it, so the push it reddens
+# is whichever one happens to be next, and a red board that blames the wrong
+# change is the shape that teaches people to ignore the board (L538). Moving it
+# here does not shorten the delay, it puts the finding where it can be acted on.
+#
+# THE THREE OPTIONS ON THE ISSUE, and why this one. Re-checking at the moment an
+# issue is CLOSED is cheapest and misses the commonest path, because a merge
+# closes issues through a closing keyword and no local command runs. Dropping the
+# citations removes the class, and ovation#204 has since made every entry in a
+# design file's open list REQUIRED to name an issue or a requirement, so that
+# option is gone. What is left is asking on a schedule and saying so somewhere a
+# person can act on, which is what ci-liveness.yml already does for the other
+# time varying question in this repository.
+#
+# IT OPENS ONE ISSUE AND ONLY ONE, commented on while it stands and closed when
+# the record agrees again: an automated job that creates a named outside thing
+# collides with its own previous output for as long as that output sits unconsumed
+# (L393). The title is the marker, because a label can be removed by hand.
+#
+# WHAT IS GIVEN UP, said rather than discovered later. A push that ADDS a citation
+# to an already closed issue is no longer caught at push time; it is caught within
+# a day. The half of that check which needs no network, the SHAPE of each entry
+# (ovation#204), could refuse in the push gate and does not yet, which is
+# ovation#331.
+
+on:
+  schedule:
+    # Daily. The condition changes when an issue closes, which is far rarer than
+    # this, and the run costs one short Linux job.
+    - cron: '41 14 * * *'
+  # AND WHEN CI ON MAIN FINISHES, which is the moment the tree it judges has just
+  # changed. The schedule alone would leave a record wrong for up to a day after
+  # the very push that made it wrong.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: design-record
+  cancel-in-progress: false
+
+jobs:
+  record:
+    name: The design record's open list agrees with the tracker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # THE THREE OUTCOMES ARE KEPT APART (L11). 0 the record agrees, 1 it calls a
+      # closed issue open, 2 nothing could be looked up and so nothing was proved.
+      - name: Ask the tracker
+        id: ask
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 scripts/check-design-record-open.sh | tee verdict.txt
+          status="${PIPESTATUS[0]}"
+          set -e
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+
+      # THE BODY IS BUILT IN A FILE rather than passed inline. ci-liveness.yml
+      # records why: an unindented line inside a `--body "..."` ends the YAML block
+      # scalar, and the workflow then fails to parse, runs no jobs, and reports a
+      # failure with no log to read.
+      - name: Say so, once
+        if: steps.ask.outputs.status == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: The design record calls a closed issue still open
+        run: |
+          set -uo pipefail
+          existing="$(gh issue list --state open --search "in:title \"${TITLE}\"" \
+            --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -1)"
+
+          if [ -n "${existing}" ]; then
+            {
+              echo "Still true on $(date -u +%Y-%m-%d):"
+              echo
+              sed 's/^/    /' verdict.txt
+            } > comment-body.md
+            gh issue comment "${existing}" --body-file comment-body.md
+          else
+            {
+              echo "Opened automatically by the Design record workflow (ovation#218)."
+              echo
+              sed 's/^/    /' verdict.txt
+              echo
+              echo "An issue named in the design record's list of what is still open has"
+              echo "been closed, so the record now overstates what is outstanding. This"
+              echo "is not caused by whatever landed most recently: the verdict changes"
+              echo "when an issue closes, with no commit in between, which is why it is"
+              echo "reported here rather than as a red build on an unrelated push."
+              echo
+              echo "The remedy is in the verdict above: correct the sentence that names"
+              echo "it, or reopen the issue."
+              echo
+              echo "This issue is commented on rather than duplicated while it is open,"
+              echo "and closed by this workflow once the record agrees with the tracker."
+            } > issue-body.md
+            gh issue create --title "${TITLE}" \
+              --milestone "Design file tooling" \
+              --label priority-p2 --label ci-hygiene --label documentation \
+              --body-file issue-body.md
+          fi
+
+      # AND SAID ONCE WHEN IT IS OVER. A finding left open after it stops being
+      # true reads as outstanding and teaches everyone to skim the next one (L269).
+      - name: Close it once the record agrees again
+        if: steps.ask.outputs.status == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: The design record calls a closed issue still open
+        run: |
+          set -uo pipefail
+          existing="$(gh issue list --state open --search "in:title \"${TITLE}\"" \
+            --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -1)"
+          if [ -z "${existing}" ]; then
+            echo "No open \"${TITLE}\" issue, so there is nothing to close."
+            exit 0
+          fi
+          {
+            echo "The design record agrees with the tracker again on $(date -u +%Y-%m-%d), so this is closed."
+            echo
+            sed 's/^/    /' verdict.txt
+          } > close-body.md
+          gh issue close "${existing}" --comment "$(cat close-body.md)"
+
+      # A FAILURE TO MEASURE FAILS THE JOB rather than passing quietly, and opens
+      # nothing: nobody can act on "a lookup failed" from an issue a day later, and
+      # this run's own log says which issue it was (L98, L11).
+      - name: Refuse a run that could not measure
+        if: steps.ask.outputs.status == '2'
+        run: |
+          echo "::error::The design record could not be checked against the tracker. See the log above."
+          exit 1
