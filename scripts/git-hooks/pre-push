@@ -190,6 +190,16 @@ gate_check check-schema-registered.sh "a model type is not in the store's schema
 # scanned, because a test raising a kind by hand is how that went unseen.
 gate_check check-problem-kinds-raised.sh "a problem kind is resolved in the app and raised nowhere."
 
+# ovation#124. Ovation has one slide and one fade, and one file that knows whether
+# the person asked their Mac to reduce motion. A transition written on a screen
+# answers that question for itself or forgets it, and the failure is invisible to
+# everybody who could report it: the person who needs reduce motion is not the
+# person building the screen, and no test they run goes red. The scanner's own
+# output names the construct and the route through the component, so this line
+# does not repeat either. Fast: Swift files, and it prints paths, line numbers and
+# construct names only.
+gate_check check-motion-owner.sh "an animation is written outside the file that owns motion."
+
 # ovation#119. `OvationMigrationPlan.stages` is empty and `schemas` names one
 # version. Both are correct today and exactly one of them is silently wrong the
 # moment a second version is added, because SwiftData does not refuse a missing

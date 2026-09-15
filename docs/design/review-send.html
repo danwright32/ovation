@@ -433,7 +433,10 @@ this, or the two files disagree (ovation#111).</p>
 <p><b>The web idioms.</b> This is HTML standing in for a SwiftUI window, so three things are of the
 medium and not of the design: the message is a styled textarea and should be the design system's own
 editing control; the window chrome, traffic lights and menu bar are drawn by hand here and by the
-system in the app; and the sheet's animation is not modelled at all, which is ovation#124.</p>
+system in the app; and the sheet's animation is not modelled at all. ovation#124 settled how motion
+works everywhere else, a 280ms slide and a 120ms fade recorded under Motion in the design record,
+and left this sheet as the one surface with no number of its own: it gets one when the sheet is
+built, ovation#318.</p>
 
 <h3>What is deliberately still open</h3>
 

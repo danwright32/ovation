@@ -99,6 +99,7 @@ check-isolation-floor.sh	gated	A repo wide guard.
 check-launch-sequence-wired.sh	gated	A repo wide guard.
 check-live-data-untouched.sh	gated	A BRACKET rather than a question: run-tests.sh snapshots before the run and compares after, so it holds both ends and neither entry point can run it alone.
 check-migration-stages.sh	gated	A repo wide guard.
+check-motion-owner.sh	gated	A repo wide guard. It is the half of ovation#124 that makes the component true: the design record says what the two transitions are, and this refuses one written anywhere but Ovation/Roster/OvationMotion.swift, reduce motion included, because a behaviour every call site has to opt into cannot be enforced by asking (L621).
 check-plan-claims.sh	gated	A repo wide guard, and the ONE that declares its own CANNOT MEASURE code. It was a tool until ovation#181, on the reasoning that a gate reading two other checkouts would refuse on every machine without them (L376). That reasoning is answered rather than overturned: the gate line names exit 3, a sibling not on this machine, as its unmeasured code, so it is silent there and runs where the checkouts actually are. Nothing else ran it, so the plan drifted from the moment it was committed while carrying a sentence saying it was re-checkable in one command.
 check-prd-citations.sh	gated	A repo wide guard.
 check-pr-closing-keywords.sh	workflow	Run by .github/workflows/pr-description.yml on every pull request event that can change a description, and by nothing else, because a description exists only on GitHub and the push gate cannot see one. It refuses a closing keyword before ovation#N, which GitHub does not read, so the issue stayed open after the merge with nothing saying so, five times in two days (ovation#261). test-pr-closing-keywords.sh drives every outcome against description files rather than real pull requests.
@@ -178,7 +179,8 @@ test-launch-sequence-wired.sh	suite
 test-live-data-untouched.sh	suite	
 test-measure-booking-export.sh	suite	
 test-measure-invoice-history.sh	suite	
-test-migration-stages.sh	suite	
+test-migration-stages.sh	suite
+test-motion-owner.sh	suite
 test-output-privacy.sh	suite	
 test-plan-claims.sh	suite	
 test-prd-citations.sh	suite
