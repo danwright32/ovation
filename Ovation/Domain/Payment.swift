@@ -18,8 +18,8 @@
 // IT IS NOT REFERRAL CREDIT AND MUST NEVER BE ADDED TO IT (PRD 5.14c). Both read
 // as a balance on a client screen, which is exactly why they are easy to merge:
 // unallocated money actually arrived and is owed back if it is never used, and
-// credit was earned against a ledger and is spent as a negative line inside an
-// invoice. Merging them would let credit nobody paid settle an invoice.
+// credit was earned against a ledger and is spent inside an invoice's
+// subtotal. Merging them would let credit nobody paid settle an invoice.
 import Foundation
 import SwiftData
 

@@ -111,7 +111,7 @@ extension OvationSchemaV1 {
         /// keep a total in step and no edit can leave the two disagreeing.
         ///
         /// IT IS NOT MONEY HELD, and the two never add up (PRD 5.14c). Credit was
-        /// earned against a ledger and is spent as a negative line inside an invoice;
+        /// earned against a ledger and is spent inside an invoice's subtotal;
         /// held money actually arrived and is owed back if it is never used. They
         /// will look alike on the Clients screen, which is why they are two accessors
         /// of two different types rather than one number.
