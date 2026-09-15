@@ -78,6 +78,11 @@ jobs:
       # records why: an unindented line inside a `--body "..."` ends the YAML block
       # scalar, and the workflow then fails to parse, runs no jobs, and reports a
       # failure with no log to read.
+      #
+      # THE MECHANISM IS scripts/report-finding.sh (ovation#339), the same script
+      # ci-liveness.yml calls. This file used to carry its own copy of the lookup,
+      # the exact match, the comment and the creation, and a third condition would
+      # have been a third copy of all of it. This step owns the words only.
       - name: Say so, once
         if: steps.ask.outputs.status == '1'
         env:
@@ -85,39 +90,45 @@ jobs:
           TITLE: The design record calls a closed issue still open
         run: |
           set -uo pipefail
-          existing="$(gh issue list --state open --search "in:title \"${TITLE}\"" \
-            --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -1)"
+          {
+            echo "Still true on $(date -u +%Y-%m-%d):"
+            echo
+            sed 's/^/    /' verdict.txt
+          } > comment-body.md
+          {
+            echo "Opened automatically by the Design record workflow (ovation#218)."
+            echo
+            sed 's/^/    /' verdict.txt
+            echo
+            echo "An issue named in the design record's list of what is still open has"
+            echo "been closed, so the record now overstates what is outstanding. This"
+            echo "is not caused by whatever landed most recently: the verdict changes"
+            echo "when an issue closes, with no commit in between, which is why it is"
+            echo "reported here rather than as a red build on an unrelated push."
+            echo
+            echo "The remedy is in the verdict above: correct the sentence that names"
+            echo "it, or reopen the issue."
+            echo
+            echo "This issue is commented on rather than duplicated while it is open,"
+            echo "and closed by this workflow once the record agrees with the tracker."
+          } > issue-body.md
 
-          if [ -n "${existing}" ]; then
-            {
-              echo "Still true on $(date -u +%Y-%m-%d):"
-              echo
-              sed 's/^/    /' verdict.txt
-            } > comment-body.md
-            gh issue comment "${existing}" --body-file comment-body.md
-          else
-            {
-              echo "Opened automatically by the Design record workflow (ovation#218)."
-              echo
-              sed 's/^/    /' verdict.txt
-              echo
-              echo "An issue named in the design record's list of what is still open has"
-              echo "been closed, so the record now overstates what is outstanding. This"
-              echo "is not caused by whatever landed most recently: the verdict changes"
-              echo "when an issue closes, with no commit in between, which is why it is"
-              echo "reported here rather than as a red build on an unrelated push."
-              echo
-              echo "The remedy is in the verdict above: correct the sentence that names"
-              echo "it, or reopen the issue."
-              echo
-              echo "This issue is commented on rather than duplicated while it is open,"
-              echo "and closed by this workflow once the record agrees with the tracker."
-            } > issue-body.md
-            gh issue create --title "${TITLE}" \
-              --milestone "Design file tooling" \
-              --label priority-p2 --label ci-hygiene --label documentation \
-              --body-file issue-body.md
-          fi
+          set +e
+          bash scripts/report-finding.sh stands \
+            --title "${TITLE}" \
+            --body-file issue-body.md \
+            --comment-file comment-body.md \
+            --milestone "Design file tooling" \
+            --label priority-p2 --label ci-hygiene --label documentation
+          reported=$?
+          set -e
+          # 0 filed the issue, 1 commented on the one already open. Every other
+          # code is a refusal the script has already explained, and it fails this
+          # job rather than passing quietly (L184).
+          case "${reported}" in
+            0|1) ;;
+            *) exit "${reported}" ;;
+          esac
 
       # AND SAID ONCE WHEN IT IS OVER. A finding left open after it stops being
       # true reads as outstanding and teaches everyone to skim the next one (L269).
@@ -128,18 +139,24 @@ jobs:
           TITLE: The design record calls a closed issue still open
         run: |
           set -uo pipefail
-          existing="$(gh issue list --state open --search "in:title \"${TITLE}\"" \
-            --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -1)"
-          if [ -z "${existing}" ]; then
-            echo "No open \"${TITLE}\" issue, so there is nothing to close."
-            exit 0
-          fi
           {
             echo "The design record agrees with the tracker again on $(date -u +%Y-%m-%d), so this is closed."
             echo
             sed 's/^/    /' verdict.txt
           } > close-body.md
-          gh issue close "${existing}" --comment "$(cat close-body.md)"
+
+          set +e
+          bash scripts/report-finding.sh cleared \
+            --title "${TITLE}" \
+            --comment-file close-body.md
+          reported=$?
+          set -e
+          # 2 closed it, 3 means no such issue was open, which is the ordinary
+          # state on every day the record agrees and is not a fault.
+          case "${reported}" in
+            2|3) ;;
+            *) exit "${reported}" ;;
+          esac
 
       # A FAILURE TO MEASURE FAILS THE JOB rather than passing quietly, and opens
       # nothing: nobody can act on "a lookup failed" from an issue a day later, and
