@@ -1114,7 +1114,8 @@ function taxLineFor(status, taxable) {
    They net out to the same tax, which is exactly why they are easy to merge and
    must not be. The difference is WHERE each one acts:
 
-   A REFERRAL CREDIT IS A NEGATIVE LINE, so it is INSIDE the subtotal. It is
+   A REFERRAL CREDIT IS INSIDE the subtotal, in its own block between the lines
+   and the subtotal rather than as a line (PRD 8, corrected 2026-09-07). It is
    earned against a ledger, one hour per hour of the referred client's first
    booking, and it is spent.
 
@@ -2328,7 +2329,7 @@ function buildInvoice() {
   if (hours !== null) {
     var tl = taxLineFor(STATE.status, t.taxable);
 
-    /* THE REFERRAL CREDIT IS A NEGATIVE LINE INSIDE THE SUBTOTAL, and the
+    /* THE REFERRAL CREDIT IS ITS OWN BLOCK INSIDE THE SUBTOTAL (PRD 8), and the
        discount is not a line at all and sits below it. They net out to the same
        tax, which is exactly why they are easy to merge and must not be
        (rules/money.js). When there is no credit the lines total and the subtotal
@@ -2460,8 +2461,8 @@ function besideItsHistory(inv, total) {
 /* ---- the held money block (ovation#109) ----
 
    IT SITS BELOW THE TOTAL AND NEVER INSIDE THE SUBTOTAL. A payment is not a
-   price reduction: the referral credit is a negative line inside the subtotal
-   because it changes what is being charged, and this does not. Anything applied
+   price reduction: the referral credit sits inside the subtotal because it
+   changes what is being charged, and this does not. Anything applied
    above the total would reach the tax base, which would be a wrong invoice
    rather than a wrong layout.
 

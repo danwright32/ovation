@@ -1351,7 +1351,7 @@ worse than a question. Both invoices offer `Use it here` and say why. Rejected: 
 took it, and saying nothing at all.
 
 **THE RESULT NEVER TOUCHES THE SUBTOTAL.** A payment is not a price reduction. The referral credit
-is a negative line INSIDE the subtotal because it changes what is being charged; this sits below the
+sits INSIDE the subtotal because it changes what is being charged; this sits below the
 Total, so nothing it does reaches the tax base. That is invisible in the source, since the block
 would look equally correct appended a few lines higher, and the wrong one produces a wrong invoice
 rather than a wrong screen. `check-invoice-screen-draws.sh` presses `Remove` and compares the
