@@ -214,8 +214,25 @@ harness_end() {
         echo "REFUSED: $_HARNESS_NAME executed $_HARNESS_RAN of the $_HARNESS_EXPECTED assertions it declares."
         if [ "$_HARNESS_RAN" -lt "$_HARNESS_EXPECTED" ]; then
             echo "         Part of this run did not happen. Its verdict is withheld."
+            # NO NUMBER TO PASTE IN THIS DIRECTION, deliberately (ovation#346).
+            # Writing what a short run executed is exactly how this check stops
+            # noticing dropped assertions, which is the defect it exists to
+            # prevent, so the remedy belongs to the other direction only.
+            echo "         Find what did not run. Do NOT lower the declaration to match."
         else
+            # THE LINE TO WRITE, NOT A DESCRIPTION OF IT (ovation#346). The
+            # declared count is an aggregate over the whole file committed beside
+            # it, so any two branches that add cases to one suite conflict on this
+            # line and NEITHER side's number is right (L554). On 2026-09-15 two
+            # branches took one suite to 93 and to 92, and the answer was 95.
+            # Arithmetic over two diffs is how a wrong number gets committed, and
+            # a wrong number set too low silently stops this check working.
             echo "         Assertions were added without the declaration being updated."
+            echo "         Write the number THIS RUN executed, never one worked out from"
+            echo "         two diffs, which is how a wrong one gets committed:"
+            echo ""
+            echo "         harness_begin \"$_HARNESS_NAME\" $_HARNESS_RAN"
+            echo ""
         fi
         exit 1
     fi
