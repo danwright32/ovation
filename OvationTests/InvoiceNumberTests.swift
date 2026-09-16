@@ -539,18 +539,25 @@ struct InvoiceNumberTests {
             // error accepts one thrown for a reason it is not about, and would
             // pass while the give back was failing for something else entirely
             // (L11, L140).
-            async let releaseOutcome: InvoiceNumberRefusal? = {
+            // AND AN ERROR OF ANY OTHER KIND KEEPS ITS OWN IDENTITY rather than
+            // being reported as one of these refusals, which would be the same
+            // fault one level down (L11).
+            async let releaseOutcome: Result<Void, any Error> = {
                 do {
                     try await allocator.release(shown, from: reviewedID)
-                    return nil
-                } catch let refusal as InvoiceNumberRefusal {
-                    return refusal
+                    return .success(())
                 } catch {
-                    return .readBackDisagreed(wrote: -1, found: nil)
+                    return .failure(error)
                 }
             }()
             async let allocated: Int64? = try? await allocator.allocate(to: arrivingID)
-            let (refusal, newNumber) = await (releaseOutcome, allocated)
+            let (outcome, newNumber) = await (releaseOutcome, allocated)
+
+            var refusal: InvoiceNumberRefusal?
+            if case .failure(let error) = outcome {
+                refusal = try #require(error as? InvoiceNumberRefusal,
+                                       "the give back threw something that is not one of its refusals: \(error)")
+            }
 
             let stored = try Self.storedNumbers(in: container)
             #expect(Set(stored).count == stored.count, "no two invoices share a number")
