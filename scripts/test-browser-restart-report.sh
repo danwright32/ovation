@@ -80,7 +80,13 @@ STUB
 chmod +x "$BIN/report-finding"
 
 # stage <name>: a fresh answer directory, holding the ordinary case.
+#
+# THE GUARD BEFORE THE DELETE IS NOT DECORATION (L5). The harness creates WORK and
+# exits if it could not, and a recursive delete built from a variable is not the
+# place to depend on that holding somewhere else: an empty one would delete from
+# the filesystem root. scripts/test-git-hooks.sh carries the same two lines.
 stage() {
+    [ -n "$WORK" ] || exit 1
     STUB_DIR="$WORK/stub-$1"
     rm -rf "$STUB_DIR"; mkdir -p "$STUB_DIR/payload"
     printf 'browser-restarts\n' > "$STUB_DIR/artifacts.txt"
@@ -93,6 +99,7 @@ stage() {
 # record directory of its own, so no case writes into the checkout.
 run() {
     local dir="$1" runID="${2-4242}" out
+    [ -n "$WORK" ] || exit 1
     out="$WORK/out-$(basename "$dir")"
     rm -rf "$out"
     ( cd "$WORK" && STUB_DIR="$dir" \
