@@ -29,7 +29,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design renderer tests" 27
+harness_begin "design renderer tests" 37
 
 TARGET="scripts/lib/design_render.py"
 require_target "$TARGET"
@@ -49,10 +49,20 @@ import json, os, time
 
 state = os.environ["FAKE_STATE"]
 silent = {int(n) for n in os.environ.get("FAKE_SILENT_RUNS", "").split(",") if n.strip()}
+dying = {int(n) for n in os.environ.get("FAKE_DYING_RUNS", "").split(",") if n.strip()}
 no_report = os.environ.get("FAKE_NO_REPORT", "")
 with open(os.path.join(state, "runs"), "a") as handle:
     handle.write("x")
 run = os.path.getsize(os.path.join(state, "runs"))
+
+# THE OTHER FAULT: the browser exits before answering anything, which is what a
+# runner recorded fifteen times in one run of ovation#366. It says something on
+# the way out, including a path, because that is what a real one does.
+if run in dying:
+    import sys
+    sys.stderr.write("Fatal: cannot create a sandbox at /home/runner/work/ovation\n")
+    sys.stderr.flush()
+    raise SystemExit(7)
 
 url = "about:blank"
 buffer = b""
@@ -120,6 +130,7 @@ render() {
         export OVATION_RENDER_WAIT_MS=200
         [ -n "${NO_REPORT_OVERRIDE:-}" ] && export FAKE_NO_REPORT="$NO_REPORT_OVERRIDE"
         [ -n "${RESTARTS_OVERRIDE:-}" ] && export OVATION_RENDER_RESTARTS="$RESTARTS_OVERRIDE"
+        export FAKE_DYING_RUNS="${DYING_OVERRIDE:-}"
         # NAMED OR CLEARED, never inherited (L439, L284). CI SETS this seam for
         # the whole Linux job, so a case that merely left it alone would write a
         # fault this suite STAGED into the record the workflow carries to the
@@ -226,6 +237,68 @@ check "a second restart is a second line, which is what counting recurrence need
     "$(wc -l < "$LOG_OVERRIDE" | tr -d ' ')" "2"
 check "and the restart says how many the record now holds, the way a lock wait does" \
     "$(render 1 | grep -cE '3 browser restart\(s\) recorded since 20[0-9][0-9]-[01][0-9]-[0-3][0-9]')" "1"
+
+# ---------------------------------------------------------------------------
+# AND THE RECORD SAYS WHY THE BROWSER WENT (ovation#366).
+#
+# Measured on 2026-09-16: every recent CI run records exactly fifteen restarts,
+# twelve of them carrying `no request named`, and the record could not say
+# whether that was one browser dying on startup or twelve independent faults.
+# The renderer KNOWS: it reads the exit status and what the browser said, and
+# then throws both away on the restart path, which is the one path that matters
+# (L11, L277). So the reason is recorded, and so is the process that recorded it,
+# because six lines from one process is a cascade from one fault and six from six
+# is six faults, and nothing in the record could tell them apart.
+# ---------------------------------------------------------------------------
+LOG_OVERRIDE="$WORK/why.tsv"
+
+# THE CONTROL: the same fixture with the browser NOT dying renders and records
+# nothing, so the cases below are about the fault and not about the fixture (L159).
+DYING_OVERRIDE=""
+rm -f "$LOG_OVERRIDE"
+check "a browser that does not die renders and records nothing" \
+    "$(render "" | grep -c '^REPORT {"ran": 1}'):$([ -s "$LOG_OVERRIDE" ] && echo written || echo empty)" \
+    "1:empty"
+
+DYING_OVERRIDE=1
+rm -f "$LOG_OVERRIDE"
+OUT366="$(render "")"
+check "a browser that exits before answering is restarted and the page renders" \
+    "$(printf '%s' "$OUT366" | grep -c '^REPORT {"ran": 2}')" "1"
+check "and the record says the browser exited, with its status" \
+    "$(awk -F'\t' 'NR == 1 { print $4 }' "$LOG_OVERRIDE" | grep -c 'exit 7')" "1"
+check "and it carries what the browser said on the way out" \
+    "$(awk -F'\t' 'NR == 1 { print $4 }' "$LOG_OVERRIDE" | grep -c 'cannot create a sandbox')" "1"
+# THE RECORD IS CARRIED TO A PUBLIC TRACKER, so a path out of the browser's own
+# complaint is named by its last part, the way the page already is (ovation#332).
+check "and no directory the browser named survives into the record" \
+    "$(awk -F'\t' 'NR == 1 { print $4 }' "$LOG_OVERRIDE" | grep -c '/')" "0"
+check "and the line names the process that recorded it, so a cascade is visible" \
+    "$(awk -F'\t' 'NR == 1 { print $5 }' "$LOG_OVERRIDE" | grep -cE '^[0-9]+$')" "1"
+
+# TWO RESTARTS IN ONE PROCESS CARRY ONE PROCESS NUMBER, which is what tells a
+# cascade from one fault apart from two faults. The fake dies on run 1 and run 3,
+# so one process restarts twice.
+DYING_OVERRIDE=1,3
+rm -f "$LOG_OVERRIDE"
+render "" >/dev/null 2>&1
+render "" >/dev/null 2>&1
+check "two restarts in one run of this suite are two lines" \
+    "$(wc -l < "$LOG_OVERRIDE" | tr -d ' ')" "2"
+check "and each names its own process" \
+    "$(awk -F'\t' '{ print $5 }' "$LOG_OVERRIDE" | grep -cE '^[0-9]+$')" "2"
+unset DYING_OVERRIDE
+
+# A TIMEOUT SAYS SO IN ITS OWN WORDS, never as an exit status it never read.
+LOG_OVERRIDE="$WORK/why-timeout.tsv"
+rm -f "$LOG_OVERRIDE"
+render 1 >/dev/null 2>&1
+check "a request that went unanswered says it was not answered in time" \
+    "$(awk -F'\t' 'NR == 1 { print $4 }' "$LOG_OVERRIDE" | grep -ci 'did not answer')" "1"
+check "and it names the deadline it waited to" \
+    "$(awk -F'\t' 'NR == 1 { print $4 }' "$LOG_OVERRIDE" | grep -c '1 second')" "1"
+
+LOG_OVERRIDE="$WORK/restarts.tsv"
 
 # A RECORD THAT CANNOT BE WRITTEN IS SAID, AND IS NEVER THE VERDICT. It is a
 # measurement of a fault, not part of judging the page, so a check that rendered

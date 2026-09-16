@@ -118,8 +118,10 @@ trap 'rm -f "${BODY}"' EXIT
     echo
     sed 's/^/    /' "${RECORD_DIR}/${RECORD_FILE}"
     echo
-    echo "Each column is when it happened, the request that went unanswered,"
-    echo "and the page being rendered."
+    echo "Each line is one restart. Its columns are when it happened, the request"
+    echo "that went unanswered, the page, why the browser went, and the process"
+    echo "that recorded it (ovation#366: several lines carrying one process number"
+    echo "are one browser failing repeatedly, not several browsers failing once)."
 } > "${BODY}"
 
 "${REPORTER}" recurred --title "${TITLE}" --comment-file "${BODY}"
