@@ -156,9 +156,16 @@ class _BrowserStopped(CannotMeasure):
     this library's output find two where it asserts one (measured on
     test-design-draws.sh, five cases)."""
 
-    def __init__(self, said, request=None):
+    def __init__(self, said, request=None, why=None):
         super().__init__(said)
         self.request = request
+        # WHY IT WENT, in a few words, for the record (ovation#366). The whole
+        # complaint is in the message; this is the part a line in a TSV can hold,
+        # and without it the record could not tell a browser that died on startup
+        # from a request that timed out: twelve of fifteen lines in one CI run
+        # said only `no request named`, and the renderer had read the exit status
+        # and thrown it away (L11, L277).
+        self.why = why or said
 
 
 class _Refused(CannotMeasure):
@@ -301,7 +308,23 @@ class Browser:
         self._out = to_browser_w
         self._in = from_browser_r
 
-    def _record_restart(self, request, page):
+    @staticmethod
+    def _plainly(said):
+        """One line, short, and naming no directory anybody owns.
+
+        The record is carried out to a PUBLIC tracker (ovation#332), and a
+        browser's own complaint routinely quotes the path it was run from, which
+        is a runner's workspace or somebody's home directory: somebody's business
+        and nobody's evidence. Every word holding a slash is cut back to its last
+        part, the way the page already is, and the whole thing is bounded, because
+        a browser can say a great deal (docs/PRIVACY-FLOOR.md).
+        """
+        words = []
+        for word in " ".join((said or "").split()).split(" "):
+            words.append(word.rsplit("/", 1)[-1] if "/" in word else word)
+        return " ".join(words)[:200]
+
+    def _record_restart(self, request, page, why=None):
         """Append this restart to the record, and say what the record now holds.
 
         WRITTEN BY A REAL BROWSER, or by a run that NAMES a record (L2). A suite
@@ -324,8 +347,16 @@ class Browser:
             return
         else:
             record = os.path.join(os.path.expanduser("~"), RESTART_RECORD)
-        line = "%s\t%s\t%s\n" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                                 request or "no request named", os.path.basename(page))
+        # FIVE COLUMNS (ovation#366): when, the request that went unanswered, the
+        # page, WHY the browser went, and the PROCESS that recorded it. The last
+        # is what tells a cascade from one fault apart from several faults: a
+        # check renders many pages in one process, and six lines from one process
+        # is one browser failing six times, which reads identically to six
+        # browsers failing once each without it (L467).
+        line = "%s\t%s\t%s\t%s\t%d\n" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                        request or "no request named", os.path.basename(page),
+                                        self._plainly(why) or "no reason recorded",
+                                        os.getpid())
         try:
             holder = os.path.dirname(record)
             if holder:
@@ -411,7 +442,8 @@ class Browser:
             status = self.proc.wait()
         return _BrowserStopped("the browser returned no page at all, so the probe never had one "
                                "to run in (browser exit %d). The browser said: %s"
-                               % (status, self._said()))
+                               % (status, self._said()),
+                               why="browser exit %d: %s" % (status, self._said()))
 
     def _send(self, method, params, session=None):
         self._next += 1
@@ -436,7 +468,8 @@ class Browser:
                 raise _BrowserStopped("the browser did not answer its %s request within %g "
                                       "seconds, so nothing was measured. The browser said: %s"
                                       % (waiting_for, self.timeout, self._said()),
-                                      request=waiting_for)
+                                      request=waiting_for,
+                                      why="did not answer within %g seconds" % self.timeout)
             ready, _, _ = select.select([self._in], [], [], left)
             if not ready:
                 continue
@@ -515,7 +548,7 @@ class Browser:
                           "browser and rendered the page again."
                           % (" its %s request" % stopped.request if stopped.request else ""),
                           file=sys.stderr)
-                    self._record_restart(stopped.request, path)
+                    self._record_restart(stopped.request, path, stopped.why)
                     self.restart()
         finally:
             shutil.rmtree(holder, ignore_errors=True)
