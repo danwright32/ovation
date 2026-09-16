@@ -34,10 +34,30 @@ struct InvoiceNumberTests {
     /// Cancels an invoice through a context that has just READ it, never through
     /// one holding a copy from before the allocator wrote.
     private static func cancel(_ id: UUID, in container: ModelContainer, on day: Date) throws {
+        try change(id, in: container) {
+            $0.closure = .cancelled(on: .stamping(day), reason: "shoot did not happen")
+        }
+    }
+
+    /// Changes an invoice through a fresh context, for the same reason as `cancel`.
+    private static func change(
+        _ id: UUID, in container: ModelContainer, _ edit: (Invoice) -> Void
+    ) throws {
         let context = ModelContext(container)
         let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>()).first { $0.id == id })
-        invoice.closure = .cancelled(on: .stamping(day), reason: "shoot did not happen")
+        edit(invoice)
         try context.save()
+    }
+
+    /// What the STORE holds for one invoice, read through a fresh context (L225).
+    private static func storedNumber(of id: UUID, in container: ModelContainer) throws -> Int64? {
+        let reader = ModelContext(container)
+        return try #require(try reader.fetch(FetchDescriptor<Invoice>()).first { $0.id == id }).number
+    }
+
+    /// Every number the store holds, sorted.
+    private static func storedNumbers(in container: ModelContainer) throws -> [Int64] {
+        try ModelContext(container).fetch(FetchDescriptor<Invoice>()).compactMap(\.number).sorted()
     }
 
     // MARK: the floor
@@ -278,5 +298,257 @@ struct InvoiceNumberTests {
         let numbers = try reader.fetch(FetchDescriptor<Invoice>()).compactMap(\.number)
         #expect(numbers.count == 4)
         #expect(Set(numbers).count == numbers.count, "no two invoices share a number")
+    }
+
+    // MARK: giving a number back (ovation#327)
+    //
+    // PRD 10c: an invoice gets its number when Review is pressed, because the
+    // number is printed on the page Dan reviews, and closing the sheet without
+    // sending gives it back, so PRD 6's sequence has no hole in it. Clearing the
+    // field is only safe while nothing was numbered after it: two reviews closed in
+    // the opposite order would return a number from the middle of the sequence. So
+    // a number goes back only when it is still the highest one issued, and every
+    // other case is a refusal that leaves the store exactly as it was.
+
+    @Test("giving back the highest number leaves no gap: the next invoice takes it")
+    func releasingTheHighestNumberReusesIt() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let first = Self.invoice(context)
+        let reviewed = Self.invoice(context)
+        let next = Self.invoice(context)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        _ = try await allocator.allocate(to: first.persistentModelID)
+        let shown = try await allocator.allocate(to: reviewed.persistentModelID)
+        try await allocator.release(shown, from: reviewed.persistentModelID)
+
+        #expect(try Self.storedNumber(of: reviewed.id, in: container) == nil,
+                "the closed review holds no number")
+        #expect(try await allocator.allocate(to: next.persistentModelID) == shown,
+                "the number went back into the sequence rather than being skipped")
+        #expect(try Self.storedNumbers(in: container) == [1123, 1124])
+    }
+
+    @Test("giving back the only number ever issued returns the sequence to its start")
+    func releasingTheOnlyNumberReturnsToTheStart() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let reviewed = Self.invoice(context)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        try await allocator.release(try await allocator.allocate(to: reviewed.persistentModelID),
+                                    from: reviewed.persistentModelID)
+
+        #expect(try Self.storedNumbers(in: container) == [])
+        #expect(try await allocator.allocate(to: reviewed.persistentModelID) == 1123)
+    }
+
+    @Test("a number with a higher one issued after it is refused, naming both, and kept")
+    func aNumberBelowTheHighestIsKept() async throws {
+        // Two reviews opened one after the other and closed in the opposite order.
+        // Returning the first would put a hole in the middle of the sequence.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let opened = Self.invoice(context)
+        let openedAfter = Self.invoice(context)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let earlier = try await allocator.allocate(to: opened.persistentModelID)
+        let later = try await allocator.allocate(to: openedAfter.persistentModelID)
+
+        await #expect(throws: InvoiceNumberRefusal.notTheHighest(number: earlier, highest: later)) {
+            try await allocator.release(earlier, from: opened.persistentModelID)
+        }
+        #expect(try Self.storedNumber(of: opened.id, in: container) == earlier,
+                "the refused release wrote nothing")
+    }
+
+    @Test("an imported number above it counts as the highest, whichever writer put it there")
+    func anImportedNumberAboveCountsAsTheHighest() async throws {
+        // Both writers share one ceiling (L280), so the release reads it too.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let reviewed = Self.invoice(context)
+        let imported = Self.invoice(context, importKey: "qb:2026:1500")
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let shown = try await allocator.allocate(to: reviewed.persistentModelID)
+        try await allocator.claim(1_500, for: imported.persistentModelID)
+
+        await #expect(throws: InvoiceNumberRefusal.notTheHighest(number: shown, highest: 1_500)) {
+            try await allocator.release(shown, from: reviewed.persistentModelID)
+        }
+        #expect(try Self.storedNumber(of: reviewed.id, in: container) == shown)
+    }
+
+    @Test("a sent invoice's number is refused, because a client may be holding it",
+          arguments: [
+              SentStatus.sent(route: .ovationSentIt, at: InvoiceNumberTests.day),
+              SentStatus.sent(route: .foundInTheMailbox, at: InvoiceNumberTests.day),
+          ])
+    func aSentInvoiceKeepsItsNumber(status: SentStatus) async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let invoice = Self.invoice(context)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let number = try await allocator.allocate(to: invoice.persistentModelID)
+        try Self.change(invoice.id, in: container) { $0.sentStatus = status }
+
+        await #expect(throws: InvoiceNumberRefusal.invoiceWasSent(number: number)) {
+            try await allocator.release(number, from: invoice.persistentModelID)
+        }
+        #expect(try Self.storedNumber(of: invoice.id, in: container) == number)
+    }
+
+    @Test("a number whose send could not be determined is refused, because not knowing is not unsent")
+    func anUndeterminedSendKeepsItsNumber() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let invoice = Self.invoice(context)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let number = try await allocator.allocate(to: invoice.persistentModelID)
+        try Self.change(invoice.id, in: container) { $0.sentStatus = .couldNotDetermine(checkedAt: Self.day) }
+
+        await #expect(throws: InvoiceNumberRefusal.sendCouldNotBeDetermined(number: number)) {
+            try await allocator.release(number, from: invoice.persistentModelID)
+        }
+        #expect(try Self.storedNumber(of: invoice.id, in: container) == number)
+    }
+
+    @Test("an imported invoice's number is refused even when it is the highest")
+    func anImportedNumberIsNeverGivenBack() async throws {
+        // QuickBooks issued it, and a client and the accountant already have it
+        // (ovation#71). Being the highest does not make it Ovation's to return.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let imported = Self.invoice(context, importKey: "qb:2026:1500")
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        try await allocator.claim(1_500, for: imported.persistentModelID)
+
+        await #expect(throws: InvoiceNumberRefusal.importedNumber(number: 1_500)) {
+            try await allocator.release(1_500, from: imported.persistentModelID)
+        }
+        #expect(try Self.storedNumber(of: imported.id, in: container) == 1_500)
+    }
+
+    @Test("a closed invoice's number is refused, because PRD 6 says a cancelled invoice keeps it",
+          arguments: [
+              InvoiceClosure.cancelled(on: .stamping(InvoiceNumberTests.day), reason: "shoot did not happen"),
+              InvoiceClosure.dismissed(on: .stamping(InvoiceNumberTests.day), reason: "duplicate booking"),
+          ])
+    func aClosedInvoiceKeepsItsNumber(closure: InvoiceClosure) async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let invoice = Self.invoice(context)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let number = try await allocator.allocate(to: invoice.persistentModelID)
+        try Self.change(invoice.id, in: container) { $0.closure = closure }
+
+        await #expect(throws: InvoiceNumberRefusal.invoiceIsClosed(number: number)) {
+            try await allocator.release(number, from: invoice.persistentModelID)
+        }
+        #expect(try Self.storedNumber(of: invoice.id, in: container) == number)
+    }
+
+    @Test("a number the invoice does not hold is refused, naming what it does hold")
+    func aStaleNumberIsRefused() async throws {
+        // A sheet holding an old idea of the number must not give back a
+        // different one. Only the number the invoice actually holds can go back.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let invoice = Self.invoice(context)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let number = try await allocator.allocate(to: invoice.persistentModelID)
+
+        await #expect(throws: InvoiceNumberRefusal.notTheNumberHeld(asked: 9_999, holds: number)) {
+            try await allocator.release(9_999, from: invoice.persistentModelID)
+        }
+        #expect(try Self.storedNumber(of: invoice.id, in: container) == number)
+    }
+
+    @Test("giving a number back twice refuses the second, because it already went back")
+    func releasingTwiceRefusesTheSecond() async throws {
+        // The close runs twice, or is retried: the second must not succeed quietly
+        // and must not touch whatever holds that number by then.
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let invoice = Self.invoice(context)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let number = try await allocator.allocate(to: invoice.persistentModelID)
+        try await allocator.release(number, from: invoice.persistentModelID)
+
+        await #expect(throws: InvoiceNumberRefusal.notTheNumberHeld(asked: number, holds: nil)) {
+            try await allocator.release(number, from: invoice.persistentModelID)
+        }
+    }
+
+    @Test("an invoice that is not there is refused by name when giving a number back")
+    func releasingFromAnAbsentInvoiceIsRefused() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let doomed = Self.invoice(context)
+        try context.save()
+        let id = doomed.persistentModelID
+        context.delete(doomed)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        await #expect(throws: InvoiceNumberRefusal.noSuchInvoice) {
+            try await allocator.release(1123, from: id)
+        }
+    }
+
+    @Test("a give back and a new number at once leave the sequence whole, in either order")
+    func releasingAndAllocatingAtOnceLeavesNoGap() async throws {
+        // L157: both callers are started together rather than hoping an
+        // interleaving reproduces, and the serialized writer decides the order.
+        // Either the give back lands first and the new invoice takes that number,
+        // or the new number lands first and the give back is refused because it is
+        // no longer the highest. Both are whole sequences, and the store is what
+        // is asserted (L225). Run several times, since one run shows one order.
+        for _ in 0..<20 {
+            let container = try Self.store()
+            let context = ModelContext(container)
+            let reviewed = Self.invoice(context)
+            let arriving = Self.invoice(context)
+            try context.save()
+
+            let allocator = InvoiceNumberAllocator(modelContainer: container)
+            let shown = try await allocator.allocate(to: reviewed.persistentModelID)
+            let reviewedID = reviewed.persistentModelID
+            let arrivingID = arriving.persistentModelID
+
+            async let released: Bool = {
+                do { try await allocator.release(shown, from: reviewedID); return true } catch { return false }
+            }()
+            async let allocated: Int64? = try? await allocator.allocate(to: arrivingID)
+            let (didRelease, newNumber) = await (released, allocated)
+
+            let stored = try Self.storedNumbers(in: container)
+            #expect(Set(stored).count == stored.count, "no two invoices share a number")
+            if didRelease {
+                #expect(newNumber == shown && stored == [shown], "the new invoice took the number given back")
+            } else {
+                #expect(newNumber == shown + 1 && stored == [shown, shown + 1],
+                        "the give back was refused and the review kept its number")
+            }
+        }
     }
 }
