@@ -269,6 +269,7 @@ check "and a staged fault never reaches a record the environment named" \
 # noticed the day a restart is written down and reported to nobody (L41, L58).
 CI_YML=".github/workflows/ci.yml"
 RESTARTS_YML=".github/workflows/browser-restarts.yml"
+RESTARTS_SH="scripts/report-browser-restarts.sh"
 check "the CI job names the record, so it lands somewhere the job can keep" \
     "$(grep -c 'OVATION_RENDER_RESTART_LOG' "$CI_YML")" "1"
 # Each side's name is READ OUT of its own file and the two are compared, rather
@@ -282,8 +283,11 @@ check "the CI job names the record, so it lands somewhere the job can keep" \
 kept_artifact() {
     awk '/uses: actions\/upload-artifact/ { seen = 1 } seen && $1 == "name:" { print $2; exit }' "$CI_YML"
 }
+# READ FROM THE SCRIPT the workflow runs, since ovation#352 moved the decision
+# out of YAML: the name lives beside the code that asks for it, and the other
+# side of the pair is still CI's own upload step.
 asked_artifact() {
-    awk '$1 == "ARTIFACT:" { print $2; exit }' "$RESTARTS_YML"
+    awk -F'"' '$0 ~ /^ARTIFACT=/ { print $2; exit }' "$RESTARTS_SH"
 }
 KEPT_AS="$(kept_artifact)"
 ASKED_FOR="$(asked_artifact)"
@@ -296,10 +300,11 @@ check "and the reporting workflow asks for the artifact CI actually keeps" \
 # thing about this workflow that cannot be read off its own words: `stands` files
 # one when none is open and `recurred` refuses to, and they differ by a word.
 check "the reporting workflow adds to an issue and never files one" \
-    "$([ "$(grep -cE '^ *bash scripts/report-finding\.sh recurred' "$RESTARTS_YML")" = "1" ] && [ "$(grep -cE '^ *bash scripts/report-finding\.sh stands' "$RESTARTS_YML")" = "0" ] && echo adds || echo files)" \
+    "$([ "$(grep -cE '^ *"\$\{REPORTER\}" recurred' "$RESTARTS_SH")" = "1" ] && [ "$(grep -cE '"\$\{REPORTER\}" stands' "$RESTARTS_SH")" = "0" ] && echo adds || echo files)" \
     "adds"
 check "and it reports through the one script that owns reporting, not its own gh issue calls" \
-    "$([ "$(grep -c 'report-finding.sh' "$RESTARTS_YML")" -ge 1 ] && [ "$(grep -c 'gh issue' "$RESTARTS_YML")" -eq 0 ] && echo through || echo "its own")" \
+    "$([ "$(grep -c 'report-finding.sh' "$RESTARTS_SH")" -ge 1 ] \
+        && [ "$(grep -h 'gh issue' "$RESTARTS_SH" "$RESTARTS_YML" | grep -c .)" -eq 0 ] && echo through || echo "its own")" \
     "through"
 
 harness_end

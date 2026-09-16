@@ -50,103 +50,20 @@ jobs:
     name: A browser restart is counted where it cannot expire
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      # The name CI keeps the record under. scripts/test-design-render.sh reads
-      # this line and the upload step's name out of their own files and refuses
-      # when they disagree: nothing in YAML can derive one from the other, and a
-      # restart written down and reported to nobody is the silent half of this
-      # (L41, L58).
-      ARTIFACT: browser-restarts
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      # THREE OUTCOMES, KEPT APART (L11, L98). `none` there was no record, which
-      # is the ordinary state of almost every run; `held` the run kept one;
-      # and a lookup that FAILED ends the job, because "no artifact" and "could
-      # not ask" must never take the same path: the second would report a quiet
-      # all clear about a run nobody read.
-      - name: Ask the run that finished whether it recorded a restart
-        id: record
+      # THE STEP OWNS NOTHING BUT THE CALL (ovation#352). Whether the run kept a
+      # record, whether it could be read, how many restarts it holds and what the
+      # reporter's codes mean all live in scripts/report-browser-restarts.sh,
+      # where scripts/test-browser-restart-report.sh drives every one of those
+      # outcomes against stubs. A `workflow_run` workflow runs only from the
+      # default branch, so anything decided here could not be judged before it
+      # shipped and its first real execution would be months away, after a browser
+      # had actually stopped answering (L3, and ovation#339 for the same move).
+      - name: Count any restart the finished run recorded
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-        run: |
-          set -uo pipefail
-          if [ -z "${RUN_ID:-}" ]; then
-            echo "Started by hand with no run to read, so there is nothing to count."
-            echo "held=none" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if ! names="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts" \
-                         --jq '[.artifacts[].name] | join(" ")')"; then
-            echo "The artifacts of run ${RUN_ID} could not be read, so whether it" >&2
-            echo "recorded a browser restart is unknown. Nothing is reported from a" >&2
-            echo "lookup that failed." >&2
-            exit 1
-          fi
-          case " ${names} " in
-            *" ${ARTIFACT} "*) ;;
-            *) echo "Run ${RUN_ID} kept no ${ARTIFACT} record, so no browser stopped answering in it."
-               echo "held=none" >> "$GITHUB_OUTPUT"
-               exit 0 ;;
-          esac
-          if ! gh run download "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
-                 --name "${ARTIFACT}" --dir record; then
-            echo "Run ${RUN_ID} lists a ${ARTIFACT} record that could not be downloaded," >&2
-            echo "so what it held is unknown. That is a different thing from the run" >&2
-            echo "keeping none, and it is not reported as one." >&2
-            exit 1
-          fi
-          if [ ! -f record/browser-restarts.tsv ]; then
-            echo "The ${ARTIFACT} artifact of run ${RUN_ID} holds no browser-restarts.tsv," >&2
-            echo "so something other than the renderer wrote it." >&2
-            exit 1
-          fi
-          lines="$(grep -c . record/browser-restarts.tsv)" || lines=0
-          if [ "${lines}" -eq 0 ]; then
-            echo "The ${ARTIFACT} record of run ${RUN_ID} is empty, and the renderer only" >&2
-            echo "creates it by writing a line to it." >&2
-            exit 1
-          fi
-          echo "held=${lines}" >> "$GITHUB_OUTPUT"
-
-      # THE BODY IS BUILT IN A FILE rather than passed inline: an unindented line
-      # inside a `--body "..."` ends this YAML block scalar, and the workflow then
-      # fails to parse, runs no jobs, and reports a failure with no log to read.
-      # ci-liveness.yml records where that was learned.
-      #
-      # THE MECHANISM IS scripts/report-finding.sh (ovation#339): the lookup, the
-      # exact title match, the comment and the creation all live there, with a
-      # suite driving every path. This step owns the words only.
-      - name: Add this occurrence to the issue that counts them
-        if: steps.record.outputs.held != 'none'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TITLE: A headless browser stopped answering during CI and was restarted
-          HELD: ${{ steps.record.outputs.held }}
-          RUN_URL: ${{ github.event.workflow_run.html_url }}
-        run: |
-          set -uo pipefail
-          {
-            echo "${HELD} restart(s) on $(date -u +%Y-%m-%d), in ${RUN_URL}:"
-            echo
-            sed 's/^/    /' record/browser-restarts.tsv
-            echo
-            echo "Each column is when it happened, the request that went unanswered,"
-            echo "and the page being rendered."
-          } > comment-body.md
-
-          set +e
-          bash scripts/report-finding.sh recurred \
-            --title "${TITLE}" \
-            --comment-file comment-body.md
-          reported=$?
-          set -e
-          # 1 is the only outcome that is not a fault: the occurrence was added to
-          # the issue that carries the count. 8 means nothing open carries the
-          # title, which fails this job on purpose rather than passing quietly: the
-          # restart was measured and nobody was told (L98, L184).
-          case "${reported}" in
-            1) ;;
-            *) exit "${reported}" ;;
-          esac
+          OVATION_RESTART_RUN_ID: ${{ github.event.workflow_run.id }}
+          OVATION_RESTART_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: bash scripts/report-browser-restarts.sh
