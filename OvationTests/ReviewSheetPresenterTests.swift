@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#318, PR B of the plan on ovation#167. What the review sheet SAYS, decided
 /// once, where a test can read it.

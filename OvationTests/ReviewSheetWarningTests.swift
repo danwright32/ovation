@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#318 B3, PRD 52e and PRD 7. The band across the sheet about the due date.
 ///

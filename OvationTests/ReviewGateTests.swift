@@ -1,7 +1,6 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Ovation
 
 /// ovation#318 B4, PRD 51b and 52g. Whether Review can be pressed at all, and the
 /// ONE sentence it says when it cannot.

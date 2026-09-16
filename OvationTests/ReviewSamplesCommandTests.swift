@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import Ovation
 
 /// ovation#318 B5. What the Debug menu does, which is the only way the review sheet
 /// can be opened at all until ovation#42.
