@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// What the review sheet says, decided here rather than in a view (ovation#318).
@@ -56,10 +57,14 @@ final class ReviewSheetPresenter {
     /// rather than written down beside it: a review screen may not re-typeset the
     /// page to fit a column, so the only thing that changes is how large it is
     /// (PRD 52b, 10c).
-    var pageWidth: Double { (Self.pagePoints * scale.factor).rounded() }
+    /// CGFloat, NOT Double, and that is the app's rule rather than a preference:
+    /// floating point is forbidden on the money path and CGFloat is deliberately
+    /// exempt as a LAYOUT quantity (scripts/check-forbidden-constructs.sh). A page
+    /// width is layout.
+    var pageWidth: CGFloat { (Self.pagePoints * CGFloat(scale.factor)).rounded() }
 
     /// A US Letter page, which is what InvoicePDF draws.
-    private static let pagePoints: Double = 612
+    private static let pagePoints: CGFloat = 612
 
     /// How many times the session has rendered, for the tests that hold this to one
     /// render however many times the page is shown (PRD 10c).
