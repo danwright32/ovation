@@ -535,17 +535,30 @@ struct InvoiceNumberTests {
             let reviewedID = reviewed.persistentModelID
             let arrivingID = arriving.persistentModelID
 
-            async let released: Bool = {
-                do { try await allocator.release(shown, from: reviewedID); return true } catch { return false }
+            // THE REFUSAL IS READ, NOT MERELY COUNTED. A test that accepts any
+            // error accepts one thrown for a reason it is not about, and would
+            // pass while the give back was failing for something else entirely
+            // (L11, L140).
+            async let releaseOutcome: InvoiceNumberRefusal? = {
+                do {
+                    try await allocator.release(shown, from: reviewedID)
+                    return nil
+                } catch let refusal as InvoiceNumberRefusal {
+                    return refusal
+                } catch {
+                    return .readBackDisagreed(wrote: -1, found: nil)
+                }
             }()
             async let allocated: Int64? = try? await allocator.allocate(to: arrivingID)
-            let (didRelease, newNumber) = await (released, allocated)
+            let (refusal, newNumber) = await (releaseOutcome, allocated)
 
             let stored = try Self.storedNumbers(in: container)
             #expect(Set(stored).count == stored.count, "no two invoices share a number")
-            if didRelease {
+            if refusal == nil {
                 #expect(newNumber == shown && stored == [shown], "the new invoice took the number given back")
             } else {
+                #expect(refusal == .notTheHighest(number: shown, highest: shown + 1),
+                        "refused because the new number was issued first, and for no other reason")
                 #expect(newNumber == shown + 1 && stored == [shown, shown + 1],
                         "the give back was refused and the review kept its number")
             }
