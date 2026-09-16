@@ -366,6 +366,15 @@ recorded against the ADDRESS so changing the address asks again. Kept against gr
 the recipients, against putting each beside its cause, and against holding them until Send is
 pressed, which asks after the decision has been made.
 
+52h. **A due date that is merely CLOSE warns three days out, and says so in its own
+words** (Dan, 2026-09-16, judged from a screenshot of the built sheet in both themes):
+"This is due in 3 days, on 24 Sep 2026.", and on the day itself "This is due today,
+12 Sep 2026." Requirement 7 warns on close as well as past, and the design record
+settled only the past case, so the threshold and both sentences were written while
+building ovation#318 and shown to Dan rather than asked in words. The band is still
+information and still carries no control (52e). Three days is the whole rule: a band
+on every ordinary send is a band nobody reads.
+
 52f. **The message is editable in place** (Dan, 2026-09-09), which is the most freedom and the most
 ways to go wrong, and it is why 41a is not discharged by this screen existing. Whatever is in the
 box is what ships. **Every outbound sentence on this screen still owes its cold read**, rendered, in

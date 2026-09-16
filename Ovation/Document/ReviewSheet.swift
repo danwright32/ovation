@@ -18,8 +18,19 @@ struct ReviewSheet: View {
     /// it belongs to the window, so the window closes it (PRD 52a).
     var close: () -> Void
 
-    @State private var page = InvoicePage()
+    /// The page view's model, INJECTABLE rather than constructed here, so a caller
+    /// that needs the page already drawn (the capture that puts pictures in front of
+    /// Dan) can hand one in. A view that builds its own dependency is beyond every
+    /// refusal that dependency could offer (L196).
+    @State private var page: InvoicePage
     @State private var failure: String?
+
+    init(presenter: ReviewSheetPresenter, page: InvoicePage = InvoicePage(),
+         close: @escaping () -> Void) {
+        self.presenter = presenter
+        self._page = State(initialValue: page)
+        self.close = close
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

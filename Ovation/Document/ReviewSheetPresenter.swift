@@ -85,7 +85,7 @@ final class ReviewSheetPresenter {
         try session.zoom(to: .fitted, on: page)
     }
 
-    // MARK: the band about the due date (PRD 7, 52e)
+    // MARK: the band about the due date (PRD 7, 52e, 52h)
 
     /// How close to the due date counts as close. Named rather than written into
     /// the sentence, because it is a judgement about when a warning is worth
