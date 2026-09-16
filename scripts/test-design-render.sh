@@ -29,7 +29,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design renderer tests" 37
+harness_begin "design renderer tests" 40
 
 TARGET="scripts/lib/design_render.py"
 require_target "$TARGET"
@@ -137,6 +137,10 @@ render() {
         # tracker, and a staged fault would be reported as a real one.
         if [ -n "${LOG_OVERRIDE:-}" ]; then
             export OVATION_RENDER_RESTART_LOG="$LOG_OVERRIDE"
+            # THIS SUITE IS THE ONE MEASURING THE RECORD, so it says so out loud
+            # (ovation#366). Every other suite stages faults in a stand in browser
+            # and must never reach a record, whoever named one.
+            [ -n "${STAGED_OVERRIDE-1}" ] && export OVATION_RENDER_RECORD_STAGED=1
         else
             unset OVATION_RENDER_RESTART_LOG
         fi
@@ -297,6 +301,42 @@ check "a request that went unanswered says it was not answered in time" \
     "$(awk -F'\t' 'NR == 1 { print $4 }' "$LOG_OVERRIDE" | grep -ci 'did not answer')" "1"
 check "and it names the deadline it waited to" \
     "$(awk -F'\t' 'NR == 1 { print $4 }' "$LOG_OVERRIDE" | grep -c '1 second')" "1"
+
+LOG_OVERRIDE="$WORK/restarts.tsv"
+
+# ---------------------------------------------------------------------------
+# A FAULT SOMEBODY STAGED IS NOT AN OCCURRENCE (ovation#366).
+#
+# Measured 2026-09-16 on the record CI carried to the tracker: all fifteen lines
+# in every recent run were faults THIS repository's own suites stage in a stand in
+# browser, with their own half second deadlines, and ovation#353 had seven
+# comments counting them as real. The renderer already refused to record a run
+# whose browser was injected, and that refusal was written as an `elif` under
+# "no record was named", so naming one turned it off. CI names one for the whole
+# Linux job, which is precisely where every suite runs (L2, L48, L93).
+#
+# So an injected browser records NOTHING, whoever named a record, unless the
+# caller says the staging is what it is measuring, which only this suite does.
+LOG_OVERRIDE="$WORK/staged.tsv"
+STAGED_OVERRIDE=""
+rm -f "$LOG_OVERRIDE"
+render 1 >/dev/null 2>&1
+check "a fault staged in a stand in browser never reaches a named record" \
+    "$([ -s "$LOG_OVERRIDE" ] && echo written || echo empty)" "empty"
+DYING_OVERRIDE=1
+rm -f "$LOG_OVERRIDE"
+render "" >/dev/null 2>&1
+check "and neither does a stand in browser that exits on purpose" \
+    "$([ -s "$LOG_OVERRIDE" ] && echo written || echo empty)" "empty"
+unset DYING_OVERRIDE
+unset STAGED_OVERRIDE
+# AND THE CASES ABOVE STILL RECORD, because this suite says the staging IS what it
+# measures. Without that the fix would have silenced the very cases that prove the
+# record works, which is the other direction of the same mistake (L63).
+rm -f "$LOG_OVERRIDE"
+render 1 >/dev/null 2>&1
+check "a suite that says it is measuring the record still writes one" \
+    "$([ -s "$LOG_OVERRIDE" ] && echo written || echo empty)" "written"
 
 LOG_OVERRIDE="$WORK/restarts.tsv"
 

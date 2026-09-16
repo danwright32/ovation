@@ -340,11 +340,23 @@ class Browser:
         the page: a check that rendered perfectly well must not fail because a log
         directory was read only (L632).
         """
+        # A STAGED FAULT IS NOT AN OCCURRENCE (ovation#366), and this refusal comes
+        # FIRST rather than under "no record was named", which is where it used to
+        # sit. CI names a record for the whole Linux job, so every suite that
+        # stages a browser fault wrote into the record the workflow carries to the
+        # tracker: measured 2026-09-16, all fifteen lines of every recent run were
+        # this repository's own suites, counted on ovation#353 as real (L2, L93).
+        #
+        # An injected browser is a stand in by definition, so nothing it does is
+        # recorded, whoever named a record. The one caller that IS measuring the
+        # record says so, and only scripts/test-design-render.sh sets it: a suite
+        # cannot reach the real record by forgetting a seam, only by naming one.
+        if os.environ.get("OVATION_HEADLESS_BROWSER", "").strip() \
+                and not os.environ.get("OVATION_RENDER_RECORD_STAGED", "").strip():
+            return
         named = os.environ.get("OVATION_RENDER_RESTART_LOG", "").strip()
         if named:
             record = named
-        elif os.environ.get("OVATION_HEADLESS_BROWSER", "").strip():
-            return
         else:
             record = os.path.join(os.path.expanduser("~"), RESTART_RECORD)
         # FIVE COLUMNS (ovation#366): when, the request that went unanswered, the
