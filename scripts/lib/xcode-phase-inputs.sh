@@ -46,10 +46,40 @@ XPI_SWIFT_PATHS=""
 XPI_ERROR=""
 XPI_WHY=""
 
+# THE RUNNER'S XCODE PHASE, and only it (ovation#360).
+#
+# scripts/run-tests.sh does two halves: the shell suites, which run on every push
+# whatever the gate decides, and the Xcode phase, which is what a skip skips. A
+# file the shell half reads cannot change what the phase does, and counting them
+# together made scripts/shell-suite-floor.txt an input to the build: every push
+# adding a suite has to move that number (ovation#329), so the commonest change
+# in this repository paid twenty five minutes for a question it could not affect.
+#
+# The region is found by the runner's OWN marker for the phase, the conditional
+# on OVATION_SKIP_XCODE_PHASE at the left margin, through to the `fi` at the left
+# margin that closes it. Deriving it from the same line the runner branches on is
+# what keeps the two from drifting; a line number would be stale within the week
+# (L41, L70).
+#
+# A RUNNER WHOSE MARKER CANNOT BE FOUND IS READ WHOLE. That is the safe direction:
+# the phase's inputs are then over-counted rather than under-counted, which costs
+# time rather than correctness (L93).
+_xpi_phase_region() {
+    awk 'BEGIN { inside = 0 }
+        /^if \[ -n "\$\{SKIP_XCODE_PHASE\}" \]; then$/ { inside = 1; found = 1 }
+        inside { print }
+        inside && /^fi$/ { inside = 0 }
+        END { if (!found) exit 1 }' "$1"
+}
+
 # Every word the code of these files could name a file by, one per line. A line
 # whose first non blank character is # is a comment in shell and in Python alike.
 # Written without character classes, which older awks on Linux runners lack.
 _xpi_words() {
+    _xpi_words_in "$@"
+}
+
+_xpi_words_in() {
     awk '!/^[ \t]*#/ {
         s = $0
         while (match(s, /[A-Za-z0-9_.+-]+/)) {
@@ -85,6 +115,20 @@ _xpi_has() {
     esac
 }
 
+# The words of every file in the list, with the runner read through its phase
+# region alone. Run from the root of the tree.
+_xpi_words_for() {
+    local f
+    while IFS= read -r f; do
+        [ -f "$f" ] || continue
+        if [ "$f" = "scripts/run-tests.sh" ] && _xpi_phase_region "$f" > /dev/null 2>&1; then
+            _xpi_phase_region "$f" | _xpi_words_in -
+        else
+            _xpi_words_in "$f"
+        fi
+    done <<< "$1" | sort -u
+}
+
 # Load what the Xcode phase of the tree at $1 reads. Returns 1 with XPI_ERROR set
 # when it cannot be worked out, and a caller must then treat every path as read.
 xcode_phase_inputs_load() {
@@ -112,9 +156,7 @@ xcode_phase_inputs_load() {
     queue="${roots}"
     while [ -n "${queue}" ]; do
         # shellcheck disable=SC2046
-        words="$(cd "${root}" && _xpi_words $(printf '%s\n' "${queue}" | while IFS= read -r f; do
-            [ -f "$f" ] && printf '%s\n' "$f"
-        done))"
+        words="$(cd "${root}" && _xpi_words_for "${queue}")"
         XPI_WORDS="$(printf '%s\n%s\n' "${XPI_WORDS}" "${words}" | grep -v '^$' | sort -u)"
         fresh="$(printf '%s\n' "${candidates}" | while IFS= read -r f; do
             _xpi_has "${XPI_REACHED}" "$f" && continue
