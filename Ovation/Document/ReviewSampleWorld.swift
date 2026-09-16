@@ -53,6 +53,38 @@ enum ReviewSampleWorld {
                                     dueDate: invoice.dueDate, now: now)
     }
 
+    /// The presenter for one named sample (ovation#318 B5). Every state the sheet
+    /// can be in is reachable from the menu, including the ones the real data does
+    /// not have.
+    @MainActor
+    static func presenter(for sample: ReviewSample) throws -> ReviewSheetPresenter {
+        // The clock is pinned per sample, so a state about a date is the same state
+        // tomorrow (L130).
+        let day = Date(timeIntervalSince1970: 1_790_000_000)
+        switch sample {
+        case .ordinary:
+            return try presenter(now: { day })
+        case .genuineOverride:
+            return try presenter(mainAddress: "booker@example.com",
+                                 overrideAddress: "accounts@example.com", now: { day })
+        case .twoAddressesInOneField:
+            return try presenter(mainAddress: "one@example.com, two@example.com", now: { day })
+        case .nowhereToSend:
+            return try presenter(mainAddress: "", now: { day })
+        case .pastDue:
+            return try presenter(dueDate: .stamping(day.addingTimeInterval(-7 * 86_400)),
+                                 now: { day })
+        case .dueSoon:
+            return try presenter(dueDate: .stamping(day.addingTimeInterval(3 * 86_400)),
+                                 now: { day })
+        case .waitingOnTaxStatus, .discountTooLarge:
+            // These never reach the sheet: ReviewGate refuses them and the menu says
+            // the sentence instead (PRD 52g). A presenter is still built, so a
+            // sample that stopped refusing would show rather than crash.
+            return try presenter(now: { day })
+        }
+    }
+
     /// One shoot, one line, numbered and dated, which is what the Ordinary design
     /// fixture is. It is built here rather than read from the design's JSON because
     /// that file is a test fixture and the app does not read test fixtures.
