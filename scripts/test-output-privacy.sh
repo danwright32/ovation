@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 98
+harness_begin "output privacy tests" 100
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -997,6 +997,45 @@ check "the finding reporter prints no identity from the title or the body it was
     "$(leaks_in "$REPORT_OUT")" "clean"
 check "and it really did report a refusal, so the case reached the lines that print" \
     "$(printf '%s' "$REPORT_OUT" | grep -c 'MANY')" "1"
+
+# ---------------------------------------------------------------------------
+# THE BROWSER RESTART REPORTER (ovation#352). It prints the run it read, the
+# artifact it looked for and how many restarts it found, and it PASSES ON the
+# record's own lines to the reporter rather than printing them. The record is
+# written by the renderer and names pages under docs/design/, but a run this
+# public repository publishes must be checked rather than reasoned about, so the
+# record here carries an identity in the one field that is free text (L129). The
+# tracker and the reporter are stubs, so this reaches nothing real (L2).
+# ---------------------------------------------------------------------------
+RESTART="$WORK/restart"; mkdir -p "$RESTART/bin" "$RESTART/payload"
+cat > "$RESTART/bin/gh" <<'STUB'
+#!/bin/bash
+# Lists the artifact and unpacks the staged record. Indented for the reason the
+# stub above is: a heredoc's lines are read like a suite's own (L135).
+    if [ "${1:-}" = "api" ]; then printf 'browser-restarts\n'; exit 0; fi
+    dir=""
+    while [ "$#" -gt 0 ]; do
+        [ "$1" = "--dir" ] && dir="${2:-}"
+        shift
+    done
+    [ -n "$dir" ] && mkdir -p "$dir" && cp "$OVATION_TEST_RECORD" "$dir/browser-restarts.tsv"
+    exit 0
+STUB
+chmod +x "$RESTART/bin/gh"
+printf '#!/bin/bash\nexit 1\n' > "$RESTART/bin/reporter"
+chmod +x "$RESTART/bin/reporter"
+printf '2026-09-15T10:00:00Z\tPage.navigate\t%s at %s\n' "$CLIENT" "$VENUE" > "$RESTART/record.tsv"
+RESTART_OUT="$(OVATION_GH="$RESTART/bin/gh" \
+    OVATION_REPORT_FINDING="$RESTART/bin/reporter" \
+    OVATION_RESTART_RECORD_DIR="$RESTART/out" \
+    OVATION_RESTART_RUN_ID=4242 \
+    OVATION_TEST_RECORD="$RESTART/record.tsv" \
+    GITHUB_REPOSITORY="danwright32/ovation" \
+    ./scripts/report-browser-restarts.sh 2>&1)"
+check "the browser restart reporter prints no identity from the record it read" \
+    "$(leaks_in "$RESTART_OUT")" "clean"
+check "and it really did report an occurrence, so the case reached the lines that print" \
+    "$(printf '%s' "$RESTART_OUT" | grep -c 'reported on the issue')" "1"
 
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever
