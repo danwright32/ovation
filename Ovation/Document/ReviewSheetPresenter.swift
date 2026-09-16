@@ -18,15 +18,25 @@ final class ReviewSheetPresenter {
     private let session: ReviewSession
     private let document: InvoiceDocument
     private let client: Client
+    /// The invoice's due date, as it stood when this review opened. PRD 7's warning
+    /// is about a stored date against today, so both ends are held: a fixture that
+    /// pins only one walks into another state as real time passes (L130).
+    private let dueDate: BusinessDate?
+    /// Injected, because a warning computed from the clock at read time can never
+    /// age and can never be tested (L74, L290).
+    private let now: () -> Date
 
     /// How large the page is drawn. It starts fitted: the page is taller than the
     /// sheet's visible area, and 47% is what fits (PRD 52b).
     private(set) var scale: InvoicePageScale = .fitted
 
-    init(session: ReviewSession, document: InvoiceDocument, client: Client) {
+    init(session: ReviewSession, document: InvoiceDocument, client: Client,
+         dueDate: BusinessDate?, now: @escaping () -> Date = Date.init) {
         self.session = session
         self.document = document
         self.client = client
+        self.dueDate = dueDate
+        self.now = now
     }
 
     /// What the sheet is about, in the design's words: "Invoice 1123, A Client"
@@ -68,6 +78,36 @@ final class ReviewSheetPresenter {
     func close(on page: InvoicePageSink) throws {
         scale = .fitted
         try session.zoom(to: .fitted, on: page)
+    }
+
+    // MARK: the band about the due date (PRD 7, 52e)
+
+    /// How close to the due date counts as close. Named rather than written into
+    /// the sentence, because it is a judgement about when a warning is worth
+    /// drawing and PRD 7 says only "close" (L401).
+    static let closeWithinDays = 3
+
+    /// The band, or nil on an ordinary send. It is INFORMATION: nothing can answer
+    /// it except changing the date, so it carries no control (PRD 52e).
+    ///
+    /// COUNTED IN DAYS, from the business day each instant falls in, because two
+    /// instants on one day are one day whatever the clock says (L39, ovation#64).
+    var dueDateWarning: String? {
+        guard let dueDate,
+              let dueStart = BusinessCalendar.startOfDay(forDayKey: dueDate.dayKey),
+              let written = BusinessCalendar.shortDate(dueDate)
+        else { return nil }
+
+        let days = BusinessCalendar.dayNumber(for: now()) - BusinessCalendar.dayNumber(for: dueStart)
+        if days > 0 {
+            let unit = days == 1 ? "day" : "days"
+            return "This is already \(days) \(unit) past its due date of \(written)."
+        }
+        if days == 0 { return "This is due today, \(written)." }
+        let ahead = -days
+        guard ahead <= Self.closeWithinDays else { return nil }
+        let unit = ahead == 1 ? "day" : "days"
+        return "This is due in \(ahead) \(unit), on \(written)."
     }
 
     // MARK: who it goes to (PRD 52c)

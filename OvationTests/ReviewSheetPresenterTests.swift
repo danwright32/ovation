@@ -151,7 +151,8 @@ struct ReviewSheetPresenterTests {
 
         let document = try InvoiceDocument(invoice: invoice, footer: .fixed)
         let session = ReviewSession(document: document, resources: try InvoicePDFResources.bundled())
-        return ReviewSheetPresenter(session: session, document: document, client: client)
+        return ReviewSheetPresenter(session: session, document: document, client: client,
+                                    dueDate: invoice.dueDate)
     }
 }
 

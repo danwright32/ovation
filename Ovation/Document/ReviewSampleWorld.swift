@@ -24,7 +24,9 @@ enum ReviewSampleWorld {
     @MainActor
     static func presenter(mainAddress: String = "booker@example.com",
                           overrideAddress: String? = nil,
-                          named name: String = "A Client") throws -> ReviewSheetPresenter {
+                          named name: String = "A Client",
+                          dueDate: BusinessDate? = nil,
+                          now: @escaping () -> Date = Date.init) throws -> ReviewSheetPresenter {
         let container = try OvationSchema.container(inMemory: true)
         let context = ModelContext(container)
         let client = Client(name: name, taxStatus: .notExempt)
@@ -33,11 +35,22 @@ enum ReviewSampleWorld {
         context.insert(client)
 
         let invoice = try sampleInvoice(in: context, for: client)
+        // A GIVEN DUE DATE MOVES THE INVOICE DATE WITH IT. The document refuses a due
+        // date before the invoice date (PRD 7 and InvoiceDocument.Refusal), so a
+        // sample staged only at one end is refused rather than showing the state the
+        // caller asked for, with the refusal naming something the caller did not do.
+        if let dueDate {
+            invoice.dueDate = dueDate
+            if let dueStart = BusinessCalendar.startOfDay(forDayKey: dueDate.dayKey) {
+                invoice.invoiceDate = .stamping(dueStart.addingTimeInterval(-14 * 24 * 60 * 60))
+            }
+        }
         try context.save()
 
         let document = try InvoiceDocument(invoice: invoice, footer: .fixed)
         let session = ReviewSession(document: document, resources: try InvoicePDFResources.bundled())
-        return ReviewSheetPresenter(session: session, document: document, client: client)
+        return ReviewSheetPresenter(session: session, document: document, client: client,
+                                    dueDate: invoice.dueDate, now: now)
     }
 
     /// One shoot, one line, numbered and dated, which is what the Ordinary design

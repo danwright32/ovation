@@ -92,6 +92,29 @@ enum BusinessCalendar {
     ///
     /// Counted from the same reference date as `Date` itself, so the number is
     /// stable across launches and its differences are days.
+    /// "12 Sep 2026", the short form the screens use, from the business day the
+    /// date was stamped with.
+    ///
+    /// IT LIVES HERE, with the one time zone and the one calendar (L39). The long
+    /// form on the PDF is PDFText.date: they are two forms of one fact for two
+    /// surfaces, and a third spelling invented at a call site is how a date comes
+    /// to read differently on two screens. Nil for a key that is not a calendar
+    /// day, so a malformed date is refused rather than drawn as something
+    /// plausible (L50).
+    static func shortDate(_ day: BusinessDate) -> String? {
+        let parts = day.dayKey.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]), let month = Int(parts[1]), let dayOfMonth = Int(parts[2]),
+              (1...12).contains(month), (1...31).contains(dayOfMonth)
+        else { return nil }
+        return "\(dayOfMonth) \(shortMonthNames[month - 1]) \(year)"
+    }
+
+    private static let shortMonthNames = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
+
     static func dayNumber(for instant: Date) -> Int {
         let reference = calendar.startOfDay(for: Date(timeIntervalSinceReferenceDate: 0))
         let start = calendar.startOfDay(for: instant)

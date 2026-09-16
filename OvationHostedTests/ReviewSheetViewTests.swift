@@ -88,6 +88,34 @@ struct ReviewSheetViewTests {
         }
     }
 
+    @Test("a due date already past is a band across the sheet, under the title")
+    func theDueDateBandIsDrawn() throws {
+        let presenter = try ReviewSampleWorld.presenter(
+            dueDate: .stamping(Date(timeIntervalSince1970: 1_789_000_000)),
+            now: { Date(timeIntervalSince1970: 1_789_000_000 + 7 * 24 * 60 * 60) })
+        let sheet = ReviewSheet(presenter: presenter, close: {})
+
+        let said = try #require(presenter.dueDateWarning)
+        #expect(said.contains("7 days past"))
+        #expect(throws: Never.self) { try sheet.inspect().find(text: said) }
+    }
+
+    @Test("and an ordinary due date draws no band at all")
+    func noBandOnAnOrdinaryInvoice() throws {
+        // A band on every send is a band nobody reads (L36).
+        let presenter = try ReviewSampleWorld.presenter(
+            dueDate: .stamping(Date(timeIntervalSince1970: 1_789_000_000)),
+            now: { Date(timeIntervalSince1970: 1_789_000_000 - 30 * 24 * 60 * 60) })
+        let sheet = ReviewSheet(presenter: presenter, close: {})
+
+        #expect(presenter.dueDateWarning == nil)
+        #expect(throws: (any Error).self) {
+            try sheet.inspect().find(ViewType.Text.self, where: {
+                try $0.string().contains("due date")
+            })
+        }
+    }
+
     @Test("the page carries an accessible name, so it is not an unnamed rectangle")
     func thepageIsNamed() throws {
         // PRD 52 and ovation#318 B6: the page is the whole point of the screen and a

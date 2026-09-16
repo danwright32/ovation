@@ -25,6 +25,19 @@ struct ReviewSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
+            // A WARNING IS A BAND ACROSS THE SHEET, UNDER THE TITLE (PRD 52e), and
+            // this one carries no control: nothing can answer it except changing the
+            // date, which is not done from here.
+            if let due = presenter.dueDateWarning {
+                Text(due)
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.14))
+                    .accessibilityAddTraits(.isStaticText)
+                Divider()
+            }
             HStack(alignment: .top, spacing: 0) {
                 stage
                 Divider()
