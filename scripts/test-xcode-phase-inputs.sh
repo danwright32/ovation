@@ -30,7 +30,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode phase inputs tests" 36
+harness_begin "xcode phase inputs tests" 41
 
 LIB="scripts/lib/xcode-phase-inputs.sh"
 require_target "$LIB"
@@ -164,6 +164,10 @@ check "the pure suite's floor is read" \
     "$(verdict scripts/pure-test-floor.txt)" "read"
 check "the invoice PDF's expected output under docs/design is read" \
     "$(verdict docs/design/invoice-pdf.expected.json)" "read"
+check "the shell suite floor is not read, because only the shell half judges it (ovation#360)" \
+    "$(verdict scripts/shell-suite-floor.txt)" "not read"
+check "the pure suite's floor still is, because the Xcode phase judges that count" \
+    "$(verdict scripts/pure-test-floor.txt)" "read"
 check "a design suite shipped on 2026-09-15 is not read (ovation#358)" \
     "$(verdict scripts/test-design-record-open.sh)" "not read"
 check "a design check the gate runs is not read" \
@@ -188,20 +192,28 @@ done
 T="$WORK/trace"
 mkdir -p "$T/standin.xcodeproj"
 printf 'com.apple.finder\n' > "$T/domains"
-env -i HOME="$T" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
-    PS4='+@@XT@@${BASH_SOURCE[0]:-}@@ ' SHELLOPTS=xtrace \
-    OVATION_XCODEBUILD="$T/no-xcodebuild" \
-    OVATION_XCODE_VERSION_FILE="$T/no-pin" \
-    OVATION_DEFAULTS_DOMAINS_COMMAND="cat '$T/domains'" \
-    OVATION_DIR_LOCK="$T/dir.lock" OVATION_FILE_LOCK="$T/file.lock" \
-    OVATION_LOCK_TIMEOUT=2 OVATION_LOCK_POLL_INTERVAL=0.05 \
-    OVATION_FLOCK_BIN="$SUITE_FLOCK" \
-    OVATION_TEST_COMMAND='echo "Test run with 900 tests in 1 suite passed"' \
-    OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
-    OVATION_UNLOCKED_COMMAND=true \
-    OVATION_XCODE_PROJECT="$T/standin.xcodeproj" \
-    bash "$REPO_ROOT/scripts/run-tests.sh" > "$T/run.txt" 2>&1
+# $1 is what OVATION_SKIP_XCODE_PHASE says, $2 where the trace goes.
+traced_run() {
+    env -i HOME="$T" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
+        PS4='+@@XT@@${BASH_SOURCE[0]:-}@@ ' SHELLOPTS=xtrace \
+        OVATION_SKIP_XCODE_PHASE="$1" \
+        OVATION_XCODEBUILD="$T/no-xcodebuild" \
+        OVATION_XCODE_VERSION_FILE="$T/no-pin" \
+        OVATION_DEFAULTS_DOMAINS_COMMAND="cat '$T/domains'" \
+        OVATION_DIR_LOCK="$T/dir.lock" OVATION_FILE_LOCK="$T/file.lock" \
+        OVATION_LOCK_TIMEOUT=2 OVATION_LOCK_POLL_INTERVAL=0.05 \
+        OVATION_FLOCK_BIN="$SUITE_FLOCK" \
+        OVATION_TEST_COMMAND='echo "Test run with 900 tests in 1 suite passed"' \
+        OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+        OVATION_UNLOCKED_COMMAND=true \
+        OVATION_XCODE_PROJECT="$T/standin.xcodeproj" \
+        bash "$REPO_ROOT/scripts/run-tests.sh" > "$2" 2>&1
+}
+
+traced_run "" "$T/run.txt"
 TRACE_STATUS=$?
+traced_run 1 "$T/skipped.txt"
+SKIPPED_STATUS=$?
 
 # Every path under scripts/ the trace mentions that is a file in this tree, as a
 # path relative to the repository.
@@ -218,17 +230,38 @@ traced_but_not_read() {
     done
 }
 
+# WHAT THE PHASE TOUCHES IS THE DIFFERENCE between a run that does it and a run
+# that skips it (ovation#360, L146). Measuring the whole run instead counts
+# everything the shell half reads, which runs on every push whatever the gate
+# decides, and that is what made the count of shell suites look like an input to
+# a build it cannot affect.
+phase_only() {
+    comm -23 <(traced_scripts "$T/run.txt") <(traced_scripts "$T/skipped.txt")
+}
+phase_only_not_read() {
+    phase_only | while IFS= read -r p; do
+        xcode_phase_reads "$p" || printf '%s\n' "$p"
+    done
+}
+
 check "the traced runner ran to the end" "$TRACE_STATUS" "0"
+check "and so did the one that skipped the phase" "$SKIPPED_STATUS" "0"
 # A POSITIVE CONTROL: a trace that captured nothing agrees with everything.
 check "the trace saw the runner and the libraries it sources" \
     "$(traced_scripts "$T/run.txt" | grep -cE '^scripts/(run-tests\.sh|lib/dir-lock\.sh|lib/xcode-pin\.sh|lib/ensure-xcode-project\.sh)$')" "4"
+# AND THE DIFFERENCE IS NOT EMPTY, which is what makes an agreement about it mean
+# something: a phase that touched nothing extra would agree with every rule (L159).
+check "the phase touches files the shell half does not" \
+    "$(phase_only | grep -cE '^scripts/(lib/xcode-pin\.sh|lib/ensure-xcode-project\.sh)$')" "2"
+check "and the shell suite floor is not one of them" \
+    "$(phase_only | grep -c '^scripts/shell-suite-floor.txt$')" "0"
 # AND THE COMPARISON CAN FAIL: the same function, handed a trace line naming a
 # script the derivation says is not read, has to report it.
 cp "$T/run.txt" "$T/planted.txt"
 printf '+@@XT@@%s/scripts/check-design-dead-rules.sh@@ echo planted\n' "$REPO_ROOT" >> "$T/planted.txt"
 check "a traced script the derivation missed is reported" \
     "$(traced_but_not_read "$T/planted.txt")" "scripts/check-design-dead-rules.sh"
-check "every script the Xcode phase touched is one the derivation says it reads" \
-    "$(traced_but_not_read "$T/run.txt")" ""
+check "every script the Xcode phase itself touched is one the derivation reads" \
+    "$(phase_only_not_read)" ""
 
 harness_end
