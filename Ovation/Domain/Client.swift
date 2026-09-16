@@ -153,6 +153,24 @@ extension OvationSchemaV1 {
         /// reach a send path as a value (L67).
         var emailForInvoices: String? { hasInvoiceOverride ? overrideAddress : mainAddress }
 
+        /// Who an invoice would have gone to and does not, and nil whenever that
+        /// sentence cannot be both true and complete.
+        ///
+        /// THE REVIEW SHEET SAYS WHY ONLY WHEN IT IS SURPRISING (PRD 52c). Going to
+        /// whoever booked the shoot is the default, so naming them says nothing, and
+        /// 30 of the 31 real clients carry an override that copies the main address,
+        /// which is not one. It is nil with no main address too: the line reads
+        /// "not <address>, who booked it", and a sentence with a hole in it is worse
+        /// than no sentence (L67).
+        ///
+        /// IT LIVES HERE, beside the rule that decides where an invoice goes, so the
+        /// screen and the send cannot come to disagree about what an override is
+        /// (L613, L70).
+        var passedOverForInvoices: String? {
+            guard hasInvoiceOverride else { return nil }
+            return mainAddress
+        }
+
         /// EVERY recipient an invoice goes to, which is usually one and is sometimes
         /// several. Empty where the value cannot be sent to at all, so a caller
         /// cannot send to a subset of a broken value by accident.

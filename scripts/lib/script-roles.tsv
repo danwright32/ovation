@@ -113,6 +113,7 @@ check-ported-artifacts.sh	gated	A repo wide guard.
 check-preconditions.sh	gated	The entry point for the checks a push does not run. It is itself a check, and it runs the others.
 check-schema-registered.sh	gated	A repo wide guard.
 check-problem-kinds-raised.sh	gated	A repo wide guard.
+check-review-samples-absent.sh	gated	Run by the push gate. The review sheet's samples are #if DEBUG, which is a claim nobody checks, so this reads the sample terms out of the sources and requires every one of them to be IN the Debug product and NONE in Release (ovation#318). Its own suite stages both products; on a machine that has built neither it answers CANNOT MEASURE rather than clean.
 test-problem-kinds-raised.sh	suite
 test-xcode-phase-inputs.sh	suite
 check-sibling-installs.sh	gated	A repo wide guard.
@@ -199,6 +200,7 @@ test-preconditions.sh	suite
 test-project-configuration.sh	suite
 test-python-scripts-under-bash.sh	suite
 test-report-finding.sh	suite
+test-review-samples-absent.sh	suite
 test-regenerate-xcode-project.sh	suite	
 test-run-tests.sh	suite	
 test-schema-registered.sh	suite	

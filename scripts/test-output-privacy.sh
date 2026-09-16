@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 100
+harness_begin "output privacy tests" 102
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -1036,6 +1036,31 @@ check "the browser restart reporter prints no identity from the record it read" 
     "$(leaks_in "$RESTART_OUT")" "clean"
 check "and it really did report an occurrence, so the case reached the lines that print" \
     "$(printf '%s' "$RESTART_OUT" | grep -c 'reported on the issue')" "1"
+
+# ---------------------------------------------------------------------------
+# THE REVIEW SAMPLES CHECK (ovation#318). It prints the terms it found in a product,
+# and those terms are read out of the SOURCES, so a source that named a real client
+# would put that name in a CI log of a public repository. The identity is planted in
+# the sample source here and the check is driven over staged products, so nothing
+# real is read and nothing is built (L2).
+# ---------------------------------------------------------------------------
+SAMPLES="$WORK/samples"; mkdir -p "$SAMPLES/Ovation/Document" \
+    "$SAMPLES/products/Debug/Ovation.app/Contents/MacOS" \
+    "$SAMPLES/products/Release/Ovation.app/Contents/MacOS"
+printf '#if DEBUG\nlet sample = "%s at %s"\n#endif\n' "$CLIENT" "$VENUE" \
+    > "$SAMPLES/Ovation/Document/ReviewSamples.swift"
+printf '#if DEBUG\nlet world = "Autumn Concert"\n#endif\n' \
+    > "$SAMPLES/Ovation/Document/ReviewSampleWorld.swift"
+printf 'x%s at %sx\nxAutumn Concertx\n' "$CLIENT" "$VENUE" \
+    > "$SAMPLES/products/Debug/Ovation.app/Contents/MacOS/Ovation"
+printf 'x%s at %sx\n' "$CLIENT" "$VENUE" \
+    > "$SAMPLES/products/Release/Ovation.app/Contents/MacOS/Ovation"
+SAMPLES_OUT="$(OVATION_REPO_ROOT="$SAMPLES" OVATION_PRODUCTS_DIR="$SAMPLES/products" \
+    ./scripts/check-review-samples-absent.sh 2>&1)"
+check "the review samples check prints no identity from the sources it read" \
+    "$(leaks_in "$SAMPLES_OUT")" "clean"
+check "and it really did report a leak, so the case reached the lines that print" \
+    "$(printf '%s' "$SAMPLES_OUT" | grep -c 'reached the Release')" "1"
 
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever

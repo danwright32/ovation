@@ -27,6 +27,11 @@ struct OvationApp: App {
     /// the client list could not be read, which raises its own problem.
     @State private var roster: RosterPresenter?
     @State private var shell: ShellPresenter?
+    #if DEBUG
+    /// ovation#318 B5. Which review sheet sample is on screen, in the Debug build
+    /// only. Real invoices reach the sheet with ovation#42.
+    @State private var samples = ReviewSamplesCommand()
+    #endif
     /// ovation#246. What the window shows while the launch runs behind it.
     @State private var progress = LaunchProgress()
     /// Whether the second copy check said this one may run, carried from init so
@@ -423,6 +428,13 @@ struct OvationApp: App {
                 // order inside the launch is unchanged; what changed is that
                 // there is now somewhere for it to say what it is doing.
                 .task { await startLaunch() }
+                // ovation#318 B5, PRD 52a: the sheet belongs to the WINDOW, so it is
+                // presented from the window's content above RootView and a launch
+                // finishing does not dismiss it. Debug only until ovation#42 gives
+                // real invoices a way here.
+                #if DEBUG
+                .reviewSamples(samples)
+                #endif
         }
 
         // ovation#231 and ovation#247. WHERE THE FOLDER IS CHOSEN AND A BACKUP IS
@@ -451,6 +463,13 @@ struct OvationApp: App {
                     Text(why).font(.footnote)
                 }
             }
+            #if DEBUG
+            CommandMenu(ReviewSamplesCommand.title) {
+                ForEach(ReviewSample.allCases) { sample in
+                    Button(sample.says) { samples.press(sample) }
+                }
+            }
+            #endif
         }
     }
 
