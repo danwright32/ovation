@@ -44,6 +44,16 @@
 //
 // EVERY WRITE IS READ BACK (L127). An identifier you supply to a store is a
 // request until something confirms it, and here the confirmation is cheap.
+//
+// A NUMBER CAN GO BACK, ONCE, AND ONLY FROM THE TOP (ovation#327). PRD 10c numbers
+// an invoice when Review is pressed, because the number is printed on the page
+// Dan reviews, and closing the sheet without sending returns it so PRD 6's
+// sequence has no hole. Clearing the field is only safe while nothing was numbered
+// after it: two reviews closed in the opposite order would return a number from
+// the middle. So `release` lives in this same serialized writer, gives a number
+// back only when it is still the highest in the store, and refuses every other
+// case by name with nothing written. A number anybody outside Ovation may hold is
+// never returned: sent, of unknown send, imported, or closed.
 import Foundation
 import SwiftData
 
@@ -60,6 +70,23 @@ enum InvoiceNumberRefusal: Error, Equatable {
     /// and it is not ignorable: it means the store did not hold what this actor
     /// believes, which is the one assumption everything above rests on.
     case readBackDisagreed(wrote: Int64, found: Int64?)
+
+    // Giving a number back (ovation#327). Each names the number, so the review
+    // sheet can say which number the invoice kept and why.
+
+    /// The number asked about is not what the invoice holds, or it holds none,
+    /// so a stale or repeated close cannot return somebody else's number.
+    case notTheNumberHeld(asked: Int64, holds: Int64?)
+    /// A higher number was issued after it, so returning it would leave a hole.
+    /// The invoice keeps it.
+    case notTheHighest(number: Int64, highest: Int64)
+    case invoiceWasSent(number: Int64)
+    /// Not knowing whether it was sent is not knowing it was not.
+    case sendCouldNotBeDetermined(number: Int64)
+    /// QuickBooks issued it, and a client and the accountant have it (ovation#71).
+    case importedNumber(number: Int64)
+    /// PRD 6: a cancelled invoice keeps its number, and so does a dismissed one.
+    case invoiceIsClosed(number: Int64)
 }
 
 @ModelActor
@@ -111,6 +138,48 @@ actor InvoiceNumberAllocator {
         }
 
         try write(number, onto: invoice)
+    }
+
+    /// Gives back the number a review took, when the sheet closes without sending.
+    ///
+    /// `number` is what the caller believes the invoice holds, so a close that
+    /// runs twice, or a sheet holding an old value, refuses rather than clearing
+    /// whatever the invoice holds by then. See the header for the rule.
+    func release(_ number: Int64, from invoiceID: PersistentIdentifier) throws {
+        let all = try allInvoices()
+        guard let invoice = all.first(where: { $0.persistentModelID == invoiceID }) else {
+            throw InvoiceNumberRefusal.noSuchInvoice
+        }
+        guard invoice.number == number else {
+            throw InvoiceNumberRefusal.notTheNumberHeld(asked: number, holds: invoice.number)
+        }
+        if invoice.importKey != nil {
+            throw InvoiceNumberRefusal.importedNumber(number: number)
+        }
+        if invoice.closure != nil {
+            throw InvoiceNumberRefusal.invoiceIsClosed(number: number)
+        }
+        switch invoice.sentStatus {
+        case .notSent: break
+        case .sent: throw InvoiceNumberRefusal.invoiceWasSent(number: number)
+        case .couldNotDetermine: throw InvoiceNumberRefusal.sendCouldNotBeDetermined(number: number)
+        }
+        // Cancelled, dismissed and imported rows count toward the highest, for the
+        // reason `allInvoices` gives: their numbers are spent.
+        if let highest = all.compactMap(\.number).max(), highest > number {
+            throw InvoiceNumberRefusal.notTheHighest(number: number, highest: highest)
+        }
+
+        invoice.number = nil
+        try modelContext.save()
+
+        // READ BACK, for the same reason as `write`: a number that did not really
+        // come off this invoice is one the next allocation would hand out twice.
+        let id = invoice.id
+        let stored = try modelContext.fetch(FetchDescriptor<Invoice>()).first { $0.id == id }?.number
+        guard stored == nil else {
+            throw InvoiceNumberRefusal.readBackDisagreed(wrote: number, found: stored)
+        }
     }
 
     /// Every invoice in the store, and the target is found IN it rather than
