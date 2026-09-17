@@ -595,6 +595,8 @@ Milestone: `Invoicing and sending`, plus `Shared Google sign in package` in the 
 
 Sequencing, locked: Ovation's Phase 4 intake is written against **whole-file vendored copies** of Overture's proven Gmail and OAuth files, each carrying a header naming its origin repository, path and commit per 0.4.6, with the extraction issue filed **in the same commit as the copy**.
 
+**Superseded 2026-09-17 (ovation#39): Phase 5 ran before Phase 4, so nothing was ever vendored and this sequence never happened. The correction at the end of this section says what replaced it and what that costs.**
+
 **The seven files are named, because "the `Gmail*.swift` set" drags in machinery Ovation has no use for.** `wc -l` over all `Gmail*.swift` plus `GoogleOAuth.swift` is **2230 lines across 14 files**. Ovation vendors **exactly these seven, 1114 lines**:
 
 | File | Lines |
@@ -612,6 +614,12 @@ Sequencing, locked: Ovation's Phase 4 intake is written against **whole-file ven
 **Explicitly NOT vendored**, because they are Overture's reply-classification and signature machinery: `GmailReplySearch.swift` (338), `GmailReplyChecker.swift` (178), `GmailThreadingRepair.swift` (178), `GmailSignatureHealth.swift` (174), `GmailSignatureService.swift` (111), `GmailSignatureStore.swift` (82), `GmailThreadHeaders.swift` (55), and the rest of `ReplyDetection.swift`.
 
 The extraction happens here, at the start of Phase 5, because the scope set is now known (probe 5 and the 4.2 decision have both landed) and because Phase 5's sending is then written against the package from its first line. One extraction, not two, and the intake code moves rather than merges.
+
+**Corrected 2026-09-17 (ovation#39), and both of the reasons in the paragraph above have gone.** Measured on the day the extraction opened: the `Expenses and receipt intake` milestone held 12 open issues and 0 closed, probe 5 (ovation#75) had not run, and a `find` over the tree for `*Gmail*`, `*GoogleOAuth*` and `*OAuth*` returned nothing at all. So there was no vendored intake code to move, and that removes the merge reason: this is a first extraction rather than a second.
+
+The scope reason had already gone, defeated by a decision recorded two paragraphs below. **The package carries no default scope list, and a consumer that names none fails to compile.** A design whose entire point is that each consumer states its own scopes at its own call site cannot also require every consumer's scopes to be known before the package is written. What probe 5 still settles is whether Phase 4 can proceed at all, which is a fact about Phase 4 and not about this package.
+
+**What the reordering costs, written here rather than rediscovered later:** Phase 4's intake, when it comes, is written against this package instead of against vendored copies, so 0.4.6's origin headers and the rule that files the extraction issue in the same commit as the copy apply to this extraction rather than to a Phase 4 one. Nothing else in 5.0 changes, and the seven files, the one predicate, the header stripping fix and the test refusal are all exactly as listed above.
 
 **The package makes the scope set an explicit per-consumer choice** (L503, L124). Overture today requests `gmail.send`, `gmail.readonly`, `gmail.settings.basic` and has never held `gmail.modify`. If the package carries a default scope list, Downbeat and Overture silently inherit mailbox-modify on their next migration, and an over-broad permission is invisible because the code never attempts what it is not meant to do, while a missing one fails loudly on the first run. So the package has **no default**: each consumer names its scopes, and a consumer that names none fails to compile.
 
