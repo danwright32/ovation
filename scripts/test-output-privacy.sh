@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 108
+harness_begin "output privacy tests" 110
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -949,6 +949,24 @@ check "the Xcode selector prints no identity, even from a pin somebody edited" \
     "$(leaks_in "$XSEL_OUT")" "clean"
 check "and it really did refuse the pin, so the case reached the line that quotes one" \
     "$(printf '%s' "$XSEL_OUT" | grep -c 'CANNOT MEASURE')" "1"
+
+# ---------------------------------------------------------------------------
+# THE INVOICE FOOTER SOURCE CHECK (ovation#319). It reads every Swift file under
+# the app and prints the PATHS of the ones that read the shipped footer text. It
+# must never print a LINE of any of them: the file it is refusing is the one that
+# builds an invoice, so the lines around the match are where a real client's name
+# would sit if one were ever written into a fixture or a comment.
+# ---------------------------------------------------------------------------
+FOOTER_TREE="$WORK/footer-tree"
+mkdir -p "$FOOTER_TREE/Ovation/App" "$FOOTER_TREE/Ovation/Document"
+printf 'struct InvoiceFooter {}\n' > "$FOOTER_TREE/Ovation/Document/InvoiceDocument.swift"
+printf '// the page for %s at %s\nlet d = InvoiceFooter.fixed\n' \
+    "$CLIENT" "$VENUE" > "$FOOTER_TREE/Ovation/App/InvoiceScreen.swift"
+FOOTER_OUT="$(OVATION_REPO_ROOT="$FOOTER_TREE" ./scripts/check-invoice-footer-source.sh 2>&1)"
+check "the invoice footer source check prints no identity from the file it refuses" \
+    "$(leaks_in "$FOOTER_OUT")" "clean"
+check "and it really did refuse, so the case reached the lines that name a file" \
+    "$(printf '%s' "$FOOTER_OUT" | grep -c 'REFUSED')" "1"
 
 # ---------------------------------------------------------------------------
 # THE RUNNER XCODE WATCHER (ovation#320). It reads three things it did not write

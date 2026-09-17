@@ -18,13 +18,23 @@ import Foundation
 enum ReviewGate {
 
     /// Why this invoice cannot be reviewed, or nil when it can.
+    ///
+    /// IT TAKES THE FOOTER, AND THERE IS NO OVERLOAD THAT DOES NOT (ovation#319).
+    /// Two of the reasons come from Settings rather than from the invoice, so a
+    /// caller able to ask the invoice-only question would be able to wave through
+    /// an invoice whose page cannot say how to pay it. One function taking both
+    /// means a caller cannot ask the narrower question by accident (L16, L667).
     @MainActor
-    static func refusal(for invoice: Invoice) -> String? {
-        let refusals = invoice.refusals
+    static func refusal(for invoice: Invoice, footer: InvoiceFooter) -> String? {
+        let refusals = invoice.refusals.union(footer.refusals)
         // ASKED IN A WRITTEN ORDER, not over a Set, whose order is not a fact about
-        // anything (L343). The tax status comes first because answering it is a
-        // fact about the client that outlives this invoice, while an oversized
-        // discount is a number on this one.
+        // anything (L343). The two footer reasons come FIRST because they are not
+        // about this invoice at all: they stop every invoice in the app, they are
+        // fixed once in Settings, and saying "waiting on this client's tax status"
+        // to somebody whose real problem is that no invoice can go out would send
+        // them to the wrong screen (L111). Below them, the tax status comes before
+        // an oversized discount because answering it is a fact about the client
+        // that outlives this invoice, while a discount is a number on this one.
         for refusal in order where refusals.contains(refusal) {
             return sentence(for: refusal)
         }
@@ -36,7 +46,10 @@ enum ReviewGate {
     /// DERIVED FROM THE VOCABULARY, never a second list: a refusal added to
     /// `InvoiceRefusal` and not placed here is caught by the suite rather than
     /// silently ranked last (L41, L96).
-    static let order: [InvoiceRefusal] = [.taxStatusNeverRecorded, .discountExceedsSubtotal]
+    static let order: [InvoiceRefusal] = [
+        .paymentInstructionsNotSet, .contactDetailsNotSet,
+        .taxStatusNeverRecorded, .discountExceedsSubtotal,
+    ]
 
     /// The one sentence for each refusal. Total over the vocabulary, so a new member
     /// cannot take a default and read as a deliberate silence (L113).
@@ -46,6 +59,12 @@ enum ReviewGate {
             return "Waiting on this client's tax status."
         case .discountExceedsSubtotal:
             return "The discount is larger than everything on this invoice."
+        // NAMES THE SCREEN TO GO TO, because neither is anything to do with the
+        // invoice in front of him and nothing on this one can fix it (L111, L399).
+        case .paymentInstructionsNotSet:
+            return "Settings has no payment instructions, so no invoice can be sent."
+        case .contactDetailsNotSet:
+            return "Settings has no contact details, so no invoice can be sent."
         }
     }
 }

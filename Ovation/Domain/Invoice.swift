@@ -65,6 +65,20 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
     /// ovation#111). A guard written from the old wording would have shown the
     /// warning and sent anyway, while passing a reading of the requirement.
     case taxStatusNeverRecorded
+
+    /// ovation#319, PRD 9. The foot of the page does not say how to pay.
+    ///
+    /// THE TWO BELOW ARE NOT PROPERTIES OF AN INVOICE. They come from Settings and
+    /// are identical for every invoice in the app, so `Invoice.refusals` never
+    /// produces them: `InvoiceFooter.refusals` does, and `ReviewGate` is what puts
+    /// the two sets together. They are members of THIS vocabulary rather than a
+    /// second one because a surface asking "can this be sent" must get ONE answer
+    /// with every reason in it (L118, L53), and so the sentence table stays total
+    /// over a single enum.
+    case paymentInstructionsNotSet
+
+    /// ovation#319, PRD 9. The foot of the page does not say how to reach Dan.
+    case contactDetailsNotSet
 }
 
 extension OvationSchemaV1 {
@@ -260,8 +274,15 @@ extension OvationSchemaV1 {
             return found
         }
 
-        /// Whether it may be sent at all. Derived from the one list above, so a
-        /// caller cannot ask a narrower question by accident.
+        /// Whether anything about THIS INVOICE stops it being sent.
+        ///
+        /// IT IS NOT THE SEND GATE, and since ovation#319 it cannot be: two reasons
+        /// an invoice may not go out live in Settings rather than on the invoice,
+        /// and this cannot see them. `ReviewGate.refusal(for:footer:)` is the one
+        /// thing to ask, because it takes both. The wording here used to say a
+        /// caller could not ask a narrower question by accident, and this IS now
+        /// the narrower question, so it says so rather than leaving a sentence that
+        /// stopped being true (L407, L244).
         var maySend: Bool { refusals.isEmpty }
     }
 }

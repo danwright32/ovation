@@ -10,23 +10,63 @@
 // docs/design/invoice-pdf.expected.json rather than restated (L638).
 import Foundation
 
-/// The fixed text in the page's footer.
+/// The text in the page's footer.
 ///
-/// PRD 9: these come from settings, and until ovation#319 gives them a place there
-/// they are fixed here, in one place. No phone number is printed (Dan, 2026-09-14).
+/// PRD 9: these come from settings, and ovation#319 gave them a place there. The
+/// values live in `InvoiceFooterSetting`; `fixed` below is only what a field Dan
+/// has never written falls back to.
 ///
 /// THE PAYMENT TERMS ARE NOT HERE. They count the invoice's own days (Dan,
 /// 2026-09-14), so they belong to the invoice rather than to a sentence fixed in
 /// advance; `PDFText.terms(days:)` writes them.
 struct InvoiceFooter: Equatable, Sendable {
-    let payment: String
-    let note: String
-    let contact: String
+    // VAR, BECAUSE THIS IS ALSO WHAT SETTINGS EDITS (ovation#319). The type the
+    // page is built from and the type Dan types into are ONE type: a second
+    // struct beside it would be two vocabularies for one fact, and the copy
+    // between them is where a field added to one stops reaching the other (L317).
+    var payment: String
+    var note: String
+    var contact: String
 
+    /// What a field Dan has never written falls back to, and nothing else. It is
+    /// no longer what any page is built from: `scripts/check-invoice-footer-source.sh`
+    /// refuses a reference to it from anything that draws or sends (ovation#319).
     static let fixed = InvoiceFooter(
         payment: "Payment instructions available upon request.",
-        note: "Thank you for having me at your performance. Galleries are delivered within five business days.",
+        note: "Thank you for having me at your performance. Galleries are delivered within two weeks after the shoot.",
         contact: "dan@danwrightphotography.com")
+
+    /// Why this footer stops an invoice going out, each as its own reason.
+    ///
+    /// THE PAYMENT LINE AND THE CONTACT ARE REQUIRED, THE NOTE IS NOT (Dan,
+    /// 2026-09-17). A page asking somebody for money that does not say how to pay
+    /// it, or how to reach the person asking, is not worth sending. A note is a
+    /// pleasantry, and its absence is simply a shorter page.
+    ///
+    /// THESE ARE NOT PROPERTIES OF AN INVOICE, which is why they are computed here
+    /// and not in `Invoice.refusals`: they are identical for every invoice in the
+    /// app, and an invoice cannot see a setting. `ReviewGate` puts the two
+    /// together and is the only thing that should be asked whether an invoice may
+    /// go out.
+    var refusals: Set<InvoiceRefusal> {
+        var found: Set<InvoiceRefusal> = []
+        if payment.isBlankOnThePage { found.insert(.paymentInstructionsNotSet) }
+        if contact.isBlankOnThePage { found.insert(.contactDetailsNotSet) }
+        return found
+    }
+}
+
+extension String {
+    /// Whether this would print as nothing.
+    ///
+    /// ONE PREDICATE, because the page and the refusal have to agree about what
+    /// empty means (L70, L16): a footer that refuses the send and a page that
+    /// draws the block anyway would be two answers to one question. A line of
+    /// spaces is empty, because it draws a blank gap under a heading, which is the
+    /// fault rather than the remedy.
+    var isBlankOnThePage: Bool {
+        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 struct InvoiceDocument: Equatable, Sendable {
@@ -99,11 +139,22 @@ struct InvoiceDocument: Equatable, Sendable {
         columns = ["Description", "Hours", "Rate", "Amount"]
         items = try invoice.orderedLineItems.map(Self.row)
         money = Self.moneyRows(invoice, taxed: client.taxStatus.isTaxed)
+        // A BLOCK WITH NOTHING TO SAY IS LEFT OFF, rather than drawn as a heading
+        // over a gap (ovation#319). The page is still BUILT when a required line is
+        // missing, and that is deliberate: Dan reviews this page before sending,
+        // and a page that refused to draw would leave him unable to see what is
+        // wrong with it. The refusal belongs to `ReviewGate`, which stops the send.
+        //
+        // THE TERMS KEEP THE PAYMENT BLOCK ALIVE. They are the invoice's own, never
+        // blank, so an unwritten payment line shortens that block rather than
+        // removing it, and "Payment due within 14 days" still reaches the client.
         foot = [
             FootBlock(label: "Payment", lines: [footer.payment, terms]),
             FootBlock(label: "Note", lines: [footer.note]),
             FootBlock(label: "Contact", lines: [footer.contact]),
         ]
+        .map { FootBlock(label: $0.label, lines: $0.lines.filter { !$0.isBlankOnThePage }) }
+        .filter { !$0.lines.isEmpty }
     }
 
     /// A shoot's line is named for the shoot, with its venue and day beneath. An

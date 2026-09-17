@@ -24,7 +24,7 @@ struct ReviewGateTests {
     func anordinaryInvoiceMayBeReviewed() throws {
         let invoice = try Self.invoice()
 
-        #expect(ReviewGate.refusal(for: invoice) == nil)
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) == nil)
     }
 
     @Test("a client whose tax status was never recorded is waiting on that")
@@ -33,14 +33,14 @@ struct ReviewGateTests {
         // charged AND the send is refused until it is answered.
         let invoice = try Self.invoice(taxStatus: .neverRecorded)
 
-        #expect(ReviewGate.refusal(for: invoice) == "Waiting on this client's tax status.")
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) == "Waiting on this client's tax status.")
     }
 
     @Test("a discount larger than the invoice is named as what it is")
     func anoversizedDiscountRefuses() throws {
         let invoice = try Self.invoice(discountDollars: 10_000)
 
-        #expect(ReviewGate.refusal(for: invoice) ==
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) ==
                 "The discount is larger than everything on this invoice.")
     }
 
@@ -51,7 +51,63 @@ struct ReviewGateTests {
         // invoice, while the discount is a number on this one.
         let invoice = try Self.invoice(taxStatus: .neverRecorded, discountDollars: 10_000)
 
-        #expect(ReviewGate.refusal(for: invoice) == "Waiting on this client's tax status.")
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) == "Waiting on this client's tax status.")
+    }
+
+    // MARK: what Settings stops (ovation#319)
+
+    @Test("with no payment instructions in Settings, no invoice can be reviewed")
+    func nopaymentInstructionsRefuses() throws {
+        let invoice = try Self.invoice()
+        var footer = InvoiceFooter.fixed
+        footer.payment = ""
+
+        #expect(ReviewGate.refusal(for: invoice, footer: footer) ==
+                "Settings has no payment instructions, so no invoice can be sent.")
+    }
+
+    @Test("with no contact details in Settings, no invoice can be reviewed")
+    func nocontactDetailsRefuses() throws {
+        let invoice = try Self.invoice()
+        var footer = InvoiceFooter.fixed
+        footer.contact = ""
+
+        #expect(ReviewGate.refusal(for: invoice, footer: footer) ==
+                "Settings has no contact details, so no invoice can be sent.")
+    }
+
+    @Test("an empty note in Settings stops nothing, because the note is optional")
+    func anemptyNoteDoesNotRefuse() throws {
+        let invoice = try Self.invoice()
+        var footer = InvoiceFooter.fixed
+        footer.note = ""
+
+        #expect(ReviewGate.refusal(for: invoice, footer: footer) == nil)
+    }
+
+    // THE ORDER IS THE DECISION, and this is the case that pins it. A settings
+    // problem stops EVERY invoice and is fixed once, on another screen, so telling
+    // Dan about this client's tax status while nothing can be sent at all would
+    // send him to the wrong place (L111).
+    @Test("a settings problem is said before anything about this invoice")
+    func settingsComesBeforeTheInvoice() throws {
+        let invoice = try Self.invoice(taxStatus: .neverRecorded, discountDollars: 10_000)
+        var footer = InvoiceFooter.fixed
+        footer.payment = ""
+
+        #expect(ReviewGate.refusal(for: invoice, footer: footer) ==
+                "Settings has no payment instructions, so no invoice can be sent.")
+    }
+
+    // AND THE INVOICE IS STILL HEARD once Settings is complete, so the case above
+    // cannot be satisfied by a gate that simply always answers about the footer
+    // (L159).
+    @Test("and once Settings is complete the invoice's own reason is heard again")
+    func theinvoiceIsHeardOnceSettingsIsComplete() throws {
+        let invoice = try Self.invoice(taxStatus: .neverRecorded)
+
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) ==
+                "Waiting on this client's tax status.")
     }
 
     @Test("every refusal the invoice can carry has a sentence, so none can be silent")

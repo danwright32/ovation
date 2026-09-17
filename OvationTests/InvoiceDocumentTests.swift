@@ -116,6 +116,73 @@ struct InvoiceDocumentTests {
         #expect(!payment.lines.contains { $0.contains("14") }, "no line may still state the old term")
     }
 
+    // MARK: what an unwritten footer line does to the page (ovation#319)
+
+    /// THE PAGE IS STILL BUILT WHEN SOMETHING REQUIRED IS MISSING, and that is a
+    /// decision rather than an oversight. Dan reviews this page immediately before
+    /// sending, so a page that refused to draw would leave him unable to SEE what is
+    /// wrong with it; `ReviewGate` is what stops the send. These cases hold the page
+    /// to leaving a block off rather than drawing a heading over a gap.
+
+    @Test("an unwritten note leaves its block off the page rather than drawing an empty heading")
+    func anEmptyNoteLeavesItsBlockOff() throws {
+        let invoice = try Self.ordinary(try Self.store())
+        var footer = InvoiceFooter.fixed
+        footer.note = ""
+        let document = try InvoiceDocument(invoice: invoice, footer: footer)
+
+        // The others are untouched, so this is one block being left off rather than
+        // the foot collapsing (L104).
+        #expect(document.foot.map(\.label) == ["Payment", "Contact"])
+    }
+
+    @Test("unwritten contact details leave their block off the page")
+    func anEmptyContactLeavesItsBlockOff() throws {
+        let invoice = try Self.ordinary(try Self.store())
+        var footer = InvoiceFooter.fixed
+        footer.contact = ""
+        let document = try InvoiceDocument(invoice: invoice, footer: footer)
+
+        #expect(document.foot.map(\.label) == ["Payment", "Note"])
+    }
+
+    /// THE TERMS KEEP THE PAYMENT BLOCK ALIVE. They belong to the invoice and are
+    /// never blank, so an unwritten payment line shortens that block rather than
+    /// removing it, and the client is still told when the money is due.
+    @Test("an unwritten payment line shortens its block but leaves the terms saying when it is due")
+    func anEmptyPaymentKeepsTheTerms() throws {
+        let invoice = try Self.ordinary(try Self.store())
+        var footer = InvoiceFooter.fixed
+        footer.payment = ""
+        let document = try InvoiceDocument(invoice: invoice, footer: footer)
+
+        let payment = try #require(document.foot.first { $0.label == "Payment" })
+        #expect(payment.lines == ["Payment due within 14 days of the invoice date."])
+    }
+
+    /// SPACE IS NOT TEXT, and the page and the refusal read it the same way through
+    /// one predicate (L70). A line of spaces would otherwise draw a blank gap under
+    /// a heading while the send was allowed.
+    @Test("a footer line holding only spaces is left off, exactly as an empty one is")
+    func whitespaceIsLeftOffToo() throws {
+        let invoice = try Self.ordinary(try Self.store())
+        var footer = InvoiceFooter.fixed
+        footer.note = "   \n  "
+        let document = try InvoiceDocument(invoice: invoice, footer: footer)
+
+        #expect(document.foot.map(\.label) == ["Payment", "Contact"])
+    }
+
+    /// AND A WRITTEN FOOTER STILL DRAWS ALL THREE, so none of the cases above can be
+    /// satisfied by the foot simply having gone missing (L159).
+    @Test("a footer with all three written still draws all three blocks")
+    func acompleteFooterDrawsEverything() throws {
+        let invoice = try Self.ordinary(try Self.store())
+        let document = try InvoiceDocument(invoice: invoice, footer: .fixed)
+
+        #expect(document.foot.map(\.label) == ["Payment", "Note", "Contact"])
+    }
+
     @Test("a due date before the invoice date is refused rather than printed as a negative term")
     func aDueDateBeforeTheInvoiceIsRefused() throws {
         let invoice = try Self.ordinary(try Self.store())
