@@ -98,9 +98,16 @@ struct InvoiceSettingsShotTests {
                 Shot(scheme: .dark, size: CGSize(width: 640, height: 560),
                      footer: asItWillBeUsed, fileName: "04-real-bank-details-dark.png"),
                 // AT THE WINDOW'S OWN MINIMUM, because a pane is shipped unseen when
-                // it has only been looked at roomy (L606).
-                Shot(scheme: .light, size: CGSize(width: 520, height: 360),
+                // it has only been looked at roomy (L606). Measured at the narrowest
+                // width, since that is where the text wraps most and the pane is at
+                // its tallest.
+                Shot(scheme: .light, size: CGSize(width: 520, height: 510),
                      footer: asItWillBeUsed, fileName: "05-smallest-window-light.png"),
+                // THE EMPTY STATE AT THAT SAME MINIMUM, which is the tallest the pane
+                // ever gets: two of the three carry a warning line the filled pane
+                // does not. If anything has to be scrolled to, it is here.
+                Shot(scheme: .light, size: CGSize(width: 520, height: 560),
+                     footer: empty, fileName: "07-empty-at-minimum-light.png"),
                 // AND EMPTY, which is a state this pane really has: it is what Dan
                 // sees while rewriting a line, and two of the three block sending.
                 Shot(scheme: .light, size: CGSize(width: 640, height: 560),

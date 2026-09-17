@@ -22,8 +22,18 @@ struct InvoiceSettingsView: View {
     @Binding var footer: InvoiceFooter
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+        ScrollView { fields }
+    }
+
+    /// The pane's content, without the scrolling around it.
+    ///
+    /// SEPARATE SO IT CAN BE MEASURED. A `ScrollView` reports whatever height it is
+    /// given as the height it needs, because scrolling is what it does, so asking
+    /// the pane how tall it wants to be would answer with the window's own size and
+    /// the answer would be meaningless. Its suite measures THIS, and holds the
+    /// Settings window to being at least that tall (ovation#391).
+    var fields: some View {
+        VStack(alignment: .leading, spacing: 18) {
                 // THE ONE THING THE READER CANNOT KNOW, said once, at the top
                 // (L604, L605). Where this text ends up is a fact about invoices
                 // rather than an explanation of the boxes, and repeating it on each
@@ -46,10 +56,9 @@ struct InvoiceSettingsView: View {
                       help: "However you want clients to reach you.",
                       text: $footer.contact,
                       blocking: footer.refusals.contains(.contactDetailsNotSet))
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// One labelled block.

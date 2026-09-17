@@ -20,6 +20,34 @@
 import SwiftUI
 
 struct SettingsView: View {
+
+    /// THE WINDOW'S OWN SIZE, named so a test can hold it to the pane it has to
+    /// show (ovation#391). Dan: "no real reason for me to have to scroll."
+    static let minimumWidth: CGFloat = 520
+    /// Held to the PANE, by `SettingsWindowSizeTests`, which asks the invoices pane
+    /// how tall it wants to be at its tallest and refuses a window shorter than that
+    /// plus the allowance below. The pane measured 527 on 2026-09-17.
+    ///
+    /// GENEROUSLY ABOVE THAT SUM RATHER THAN ON IT, for two reasons. An ordinary
+    /// edit to the pane should not immediately bring the scrolling back, and the
+    /// allowance below is an estimate, so the slack is what stops that estimate
+    /// deciding whether content is visible. A window taller than it needs costs a
+    /// little empty space; one a few points short hides the line saying why an
+    /// invoice cannot be sent, so the error is taken on the harmless side (L648).
+    static let minimumHeight: CGFloat = 680
+
+    /// What the tab bar and the window's chrome take off the height before the pane
+    /// gets any room.
+    ///
+    /// AN ESTIMATE, AND SAID TO BE ONE. It has NOT been measured against a real
+    /// Settings window: doing that means running the app and reading the window, and
+    /// this number was chosen from experience instead. An earlier version of this
+    /// comment claimed it was measured, which was untrue and is exactly the kind of
+    /// sentence that gets believed rather than checked (L407, L460). It is safe to
+    /// be wrong here only because `minimumHeight` clears the sum with room to spare;
+    /// if that margin is ever tightened, measure this first.
+    static let chromeAllowance: CGFloat = 64
+
     @Bindable var backups: BackupSettingsPresenter
     /// HOW TO BUILD THE RESTORE CONTROL, not a built one.
     ///
@@ -74,7 +102,7 @@ struct SettingsView: View {
             backupsPane
                 .tabItem { Label("Backups", systemImage: "externaldrive") }
         }
-        .frame(minWidth: 520, minHeight: 360)
+        .frame(minWidth: Self.minimumWidth, minHeight: Self.minimumHeight)
     }
 
     private var backupsPane: some View {
