@@ -1,0 +1,224 @@
+name: Runner Xcode
+
+# ovation#320. Xcode updated itself on Dan's Mac to 27.0 and the pinned 26.6 is no
+# longer installed there, so the push gate stopped predicting CI. Measured
+# 2026-09-16: macos-26, the image both Mac jobs run on, offers 26.0.1 up to 26.6
+# and nothing newer, and the only published image carrying an Xcode 27 is a public
+# preview on a newer macOS whose Xcode is a BETA build against the release build
+# that Mac has. So there is no version the two sides can share, and the decision
+# taken was to wait with the mismatch named rather than move CI onto a preview.
+#
+# THIS IS WHAT ENDS THE WAITING. Nothing in this repository re-measures whether
+# that is still true, and it is a premise that expires with no symptom (L316): a
+# suppression with no expiry is a decision nobody revisits (L523). The question
+# is asked here rather than in ci.yml for the same reason design-record.yml is:
+# the answer changes with NO COMMIT IN BETWEEN, when Microsoft rebuilds the image,
+# so as a gate it would arrive as a red build on whichever unrelated push came
+# next, which is the shape that teaches people to ignore the board (L538).
+#
+# IT ALSO WATCHES THE DIRECTION THAT BREAKS THINGS. Runner images keep only the
+# newest patch of each version, so the day macos-26 replaces 26.6 the CI build
+# REFUSES by scripts/select-xcode.sh and both Mac jobs stop before they compile,
+# with no warning first. That is a separate outcome and a separate issue, because
+# it is not an upgrade going spare, it is a red CI that has not happened yet.
+#
+# THE MECHANISM IS scripts/report-finding.sh (ovation#339), the same script
+# design-record.yml and ci-liveness.yml call. This file owns the words only. Each
+# finding is one issue, commented on while it stands and closed when it is over,
+# because an automated job that creates a named outside thing collides with its
+# own previous output for as long as that output sits unconsumed (L393).
+
+on:
+  schedule:
+    # Daily, and the cost is one short Linux job. Weekly would be cheaper and is
+    # the wrong trade: the losing outcome here is the image dropping the pinned
+    # Xcode, which takes CI down until somebody changes one line, and up to a week
+    # of not knowing is worse than six extra minutes of runner time a week.
+    - cron: '23 6 * * *'
+  # AND WHENEVER THE PIN OR THE RUNNER ITSELF CHANGES, because both are inputs to
+  # the verdict and a push that moves either should not wait for the next morning.
+  push:
+    branches: [main]
+    paths:
+      - .xcode-version
+      - .github/workflows/ci.yml
+      - scripts/check-runner-xcode.sh
+      - .github/workflows/runner-xcode.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: runner-xcode
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: The pinned Xcode is still what CI's image offers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # THE FIVE OUTCOMES ARE KEPT APART (L11), and the two that are findings are
+      # different findings. 0 the pin is current, 3 the image has something newer,
+      # 4 the image has dropped the pin, 1 the workflow names more than one Mac
+      # runner, 2 nothing could be measured and so nothing is known.
+      - name: Ask what the runner image offers
+        id: ask
+        run: |
+          set +e
+          bash scripts/check-runner-xcode.sh | tee verdict.txt
+          status="${PIPESTATUS[0]}"
+          set -e
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+
+      # THE PINNED XCODE IS GONE. Filed first and filed separately, because it is
+      # the one with a deadline: the next CI run on a Mac refuses.
+      - name: Say so when the image has dropped the pinned Xcode
+        if: steps.ask.outputs.status == '4'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: The runner image no longer offers the Xcode this repository pins
+        run: |
+          set -uo pipefail
+          {
+            echo "Still true on $(date -u +%Y-%m-%d):"
+            echo
+            sed 's/^/    /' verdict.txt
+          } > comment-body.md
+          {
+            echo "Opened automatically by the Runner Xcode workflow (ovation#320)."
+            echo
+            sed 's/^/    /' verdict.txt
+            echo
+            echo "The image CI builds Ovation on keeps only the newest patch of each"
+            echo "Xcode version, and it has stopped carrying the one .xcode-version"
+            echo "names. scripts/select-xcode.sh refuses rather than building with"
+            echo "whatever the image defaults to, so both Mac jobs will stop before"
+            echo "they compile. Nothing is broken in the tree: the verdict changed"
+            echo "when the image was rebuilt, with no commit in between."
+            echo
+            echo "The remedy is in the verdict above: pin one of the versions it"
+            echo "lists. Check what this Mac builds with first, because a pin nothing"
+            echo "here can select trades one mismatch for another."
+            echo
+            echo "This issue is commented on rather than duplicated while it is open,"
+            echo "and closed by this workflow once the pin names a version the image has."
+          } > issue-body.md
+
+          set +e
+          bash scripts/report-finding.sh stands \
+            --title "${TITLE}" \
+            --body-file issue-body.md \
+            --comment-file comment-body.md \
+            --milestone Ungrouped \
+            --label priority-p1 --label ci-hygiene --label bug
+          reported=$?
+          set -e
+          # 0 filed it, 1 commented on the one already open. Every other code is a
+          # refusal the script has already explained, and it fails this job rather
+          # than passing quietly (L184).
+          case "${reported}" in
+            0|1) ;;
+            *) exit "${reported}" ;;
+          esac
+
+      # SOMETHING NEWER IS AVAILABLE. The finding ovation#320 is waiting for, and
+      # an ordinary pin bump the rest of the time. It is p2: nothing is broken, and
+      # a p1 for an upgrade going spare is how a priority scale stops meaning
+      # anything (L36, L112).
+      - name: Say so when the image has gained a newer Xcode
+        if: steps.ask.outputs.status == '3'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: The runner image offers an Xcode newer than the one pinned
+        run: |
+          set -uo pipefail
+          {
+            echo "Still true on $(date -u +%Y-%m-%d):"
+            echo
+            sed 's/^/    /' verdict.txt
+          } > comment-body.md
+          {
+            echo "Opened automatically by the Runner Xcode workflow (ovation#320)."
+            echo
+            sed 's/^/    /' verdict.txt
+            echo
+            echo "Nothing is broken and no build is at risk. This is the note that"
+            echo "ovation#320 asked for: the Xcode pin is set to the newest version"
+            echo "the runner image had when it was last chosen, and the image has"
+            echo "since gained a newer one."
+            echo
+            echo "Two things follow from it, and which one applies depends on what"
+            echo "this Mac has. If the newer version is the one Dan's Mac already"
+            echo "builds with, moving the pin closes the gap ovation#320 recorded and"
+            echo "retires the note scripts/run-tests.sh prints on every build run. If"
+            echo "it is not, moving the pin would trade one mismatch for another, and"
+            echo "the honest answer is to leave it and let this issue stand."
+            echo
+            echo "This issue is commented on rather than duplicated while it is open,"
+            echo "and closed by this workflow once the pin is the newest again."
+          } > issue-body.md
+
+          set +e
+          bash scripts/report-finding.sh stands \
+            --title "${TITLE}" \
+            --body-file issue-body.md \
+            --comment-file comment-body.md \
+            --milestone Ungrouped \
+            --label priority-p2 --label ci-hygiene --label tech-debt
+          reported=$?
+          set -e
+          case "${reported}" in
+            0|1) ;;
+            *) exit "${reported}" ;;
+          esac
+
+      # AND BOTH ARE CLOSED WHEN THEY ARE OVER. A finding left open after it stops
+      # being true reads as outstanding and teaches everyone to skim the next one
+      # (L269). BOTH titles are cleared on the healthy outcome, not only the one
+      # this run would have filed: a pin bump answers whichever was standing, and
+      # a job that closed only one would leave the other open for ever.
+      - name: Close them once the pin is current again
+        if: steps.ask.outputs.status == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          {
+            echo "The pin is the newest the image offers again on $(date -u +%Y-%m-%d), so this is closed."
+            echo
+            sed 's/^/    /' verdict.txt
+          } > close-body.md
+
+          for title in \
+            "The runner image no longer offers the Xcode this repository pins" \
+            "The runner image offers an Xcode newer than the one pinned"; do
+            set +e
+            bash scripts/report-finding.sh cleared \
+              --title "${title}" \
+              --comment-file close-body.md
+            reported=$?
+            set -e
+            # 2 closed it, 3 means no such issue was open, which is the ordinary
+            # state on every day the pin is current and is not a fault.
+            case "${reported}" in
+              2|3) ;;
+              *) exit "${reported}" ;;
+            esac
+          done
+
+      # A FAILURE TO MEASURE FAILS THE JOB rather than passing quietly, and opens
+      # nothing: nobody can act on "a fetch failed" from an issue a day later, and
+      # this run's own log says which manifest it was (L98, L11). The same is true
+      # of the workflow naming two Mac runners, which is a refusal rather than a
+      # finding: it is a state of this repository, and the push that created it is
+      # the thing to look at.
+      - name: Refuse a run that could not measure
+        if: steps.ask.outputs.status == '1' || steps.ask.outputs.status == '2'
+        run: |
+          echo "::error::The pinned Xcode could not be compared with the runner image. See the log above."
+          exit 1

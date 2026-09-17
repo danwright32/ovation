@@ -34,6 +34,7 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL \
       OVATION_XCODE_PROJECT OVATION_XCODEGEN OVATION_XCODEBUILD_LISTER \
       OVATION_LOCK_WAIT_LOG OVATION_XCODEBUILD OVATION_XCODE_VERSION_FILE \
+      OVATION_XCODE_NOTICE_STATE \
       OVATION_DEFAULTS_DOMAINS_COMMAND \
       OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
       OVATION_REPO_ROOT \
@@ -68,7 +69,7 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 222
+harness_begin "test runner lock tests" 236
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -115,9 +116,16 @@ DOMAINS_LISTER="cat '$DOMAINS'"
 # there unless a case overrides them. Left unset, every case would run the real
 # xcodebuild to ask its version and read the real pin, which is this machine's
 # answer to a question no case but the Xcode ones is asking (L284).
+#
+# OVATION_XCODE_NOTICE_STATE IS ONE OF THEM (ovation#320), and it is the seam this
+# suite would most damage by leaving real: the runner REMEMBERS there which pair
+# of versions it last explained, and its default is Dan's own machine state. A
+# case that did not set it would suppress the explanation on his next real run,
+# and every case here would be judged against whatever his last run left behind.
 run_runner() {
     OVATION_XCODEBUILD="${XCODEBUILD_OVERRIDE:-$WORK/no-xcodebuild-given}" \
     OVATION_XCODE_VERSION_FILE="${XCODE_PIN_OVERRIDE:-$WORK/no-xcode-pin-given}" \
+    OVATION_XCODE_NOTICE_STATE="${XCODE_NOTICE_STATE_OVERRIDE:-$WORK/shared-notice-state}" \
     OVATION_DEFAULTS_DOMAINS_COMMAND="${DOMAINS_OVERRIDE:-$DOMAINS_LISTER}" \
     OVATION_DIR_LOCK="$DIR_LOCK" \
     OVATION_FILE_LOCK="$FILE_LOCK" \
@@ -1669,6 +1677,99 @@ check "a missing pin names the pin file it could not read" \
 OUT_XSKIP="$(OVATION_SKIP_XCODE_PHASE=1 run_with_xcode "$WORK/xcodebuild-older")"
 check "a run that skips the Xcode phase makes no claim about Xcode" \
     "$(printf '%s' "$OUT_XSKIP" | grep -c 'Xcode 26')" "0"
+
+# ---------------------------------------------------------------------------
+# THE EXPLANATION IS SAID ONCE PER PAIR, THE PAIR ITSELF EVERY RUN (ovation#320).
+#
+# Xcode updated itself on Dan's Mac to 27.0 and the pinned 26.6 is no longer
+# installed, and the runner image CI builds on does not offer 27.0 at all:
+# measured 2026-09-16, macos-26 carries 26.0.1 up to 26.6 and nothing newer. So
+# the mismatch is not a state anybody can leave in an afternoon, and the three
+# line note above printed on EVERY build run for as long as it lasts, which is
+# the note people stop reading (L36).
+#
+# SILENCE MUST NEVER COME TO MEAN THE BAD STATE, so the pair of versions is still
+# named on every run, on one line. What is said once is the PARAGRAPH explaining
+# what the difference costs. Once per PAIR, not once ever: the stamp is keyed on
+# both versions, because a message naming two things and deduplicated on one goes
+# stale silently (L641).
+#
+# EVERY CASE SETS ITS OWN STATE FILE. Sharing one would make each case's verdict
+# depend on which ran before it.
+# ---------------------------------------------------------------------------
+run_with_state() {
+    # run_with_state <state file> <xcodebuild> [pin file]
+    local XCODE_NOTICE_STATE_OVERRIDE="$1"
+    shift
+    run_with_xcode "$@"
+}
+explains() { mentions "$1" "does not show CI"; }
+
+# 1. FIRST TIME: the pair and the explanation.
+ST_FRESH="$WORK/state-fresh"
+OUT_X1="$(run_with_state "$ST_FRESH" "$WORK/xcodebuild-older")"
+check "the first run on a new pair names both versions" \
+    "$(printf '%s' "$OUT_X1" | grep -c 'Xcode 26.4.1.*Xcode 26.6')" "1"
+check "and explains what the difference costs" "$(explains "$OUT_X1")" "yes"
+
+# 2. AGAIN, UNCHANGED: the pair, and no paragraph.
+OUT_X2="$(run_with_state "$ST_FRESH" "$WORK/xcodebuild-older")"; ST_X2=$?
+check "a second run on the same pair still names both versions" \
+    "$(printf '%s' "$OUT_X2" | grep -c 'Xcode 26.4.1.*Xcode 26.6')" "1"
+check "and does not repeat the explanation" "$(explains "$OUT_X2")" "no"
+check "and the quietened run is still not refused" "$ST_X2" "0"
+
+# 3. THIS MAC'S XCODE MOVES: the pair changed, so it is explained again.
+xcodebuild_reporting "$WORK/xcodebuild-newer" "27.0"
+OUT_X3="$(run_with_state "$ST_FRESH" "$WORK/xcodebuild-newer")"
+check "a run after this Mac's Xcode moves explains the new pair" \
+    "$(explains "$OUT_X3")" "yes"
+check "and names the version this Mac now builds with" \
+    "$(printf '%s' "$OUT_X3" | grep -c 'Xcode 27.0.*Xcode 26.6')" "1"
+
+# 4. THE PIN MOVES: the other half of the pair, which a stamp keyed on one
+#    version alone would miss entirely (L641).
+printf '26.5\n' > "$WORK/moved-pin"
+OUT_X4="$(run_with_state "$ST_FRESH" "$WORK/xcodebuild-newer" "$WORK/moved-pin")"
+check "a run after the pin moves explains the new pair" "$(explains "$OUT_X4")" "yes"
+
+# 5. THROUGH A MATCHING RUN AND BACK. The pair in between was a different pair,
+#    so the mismatch is a change again and is explained again. A stamp written
+#    only on mismatches would stay silent here.
+ST_ROUND="$WORK/state-round"
+run_with_state "$ST_ROUND" "$WORK/xcodebuild-older" >/dev/null
+run_with_state "$ST_ROUND" "$WORK/xcodebuild-same" >/dev/null
+OUT_X5="$(run_with_state "$ST_ROUND" "$WORK/xcodebuild-older")"
+check "a mismatch returning after a matching run is explained again" \
+    "$(explains "$OUT_X5")" "yes"
+
+# 6. A FAILURE TO MEASURE IS NEVER QUIETENED. It is rare, and it is the state
+#    where nothing is known, which must not come to look like the healthy day
+#    (L98, L11). Both of its causes speak on every run, not once.
+ST_NONE="$WORK/state-none"
+run_with_state "$ST_NONE" "$WORK/no-such-xcodebuild" >/dev/null
+OUT_X6="$(run_with_state "$ST_NONE" "$WORK/no-such-xcodebuild")"
+check "an unreadable Xcode version is reported on every run, not once" \
+    "$(mentions "$OUT_X6" "could not tell which Xcode")" "yes"
+ST_NOPIN="$WORK/state-nopin"
+run_with_state "$ST_NOPIN" "$WORK/xcodebuild-same" "$WORK/no-such-pin" >/dev/null
+OUT_X7="$(run_with_state "$ST_NOPIN" "$WORK/xcodebuild-same" "$WORK/no-such-pin")"
+check "an unreadable pin is reported on every run, not once" \
+    "$(mentions "$OUT_X7" "$WORK/no-such-pin")" "yes"
+
+# 7. THE STATE FILE IS THE RUNNER'S OWN, and a run that cannot measure must not
+#    write one: a stamp written from a reading that failed would suppress the
+#    explanation of a pair nobody ever saw.
+check "a run that could not measure leaves no stamp behind" \
+    "$([ -e "$ST_NONE" ] && echo stamped || echo nothing)" "nothing"
+
+# 8. AN UNWRITABLE STATE DIRECTORY MUST NOT FAIL THE RUN, and must not silence
+#    the explanation either: a note that cannot be remembered is said every time,
+#    which is the old behaviour and the safe direction (L93).
+OUT_X8="$(run_with_state "$WORK/no-such-dir/deep/state" "$WORK/xcodebuild-older")"; ST_X8=$?
+check "a stamp that cannot be written does not fail the run" "$ST_X8" "0"
+check "and the explanation is given rather than silently dropped" \
+    "$(explains "$OUT_X8")" "yes"
 
 
 # ---------------------------------------------------------------------------

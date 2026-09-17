@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 102
+harness_begin "output privacy tests" 108
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -949,6 +949,56 @@ check "the Xcode selector prints no identity, even from a pin somebody edited" \
     "$(leaks_in "$XSEL_OUT")" "clean"
 check "and it really did refuse the pin, so the case reached the line that quotes one" \
     "$(printf '%s' "$XSEL_OUT" | grep -c 'CANNOT MEASURE')" "1"
+
+# ---------------------------------------------------------------------------
+# THE RUNNER XCODE WATCHER (ovation#320). It reads three things it did not write
+# and prints about all three: the pin, the CI workflow, and a manifest fetched
+# from GitHub. It runs only in a workflow, so its log is published, which is why
+# it is covered here rather than because any one path looked risky (L129).
+#
+# ALL THREE ARE DRIVEN, because covering whichever seemed likeliest is how the
+# other two come to have no reviewer at all. Each case also asserts its branch was
+# REACHED, since a refusal earlier than the line that prints would leave this
+# passing while covering nothing (L159).
+# ---------------------------------------------------------------------------
+RX_PIN="$WORK/runner-xcode-pin"
+printf '%s at %s\n' "$CLIENT" "$VENUE" > "$RX_PIN"
+RX_FETCH="$WORK/runner-xcode-fetch"
+printf '#!/bin/bash\nprintf "### Xcode\\n| Version | Build |\\n| 26.6 (default) | %s at %s |\\n"\n' \
+    "$CLIENT" "$VENUE" > "$RX_FETCH"
+chmod +x "$RX_FETCH"
+RX_WF_ONE="$WORK/runner-xcode-ci.yml"
+printf '# CI for %s at %s\njobs:\n  mac:\n    runs-on: macos-26\n' "$CLIENT" "$VENUE" > "$RX_WF_ONE"
+RX_WF_TWO="$WORK/runner-xcode-ci-two.yml"
+printf '# CI for %s at %s\njobs:\n  a:\n    runs-on: macos-26\n  b:\n    runs-on: macos-15\n' \
+    "$CLIENT" "$VENUE" > "$RX_WF_TWO"
+RX_GOOD_PIN="$WORK/runner-xcode-good-pin"
+printf '26.6\n' > "$RX_GOOD_PIN"
+
+RX_PIN_OUT="$(OVATION_XCODE_VERSION_FILE="$RX_PIN" OVATION_CI_WORKFLOW="$RX_WF_ONE" \
+    OVATION_RUNNER_MANIFEST_COMMAND="$RX_FETCH" ./scripts/check-runner-xcode.sh 2>&1)"
+check "the runner Xcode watcher prints no identity from a pin somebody edited" \
+    "$(leaks_in "$RX_PIN_OUT")" "clean"
+check "and it really did refuse that pin, so the case reached the line about one" \
+    "$(printf '%s' "$RX_PIN_OUT" | grep -c 'CANNOT MEASURE')" "1"
+
+# THE MANIFEST IS THE ONE IT DOES NOT CONTROL AT ALL. A build column carrying a
+# sentence is what a changed upstream format looks like, and the versions it
+# reads back are the only part of that document it may repeat.
+RX_MAN_OUT="$(OVATION_XCODE_VERSION_FILE="$RX_GOOD_PIN" OVATION_CI_WORKFLOW="$RX_WF_ONE" \
+    OVATION_RUNNER_MANIFEST_COMMAND="$RX_FETCH" ./scripts/check-runner-xcode.sh 2>&1)"
+check "and it prints no identity from the manifest it fetched" \
+    "$(leaks_in "$RX_MAN_OUT")" "clean"
+check "and it really did read that manifest, so the case reached the lines that list it" \
+    "$(printf '%s' "$RX_MAN_OUT" | grep -c 'is the newest')" "1"
+
+# AND THE WORKFLOW, whose refusal prints back the runner names it found there.
+RX_WF_OUT="$(OVATION_XCODE_VERSION_FILE="$RX_GOOD_PIN" OVATION_CI_WORKFLOW="$RX_WF_TWO" \
+    OVATION_RUNNER_MANIFEST_COMMAND="$RX_FETCH" ./scripts/check-runner-xcode.sh 2>&1)"
+check "and it prints no identity from the workflow it read" \
+    "$(leaks_in "$RX_WF_OUT")" "clean"
+check "and it really did refuse over the two runners, so the case reached that list" \
+    "$(printf '%s' "$RX_WF_OUT" | grep -c 'REFUSED')" "1"
 
 # ---------------------------------------------------------------------------
 # THE XCODE PROJECT CURRENCY CHECK (ovation#206). It prints file paths and

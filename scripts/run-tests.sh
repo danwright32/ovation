@@ -485,10 +485,48 @@ else
   # learn to skip (L378). It sits here, inside the phase that builds, because a
   # shell only run compiles nothing and a note about a compiler there would be
   # one every Linux log carried and nobody read (L36).
+  #
+  # THE PAIR IS NAMED EVERY RUN, THE EXPLANATION SAID ONCE PER PAIR (ovation#320).
+  # The mismatch became a state that lasts months rather than an afternoon: Xcode
+  # updated itself here to 27.0, and macos-26, the image CI builds on, offers
+  # 26.0.1 up to 26.6 and nothing newer (measured 2026-09-16), so there is no
+  # version both sides can hold. A three line note on every build run is the note
+  # people stop reading (L36). What is dropped is the PARAGRAPH; the versions
+  # themselves stay on every run, because silence must never come to mean the bad
+  # state, which is the same reason the matching case speaks at all.
+  #
+  # THE STAMP IS KEYED ON BOTH VERSIONS, not on the fact that they differ. A
+  # message naming two things and deduplicated on one of them goes stale without
+  # a symptom (L641): either half moving is a new pair and is explained again.
+  # It is written on every measured run, matching or not, so that a mismatch
+  # returning after a matching run is a change and is explained.
+  #
+  # IT IS A CACHE, and lives in one on purpose. Losing it costs one repeated
+  # paragraph, it is not Dan's data and must not sit in the directory that holds
+  # it, and a machine that has never run this is indistinguishable from one whose
+  # cache was cleared, which is the harmless direction.
   # shellcheck source=lib/xcode-pin.sh
   . "${REPO_ROOT}/scripts/lib/xcode-pin.sh"
   XCODE_PIN_FILE="${OVATION_XCODE_VERSION_FILE:-${REPO_ROOT}/.xcode-version}"
   XCODEBUILD_FOR_VERSION="${OVATION_XCODEBUILD:-xcodebuild}"
+  XCODE_NOTICE_STATE="${OVATION_XCODE_NOTICE_STATE:-${HOME}/Library/Caches/Ovation/xcode-notice-state}"
+
+  # ALREADY EXPLAINED <pair>: true when this machine was last told about exactly
+  # this pair. An unreadable or absent stamp answers false, which repeats the
+  # paragraph rather than dropping it: of the two ways to be wrong, saying it
+  # twice is the one that loses nothing (L93).
+  xcode_pair_already_explained() {
+    [ -f "${XCODE_NOTICE_STATE}" ] || return 1
+    [ "$(head -n 1 "${XCODE_NOTICE_STATE}" 2>/dev/null)" = "$1" ] || return 1
+  }
+  # REMEMBERING IS BEST EFFORT AND NEVER THE VERDICT. A read only home directory
+  # must not fail a test run, and the failure is not silent: not remembering is
+  # exactly the old behaviour, so the next run explains again.
+  xcode_remember_pair() {
+    mkdir -p "$(dirname "${XCODE_NOTICE_STATE}")" 2>/dev/null \
+      && printf '%s\n' "$1" > "${XCODE_NOTICE_STATE}" 2>/dev/null || true
+  }
+
   if ! CI_XCODE="$(xcode_pin_read "${XCODE_PIN_FILE}")"; then
     echo "==> NOTE: could not read the Xcode CI builds with from ${XCODE_PIN_FILE}"
     echo "    (it should hold one version number, like 26.6), so this Mac's Xcode was"
@@ -498,10 +536,17 @@ else
     echo "    compared with Xcode ${CI_XCODE}, the version CI builds with. The run continues."
   elif [ "${LOCAL_XCODE}" = "${CI_XCODE}" ]; then
     echo "==> Building with Xcode ${LOCAL_XCODE}, the version CI builds with (.xcode-version)."
+    xcode_remember_pair "${LOCAL_XCODE}|${CI_XCODE}"
   else
     echo "==> NOTE: this Mac builds with Xcode ${LOCAL_XCODE} and CI builds with Xcode ${CI_XCODE} (.xcode-version)."
-    echo "    A green run here does not show CI's compiler will agree, so a push can"
-    echo "    pass this gate and still fail to build in CI (ovation#270). The run continues."
+    if ! xcode_pair_already_explained "${LOCAL_XCODE}|${CI_XCODE}"; then
+      echo "    A green run here does not show CI's compiler will agree, so a push can"
+      echo "    pass this gate and still fail to build in CI (ovation#270). The run continues."
+      echo "    Said once for this pair of versions. It is said again whenever either"
+      echo "    moves, and scripts/check-runner-xcode.sh watches for the day CI's image"
+      echo "    can hold the version this Mac has."
+    fi
+    xcode_remember_pair "${LOCAL_XCODE}|${CI_XCODE}"
   fi
 
   # THE TWO COMMANDS THAT JUDGE AND REPAIR THE PROJECT, in one place each, so the
