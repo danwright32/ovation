@@ -200,6 +200,15 @@ gate_check check-problem-kinds-raised.sh "a problem kind is resolved in the app 
 # construct names only.
 gate_check check-motion-owner.sh "an animation is written outside the file that owns motion."
 
+# ovation#319, PRD 9 and 41a. The three sentences at the foot of an invoice go to
+# clients under Dan's name, and they now come from Settings. A page built from
+# `InvoiceFooter.fixed` instead renders perfectly, says something plausible, and
+# silently ignores everything he typed, while the settings pane goes on showing his
+# text: there is nothing in the output to notice it by, which is why it is caught
+# here rather than by somebody re-reading an invoice already sent (L98, L144).
+# Fast: one grep per Swift file under Ovation/.
+gate_check check-invoice-footer-source.sh "the invoice page is built from the shipped footer text rather than from Settings."
+
 # ovation#119. `OvationMigrationPlan.stages` is empty and `schemas` names one
 # version. Both are correct today and exactly one of them is silently wrong the
 # moment a second version is added, because SwiftData does not refuse a missing

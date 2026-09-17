@@ -58,7 +58,7 @@ struct ReviewSheetShotTests {
             let sheet = ReviewSheet(presenter: presenter, page: page, close: {})
                 .environment(\.colorScheme, shot.scheme)
             let url = directory.appending(path: shot.fileName)
-            try Self.capture(sheet, size: shot.size, scheme: shot.scheme, to: url)
+            try OffscreenShot.capture(sheet, size: shot.size, scheme: shot.scheme, to: url)
             written.append(shot.fileName)
         }
 
@@ -110,57 +110,4 @@ struct ReviewSheetShotTests {
         ]
     }
 
-    /// Hosts a view in an offscreen window and writes what it drew.
-    ///
-    /// NEVER ORDERED FRONT. A capture that stole the front window would interrupt
-    /// whatever Dan is doing, and this runs inside an ordinary test run.
-    private static func capture(_ view: some View, size: CGSize, scheme: ColorScheme,
-                                to url: URL) throws {
-        // THE SHEET AT ITS OWN SIZE, over a window sized backdrop, because that is
-        // how it appears: hosting it as the whole content stretched it to the window
-        // and measured the host rather than the sheet (L472).
-        let framed = ZStack {
-            Color(nsColor: .windowBackgroundColor)
-            view
-        }
-        .frame(width: size.width, height: size.height)
-
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
-                              styleMask: [.titled, .closable],
-                              backing: .buffered, defer: false)
-        // THE THEME IS THE WINDOW'S, not only the SwiftUI environment's: the
-        // materials and the standard control colours come from the window's
-        // appearance, so asking for light while the Mac is dark produced dark
-        // chrome with light text over it (measured 2026-09-16).
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.contentView = NSHostingView(rootView: framed)
-
-        // ON SCREEN, AND NOWHERE ANYBODY CAN SEE IT. A window that was never ordered
-        // in does not draw its layer backed subviews, which is why the page came out
-        // empty; ordering it BACK at a position far outside every display makes it
-        // draw without taking the front window from whatever Dan is doing.
-        window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
-        window.orderBack(nil)
-        window.layoutIfNeeded()
-        window.displayIfNeeded()
-        // One pass of the run loop, so PDFKit finishes laying the page out. It is a
-        // wait on the run loop rather than on the clock.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-        defer { window.close() }
-
-        guard let content = window.contentView,
-              let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
-            throw ShotFailure.nothingToDraw
-        }
-        content.cacheDisplay(in: content.bounds, to: bitmap)
-        guard let data = bitmap.representation(using: .png, properties: [:]) else {
-            throw ShotFailure.couldNotEncode
-        }
-        try data.write(to: url)
-    }
-
-    private enum ShotFailure: Error {
-        case nothingToDraw
-        case couldNotEncode
-    }
 }

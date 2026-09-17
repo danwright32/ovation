@@ -272,6 +272,12 @@ targets:
     platform: macOS
     sources:
       - path: OvationHostedTests
+      # SHARED WITH THE PURE SUITE, not copied (ovation#319). Both targets need a
+      # settings store a test can write to and leave nothing behind, and a second
+      # implementation of that rule is how two suites come to disagree about what
+      # isolation means (L370, L613). Only the helper is shared; its own tests stay
+      # in OvationTests, so they run once rather than twice.
+      - path: OvationTests/ThrowawayDefaults.swift
     dependencies:
       - target: Ovation
       - package: ViewInspector

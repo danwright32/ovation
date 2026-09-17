@@ -30,6 +30,14 @@ struct SettingsView: View {
     /// from the input that feeds it (L14).
     var makeRestore: () -> RestorePresenter? = { nil }
 
+    /// Where the invoice footer is stored (ovation#319).
+    ///
+    /// PASSED IN, NOT BUILT HERE, and with no default resolving to `.standard`: a
+    /// component that constructs its own dependency is beyond every refusal that
+    /// dependency could offer (L196), and this one WRITES, so a rendered pane in a
+    /// test would otherwise overwrite Dan's real footer (L201).
+    var invoiceFooter: InvoiceFooterSetting
+
     /// What the last press said, kept so an action SAYS it happened rather than
     /// leaving the pane looking unchanged (L608, L12).
     @State private var lastOutcome: String?
@@ -59,6 +67,10 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
+            // INVOICES FIRST. It is what Dan opens Settings to change, while the
+            // backups pane is where he goes once, to choose a folder (L609).
+            InvoiceSettingsPane(setting: invoiceFooter)
+                .tabItem { Label("Invoices", systemImage: "doc.text") }
             backupsPane
                 .tabItem { Label("Backups", systemImage: "externaldrive") }
         }

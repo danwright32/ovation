@@ -446,7 +446,8 @@ struct OvationApp: App {
             // folder does, and on the launch where Dan first chooses one there
             // was none when this window was made (ovation#247).
             SettingsView(backups: backupSettings,
-                         makeRestore: { Self.restorePresenter(for: store) })
+                         makeRestore: { Self.restorePresenter(for: store) },
+                         invoiceFooter: InvoiceFooterSetting(defaults: .standard))
         }
         // ovation#162. THE CONTROL THE STALENESS NOTICE NAMES. Until this existed
         // `YearEndExport.run` was called by nothing, so that notice named a
