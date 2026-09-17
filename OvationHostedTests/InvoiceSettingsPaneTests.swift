@@ -22,6 +22,7 @@
 // EVERY CASE USES A THROWAWAY DEFAULTS SUITE, named by an absolute path in a
 // temporary folder, so nothing here can read or write Dan's real footer. This pane
 // WRITES, so the seam matters on the way out as much as the way in (L201).
+import AppKit
 import SwiftUI
 import Testing
 import ViewInspector
@@ -93,5 +94,44 @@ struct InvoiceSettingsPaneTests {
         #expect(throws: Never.self) {
             try view.inspect().find(text: "Backups")
         }
+    }
+}
+
+/// Whether the Settings window is tall enough to show the whole invoices pane.
+///
+/// ovation#391, Dan on 2026-09-17: "no real reason for me to have to scroll."
+///
+/// IT MEASURES THE PANE RATHER THAN PINNING A NUMBER SOMEBODY LIKED. A test
+/// asserting the height equals 640 would pass for ever while the pane grew past it,
+/// which is the whole failure: a field added later is exactly when the window
+/// silently starts scrolling again, and nobody re-measures on the day that happens
+/// (L63, L41). So the pane is asked how tall it wants to be, and the window is held
+/// to at least that.
+///
+/// AT THE TALLEST STATE IT HAS. All three boxes empty is not a curiosity: two of
+/// them then carry a warning line the filled pane does not, so it is the state that
+/// needs the most room, and it is what a fresh Mac shows (L101).
+@MainActor
+struct SettingsWindowSizeTests {
+
+    @Test("the window is tall enough for the whole invoices pane, at its tallest")
+    func theWindowFitsTheTallestPane() throws {
+        let tallest = InvoiceFooter(payment: "", note: "", contact: "")
+        let pane = InvoiceSettingsView(footer: .constant(tallest))
+
+        // THE CONTENT, NOT THE SCROLL VIEW AROUND IT. A ScrollView answers this
+        // question with whatever height it was given, because scrolling is what it
+        // does, so measuring the pane itself would measure the window.
+        let host = NSHostingView(rootView: pane.fields.frame(width: SettingsView.minimumWidth))
+        host.layoutSubtreeIfNeeded()
+        let needed = host.fittingSize.height
+
+        #expect(needed > 0, "the pane reported no height at all, so nothing was measured")
+        #expect(SettingsView.minimumHeight >= needed + SettingsView.chromeAllowance,
+                """
+                the Settings window's minimum height is \(SettingsView.minimumHeight), \
+                and the invoices pane needs \(needed) plus \
+                \(SettingsView.chromeAllowance) of chrome. It would open scrolling.
+                """)
     }
 }
