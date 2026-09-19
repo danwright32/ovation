@@ -2258,7 +2258,7 @@ function buildInvoice() {
        was on the page nowhere. `durationBetween` has returned `atMinimum` since
        it was written and nothing had ever read it (L46). */
     der.append(el("span", null, elapsedText(d.minutes) + ", billed as "),
-               el("b", null, d.billedHours.toFixed(2)),
+               el("b", null, writtenHours(d.billedHours)),
                el("span", null, d.atMinimum ? " hours, the one hour minimum"
                                             : " hours, rounded to the nearest quarter"));
   } else if (waiting && waiting.says) {
@@ -2303,7 +2303,7 @@ function buildInvoice() {
      arithmetic. Caught by reading the rendered rows back, not by looking. */
   else amt.textContent = money(hours * RATE);
   row.append(el("div", "ldesc", "Concert photography"),
-             el("div", "fig" + (hours === null ? " pending" : ""), hours === null ? "" : hours.toFixed(2)),
+             el("div", "fig" + (hours === null ? " pending" : ""), hours === null ? "" : writtenHours(hours)),
              el("div", "fig", "250.00"), amt);
   lines.append(lhd, row);
   EXTRA.forEach(function (x) { lines.append(extraRow(x)); });
@@ -2575,7 +2575,7 @@ function discountEdit() {
 }
 
 function redraw(after) {
-  document.getElementById("stage").replaceChildren(buildScreen());
+  document.getElementById("stage").replaceChildren(buildInvoiceScreen());
   if (after) after();
 }
 
@@ -2648,7 +2648,35 @@ function buildMenu() {
   return menu;
 }
 
-function buildScreen() {
+/* HOW THIS SCREEN SPELLS A DURATION (Dan, 2026-09-19, ovation#322, PRD 51k).
+
+   THE SAME NUMBER AS THE PDF: one decimal unless the quarter hour needs two, so
+   1.5 and 1.25 rather than 1.50 and 1.25. It was `toFixed(2)` written out twice,
+   in the line's Hours cell and again in the sentence under the times, while the
+   PDF the client receives wrote the same duration as `1.5 hrs`
+   (docs/design/rules/pdf-text.js, PRD 50c). Dan reads the screen and then the PDF
+   of one invoice one after the other, and one fact in two spellings reads as two
+   different numbers, which a unit or a qualifier cannot separate (L118).
+
+   THE UNIT IS NOT REPEATED ON THE ROW. Chosen over the PDF's spelling entire,
+   `1.5 hrs`, with all three drawn: the column is already headed Hours, so the
+   unit on every row would be the same fact twice on one surface (L605). The PDF
+   keeps its unit because a client reads one line without a column header above
+   it in the same way.
+
+   ONE PLACE, because it is written in two and was drifting already. */
+function writtenHours(h) {
+  var hundredths = Math.round(h * 100);
+  return hundredths % 10 === 0 ? h.toFixed(1) : h.toFixed(2);
+}
+
+/* NAMED FOR THIS SCREEN RATHER THAN `buildScreen` (ovation#322). A design round
+   lifts this file into a harness that appends a `buildScreen(variant)` of its
+   own, and `scripts/lift-design-harness.sh` refuses rather than silently
+   replacing a definition of that name, so a file calling its own builder
+   `buildScreen` cannot have a round run on it at all. The invoice list's is
+   `windowFor`, which is why that one lifts. */
+function buildInvoiceScreen() {
   var screen = el("div", "screen");
   var bar = el("div", "menubar");
   bar.append(el("span", "apple"), el("span", "app-name", "Ovation"));
