@@ -19,6 +19,15 @@ import SwiftUI
 
 struct InvoiceSettingsView: View {
 
+    /// What an empty required box stops, in one place.
+    ///
+    /// ONE SENTENCE, TWO PLACES TO SAY IT (ovation#388). It is drawn beside the box
+    /// and it travels with the box as part of what the control announces, and those
+    /// are two renderings of one fact rather than two facts (L605). Written twice it
+    /// would drift, and the drift would be invisible because only one of the two is
+    /// ever on screen.
+    static let blockingSentence = "No invoice can be sent while this is empty."
+
     @Binding var footer: InvoiceFooter
 
     var body: some View {
@@ -73,8 +82,16 @@ struct InvoiceSettingsView: View {
     private func field(_ title: String, help: String,
                        text: Binding<String>, blocking: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            // A HEADING, AND SAID TO BE ONE, so the pane can be moved through by
+            // heading as well as by control.
             Text(title).font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            // HIDDEN FROM THE CONTROL TREE BECAUSE THE BOX NOW CARRIES IT. Left
+            // visible it is announced a second time, once as a loose sentence and
+            // once as the box's hint, which is one fact said twice on one surface
+            // (L605). The sighted reader still has it: this hides nothing on screen.
             Text(help).font(.caption).foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             TextEditor(text: text)
                 .font(.body)
                 .frame(minHeight: 58)
@@ -86,17 +103,46 @@ struct InvoiceSettingsView: View {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(blocking ? Color.orange : Color(nsColor: .separatorColor)))
                 .scrollContentBackground(.hidden)
+                // THE THREE BOXES ARE OTHERWISE ANONYMOUS (ovation#388). The heading
+                // and the hint were SIBLINGS of the box, so nothing tied them to it,
+                // and somebody navigating by control alone reached three unlabelled
+                // text areas on the screen where the words that go out under Dan's
+                // name are written (L20).
+                .accessibilityLabel(title)
+                .accessibilityHint(Self.hint(help, blocking: blocking))
             if blocking {
                 // SAYS WHAT IS STOPPED, not that the box is empty, which the reader
                 // can already see (L604). The consequence is the fact they do not
                 // have. The colour is not the only carrier of it: the sentence says
                 // the same thing (L149).
-                Label("No invoice can be sent while this is empty.",
+                //
+                // AND IT NAMES ITS FIELD WHERE IT IS ANNOUNCED. Met linearly rather
+                // than through the box, "No invoice can be sent while this is empty"
+                // has no antecedent: "this" is on screen for a sighted reader and
+                // nowhere for anybody else, so the message carries what it is about
+                // (L80, L287).
+                Label(Self.blockingSentence,
                       systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(title): \(Self.blockingSentence)")
             }
         }
+    }
+
+    /// What the box says about itself once it has been reached.
+    ///
+    /// THE CONSEQUENCE TRAVELS WITH THE CONTROL. The orange outline and the warning
+    /// line are both BESIDE the box, so a person who lands on it by keyboard has
+    /// neither, and a control that cannot say why it matters leaves pressing on as
+    /// the only way to find out (L109).
+    ///
+    /// IT IS BUILT FROM `blocking`, the same value the outline and the warning are
+    /// drawn from, rather than from a second emptiness test, so the box cannot
+    /// announce one thing while the pane draws another (L70).
+    static func hint(_ help: String, blocking: Bool) -> String {
+        blocking ? "\(help) \(blockingSentence)" : help
     }
 }
 
