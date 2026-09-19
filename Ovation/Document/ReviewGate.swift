@@ -53,8 +53,15 @@ enum ReviewGate {
     /// DERIVED FROM THE VOCABULARY, never a second list: a refusal added to
     /// `InvoiceRefusal` and not placed here is caught by the suite rather than
     /// silently ranked last (L41, L96).
+    ///
+    /// THE DURATION COMES BEFORE THE TAX STATUS, which is the design's own order
+    /// rather than a fresh judgement: `waiting.js` asks the times, then the duration
+    /// they produce, then the tax status. Dan's argument for a fixed order, given
+    /// while it was settled: "what happens if I set the tax status before the hours?
+    /// That line just disappears and nothing takes its place."
     static let order: [InvoiceRefusal] = [
         .paymentInstructionsNotSet, .contactDetailsNotSet,
+        .durationLongerThanAShoot,
         .taxStatusNeverRecorded, .discountExceedsSubtotal, .totalBelowZero,
     ]
 
@@ -80,6 +87,13 @@ enum ReviewGate {
         // cause sends somebody to change a number that changes nothing (L111).
         case .totalBelowZero:
             return "The credit is larger than everything charged, so this invoice comes to less than nothing."
+        // THE DESIGN'S OWN SENTENCE, `waiting.js`, word for word, and the number in
+        // it comes from the rule rather than from a second copy typed here (L370).
+        // PRD 51c: it says the times cannot be right rather than asking for times
+        // that have already been given.
+        case .durationLongerThanAShoot:
+            return "That is more than \(ShootDuration.cap.hundredths / 100) hours, "
+                + "so it prices nothing. Check the times."
         }
     }
 }

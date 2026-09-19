@@ -32,7 +32,7 @@ enum OvationSchema {
         ReferralLedgerEntry.self,
     ]
 
-    static var schema: Schema { Schema(models, version: OvationSchemaV2.versionIdentifier) }
+    static var schema: Schema { Schema(models, version: OvationSchemaV3.versionIdentifier) }
 
     /// Today's shape, with a NAME (ovation#105).
     ///
@@ -46,7 +46,7 @@ enum OvationSchema {
     ///
     /// It delegates to `models` rather than repeating the list, so the two
     /// cannot drift into disagreement about what the store holds (L41).
-    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV2.self }
+    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV3.self }
 
     /// A container over a store file, or an in memory one for tests.
     ///
@@ -130,23 +130,15 @@ enum OvationSchemaV1: VersionedSchema {
 }
 
 /// Version 2: version 1 without the invoice's own `noteToClient` (ovation#382).
+/// Superseded by version 3 on 2026-09-19 (ovation#43) and kept as history.
 ///
-/// THE ONE DIFFERENCE IS A REMOVED OPTIONAL FIELD, which is why the stage below
-/// can be lightweight. Dan's decision on 2026-09-19: there is no per invoice note,
-/// only the standing one ovation#319 put in Settings, and the field was stored and
-/// read by nothing while sharing a name with it (L46, L263).
+/// THE ONE DIFFERENCE FROM VERSION 1 IS A REMOVED OPTIONAL FIELD, which is why
+/// its stage is lightweight. Dan's decision on 2026-09-19: there is no per invoice
+/// note, only the standing one ovation#319 put in Settings, and the field was
+/// stored and read by nothing while sharing a name with it (L46, L263).
 ///
-/// ITS TYPES ARE THE APP'S OWN, in `Ovation/Domain`, declared in extensions of
-/// THIS version with a `typealias` in each file pointing the bare name here. That
-/// is what makes "the shape in force" and "version 2" one thing rather than two
-/// that can drift, and it is why version 1's copy had to be taken out into a file
-/// of its own the day this version existed.
-///
-/// WHAT THE NEXT VERSION COSTS, said here so it is not rediscovered. Version 3
-/// means taking a frozen copy of these ten classes the way
-/// `OvationSchemaV1Shape.swift` holds version 1's, because a version cannot reuse
-/// another's types for anything it is related to. That is measured rather than
-/// assumed; the measurement and its error message are on `OvationSchemaV1.models`.
+/// ITS CLASSES ARE IN `OvationSchemaV2Shape.swift`, frozen, moved there the day
+/// version 3 existed for the same reason version 1's were.
 enum OvationSchemaV2: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
 
@@ -155,9 +147,59 @@ enum OvationSchemaV2: VersionedSchema {
     /// NOT `OvationSchema.models`, for the reason version 1's list records: a
     /// version that delegates describes whatever the app holds right now rather
     /// than what that version held, and `check-schema-registered.sh` refuses the
-    /// delegation by name. This one and the app's list DO agree today, because
-    /// version 2 is the shape in force, and the guard holds the NEWEST version to
-    /// the app for exactly that reason.
+    /// delegation by name.
+    static var models: [any PersistentModel.Type] { [
+        Client.self,
+        Invoice.self,
+        Shoot.self,
+        LineItem.self,
+        ServiceType.self,
+        Payment.self,
+        PaymentAllocation.self,
+        Refund.self,
+        Expense.self,
+        ReferralLedgerEntry.self,
+    ] }
+}
+
+/// Version 3: version 2 plus the two clock times Dan types after a shoot
+/// (ovation#43).
+///
+/// THE ONE DIFFERENCE IS TWO ADDED OPTIONAL FIELDS on `Shoot`, `shotFrom` and
+/// `shotUntil`, which is why the stage below can be lightweight: `SchemaMigrationTests`
+/// measures on this OS that an added optional field carries every existing row and
+/// its values forward.
+///
+/// WHY THEY HAD TO BE STORED AT ALL is PRD 3a. Downbeat derives a booking's end
+/// from its start and nothing ever goes back to correct it, so 16 of 19 committed
+/// bookings say exactly one hour while only 16% of Dan's issued invoices over 2019
+/// to 2024 were one hour. The real times are his input on the invoice, and an
+/// input that is not stored is not an input.
+///
+/// `ClockTime` IS NEW IN THIS VERSION and appears on no class in
+/// `OvationSchemaV2Shape.swift`, which is what makes the change purely additive.
+/// The value types shared by every version are the stated limitation both frozen
+/// shapes carry: a change to one of THEM changes what they describe.
+///
+/// ITS TYPES ARE THE APP'S OWN, in `Ovation/Domain`, declared in extensions of
+/// THIS version with a `typealias` in each file pointing the bare name here. That
+/// is what makes "the shape in force" and "version 3" one thing rather than two
+/// that can drift.
+///
+/// WHAT THE NEXT VERSION COSTS, said here so it is not rediscovered. Version 4
+/// means taking a frozen copy of these ten classes the way the two shape files
+/// hold versions 1 and 2, because a version cannot reuse another's types for
+/// anything it is related to. That is measured rather than assumed; the
+/// measurement and its error message are on `OvationSchemaV1.models`.
+enum OvationSchemaV3: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
+
+    /// What version 3 holds, said by version 3.
+    ///
+    /// NOT `OvationSchema.models`, for the reason version 1's list records. This
+    /// one and the app's list DO agree today, because version 3 is the shape in
+    /// force, and `check-schema-registered.sh` holds the NEWEST version to the app
+    /// for exactly that reason.
     static var models: [any PersistentModel.Type] { [
         Client.self,
         Invoice.self,
@@ -195,7 +237,9 @@ enum OvationSchemaV2: VersionedSchema {
 /// `SchemaMigrationTests`, which is the standing re-read of that behaviour on
 /// whatever OS is current (L82).
 enum OvationMigrationPlan: SchemaMigrationPlan {
-    static var schemas: [any VersionedSchema.Type] { [OvationSchemaV1.self, OvationSchemaV2.self] }
+    static var schemas: [any VersionedSchema.Type] {
+        [OvationSchemaV1.self, OvationSchemaV2.self, OvationSchemaV3.self]
+    }
 
     /// LIGHTWEIGHT, AND THAT IS A MEASUREMENT RATHER THAN A HOPE. The only
     /// difference between the two versions is a REMOVED optional field, and
@@ -205,6 +249,9 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
     /// SwiftData does not refuse those: it opens a store that looks fine and is
     /// empty.
     static var stages: [MigrationStage] {
-        [.lightweight(fromVersion: OvationSchemaV1.self, toVersion: OvationSchemaV2.self)]
+        [
+            .lightweight(fromVersion: OvationSchemaV1.self, toVersion: OvationSchemaV2.self),
+            .lightweight(fromVersion: OvationSchemaV2.self, toVersion: OvationSchemaV3.self),
+        ]
     }
 }

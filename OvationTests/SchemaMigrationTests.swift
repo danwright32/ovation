@@ -33,11 +33,12 @@ struct SchemaMigrationTests {
         // issue is p1: the name has to be in the store file before that store
         // holds anything, and it cannot be added to one already on disk.
         //
-        // IT IS 2 SINCE ovation#382, which is the first change to a shape that was
+        // IT WENT TO 2 WITH ovation#382, the first change to a shape that was
         // genuinely on disk: measured 2026-09-19, the installed store held 31
         // clients, so the window in which a field could be added or removed
-        // without a version had closed.
-        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(2, 0, 0))
+        // without a version had closed. IT IS 3 SINCE ovation#43, which added the
+        // two clock times Dan types after a shoot.
+        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(3, 0, 0))
     }
 
     @Test("the version's models are exactly the ones the store holds")
@@ -52,7 +53,7 @@ struct SchemaMigrationTests {
     @Test("the plan names every version in order, so each step is a migration")
     func thePlanNamesTheVersion() throws {
         let named = OvationMigrationPlan.schemas.map { $0.versionIdentifier }
-        #expect(named == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0)])
+        #expect(named == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0)])
     }
 
     @Test("and every consecutive pair has a stage carrying a store across it")
@@ -77,13 +78,43 @@ struct SchemaMigrationTests {
         // the names are identical by design (L70, L3).
         //
         // Compared by identity rather than by name for exactly that reason.
-        let one = Set(OvationSchemaV1.models.map(ObjectIdentifier.init))
-        let two = Set(OvationSchemaV2.models.map(ObjectIdentifier.init))
+        //
+        // ASKED OF EVERY PAIR rather than of the newest two, because a third
+        // version reusing the FIRST one's classes is the same defect and a check
+        // written for one pair would not see it (L247).
+        let versions: [(String, [any PersistentModel.Type])] = [
+            ("version 1", OvationSchemaV1.models),
+            ("version 2", OvationSchemaV2.models),
+            ("version 3", OvationSchemaV3.models),
+        ]
+        for (name, models) in versions {
+            #expect(Set(models.map(ObjectIdentifier.init)).count == models.count,
+                    "\(name) listed a class twice")
+        }
+        for (index, left) in versions.enumerated() {
+            for right in versions[(index + 1)...] {
+                #expect(Set(left.1.map(ObjectIdentifier.init))
+                    .isDisjoint(with: Set(right.1.map(ObjectIdentifier.init))),
+                        "\(left.0) and \(right.0) share a class, so one is describing the other")
+            }
+        }
+    }
 
-        #expect(one.count == OvationSchemaV1.models.count, "a version listed a class twice")
-        #expect(two.count == OvationSchemaV2.models.count, "a version listed a class twice")
-        #expect(one.isDisjoint(with: two),
-                "the two versions share at least one class, so one is describing the other")
+    /// The same statement for version 2, which is FROZEN WITHOUT the two clock
+    /// times version 3 added. It cannot be said by reading a field that is not
+    /// there, so it is said by constructing version 2's own shoot and version 3's
+    /// beside it: one answers the times and the other has no such question.
+    @Test("and version 2 is frozen without the times version 3 added")
+    func theolderVersionHasNoShotTimes() throws {
+        let frozen = OvationSchemaV2.Shoot()
+        frozen.name = "version 2 had a shoot with no typed times"
+        let current = Shoot(name: "and version 3 has both", when: nil, venue: nil)
+        current.shotFrom = ClockTime("19:30")
+
+        #expect(frozen.name.isEmpty == false)
+        #expect(current.shotFrom == ClockTime("19:30"))
+        #expect(ObjectIdentifier(OvationSchemaV2.Shoot.self) != ObjectIdentifier(Shoot.self),
+                "version 3 is using version 2's class, so the two describe one shape")
     }
 
     @Test("and version 1 still has the field version 2 dropped, which is what it is FOR")
@@ -220,6 +251,75 @@ struct SchemaMigrationTests {
         #expect(migrated.lineItems.count == 1)
         #expect(migrated.lineItems.first?.unitAmount == Money(dollars: 500))
         #expect(clients.first?.invoices.count == 1, "and the inverse resolves too")
+    }
+
+    /// ovation#43. The same drive for the step Dan's own installed store will
+    /// actually take, because version 2 is the shape that shipped before this one
+    /// and the chain above only proves the FIRST step when it starts at version 1.
+    @Test("a real version 2 store opens under version 3 with its rows and its links")
+    func therealStoreMigratesFromVersionTwo() throws {
+        let directory = URL.temporaryDirectory
+            .appending(path: "ovation-real-migration-2-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "Ovation.store")
+
+        do {
+            let schema = Schema(versionedSchema: OvationSchemaV2.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            let client = OvationSchemaV2.Client()
+            client.name = "Ashgrove Chamber Players"
+            client.taxStatus = .notExempt
+            let invoice = OvationSchemaV2.Invoice()
+            invoice.number = 1_124
+            invoice.hourlyRate = Money(dollars: 250)
+            invoice.client = client
+            let shoot = OvationSchemaV2.Shoot()
+            shoot.name = "Autumn Evensong"
+            shoot.invoice = invoice
+            let line = OvationSchemaV2.LineItem()
+            line.summary = "Photography"
+            line.hours = Hours(whole: 2)
+            line.unitAmount = Money(dollars: 250)
+            line.shoot = shoot
+            line.invoice = invoice
+            context.insert(client)
+            context.insert(invoice)
+            context.insert(shoot)
+            context.insert(line)
+            try context.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+        }
+
+        let container = try OvationSchema.container(at: url)
+        let context = ModelContext(container)
+        let invoices = try context.fetch(FetchDescriptor<Invoice>())
+
+        #expect(invoices.count == 1, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
+        let migrated = try #require(invoices.first)
+        #expect(migrated.number == 1_124)
+        #expect(migrated.client?.name == "Ashgrove Chamber Players")
+        #expect(migrated.shoots.count == 1)
+        #expect(migrated.lineItems.count == 1)
+
+        // THE NEW FIELDS ARRIVE EMPTY, which is what an added optional means, and
+        // the row carries on pricing from the hours it already had rather than
+        // dropping to nothing the moment the app is updated (ovation#43).
+        let shoot = try #require(migrated.shoots.first)
+        #expect(shoot.shotFrom == nil)
+        #expect(shoot.shotUntil == nil)
+        #expect(migrated.lineItems.first?.billedHours == Hours(whole: 2))
+        #expect(migrated.subtotal == Money(dollars: 500))
+
+        // And they can be written, which is the half a read of a migrated store
+        // cannot show on its own.
+        shoot.shotFrom = ClockTime("19:30")
+        shoot.shotUntil = ClockTime("21:00")
+        try context.save()
+        #expect(migrated.subtotal == Money(dollars: 375), "the typed times now decide it")
     }
 
     // MARK: fixtures

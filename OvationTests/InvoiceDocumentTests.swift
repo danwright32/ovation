@@ -49,6 +49,50 @@ struct InvoiceDocumentTests {
         }
     }
 
+    // MARK: the page prints the hours the times produced (ovation#43)
+
+    /// PRD 50c and 51a. The client reconstructs every figure from the page, so the
+    /// hours printed on a line have to be the ones the invoice actually charged.
+    ///
+    /// THE DESIGN'S FIXTURES CANNOT SEE THIS. They are generated from a page that
+    /// draws the finished document, so their shoots carry no typed times and their
+    /// lines carry stored hours; a renderer reading either would draw them
+    /// identically (L101, L472). This is the case where the two disagree, which is
+    /// the only place the change is visible at all.
+    @Test("the page prints the hours the shoot's typed times produced, not the line's stored ones")
+    func thepagePrintsTheDerivedHours() throws {
+        let context = try Self.store()
+        let invoice = try Self.ordinary(context)
+        let shoot = try #require(invoice.orderedShoots.first)
+        let line = try #require(invoice.orderedLineItems.first)
+        #expect(line.hours == Hours(whole: 1), "the fixture's line carries one hour")
+
+        // 19:32 to 21:10 is 1h38m, which rounds up to 1.75 hours.
+        shoot.shotFrom = ClockTime("19:32")
+        shoot.shotUntil = ClockTime("21:10")
+
+        let document = try InvoiceDocument(invoice: invoice, footer: .fixed)
+        let row = try #require(document.items.first)
+
+        #expect(row[2] == "1.75 hrs", "the hours cell")
+        #expect(row[3] == "$250.00", "the rate cell is untouched")
+        #expect(row[4] == "$437.50", "and the amount is the derived hours at that rate")
+        #expect(document.amountDue == "$476.33", "which carries through to what is owed")
+    }
+
+    /// The positive control: with no typed times the page draws exactly what it
+    /// drew before, so the case above cannot be satisfied by a renderer that has
+    /// simply stopped reading the line (L159).
+    @Test("and with no typed times it still prints the line's own hours")
+    func thepageStillPrintsStoredHoursWithoutTimes() throws {
+        let context = try Self.store()
+        let document = try InvoiceDocument(invoice: try Self.ordinary(context), footer: .fixed)
+        let row = try #require(document.items.first)
+
+        #expect(row[2] == "1.0 hr")
+        #expect(row[4] == "$250.00")
+    }
+
     // MARK: refusals, each by name (L11, L100)
 
     private static func ordinary(_ context: ModelContext) throws -> Invoice {

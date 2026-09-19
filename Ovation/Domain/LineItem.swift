@@ -13,7 +13,7 @@
 import Foundation
 import SwiftData
 
-extension OvationSchemaV2 {
+extension OvationSchemaV3 {
     @Model
     final class LineItem {
         var id: UUID = UUID()
@@ -56,10 +56,28 @@ extension OvationSchemaV2 {
             LineItem(summary: summary, hours: nil, unitAmount: amount)
         }
 
+        /// The hours this line charges for.
+        ///
+        /// THE SHOOT'S TYPED TIMES WIN WHEREVER THEY EXIST (PRD 51a, ovation#43).
+        /// Dan, 2026-09-08: the hours are derived from the shoot's real start and end
+        /// times and are never typed, because he always has both at the moment it
+        /// matters and a second way in would be a second source of truth for one
+        /// number (L544, L384). So a line whose shoot has been timed takes that
+        /// figure, and a stored one beside it cannot decide the money.
+        ///
+        /// A LINE KEEPS ITS OWN HOURS WHERE NO TIMES HAVE BEEN TYPED, which is not a
+        /// fallback dressed up as redundancy: the two arms read different sources and
+        /// answer for different populations (L326). A QuickBooks row imported under
+        /// ovation#68 carries hours and no shoot times, and the design record's own
+        /// PDF fixtures are built the same way, because they are generated from a
+        /// page that draws the finished document rather than from the screen that
+        /// prices one.
+        var billedHours: Hours? { shoot?.billedHours ?? hours }
+
         /// What this line comes to.
         var amount: Money {
-            guard let hours else { return unitAmount }
-            return Money.charge(for: hours, at: unitAmount)
+            guard let billedHours else { return unitAmount }
+            return Money.charge(for: billedHours, at: unitAmount)
         }
     }
 }
@@ -82,7 +100,7 @@ enum ServiceRole: String, CaseIterable, Codable, Hashable, Sendable {
     case ordinary = "ordinary"
 }
 
-extension OvationSchemaV2 {
+extension OvationSchemaV3 {
     @Model
     final class ServiceType {
         var id: UUID = UUID()
@@ -113,7 +131,7 @@ extension OvationSchemaV2 {
 // schema VERSION, because a version has to be able to describe a shape that
 // is no longer current. Everything outside the store speaks about the shape
 // in force, so it says the bare name and this is what points that name at the
-// version in force. When a version 2 exists, this line moves to it and every
-// call site is already correct.
-typealias LineItem = OvationSchemaV2.LineItem
-typealias ServiceType = OvationSchemaV2.ServiceType
+// version in force. When a newer version exists, this line moves to it and
+// every call site is already correct.
+typealias LineItem = OvationSchemaV3.LineItem
+typealias ServiceType = OvationSchemaV3.ServiceType

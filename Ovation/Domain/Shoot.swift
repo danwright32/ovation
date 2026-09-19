@@ -17,7 +17,7 @@
 import Foundation
 import SwiftData
 
-extension OvationSchemaV2 {
+extension OvationSchemaV3 {
     @Model
     final class Shoot {
         var id: UUID = UUID()
@@ -42,6 +42,30 @@ extension OvationSchemaV2 {
 
         var invoice: Invoice?
 
+        /// WHEN DAN ACTUALLY SHOT, typed on the invoice after the event (PRD 3a,
+        /// 51a, ovation#43).
+        ///
+        /// THESE ARE NOT `when`, AND THE DIFFERENCE IS THE WHOLE OF PRD 3a. `when`
+        /// carries the BOOKING's instants, whose end Downbeat derives from the start
+        /// and which nothing ever goes back to correct: 16 of 19 committed bookings
+        /// carry exactly 3600 seconds, while only 16% of Dan's issued invoices over
+        /// 2019 to 2024 were one hour. Pricing from `when` would have billed one hour
+        /// for every shoot he has ever done, on an invoice totalling correctly
+        /// against its own parts and reading as entirely normal on its way to a
+        /// client (L161).
+        ///
+        /// CLOCK TIMES RATHER THAN INSTANTS, because that is what the screen's field
+        /// takes and because a shoot running to 00:30 is a rule about the pair rather
+        /// than a fact the data carries (docs/design/rules/duration.js).
+        ///
+        /// TWO FIELDS RATHER THAN ONE PAIR, because a start with no end is the
+        /// ORDINARY state of a draft rather than an incomplete one. Dan, 2026-09-08:
+        /// "I plan to create drafts with no end time (although I can put the start
+        /// time in from the creation). When I go to send the invoice I will always
+        /// know the end time."
+        var shotFrom: ClockTime?
+        var shotUntil: ClockTime?
+
         init(name: String, when: ShootWhen?, venue: String?) {
             self.name = name
             self.when = when
@@ -50,6 +74,35 @@ extension OvationSchemaV2 {
 
         /// The business day this shoot was on, or nil where nothing recorded one.
         var day: BusinessDate? { when?.day }
+
+        /// What the times Dan typed come to, or nil while either is still missing.
+        ///
+        /// NIL IS "NOT YET", NEVER "NOTHING TO CHARGE". A span too long to be a shoot
+        /// comes back as `.longerThanAShoot` rather than as nil, because PRD 3b
+        /// refuses that by name and the two need opposite sentences: one asks for the
+        /// end time, the other says the times already given cannot be right (L11).
+        var duration: ShootDuration? {
+            guard let shotFrom, let shotUntil else { return nil }
+            return ShootDuration.between(shotFrom, and: shotUntil)
+        }
+
+        /// What this shoot charges for, where it charges at all.
+        var billedHours: Hours? {
+            guard case .some(.priced(let priced)) = duration else { return nil }
+            return priced.billed
+        }
+
+        /// PRD 3b. The two times given span longer than a shoot can be, so this one
+        /// prices nothing and the invoice carrying it may not go out.
+        ///
+        /// ASKED AS ITS OWN QUESTION rather than by matching the case at each call
+        /// site, because the pattern for it reaches through an optional and a copy
+        /// of that at every reader is where one of them comes to mean "no times
+        /// yet" instead (L263).
+        var isLongerThanAShoot: Bool {
+            if case .some(.longerThanAShoot) = duration { return true }
+            return false
+        }
     }
 }
 
@@ -57,6 +110,6 @@ extension OvationSchemaV2 {
 // schema VERSION, because a version has to be able to describe a shape that
 // is no longer current. Everything outside the store speaks about the shape
 // in force, so it says the bare name and this is what points that name at the
-// version in force. When a version 2 exists, this line moves to it and every
-// call site is already correct.
-typealias Shoot = OvationSchemaV2.Shoot
+// version in force. When a newer version exists, this line moves to it and
+// every call site is already correct.
+typealias Shoot = OvationSchemaV3.Shoot

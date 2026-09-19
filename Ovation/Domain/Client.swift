@@ -29,7 +29,7 @@
 import Foundation
 import SwiftData
 
-extension OvationSchemaV2 {
+extension OvationSchemaV3 {
     @Model
     final class Client {
         var id: UUID = UUID()
@@ -260,6 +260,6 @@ extension OvationSchemaV2 {
 // schema VERSION, because a version has to be able to describe a shape that
 // is no longer current. Everything outside the store speaks about the shape
 // in force, so it says the bare name and this is what points that name at the
-// version in force. When a version 2 exists, this line moves to it and every
-// call site is already correct.
-typealias Client = OvationSchemaV2.Client
+// version in force. When a newer version exists, this line moves to it and
+// every call site is already correct.
+typealias Client = OvationSchemaV3.Client
