@@ -97,6 +97,101 @@ struct InvoiceSettingsPaneTests {
     }
 }
 
+/// Whether a person using VoiceOver can tell the three boxes apart (ovation#388).
+///
+/// THE ARRANGEMENT IS WHAT WAS IN QUESTION. Each block drew a heading, a hint and a
+/// text area as SIBLINGS, so nothing tied them together: navigating by control
+/// alone reached three anonymous boxes, and this is the screen where the text that
+/// goes out to clients under Dan's name is written, so landing in the wrong one is
+/// not a harmless mistake (L20).
+///
+/// IT ASSERTS THROUGH THE CONTROL, not over the whole pane. A case asking whether
+/// the pane CONTAINS the word "Payment" is answered by the heading that was always
+/// there, and would have passed on the broken arrangement (L178).
+@MainActor
+struct InvoiceSettingsAccessibilityTests {
+
+    @Test("each box announces which field it is")
+    func eachBoxCarriesItsOwnName() throws {
+        let pane = InvoiceSettingsView(footer: .constant(.fixed))
+
+        let named = try Self.editorLabels(in: pane)
+
+        #expect(named == ["Payment instructions", "Note to the client", "Contact details"])
+    }
+
+    @Test("and the sentence under each box is what that box says about itself")
+    func thehintUnderTheBoxIsTheBoxesHint() throws {
+        // The hint is the same sentence the sighted reader has beneath the box, so
+        // the two cannot come to say different things (L118). It is read FROM the
+        // control rather than from anywhere else on the pane.
+        let pane = InvoiceSettingsView(footer: .constant(.fixed))
+
+        let hints = try Self.editorHints(in: pane)
+
+        #expect(hints[0].hasPrefix("How a client pays you."))
+        #expect(hints[1].hasPrefix("Left off the invoice when empty."))
+        #expect(hints[2].hasPrefix("However you want clients to reach you."))
+    }
+
+    @Test("a box that stops every invoice says so ON the box, not only beside it")
+    func ablockingBoxCarriesTheConsequence() throws {
+        // The orange outline and the warning line are both away from the control. A
+        // person who reaches the box by keyboard alone gets neither, so the
+        // consequence travels with the control itself (L678, L109).
+        let empty = InvoiceFooter(payment: "", note: "", contact: "")
+        let pane = InvoiceSettingsView(footer: .constant(empty))
+
+        let hints = try Self.editorHints(in: pane)
+
+        #expect(hints[0].contains(InvoiceSettingsView.blockingSentence))
+        #expect(hints[2].contains(InvoiceSettingsView.blockingSentence))
+    }
+
+    @Test("and the OPTIONAL box never says it, whatever is in it")
+    func theoptionalBoxNeverClaimsToBlockAnything() throws {
+        // The positive control. A hint built by appending the sentence to every box
+        // would pass the case above and be wrong about the one box that is
+        // genuinely optional, which is the box whose hint was already backwards
+        // before ovation#319 looked at it (L159).
+        let empty = InvoiceFooter(payment: "", note: "", contact: "")
+
+        for footer in [InvoiceFooter.fixed, empty] {
+            let hints = try Self.editorHints(in: InvoiceSettingsView(footer: .constant(footer)))
+            #expect(hints[1].contains(InvoiceSettingsView.blockingSentence) == false)
+        }
+    }
+
+    @Test("the warning beside the box names the field, so it is not a loose sentence")
+    func thewarningNamesTheFieldItIsAbout() throws {
+        // Read linearly rather than control by control, the warning is encountered
+        // on its own, and "No invoice can be sent while this is empty" has no
+        // antecedent there. It names its field so it can be acted on from where it
+        // is found (L80).
+        let empty = InvoiceFooter(payment: "", note: "", contact: "")
+        let pane = InvoiceSettingsView(footer: .constant(empty))
+
+        #expect(throws: Never.self) {
+            try pane.inspect().find(ViewType.Label.self, where: {
+                try $0.accessibilityLabel().string()
+                    == "Payment instructions: " + InvoiceSettingsView.blockingSentence
+            })
+        }
+    }
+
+    // MARK: staging
+
+    private static func editorLabels(in pane: InvoiceSettingsView) throws -> [String] {
+        try pane.inspect().findAll(ViewType.TextEditor.self)
+            .map { try $0.accessibilityLabel().string() }
+    }
+
+    private static func editorHints(in pane: InvoiceSettingsView) throws -> [String] {
+        try pane.inspect().findAll(ViewType.TextEditor.self)
+            .map { try $0.accessibilityHint().string() }
+    }
+}
+
 /// Whether the Settings window is tall enough to show the whole invoices pane.
 ///
 /// ovation#391, Dan on 2026-09-17: "no real reason for me to have to scroll."
