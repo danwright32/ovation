@@ -387,6 +387,19 @@ color: var(--faint); }
       Inventory counts are gone: a number in the chrome only ever means this many things need you.</p>
       <p>The card and any group total must be computed once and read twice, never derived separately.
       Recorded on ovation#49.</p></div>
+    <div><h3>A draft that cannot be sent</h3>
+      <p><b>It stays where its dates put it, and its action names what it is waiting on.</b> Three
+      drafts on this screen cannot go out: one with no shoot date, one with no hours recorded, and
+      one whose client has no tax status. Each says what is missing, <i>Add date</i>, <i>Add
+      hours</i>, <i>Add tax status</i>, so the reader meets one situation three times rather than
+      three kinds of row.</p>
+      <p><b>The card does not move for any of them.</b> It still reads To send 4 with all three
+      present. Its lines count things you can act on from here, and pressing the action on a blocked
+      draft does nothing. That is PRD 46a applied rather than extended, and it is now PRD 46f.</p>
+      <p>Dan, 2026-09-19 (ovation#129), with <i>Add tax status</i> and <i>Open client</i> drawn side
+      by side on the real screen. Naming the destination rather than the missing thing would make
+      one of the three read as a different kind of row, even though the tax status is a fact about
+      the client and is answered elsewhere.</p></div>
     <div><h3>The idle half</h3>
       <p><b>Disclosures, with Sent awaiting payment open.</b> The group you have money riding on stays
       visible. No "Nothing to do" label above them, because the group names already say it.</p>
@@ -427,7 +440,15 @@ color: var(--faint); }
 </div>
 
 <script>
-var GROUPS = [
+/* BUILT ON EVERY DRAW RATHER THAN ONCE AT LOAD. It was `var GROUPS = [...]`, a
+   literal evaluated when the script ran, and a design round that MOVES one of the
+   values in it then cannot: the round's harness reassigns the variable the value
+   came from, the array already holds the old string, and both options render
+   identically under a readout naming two different ones. Dan caught exactly that
+   on 2026-09-19, which is the same failure as the three widths that all drew the
+   same size (L1: an option nobody can tell apart is not an option). A function
+   is re-read every draw, so a moved value reaches the screen. */
+function groupsFor() { return [
   { sum: "3,700.00", rows: [
     { c: "Harbor Light Opera", n: "draft", a: "3,700.00", act: "Send",
       shoots: [{ s: "Tosca, dress rehearsal", d: "2 Sep 2026" },
@@ -447,12 +468,18 @@ var GROUPS = [
     { c: "Riverside Wind Ensemble", s: "Autumn Winds", d: "5 Sep 2026", n: "draft", a: "780.00", act: "Send" },
     { c: "Kestrel Quartet", s: "Quartet in E minor", d: "no date", n: "draft", a: "1,650.00", act: "Add date" },
     { c: "Bellwether Chorale", s: "Nocturne for Two Choirs", d: "1 Sep 2026", n: "draft", unpriced: true, act: "Add hours" },
-    { c: "Thornbury Youth Theatre", s: "Benefit matinee", d: "3 Sep 2026", n: "draft", comped: true, act: "Send" }]},
+    { c: "Thornbury Youth Theatre", s: "Benefit matinee", d: "3 Sep 2026", n: "draft", comped: true, act: "Send" },
+    /* A DRAFT BLOCKED BY A FACT ABOUT THE CLIENT (ovation#129, ovation#117). PRD 5
+       refuses the send until the client's tax status is answered, and this row is
+       the third shape of "cannot be sent yet" on this screen: unlike the missing
+       date and the missing hours, the answer is not on this invoice at all. The
+       amount IS known, so the amount column is the money rather than a word. */
+    { c: "Pemberton Early Music", s: "Candlemas Vespers", d: "28 Aug 2026", n: "draft", a: "900.00", act: "Add tax status" }]},
   { sum: "1,100.00", rows: [
     { c: "Saint Anne's Chamber Series", s: "Advent Vespers", d: "11 Aug 2026", n: "1033", a: "1,100.00", act: "Mark cleared" }]},
   { sum: "1,320.00", rows: [
     { c: "Alder Street Opera", s: "La Boheme, act three", d: "24 Aug 2026", n: "1037", a: "1,320.00", act: "Mark sent" }]}
-];
+]; }
 /* The invoices that client's money could settle, named by NUMBER so the group
    moves them rather than holding a second copy of them, and the balance itself,
    which is the same $500.00 the invoice screen's fixture holds. */
@@ -505,7 +532,7 @@ function cardLineFor(act) {
 function cardFigure(line) {
   if (!line.acts.length) { return line.fixed; }
   var n = 0;
-  GROUPS.forEach(function (g) {
+  groupsFor().forEach(function (g) {
     g.rows.forEach(function (r) { if (line.acts.indexOf(actOf(r)) !== -1) { n++; } });
   });
   return String(n);
@@ -653,7 +680,7 @@ function windowFor(layout) {
      which is this file's own rule: the card and any group total are computed
      once and read twice. */
   var waiting = [];
-  GROUPS.forEach(function (g) {
+  groupsFor().forEach(function (g) {
     g.rows.forEach(function (r) { if (WAITING.indexOf(r.n) !== -1) waiting.push(r); });
   });
   if (waiting.length) {
@@ -676,7 +703,7 @@ function windowFor(layout) {
      saying a new block starts here. */
   var closeNext = waiting.length > 0;
 
-  GROUPS.forEach(function (g) {
+  groupsFor().forEach(function (g) {
     if (layout === "N3") {
       var b = el("div", "brk");
       b.append(el("div", "sum", g.sum));
