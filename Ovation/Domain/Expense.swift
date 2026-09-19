@@ -72,7 +72,7 @@ enum ReceiptEvidence: Equatable, Hashable, Codable, Sendable {
     case importedWithoutOne
 }
 
-extension OvationSchemaV1 {
+extension OvationSchemaV2 {
     @Model
     final class Expense {
         var id: UUID = UUID()
@@ -217,7 +217,7 @@ extension OvationSchemaV1 {
 /// WHAT WRITES ONE, and the idempotency key that stops the credit being earned
 /// twice when a paid transition is re-crossed by an edit and resend or a cancel,
 /// refund and repay, is ovation#38.
-extension OvationSchemaV1 {
+extension OvationSchemaV2 {
     @Model
     final class ReferralLedgerEntry {
         var id: UUID = UUID()
@@ -272,5 +272,5 @@ extension OvationSchemaV1 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a version 2 exists, this line moves to it and every
 // call site is already correct.
-typealias Expense = OvationSchemaV1.Expense
-typealias ReferralLedgerEntry = OvationSchemaV1.ReferralLedgerEntry
+typealias Expense = OvationSchemaV2.Expense
+typealias ReferralLedgerEntry = OvationSchemaV2.ReferralLedgerEntry

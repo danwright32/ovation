@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "migration stage tests" 18
+harness_begin "migration stage tests" 19
 
 TARGET="scripts/check-migration-stages.sh"
 require_target "$TARGET"
@@ -25,8 +25,10 @@ status_on() {
     printf '%s' "$?"
 }
 
-# Today's shape: one version, no stages, which is correct and must not be
-# reported as a chain that was verified.
+# ONE VERSION, NO STAGES: correct while it lasts, and it must not be reported as
+# a chain that was verified. It stopped being today's shape on 2026-09-19, when
+# ovation#382 added version 2, so it is held here as a FIXTURE rather than as a
+# description of the real file, which is where it used to be asserted (L373).
 ONE="$WORK/one.swift"
 cat > "$ONE" <<'SWIFT'
 enum OvationMigrationPlan: SchemaMigrationPlan {
@@ -170,7 +172,16 @@ check "a plan naming no versions at all cannot measure" "$(status_on "$EMPTY")" 
 
 # The real file, so the seam is not the only thing ever exercised.
 check "the real schema file passes" "$(OVATION_SCHEMA_FILE= "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
-check "and it reports the one version there actually is" \
-    "$(./$TARGET | grep -c '1 schema version')" "1"
+# DERIVED FROM THE FILE, never a number written here. This used to assert the
+# literal "1 schema version" against the real schema, so the day a second version
+# arrived the case failed while nothing was wrong: its premise was that the change
+# had not been made yet, and shipping the change consumed it (L373, L63). Counted
+# from the versions the file declares, it goes on measuring at any number.
+REAL_SCHEMA="Ovation/Persistence/OvationSchema.swift"
+REAL_VERSIONS="$(grep -c '^enum OvationSchemaV[0-9]*: VersionedSchema' "$REAL_SCHEMA")"
+check "the real schema declares at least one version, so this case measures something" \
+    "$([ "$REAL_VERSIONS" -ge 1 ] && echo yes || echo no)" "yes"
+check "and the guard reports every version the real schema file declares" \
+    "$(./$TARGET | grep -cE "^OK: $REAL_VERSIONS schema versions?,")" "1"
 
 harness_end

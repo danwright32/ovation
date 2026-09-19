@@ -13,7 +13,7 @@
 import Foundation
 import SwiftData
 
-extension OvationSchemaV1 {
+extension OvationSchemaV2 {
     @Model
     final class LineItem {
         var id: UUID = UUID()
@@ -82,7 +82,7 @@ enum ServiceRole: String, CaseIterable, Codable, Hashable, Sendable {
     case ordinary = "ordinary"
 }
 
-extension OvationSchemaV1 {
+extension OvationSchemaV2 {
     @Model
     final class ServiceType {
         var id: UUID = UUID()
@@ -115,5 +115,5 @@ extension OvationSchemaV1 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a version 2 exists, this line moves to it and every
 // call site is already correct.
-typealias LineItem = OvationSchemaV1.LineItem
-typealias ServiceType = OvationSchemaV1.ServiceType
+typealias LineItem = OvationSchemaV2.LineItem
+typealias ServiceType = OvationSchemaV2.ServiceType

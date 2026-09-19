@@ -23,7 +23,7 @@
 import Foundation
 import SwiftData
 
-extension OvationSchemaV1 {
+extension OvationSchemaV2 {
     @Model
     final class Payment {
         var id: UUID = UUID()
@@ -122,7 +122,7 @@ extension OvationSchemaV1 {
 /// still exists and still arrived. Deleting the row would destroy the record of
 /// what was decided and when, which is the question an audit exists to answer
 /// (L529).
-extension OvationSchemaV1 {
+extension OvationSchemaV2 {
     @Model
     final class PaymentAllocation {
         var id: UUID = UUID()
@@ -151,7 +151,7 @@ extension OvationSchemaV1 {
 /// income in the year it was issued and a refund can move in a different calendar
 /// year. How that is reported is one of the questions for the accountant recorded
 /// in PRD 9.3, so nothing here asserts a year for it.
-extension OvationSchemaV1 {
+extension OvationSchemaV2 {
     @Model
     final class Refund {
         var id: UUID = UUID()
@@ -184,6 +184,6 @@ extension OvationSchemaV1 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a version 2 exists, this line moves to it and every
 // call site is already correct.
-typealias Payment = OvationSchemaV1.Payment
-typealias PaymentAllocation = OvationSchemaV1.PaymentAllocation
-typealias Refund = OvationSchemaV1.Refund
+typealias Payment = OvationSchemaV2.Payment
+typealias PaymentAllocation = OvationSchemaV2.PaymentAllocation
+typealias Refund = OvationSchemaV2.Refund

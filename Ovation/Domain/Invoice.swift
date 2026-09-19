@@ -98,7 +98,7 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
     case totalBelowZero
 }
 
-extension OvationSchemaV1 {
+extension OvationSchemaV2 {
     @Model
     final class Invoice {
         /// Ovation's own identity, minted fresh and never derived from anything
@@ -140,7 +140,13 @@ extension OvationSchemaV1 {
 
         var closure: InvoiceClosure?
 
-        var noteToClient: String?
+        // THERE IS NO PER INVOICE NOTE (ovation#382, Dan's decision 2026-09-19).
+        // `noteToClient` was stored here, read and written by nothing, and it
+        // collided by name with the standing note ovation#319 put in Settings that
+        // appears at the foot of every invoice. Two differently scoped things with
+        // one name is read as one thing (L263), and stored data needs a reader
+        // (L46). Removing it is what made version 2 exist; version 1 still carries
+        // it, in OvationSchemaV1Shape.swift, because version 1 had it.
 
         /// The booking this was drafted from, for LOOKUP only. See the header.
         var bookingKey: String?
@@ -323,4 +329,4 @@ extension OvationSchemaV1 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a version 2 exists, this line moves to it and every
 // call site is already correct.
-typealias Invoice = OvationSchemaV1.Invoice
+typealias Invoice = OvationSchemaV2.Invoice

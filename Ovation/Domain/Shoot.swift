@@ -17,7 +17,7 @@
 import Foundation
 import SwiftData
 
-extension OvationSchemaV1 {
+extension OvationSchemaV2 {
     @Model
     final class Shoot {
         var id: UUID = UUID()
@@ -59,4 +59,4 @@ extension OvationSchemaV1 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a version 2 exists, this line moves to it and every
 // call site is already correct.
-typealias Shoot = OvationSchemaV1.Shoot
+typealias Shoot = OvationSchemaV2.Shoot
