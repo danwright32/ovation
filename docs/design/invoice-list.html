@@ -400,6 +400,18 @@ color: var(--faint); }
       by side on the real screen. Naming the destination rather than the missing thing would make
       one of the three read as a different kind of row, even though the tax status is a fact about
       the client and is answered elsewhere.</p></div>
+    <div><h3>A number that was taken back</h3>
+      <p><b>The Invoice column says draft until the invoice is actually sent.</b> An invoice is
+      numbered when you press Review, because the number is printed on the page you read, and the
+      number is handed back if you close without sending. It can only be handed back while nothing
+      was numbered after it, so two reviews closed in the opposite order leave the first one holding
+      a number it was never sent with. Riverside Wind Ensemble is that row.</p>
+      <p><b>It reads as a draft because the column means the client has this number</b>, not that
+      one was reserved. The number is not lost: it stays on the invoice and returns to the column
+      when the invoice goes out. It is not a new group and not a new card line either, since it is
+      still an invoice waiting to be sent.</p>
+      <p>Dan, 2026-09-19 (ovation#364), with the number and the word drawn side by side on the real
+      screen. PRD 46g.</p></div>
     <div><h3>The idle half</h3>
       <p><b>Disclosures, with Sent awaiting payment open.</b> The group you have money riding on stays
       visible. No "Nothing to do" label above them, because the group names already say it.</p>
@@ -465,7 +477,29 @@ function groupsFor() { return [
     { c: "Cedar Hill Youth Orchestra", s: "Autumn Gala", d: "24 Aug 2026", n: "1044", a: "1,400.00", age: "17d", act: "Remind" }]},
   { sum: "2,180.00", rows: [
     { c: "Cedar Hill Youth Orchestra", s: "Side by Side concert", d: "29 Aug 2026", n: "draft", a: "1,400.00", act: "Send" },
-    { c: "Riverside Wind Ensemble", s: "Autumn Winds", d: "5 Sep 2026", n: "draft", a: "780.00", act: "Send" },
+    /* AN INVOICE THAT TOOK A NUMBER AND WAS NEVER SENT (ovation#364). PRD 10c
+       numbers an invoice when Review is pressed, because the number is printed on
+       the page Dan reads, and gives it back when the sheet closes unsent. It can
+       only be given back while it is still the highest issued, so two reviews
+       closed in the opposite order leave the first one holding its number: it is
+       not a plain draft, since a number exists, and it is not sent.
+       THE NUMBER IS BELOW THE HIGHEST ISSUED, and it has to be. A number can be
+       given back only while nothing was numbered after it, so an invoice stuck
+       holding one is by definition not the highest: 1041 here, with 1044 sent and
+       chasing. A fixture numbering it above everything would draw a state that
+       cannot occur.
+       IT IS A STATE ON AN EXISTING ROW RATHER THAN A ROW OF ITS OWN, because it
+       is still an invoice waiting to be sent and the rail is chrome shared with
+       three other design files: a sixth sendable invoice here would make this
+       file say To send 5 while they say 4.
+       THE COLUMN SAYS `draft` ANYWAY (Dan, 2026-09-19, PRD 46g), with 1041 and the
+       word drawn side by side on this screen. The Invoice column means the client
+       has this number, not that a number was reserved, so the row reads like every
+       other invoice still to send. The number is not lost: it is on the invoice,
+       and it comes back into the column when the invoice goes out. `heldNumber`
+       carries it here so the fixture records the state rather than erasing it. */
+    { c: "Riverside Wind Ensemble", s: "Autumn Winds", d: "5 Sep 2026", n: "draft",
+      heldNumber: "1041", a: "780.00", act: "Send" },
     { c: "Kestrel Quartet", s: "Quartet in E minor", d: "no date", n: "draft", a: "1,650.00", act: "Add date" },
     { c: "Bellwether Chorale", s: "Nocturne for Two Choirs", d: "1 Sep 2026", n: "draft", unpriced: true, act: "Add hours" },
     { c: "Thornbury Youth Theatre", s: "Benefit matinee", d: "3 Sep 2026", n: "draft", comped: true, act: "Send" },
