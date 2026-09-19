@@ -27,7 +27,7 @@ FORBIDDEN_COUNT="$(printf '%s\n' "$FORBIDDEN" | grep -c .)"
 DRAWING="$([ -x "./$TARGET" ] && "./$TARGET" --list-drawing 2>/dev/null)"
 DRAWING_COUNT="$(printf '%s\n' "$DRAWING" | grep -c .)"
 
-harness_begin "forbidden construct tests" $((31 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT))
+harness_begin "forbidden construct tests" $((32 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT))
 require_target "$TARGET"
 harness_temp_dir WORK
 
@@ -235,6 +235,8 @@ check "the calendar rule is still declared" \
     "$(printf '%s\n' "$FORBIDDEN" | grep -c '^Calendar\.current$')" "1"
 check "the cooperative pool rule is still declared" \
     "$(printf '%s\n' "$FORBIDDEN" | grep -c '^Task\.detached$')" "1"
+check "the send gate rule is still declared" \
+    "$(printf '%s\n' "$FORBIDDEN" | grep -c '^maySend$')" "1"
 
 check "a tree with no floating point types passes" "$(status_on "$CLEAN")" "0"
 check "and it says how many files it actually looked at" \
