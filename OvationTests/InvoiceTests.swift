@@ -259,17 +259,113 @@ struct InvoiceTests {
         #expect(invoice.refusals.isEmpty)
     }
 
-    @Test("two reasons not to send are BOTH in the one list, rather than one hiding the other")
+    @Test("every reason not to send is in the one list, rather than one hiding the others")
     func refusalsCompose() throws {
-        // A send control asking two independent questions is one that can be
-        // enabled by whichever it asks last (L53). ovation#117's unpriced draft
-        // joins this same set.
+        // A send control asking independent questions is one that can be enabled by
+        // whichever it asks last (L53). ovation#117's unpriced draft joins this
+        // same set.
+        //
+        // IT BECAME THREE WITH ovation#136, and the third is genuinely true of this
+        // fixture rather than an expectation loosened to fit: $100 of charges with a
+        // $500 discount is a taxable amount of minus $400, and this client's status
+        // was never recorded, which is TAXED, so the tax is minus $35.50 and the
+        // total is minus $435.50. Asserting the whole set is what makes the third
+        // visible; asserting `contains` twice would have passed without anybody
+        // noticing one had arrived.
         let context = try Self.store()
         let invoice = Self.invoice(context, for: Self.client(context, tax: .neverRecorded))
         invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
         invoice.discount = Discount(dollars: Money(dollars: 500))
 
-        #expect(invoice.refusals == [.taxStatusNeverRecorded, .discountExceedsSubtotal])
+        #expect(invoice.taxableAmount == Money(dollars: -400))
+        #expect(invoice.total == Money(cents: -43_550))
+        #expect(invoice.refusals ==
+                [.taxStatusNeverRecorded, .discountExceedsSubtotal, .totalBelowZero])
+    }
+
+    // MARK: an invoice that comes to less than nothing (ovation#136, PRD 5.4c)
+
+    @Test("a credit larger than the charges refuses the send, because the total is below zero")
+    func anegativeTotalIsRefused() throws {
+        // Dan's decision, 2026-09-19, over sending it with a warning and over
+        // producing a credit note instead. An invoice for minus $150 is a document
+        // titled Invoice, with a due date, asking a client for a negative amount,
+        // and it reaches the year end export as negative income (ovation#61).
+        let context = try Self.store()
+        let invoice = Self.invoice(context, for: Self.client(context))
+        invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
+        invoice.referralCredit = ReferralCredit(hours: Hours(whole: 1),
+                                                at: invoice.hourlyRate, earnedFrom: nil)
+
+        #expect(invoice.subtotal == Money(dollars: -150), "$100 of charges less a $250 credit")
+        #expect(invoice.total < .zero, "the fixture reaches the state, rather than merely nearing it")
+        #expect(invoice.refusals == [.totalBelowZero])
+    }
+
+    @Test("a total of exactly zero refuses NOTHING, because that is the comped invoice")
+    func azeroTotalIsStillLegitimate() throws {
+        // THE BOUNDARY, and it is the whole of PRD 5.1b: a comped shoot is
+        // occasionally drafted, numbered and sent at zero for a corporate client's
+        // accounts payable, and "no guard may refuse" one. A rule written as
+        // `total <= .zero` refuses exactly the case Dan named (L159).
+        let context = try Self.store()
+        let invoice = Self.invoice(context, for: Self.client(context))
+        invoice.add(LineItem.flat(Money(dollars: 250), describedAs: "Photography"))
+        invoice.referralCredit = ReferralCredit(hours: Hours(whole: 1),
+                                                at: invoice.hourlyRate, earnedFrom: nil)
+
+        #expect(invoice.total == .zero, "the charges and the credit cancel exactly")
+        #expect(invoice.refusals.isEmpty)
+    }
+
+    @Test("a hundred percent discount over a credit driven subtotal is legitimate, not refused")
+    func apercentageDiscountCanLiftTheTotalBackToZero() throws {
+        // WHY IT ASKS THE TOTAL AND NOT THE SUBTOTAL. A percentage discount on a
+        // negative subtotal is itself negative, so it moves the total back TOWARD
+        // zero rather than further below it, and at a hundred percent it lands on
+        // zero exactly. Predicating on the subtotal would refuse this invoice for
+        // a total it does not have.
+        let context = try Self.store()
+        let invoice = Self.invoice(context, for: Self.client(context))
+        invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
+        invoice.referralCredit = ReferralCredit(hours: Hours(whole: 1),
+                                                at: invoice.hourlyRate, earnedFrom: nil)
+        invoice.discount = Discount(percentBasisPoints: 10_000)
+
+        #expect(invoice.subtotal == Money(dollars: -150), "the subtotal IS below zero")
+        #expect(invoice.total == .zero, "and the total is not")
+        #expect(invoice.refusals.isEmpty)
+    }
+
+    @Test("an oversized dollar discount is still named as the discount, not as a negative total")
+    func anoversizedDiscountKeepsItsOwnName() throws {
+        // Both refusals are genuinely present here: the discount is larger than the
+        // subtotal AND the total is below zero. The ORDER in ReviewGate decides
+        // which is said, and it says the discount, because that is the number
+        // somebody actually typed wrong (L111).
+        let context = try Self.store()
+        let invoice = Self.invoice(context, for: Self.client(context))
+        invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
+        invoice.discount = Discount(dollars: Money(dollars: 500))
+
+        #expect(invoice.refusals == [.discountExceedsSubtotal, .totalBelowZero])
+    }
+
+    @Test("a discount is not blamed for a subtotal the credit already put below zero")
+    func adiscountIsNotBlamedForTheCreditsDoing() throws {
+        // EVERY positive dollar discount is larger than a negative subtotal, so
+        // without this the discount refusal fires on every credit driven invoice
+        // that also carries one, and Dan is sent to reduce a discount that is not
+        // the cause and whose reduction changes nothing (L111).
+        let context = try Self.store()
+        let invoice = Self.invoice(context, for: Self.client(context))
+        invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
+        invoice.referralCredit = ReferralCredit(hours: Hours(whole: 1),
+                                                at: invoice.hourlyRate, earnedFrom: nil)
+        invoice.discount = Discount(dollars: Money(dollars: 10))
+
+        #expect(invoice.subtotal < .zero)
+        #expect(invoice.refusals == [.totalBelowZero], "the credit is named, the discount is not")
     }
 
     // MARK: the rates the invoice carries rather than reads

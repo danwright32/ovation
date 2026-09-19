@@ -110,6 +110,37 @@ struct ReviewGateTests {
                 "Waiting on this client's tax status.")
     }
 
+    // MARK: an invoice that comes to less than nothing (ovation#136, PRD 5.4c)
+
+    @Test("an invoice whose total is below zero is refused, and the credit is named")
+    func anegativeTotalRefuses() throws {
+        let invoice = try Self.invoice(creditHours: 1, lineDollars: 100)
+
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) ==
+                "The credit is larger than everything charged, so this invoice comes to less than nothing.")
+    }
+
+    @Test("and an invoice coming to exactly zero is reviewed like any other")
+    func azeroTotalIsReviewedLikeAnyOther() throws {
+        // The positive control PRD 5.1b requires: a comped shoot is drafted,
+        // numbered and sent at zero, and no guard may refuse one (L159).
+        let invoice = try Self.invoice(creditHours: 1, lineDollars: 250)
+
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) == nil)
+    }
+
+    @Test("an oversized discount is still said as the discount, not as a negative total")
+    func thediscountKeepsItsOwnSentence() throws {
+        // Both refusals are present, and the order decides. The discount names the
+        // number somebody typed wrong, and the negative total sentence is left for
+        // the case where the discount is NOT the cause, which is what lets that
+        // sentence name the credit at all (L111).
+        let invoice = try Self.invoice(discountDollars: 10_000)
+
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) ==
+                "The discount is larger than everything on this invoice.")
+    }
+
     @Test("every refusal the invoice can carry has a sentence, so none can be silent")
     func everyRefusalIsWorded() throws {
         // A vocabulary a lookup reads must be complete, or a new member takes the
@@ -126,7 +157,9 @@ struct ReviewGateTests {
     // MARK: staging
 
     private static func invoice(taxStatus: TaxStatus = .notExempt,
-                                discountDollars: Int64? = nil) throws -> Invoice {
+                                discountDollars: Int64? = nil,
+                                creditHours: Int64? = nil,
+                                lineDollars: Int64? = nil) throws -> Invoice {
         let container = try OvationSchema.container(inMemory: true)
         let context = ModelContext(container)
         let client = Client(name: "A Client", taxStatus: taxStatus)
@@ -137,6 +170,18 @@ struct ReviewGateTests {
         invoice.number = 1_123
         if let discountDollars {
             invoice.discount = Discount(dollars: Money(dollars: discountDollars))
+        }
+        // The lines are REPLACED rather than added to, because the fixture carries
+        // its own and a credit sized against those would be a different case from
+        // the one the test names.
+        if let lineDollars {
+            for item in invoice.lineItems { context.delete(item) }
+            invoice.lineItems = []
+            invoice.add(LineItem.flat(Money(dollars: lineDollars), describedAs: "Photography"))
+        }
+        if let creditHours {
+            invoice.referralCredit = ReferralCredit(hours: Hours(whole: creditHours),
+                                                    at: invoice.hourlyRate, earnedFrom: nil)
         }
         try context.save()
         return invoice

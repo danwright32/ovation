@@ -35,6 +35,13 @@ enum ReviewGate {
         // them to the wrong screen (L111). Below them, the tax status comes before
         // an oversized discount because answering it is a fact about the client
         // that outlives this invoice, while a discount is a number on this one.
+        //
+        // A NEGATIVE TOTAL COMES LAST, and that is what lets its sentence name the
+        // credit (ovation#136). An oversized dollar discount drives the total below
+        // zero too, so in that case both refusals are present at once; saying the
+        // discount first names the number actually typed wrong, and leaves the
+        // negative total sentence to be reached only when the discount is not the
+        // cause, which is when the referral credit exceeds the charges.
         for refusal in order where refusals.contains(refusal) {
             return sentence(for: refusal)
         }
@@ -48,7 +55,7 @@ enum ReviewGate {
     /// silently ranked last (L41, L96).
     static let order: [InvoiceRefusal] = [
         .paymentInstructionsNotSet, .contactDetailsNotSet,
-        .taxStatusNeverRecorded, .discountExceedsSubtotal,
+        .taxStatusNeverRecorded, .discountExceedsSubtotal, .totalBelowZero,
     ]
 
     /// The one sentence for each refusal. Total over the vocabulary, so a new member
@@ -65,6 +72,14 @@ enum ReviewGate {
             return "Settings has no payment instructions, so no invoice can be sent."
         case .contactDetailsNotSet:
             return "Settings has no contact details, so no invoice can be sent."
+        // NAMES THE CREDIT, and it can, because of where this sits in the order
+        // above. An oversized DISCOUNT also drives the total below zero, and it is
+        // said first and by its own name, so by the time this sentence is reached
+        // the discount is not the cause and the credit exceeding the charges is the
+        // only way left to get here. A sentence naming a cause that cannot be the
+        // cause sends somebody to change a number that changes nothing (L111).
+        case .totalBelowZero:
+            return "The credit is larger than everything charged, so this invoice comes to less than nothing."
         }
     }
 }

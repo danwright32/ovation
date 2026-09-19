@@ -79,6 +79,23 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
 
     /// ovation#319, PRD 9. The foot of the page does not say how to reach Dan.
     case contactDetailsNotSet
+
+    /// PRD 5.4c, ovation#136, Dan's decision 2026-09-19. A referral credit larger
+    /// than the charges makes the total negative, and such an invoice may not be
+    /// sent: it is a document titled Invoice, with a due date, asking a client for
+    /// a negative amount, and it reaches the year end export as negative income on
+    /// an accrual return. Dan chose the refusal over sending it with a warning and
+    /// over producing a credit note instead.
+    ///
+    /// THE BOUNDARY IS BELOW ZERO AND NOT AT IT. PRD 5.1b makes a zero total an
+    /// ordinary invoice, occasionally wanted for a comped shoot, and "no guard may
+    /// refuse" one, so this asks `total < .zero` rather than `<= .zero`.
+    ///
+    /// IT ASKS THE TOTAL, NOT THE SUBTOTAL, and that is what makes it right about
+    /// a percentage discount over a negative subtotal: a hundred percent of a
+    /// credit driven subtotal brings the total back to exactly zero, which is a
+    /// legitimate invoice rather than this refusal.
+    case totalBelowZero
 }
 
 extension OvationSchemaV1 {
@@ -281,8 +298,20 @@ extension OvationSchemaV1 {
         /// one (L140).
         var refusals: Set<InvoiceRefusal> {
             var found: Set<InvoiceRefusal> = []
-            if discount?.exceeds(subtotal) == true { found.insert(.discountExceedsSubtotal) }
+            // THE DISCOUNT IS ONLY BLAMED WHERE IT IS THE CAUSE (ovation#136). Every
+            // positive dollar discount is larger than a NEGATIVE subtotal, so without
+            // this condition the discount refusal fires on every credit driven
+            // invoice that happens to carry one, and it sends Dan to reduce a number
+            // whose reduction changes nothing (L111). Where the subtotal has not gone
+            // below zero on its own, an oversized discount genuinely is what takes
+            // the invoice under, and it keeps its own name.
+            if subtotal >= .zero, discount?.exceeds(subtotal) == true {
+                found.insert(.discountExceedsSubtotal)
+            }
             if client?.taxStatus == .neverRecorded { found.insert(.taxStatusNeverRecorded) }
+            // PRD 5.4c. Below zero, never at it: a zero total is the comped invoice
+            // PRD 5.1b says no guard may refuse.
+            if total < .zero { found.insert(.totalBelowZero) }
             return found
         }
     }
