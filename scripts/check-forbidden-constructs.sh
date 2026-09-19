@@ -78,6 +78,17 @@ also declares a view is treated as drawing; and a multi line string literal
 holding a brace can end a region early. The alternative to all four is a Swift
 parser.
 
+RULE FIVE, THE INVOICE IS NOT THE SEND GATE (ovation#384). `Invoice.maySend`
+was `refusals.isEmpty` over the invoice's own refusals, and since ovation#319
+that is HALF the question: two of the reasons an invoice may not go out live in
+Settings, on the footer, and the invoice cannot see them. Nothing in the app
+used it, which is why this is a rule rather than a bug report: the harm was
+entirely ahead, in ovation#42's send path, where somebody reaches for a property
+called `maySend` and waves through an invoice whose page cannot say how to pay
+it. The property is gone and the token is forbidden, because a comment saying it
+is not the send gate is enforced by nothing while sitting there reading as
+binding (L407), and the NAME is what a caller acts on (L263, L176).
+
 WHAT IT NEVER PRINTS: the source line. It reports the file, the line number and
 the type name only. Printing the line would put whatever that line says into
 transcripts and terminal scrollback, and a comment on a money line is exactly
@@ -136,6 +147,19 @@ RULES = (
             "fixed pool. Use a dispatch global queue, which grows. Ovation runs "
             "Vision on every receipt and reads the keychain, which is exactly this "
             "shape, so the rule is that the tree stays free of it."
+        ),
+    },
+    {
+        "name": "the invoice is not the send gate",
+        "tokens": ("maySend",),
+        "because": (
+            "The one send gate is ReviewGate.refusal(for:footer:), which takes the "
+            "invoice AND the footer. Since ovation#319 two of the reasons an invoice "
+            "may not go out live in Settings rather than on the invoice, so anything "
+            "reading the invoice alone answers half the question while its NAME "
+            "answers all of it, and the name is what a caller acts on (L263, L176, "
+            "ovation#384). Ask ReviewGate, or ask Invoice.refusals for the narrow "
+            "question and say in the call site that it is the narrow one."
         ),
     },
     {

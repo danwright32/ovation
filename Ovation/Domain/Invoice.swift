@@ -261,29 +261,30 @@ extension OvationSchemaV1 {
 
         // MARK: what it says about itself
 
-        /// Every reason this invoice must not go out as it stands, in one place.
+        /// Every reason THIS INVOICE must not go out as it stands, in one place.
         ///
         /// ONE ANSWER RATHER THAN TWO LISTS. A send control asking two independent
         /// questions is one that can be enabled by whichever it asks last, and
         /// two vocabularies for one decision drift (L53, L118). ovation#117's
         /// unpriced draft joins this set rather than standing beside it.
+        ///
+        /// IT IS THE NARROW QUESTION, AND THERE IS NO LONGER A BOOLEAN OVER IT
+        /// (ovation#384). Since ovation#319 two of the reasons an invoice may not
+        /// go out live on the footer, in Settings, and an invoice cannot read a
+        /// setting. `ReviewGate.refusal(for:footer:)` is the send gate because it
+        /// takes both. A `maySend` property used to sit here answering the narrow
+        /// question under the whole question's name, with a comment saying so, and
+        /// a comment is enforced by nothing while reading as binding (L407): the
+        /// token is now refused by `scripts/check-forbidden-constructs.sh`, so the
+        /// name cannot come back. Asking this set directly is also the better
+        /// assertion, because it names WHICH refusal rather than that there was
+        /// one (L140).
         var refusals: Set<InvoiceRefusal> {
             var found: Set<InvoiceRefusal> = []
             if discount?.exceeds(subtotal) == true { found.insert(.discountExceedsSubtotal) }
             if client?.taxStatus == .neverRecorded { found.insert(.taxStatusNeverRecorded) }
             return found
         }
-
-        /// Whether anything about THIS INVOICE stops it being sent.
-        ///
-        /// IT IS NOT THE SEND GATE, and since ovation#319 it cannot be: two reasons
-        /// an invoice may not go out live in Settings rather than on the invoice,
-        /// and this cannot see them. `ReviewGate.refusal(for:footer:)` is the one
-        /// thing to ask, because it takes both. The wording here used to say a
-        /// caller could not ask a narrower question by accident, and this IS now
-        /// the narrower question, so it says so rather than leaving a sentence that
-        /// stopped being true (L407, L244).
-        var maySend: Bool { refusals.isEmpty }
     }
 }
 

@@ -238,8 +238,7 @@ struct InvoiceTests {
         let invoice = Self.invoice(context, for: Self.client(context, tax: .neverRecorded))
         invoice.add(LineItem.flat(Money(dollars: 1_000), describedAs: "Photography"))
         #expect(invoice.tax == Money(cents: 8_875), "a missing status is not the same as exempt")
-        #expect(invoice.refusals.contains(.taxStatusNeverRecorded))
-        #expect(!invoice.maySend)
+        #expect(invoice.refusals == [.taxStatusNeverRecorded])
     }
 
     @Test("a client known not to be exempt is taxed and may be sent")
@@ -248,7 +247,6 @@ struct InvoiceTests {
         let invoice = Self.invoice(context, for: Self.client(context, tax: .notExempt))
         invoice.add(LineItem.flat(Money(dollars: 1_000), describedAs: "Photography"))
         #expect(invoice.refusals.isEmpty)
-        #expect(invoice.maySend)
     }
 
     @Test("an exempt client may be sent too, so the refusal is about the MISSING answer")
@@ -258,7 +256,7 @@ struct InvoiceTests {
         let context = try Self.store()
         let invoice = Self.invoice(context, for: Self.client(context, tax: .exempt))
         invoice.add(LineItem.flat(Money(dollars: 1_000), describedAs: "Photography"))
-        #expect(invoice.maySend)
+        #expect(invoice.refusals.isEmpty)
     }
 
     @Test("two reasons not to send are BOTH in the one list, rather than one hiding the other")
@@ -272,7 +270,6 @@ struct InvoiceTests {
         invoice.discount = Discount(dollars: Money(dollars: 500))
 
         #expect(invoice.refusals == [.taxStatusNeverRecorded, .discountExceedsSubtotal])
-        #expect(!invoice.maySend)
     }
 
     // MARK: the rates the invoice carries rather than reads
