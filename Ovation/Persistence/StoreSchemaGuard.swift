@@ -235,9 +235,13 @@ enum StoreSchemaGuard {
             // ABSENT IS NOT A REFUSAL, and the reason is measured rather than
             // assumed. A marker cannot describe a store written before markers
             // existed, which is exactly the population such a detector is blind
-            // to (L223). Measured 2026-09-08: no store exists on this machine on
-            // either build path, so that population is empty and stays empty,
-            // because every store now gets a marker at its first successful open.
+            // to (L223). Measured 2026-09-08, when no store existed on this
+            // machine on either build path, so that population was empty; measured
+            // again 2026-09-19 (ovation#382), when the installed store holds 31
+            // clients and DOES carry a marker, reading 1.0.0. It stays empty
+            // because every store gets a marker at its first successful open, and
+            // that is now a statement about an observed store rather than about
+            // there being none.
             return .ovation
         case .unreadable(let detail):
             return .versionUnreadable(detail: detail)

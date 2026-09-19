@@ -489,14 +489,20 @@ struct SwiftDataBehaviourTests {
         try writer.save()
 
         // The screen, which never saw that, saves something unrelated.
-        invoice.noteToClient = "thank you"
+        //
+        // THE UNRELATED FIELD USED TO BE `noteToClient`, which ovation#382 removed
+        // from the invoice. The measurement is about a stale CONTEXT and not about
+        // any particular field, so it moved to another one rather than going with
+        // it: this is the standing evidence for ovation#133, and deleting it would
+        // destroy the only record of how that was diagnosed (L277).
+        invoice.bookingKey = "booking-1"
         try screen.save()
 
         let reader = ModelContext(container)
         let after = try #require(try reader.fetch(FetchDescriptor<Invoice>()).first { $0.id == id })
         #expect(after.number == nil,
                 "the stale context wrote its own nil back over 1123, silently")
-        #expect(after.noteToClient == "thank you", "and its own edit did land")
+        #expect(after.bookingKey == "booking-1", "and its own edit did land")
     }
 
     // MARK: Q6, what a Codable enum looks like to a reader that is not SwiftData

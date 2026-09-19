@@ -32,7 +32,12 @@ struct SchemaMigrationTests {
         // An unnamed baseline cannot be a migration source. This is why the
         // issue is p1: the name has to be in the store file before that store
         // holds anything, and it cannot be added to one already on disk.
-        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(1, 0, 0))
+        //
+        // IT IS 2 SINCE ovation#382, which is the first change to a shape that was
+        // genuinely on disk: measured 2026-09-19, the installed store held 31
+        // clients, so the window in which a field could be added or removed
+        // without a version had closed.
+        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(2, 0, 0))
     }
 
     @Test("the version's models are exactly the ones the store holds")
@@ -44,10 +49,52 @@ struct SchemaMigrationTests {
         #expect(versioned == shipped)
     }
 
-    @Test("the shipped plan names the shipped version, so a later one is a migration")
+    @Test("the plan names every version in order, so each step is a migration")
     func thePlanNamesTheVersion() throws {
         let named = OvationMigrationPlan.schemas.map { $0.versionIdentifier }
-        #expect(named == [Schema.Version(1, 0, 0)])
+        #expect(named == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0)])
+    }
+
+    @Test("and every consecutive pair has a stage carrying a store across it")
+    func everyStepHasAStage() throws {
+        // The same rule check-migration-stages.sh enforces over the source, asked
+        // here of the values themselves, because the script reads text and this
+        // reads what the app will actually hand SwiftData (L3).
+        let versions = OvationMigrationPlan.schemas.map { $0.versionIdentifier }
+        #expect(OvationMigrationPlan.stages.count == versions.count - 1,
+                "\(versions.count) versions need \(versions.count - 1) stages")
+    }
+
+    @Test("each version names its OWN classes, so one cannot silently describe another")
+    func theversionsDoNotShareTheirTypes() throws {
+        // THE FAULT THIS CATCHES IS INVISIBLE EVERY OTHER WAY, and it happened
+        // while ovation#382 was being written. Version 1's classes live in their
+        // own file; until that file was added to the Xcode target it did not
+        // compile, so the bare names inside `OvationSchemaV1.models` resolved
+        // through the global typealias to VERSION 2's classes. Both versions then
+        // described one shape, the stage between them had nothing to carry, and
+        // every other check passed: check-schema-registered.sh compares NAMES, and
+        // the names are identical by design (L70, L3).
+        //
+        // Compared by identity rather than by name for exactly that reason.
+        let one = Set(OvationSchemaV1.models.map(ObjectIdentifier.init))
+        let two = Set(OvationSchemaV2.models.map(ObjectIdentifier.init))
+
+        #expect(one.count == OvationSchemaV1.models.count, "a version listed a class twice")
+        #expect(two.count == OvationSchemaV2.models.count, "a version listed a class twice")
+        #expect(one.isDisjoint(with: two),
+                "the two versions share at least one class, so one is describing the other")
+    }
+
+    @Test("and version 1 still has the field version 2 dropped, which is what it is FOR")
+    func theolderVersionStillCarriesTheDroppedField() throws {
+        // A frozen shape edited to match the app is not a frozen shape. This is
+        // the cheapest statement of that: version 1 had `noteToClient`, so version
+        // 1 has it, and the day somebody tidies it away this says so (ovation#382).
+        let invoice = OvationSchemaV1.Invoice()
+        invoice.noteToClient = "version 1 carried this"
+
+        #expect(invoice.noteToClient == "version 1 carried this")
     }
 
     // MARK: a store written by one version opens under the next
@@ -104,6 +151,75 @@ struct SchemaMigrationTests {
         #expect(rows.count == 1,
                 "it opened and the row is GONE, which is the silent loss this exists to catch")
         #expect(rows.first?.name == "Ashgrove Chamber Players")
+    }
+
+    // MARK: THE REAL ONE: Ovation's own store, version 1 to version 2 (ovation#382)
+
+    @Test("a real version 1 store opens under version 2 with its rows and its links")
+    func therealStoreMigrates() throws {
+        // THE OTHER CASES IN THIS FILE MEASURE THE PLATFORM with a probe entity.
+        // This one drives OVATION'S OWN schema through OVATION'S OWN factory, which
+        // is the path that ships, so a version that works for the probe and not for
+        // the app cannot pass here (L3, L472).
+        let directory = URL.temporaryDirectory
+            .appending(path: "ovation-real-migration-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "Ovation.store")
+
+        // Written by VERSION 1, related rows and all, because the reuse failure
+        // this version exists to avoid only shows through a relationship.
+        do {
+            let schema = Schema(versionedSchema: OvationSchemaV1.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            let client = OvationSchemaV1.Client()
+            client.name = "Ashgrove Chamber Players"
+            client.taxStatus = .notExempt
+            let invoice = OvationSchemaV1.Invoice()
+            invoice.number = 1_123
+            invoice.hourlyRate = Money(dollars: 250)
+            invoice.noteToClient = "a note version 2 does not have"
+            invoice.client = client
+            let shoot = OvationSchemaV1.Shoot()
+            shoot.name = "Autumn Evensong"
+            shoot.invoice = invoice
+            let line = OvationSchemaV1.LineItem()
+            line.summary = "Photography"
+            line.unitAmount = Money(dollars: 500)
+            line.invoice = invoice
+            context.insert(client)
+            context.insert(invoice)
+            context.insert(shoot)
+            context.insert(line)
+            try context.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+        }
+
+        // Opened by the APP, which means version 2, the plan and the stage.
+        let container = try OvationSchema.container(at: url)
+        let context = ModelContext(container)
+        let invoices = try context.fetch(FetchDescriptor<Invoice>())
+        let clients = try context.fetch(FetchDescriptor<Client>())
+
+        // NOT MERELY THAT IT OPENED. An empty store opens perfectly, and a silent
+        // empty store is indistinguishable from a fresh install, which is the loss
+        // PRD 5.30 says can never happen (L98).
+        #expect(invoices.count == 1)
+        #expect(clients.count == 1)
+        let migrated = try #require(invoices.first)
+        #expect(migrated.number == 1_123)
+        #expect(migrated.hourlyRate == Money(dollars: 250))
+
+        // THE LINKS, which is the half a single entity probe cannot measure and the
+        // half that fails when a version reuses another's types.
+        #expect(migrated.client?.name == "Ashgrove Chamber Players")
+        #expect(migrated.shoots.count == 1)
+        #expect(migrated.lineItems.count == 1)
+        #expect(migrated.lineItems.first?.unitAmount == Money(dollars: 500))
+        #expect(clients.first?.invoices.count == 1, "and the inverse resolves too")
     }
 
     // MARK: fixtures
