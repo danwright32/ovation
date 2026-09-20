@@ -162,8 +162,8 @@ struct UnpricedDraftTests {
         let context = try Self.store()
         let invoice = Self.invoice(context)
         let shoot = try Self.shoot(on: invoice, from: "19:00", until: "20:00")
-        let line = LineItem.hourly(hours: Hours(whole: 1), at: .zero, describedAs: "Photography")
-        line.shoot = shoot
+        let line = LineItem.hourly(hours: Hours(whole: 1), at: .zero, describedAs: "Photography",
+                                   for: shoot)
         invoice.add(line)
 
         #expect(invoice.total == .zero, "a comped shoot really does come to nothing")

@@ -130,6 +130,7 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
     /// time has NOT been typed is ovation#117, and it joins this vocabulary rather
     /// than standing beside it.
     case durationLongerThanAShoot
+
 }
 
 extension OvationSchemaV3 {
@@ -235,6 +236,34 @@ extension OvationSchemaV3 {
         func add(_ item: LineItem) {
             item.sortIndex = (lineItems.map(\.sortIndex).max() ?? -1) + 1
             lineItems.append(item)
+        }
+
+        /// Take back one shoot's typed times, and the hours stored beside them.
+        ///
+        /// DAN'S DECISION, 2026-09-19 (ovation#431), put to him against keeping the
+        /// last price: clearing a time puts the invoice back to waiting on the
+        /// times, exactly as a fresh draft is, and nothing may be sent until they
+        /// are typed again.
+        ///
+        /// WHY THE HOURS GO IN THE SAME WRITE. `LineItem.billedHours` reads the
+        /// shoot's times where they exist and the line's own stored hours where they
+        /// do not, and that second arm is right for the population it was written
+        /// for: a QuickBooks row imported under ovation#68 carries hours and was
+        /// never timed, as the design record's own PDF fixtures are. A shoot whose
+        /// times have been CLEARED is indistinguishable from one of those in the
+        /// data, so the reader cannot tell them apart and the WRITER has to. Left
+        /// alone, the invoice would go on pricing from a figure that appears on no
+        /// screen (L46, L544).
+        ///
+        /// ADDRESSED TO THE SHOOT IT WAS ASKED ABOUT, by identity, because PRD 5.1a
+        /// puts more than one shoot on an invoice and an action carrying out a
+        /// decision must reach only the records that decision was made over (L166).
+        func clearTimes(of shoot: Shoot) {
+            shoot.shotFrom = nil
+            shoot.shotUntil = nil
+            for line in lineItems where line.shoot?.id == shoot.id {
+                line.hours = nil
+            }
         }
 
         func add(_ shoot: Shoot) {

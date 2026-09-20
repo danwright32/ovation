@@ -102,9 +102,8 @@ enum ReviewSampleWorld {
                           venue: "Calder Street Theatre")
         invoice.add(shoot)
         let line = LineItem.hourly(hours: Hours(quarters: 10), at: rate,
-                                   describedAs: "Concert photography")
+                                   describedAs: "Concert photography", for: shoot)
         invoice.add(line)
-        line.shoot = shoot
         return invoice
     }
 

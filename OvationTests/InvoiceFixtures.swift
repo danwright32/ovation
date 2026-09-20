@@ -122,18 +122,30 @@ enum InvoiceFixtures {
                                                     earnedFrom: nil)
         }
         for line in given.lines {
+            // THE SHOOT IS BUILT FIRST, because a line can only be given one as it
+            // is made (ovation#431). It is added to the invoice whether or not a
+            // line ends up naming it, exactly as before.
+            var shoot: Shoot?
+            if let name = line.shoot {
+                let date = try line.date.map { try businessDate($0) }
+                let made = Shoot(name: name, when: date.map { .dayOnly($0) }, venue: line.venue)
+                invoice.add(made)
+                shoot = made
+            }
             let item: LineItem
             if let hours = line.hours, let lineRate = line.rate {
                 item = LineItem.hourly(hours: Hours(hundredths: cents(hours)),
-                                       at: Money(cents: cents(lineRate)), describedAs: line.kind)
+                                       at: Money(cents: cents(lineRate)), describedAs: line.kind,
+                                       for: shoot)
             } else {
+                // PRD 4: rush turnaround and preview images belong to the invoice, so
+                // a fixture pairing a flat charge with a shoot describes a state the
+                // product does not have. Said here rather than dropped silently,
+                // because a fixture quietly losing its shoot is a fixture that stops
+                // testing what it was written for.
+                #expect(shoot == nil,
+                        "a flat line in a fixture names a shoot, which PRD 4 refuses: \(line.kind)")
                 item = LineItem.flat(Money(cents: cents(line.amount)), describedAs: line.kind)
-            }
-            if let name = line.shoot {
-                let date = try line.date.map { try businessDate($0) }
-                let shoot = Shoot(name: name, when: date.map { .dayOnly($0) }, venue: line.venue)
-                invoice.add(shoot)
-                item.shoot = shoot
             }
             invoice.add(item)
         }
