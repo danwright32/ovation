@@ -17,11 +17,13 @@
 //   THE CAP. Above twelve hours nothing is priced, which is Dan's number,
 //   settled 2026-09-08 against 8, 7 and no cap at all.
 //
-// IT IS NOT `ShootWhen.billableHours`, AND THE TWO ARE DIFFERENT QUESTIONS. That
-// one answers how long Dan was there, in hundredths, untouched by any billing
-// rule, so a surface reporting the shoot's length is never handed a figure that
-// was rounded up to charge. This one answers what is charged. Folding them would
-// give one number two meanings, and the rounded one is the one that would win.
+// THE ELAPSED SPAN AND THE BILLED FIGURE ARE DIFFERENT QUESTIONS, and `Priced`
+// carries both. `elapsedMinutes` is how long Dan was actually there and no
+// billing rule has touched it, so a surface reporting the shoot's length is never
+// handed a number that was rounded up to charge; `billed` is what is charged.
+// Folding them would give one number two meanings, and the rounded one is the one
+// that would win. `ShootWhen` used to answer the first question and ovation#432
+// deleted that, because after this type shipped nothing read it.
 //
 // WHY IT TAKES CLOCK TIMES RATHER THAN TWO INSTANTS. These are the REAL times
 // Dan types after the shoot (PRD 3a), on a screen whose field is a segmented
