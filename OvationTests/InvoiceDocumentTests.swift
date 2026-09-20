@@ -24,9 +24,14 @@ struct InvoiceDocumentTests {
 
     // MARK: agreement with the design
 
-    @Test("all seven design fixtures are read, so no comparison below runs over nothing")
+    @Test("all eight design fixtures are read, so no comparison below runs over nothing")
     func theFixturesAreThere() throws {
-        #expect(try InvoiceFixtures.expected().count == 7)
+        // EIGHT SINCE ovation#326, which added the settled receipt. It did NOT add
+        // a second one for a deposit LARGER than the invoice: Dan settled that the
+        // page says nothing about money left held, and `PaymentAllocator` refuses
+        // to allocate past what is owed, so that invoice is paid EXACTLY and its
+        // page is this page. A fixture for it would assert the same rows twice.
+        #expect(try InvoiceFixtures.expected().count == 8)
     }
 
     @Test("each fixture's page says what the settled design draws, section by section")

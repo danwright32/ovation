@@ -129,11 +129,40 @@ struct InvoiceDocument: Equatable, Sendable {
         let days = BusinessCalendar.dayNumber(for: dueStart) - BusinessCalendar.dayNumber(for: issuedStart)
         guard let terms = PDFText.terms(days: days) else { throw Refusal.dueBeforeInvoiceDate }
 
-        amountDueLabel = "Amount due"
-        // What is still owed, which is the total unless money is already applied
-        // (Dan, 2026-09-14, ovation#167).
-        amountDue = PDFText.money(invoice.amountOutstanding)
-        dueLine = "by " + due
+        // PAID IN FULL IS A RECEIPT, NOT A BILL (Dan, 2026-09-20, ovation#326).
+        // PRD 14h applies held money by itself when a client has exactly one open
+        // invoice, so a deposit covering the whole amount leaves nothing owed
+        // BEFORE the invoice has ever been sent. Such an invoice is not sent
+        // asking for money; Dan keeps it and sends it when a client asks what
+        // their deposit bought, so it is still outbound copy and owes the cold
+        // read (PRD 41a, ovation#50).
+        //
+        // CHOSEN FROM RENDERINGS, against leading with `Amount due $0.00` beside
+        // a date the money is wanted by, which is what falls out unchanged: a
+        // date is a demand, and nothing is being demanded.
+        //
+        // THE FIGURE IS WHAT THIS INVOICE CAME TO, never what was handed over.
+        // The two are equal only when the deposit matches the bill exactly, and
+        // a larger one would otherwise state this invoice is for an amount it is
+        // not.
+        let settled = invoice.amountPaid > .zero && invoice.amountOutstanding <= .zero
+        if settled {
+            // A RECEIPT WITHOUT THE DAY THE MONEY ARRIVED IS NOT DRAWN. The
+            // placeholder for a missing required value is a detection, so it
+            // refuses rather than printing a blank where a date belongs (L67).
+            guard let settledOn = invoice.settledOn,
+                  let paidWritten = PDFText.date(settledOn)
+            else { throw Refusal.unreadableDate }
+            amountDueLabel = "Paid in full"
+            amountDue = PDFText.money(invoice.total)
+            dueLine = "paid " + paidWritten
+        } else {
+            amountDueLabel = "Amount due"
+            // What is still owed, which is the total unless money is already
+            // applied (Dan, 2026-09-14, ovation#167).
+            amountDue = PDFText.money(invoice.amountOutstanding)
+            dueLine = "by " + due
+        }
         strip = [["Bill to", client.name], ["Invoice", String(number)], ["Issued", issued]]
         title = "Invoice"
         columns = ["Description", "Hours", "Rate", "Amount"]
@@ -205,7 +234,18 @@ struct InvoiceDocument: Equatable, Sendable {
         if invoice.amountPaid > .zero {
             rows.append(["Total", PDFText.money(invoice.total)])
             rows.append(["Payments received", PDFText.money(-invoice.amountPaid)])
-            rows.append(["Balance due", PDFText.money(invoice.amountOutstanding)])
+            // STILL `Balance due` when nothing is left owed (Dan, 2026-09-20,
+            // ovation#326), chosen against repeating `Paid in full` from the
+            // head, against `Nothing outstanding`, and against ending on
+            // `Payments received` with no closing row. One vocabulary for this
+            // block whatever state it is in, and the head already carries the
+            // state, so a foot repeating it would say one fact twice on one page.
+            //
+            // NOTHING IS SAID ABOUT MONEY LEFT HELD, which is Dan's decision
+            // rather than an omission: PRD 14k states that on the invoice SCREEN,
+            // which is his surface, and the client's copy is not also a statement
+            // of their account.
+            rows.append(["Balance due", PDFText.money(max(invoice.amountOutstanding, .zero))])
         } else {
             rows.append(["Total due", PDFText.money(invoice.total)])
         }

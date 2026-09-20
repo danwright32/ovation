@@ -259,6 +259,7 @@
         "client": "Calder Street Theatre",
         "exempt": false,
         "paid": 100,
+        "paidOn": "February 12, 2027",
         "lines": [
           {"kind": "Photography", "shoot": "Spring Recital", "venue": "Calder Street Theatre", "date": "March 6, 2027", "hours": 1, "rate": 250, "amount": 250}
         ]
@@ -285,6 +286,49 @@
         ["Total", "$272.19"],
         ["Payments received", "-$100.00"],
         ["Balance due", "$172.19"]
+      ],
+      "foot": [
+        ["Payment", ["Payment instructions available upon request.", "Payment due within 14 days of the invoice date."]],
+        ["Note", ["Thank you for having me at your performance. Galleries are delivered within two weeks after the shoot."]],
+        ["Contact", ["dan@danwrightphotography.com"]]
+      ]
+    },
+    {
+      "label": "Paid in full",
+      "input": {
+        "number": "1130",
+        "issued": "March 6, 2027",
+        "due": "March 20, 2027",
+        "client": "Calder Street Theatre",
+        "exempt": false,
+        "paid": 272.19,
+        "paidOn": "February 12, 2027",
+        "lines": [
+          {"kind": "Photography", "shoot": "Spring Recital", "venue": "Calder Street Theatre", "date": "March 6, 2027", "hours": 1, "rate": 250, "amount": 250}
+        ]
+      },
+      "head": {"label": "Paid in full", "amount": "$272.19", "due": "paid February 12, 2027"},
+      "strip": [
+        ["Bill to", "Calder Street Theatre"],
+        ["Invoice", "1130"],
+        ["Issued", "March 6, 2027"]
+      ],
+      "title": "Invoice",
+      "columns": [
+        "Description",
+        "Hours",
+        "Rate",
+        "Amount"
+      ],
+      "items": [
+        ["Spring Recital", "Calder Street Theatre, March 6, 2027", "1.0 hr", "$250.00", "$250.00"]
+      ],
+      "money": [
+        ["Subtotal", "$250.00"],
+        ["Sales tax (8.875%)", "$22.19"],
+        ["Total", "$272.19"],
+        ["Payments received", "-$272.19"],
+        ["Balance due", "$0.00"]
       ],
       "foot": [
         ["Payment", ["Payment instructions available upon request.", "Payment due within 14 days of the invoice date."]],

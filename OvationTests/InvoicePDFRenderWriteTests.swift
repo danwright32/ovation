@@ -36,7 +36,11 @@ struct InvoicePDFRenderWriteTests {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let resources = try InvoicePDFResources.bundled()
         let labels = try InvoiceFixtures.labels
-        #expect(labels.count == 7, "the side by side needs every design invoice")
+        // EIGHT SINCE ovation#326, which added the settled receipt. One fixture
+        // and not two: the page says nothing about money left held, and the
+        // allocator never puts more on an invoice than it owes, so a deposit
+        // LARGER than the bill draws this same page.
+        #expect(labels.count == 8, "the side by side needs every design invoice")
         for label in labels {
             let context = ModelContext(try OvationSchema.container(inMemory: true))
             let document = try InvoiceDocument(invoice: try InvoiceFixtures.invoice(label, in: context), footer: .fixed)

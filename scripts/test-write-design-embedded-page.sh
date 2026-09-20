@@ -64,7 +64,7 @@ check "the committed review-send.html carries the committed invoice PDF design" 
 
 # 2. DRIFT IS FOUND, AND THE WRITER IS THE REMEDY.
 D2="$(fresh drift)"
-damage "$D2" invoice-pdf.html 'mk("div", "lbl", "Amount due")' 'mk("div", "lbl", "Amount owed")'
+damage "$D2" invoice-pdf.html 'settled ? "Paid in full" : "Amount due"' 'settled ? "Paid in full" : "Amount owed"'
 check "a change to the design's page builder is drift in the host" "$(check_status "$D2")" "1"
 write_status "$D2" >/dev/null
 check "and after the writer runs, the checker passes" "$(check_status "$D2")" "0"
@@ -113,7 +113,7 @@ check "a host whose own invoice cannot be found is refused, never dropped" "$(wr
 
 # 8. --check REPORTS DRIFT WITHOUT WRITING.
 D8="$(fresh checkonly)"
-damage "$D8" invoice-pdf.html 'mk("div", "lbl", "Amount due")' 'mk("div", "lbl", "Amount owed")'
+damage "$D8" invoice-pdf.html 'settled ? "Paid in full" : "Amount due"' 'settled ? "Paid in full" : "Amount owed"'
 BEFORE8="$(shasum -a 256 "$D8/review-send.html")"
 check "--check exits 3 on drift" "$(write_status "$D8" --check)" "3"
 check "and writes nothing" "$([ "$BEFORE8" = "$(shasum -a 256 "$D8/review-send.html")" ] && echo unchanged || echo changed)" "unchanged"

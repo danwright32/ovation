@@ -160,8 +160,17 @@ struct InvoicePDFRendererTests {
             for heading in document.columns {
                 #expect(letters.contains(capitals(heading)), "\(label): the heading \(heading) is missing from the PDF")
             }
+            // DERIVED FROM THIS DOCUMENT, never a literal 2 (ovation#326). This
+            // read `>= 2` on the reasoning that the head label and the column
+            // heading need one each, which held only while EVERY invoice led with
+            // `Amount due`. A settled invoice leads with `Paid in full`, so the
+            // word appears once and the fixed number accused a correct page. The
+            // expectation now comes from the strings this document actually
+            // decided, so it still refuses a page that lost one (L41, L70).
             let amounts = letters.components(separatedBy: "AMOUNT").count - 1
-            #expect(amounts >= 2, "\(label): AMOUNT occurs \(amounts) time(s), and the label and the column need one each")
+            let wanted = (labels + document.columns).filter { capitals($0).contains("AMOUNT") }.count
+            #expect(amounts >= wanted,
+                    "\(label): AMOUNT occurs \(amounts) time(s) and \(wanted) string(s) on this page carry it")
 
             let prose = [document.amountDue, document.dueLine, document.title]
                 + document.strip.compactMap { $0.count > 1 ? $0[1] : nil } + document.items.flatMap { $0 }

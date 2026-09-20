@@ -58,7 +58,11 @@ ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs", "desi
 SOURCE = "invoice-pdf.html"
 EXPECTED = "invoice-pdf.expected.json"
 KEYS = ["label", "input", "head", "strip", "title", "columns", "items", "money", "foot"]
-INPUT_KEYS = ["number", "issued", "due", "client", "exempt", "discount", "credit", "paid", "lines"]
+# `paidOn` joined on 2026-09-20 (ovation#326): the receipt head states the day
+# the money arrived, which is not the invoice date, so an input without it would
+# make the app date the receipt from the wrong day and disagree with the design.
+INPUT_KEYS = ["number", "issued", "due", "client", "exempt", "discount", "credit",
+              "paid", "paidOn", "lines"]
 ABOUT = ("The text docs/design/invoice-pdf.html draws for each of its fixture invoices, "
          "written by scripts/build-invoice-pdf-text.sh and read by the app's document "
          "tests (ovation#167). Do not edit by hand: re-run the script, and "
@@ -76,6 +80,7 @@ PROBE = r"""
   function inputOf(f) {
     return { number: f.number, issued: f.issued, due: f.due, client: f.client,
              exempt: !!f.exempt, discount: f.discount, credit: f.credit, paid: f.paid,
+             paidOn: f.paidOn,
              lines: f.lines.map(function (l) {
                return { kind: l.kind, shoot: l.shoot, venue: l.venue, date: l.date,
                         hours: l.hours, rate: l.rate, amount: l.amount };

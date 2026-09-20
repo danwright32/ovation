@@ -32,6 +32,9 @@ enum InvoiceFixtures {
         let credit: Double?
         /// Money already applied to the invoice (PRD 14k).
         let paid: Double?
+        /// The day that money arrived, which is NOT the invoice date: a deposit
+        /// is taken before the shoot (ovation#326). The receipt head states it.
+        let paidOn: String?
         let lines: [Line]
     }
 
@@ -152,7 +155,12 @@ enum InvoiceFixtures {
         if let paid = given.paid {
             // Applied the only way the app records it: a payment from the client and
             // one allocation of it to this invoice.
-            let received = try businessDate(given.issued)
+            //
+            // DATED BY `paidOn` WHERE THE DESIGN GIVES ONE, because a deposit
+            // arrives BEFORE the shoot and the receipt head states the day the
+            // money came in (ovation#326). Falling back to the invoice date keeps
+            // every fixture written before that unchanged.
+            let received = try businessDate(given.paidOn ?? given.issued)
             let payment = Payment(client: client, amount: Money(cents: cents(paid)),
                                   method: .zelle, receivedOn: received)
             context.insert(payment)
