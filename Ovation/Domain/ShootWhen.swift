@@ -18,12 +18,13 @@
 // arithmetic unchecked is how a nonsense figure becomes a confident invoice
 // (L23, L50). The refusal is structural here, so no call site can skip it.
 //
-// THE PLAUSIBILITY CEILING IS NOT HERE, and that is deliberate rather than an
-// omission. "Implausibly long" is a judgement about a number, and PRD 5.3b's
-// threshold has never been measured against Dan's real bookings; picking one here
-// would ship a limit calibrated on nothing and make it read as settled (L172).
-// It belongs with pricing, in ovation#43, which is the issue that has the real
-// durations to measure against.
+// NOTHING HERE PRICES ANYTHING, since ovation#432. This value used to derive the
+// length of the shoot from its two instants, and after ovation#43 no app code
+// read that figure: PRD 3a makes the booking's instants a placeholder and prices
+// from the times Dan types, through `ShootDuration`. The derivation survived on
+// its own tests alone, which is the shape a docstring later turns into a decision
+// nobody revisits (L29, L346). What the two instants are FOR is the record of
+// what the booking said, which ovation#95 puts on a surface.
 import Foundation
 
 enum ShootWhen: Equatable, Hashable, Codable, Sendable {
@@ -49,27 +50,6 @@ enum ShootWhen: Equatable, Hashable, Codable, Sendable {
         switch self {
         case .timed(let startsAt, _): return startsAt
         case .dayOnly(let day): return day
-        }
-    }
-
-    /// What is billable, in tenths of an hour, or nil where there are no times to
-    /// price from.
-    ///
-    /// THE ONE HOUR MINIMUM IS NOT APPLIED HERE. It is a pricing rule and belongs
-    /// with the line item that charges (ovation#43); this is the length of the
-    /// shoot, and a surface reporting how long Dan was there must not be handed a
-    /// number that has been rounded up for billing.
-    var billableHours: Hours? {
-        switch self {
-        case .timed(let startsAt, let endsAt):
-            let seconds = Int64(endsAt.timeIntervalSince(startsAt.instant).rounded())
-            // HUNDREDTHS, since ovation#127: a quarter hour is not a tenth, and
-            // 94% of Dan's billed lines land on a quarter. Rounding to tenths
-            // here would price a 1.75 hour shoot at 1.7 or 1.8 before anything
-            // downstream had a chance to be correct.
-            return Hours(hundredths: Rounding.halfAwayFromZero(seconds * 100, over: 3_600))
-        case .dayOnly:
-            return nil
         }
     }
 }

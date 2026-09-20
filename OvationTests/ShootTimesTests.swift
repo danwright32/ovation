@@ -76,7 +76,13 @@ struct ShootTimesTests {
                           venue: nil)
         invoice.add(shoot)
 
-        #expect(shoot.when?.billableHours == Hours(whole: 1), "the booking says an hour")
+        // THE POSITIVE CONTROL, asserted on the instants themselves since
+        // ovation#432 deleted the booking's own length calculation. The booking
+        // carries a complete, hour long span, so "bills nothing" below is a
+        // decision about the placeholder rather than a fixture that had nothing
+        // to price (L159).
+        #expect(shoot.when == ShootWhen(startsAt: start, endsAt: start + 3_600),
+                "the booking carries both instants, an hour apart")
         #expect(shoot.billedHours == nil, "and the invoice bills nothing from it")
     }
 

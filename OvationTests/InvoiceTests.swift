@@ -46,10 +46,7 @@ struct InvoiceTests {
     func anHourlyLineIsRateTimesHours() throws {
         let context = try Self.store()
         let invoice = Self.invoice(context, for: Self.client(context))
-        let when = try #require(ShootWhen(startsAt: Self.shootStart, endsAt: Self.shootEnd))
-        #expect(when.billableHours == Hours(tenths: 25))
-
-        invoice.add(LineItem.hourly(hours: when.billableHours!, at: invoice.hourlyRate,
+        invoice.add(LineItem.hourly(hours: Hours(tenths: 25), at: invoice.hourlyRate,
                                     describedAs: "Photography"))
         #expect(invoice.subtotal == Money(dollars: 625))
     }
@@ -424,7 +421,10 @@ struct InvoiceTests {
         let shoot = try #require(read.orderedShoots.first)
         #expect(shoot.name == "Autumn concert")
         #expect(shoot.venue == nil, "the handoff record proves a venue is sometimes absent")
-        #expect(shoot.when?.billableHours == Hours(tenths: 25))
+        // BOTH INSTANTS SURVIVED THE ROUND TRIP, not merely the gap between
+        // them. ovation#432 removed the derived figure that used to stand in for
+        // this, and the pair is the thing the store has to give back.
+        #expect(shoot.when == ShootWhen(startsAt: Self.shootStart, endsAt: Self.shootEnd))
         #expect(shoot.day?.dayKey == BusinessCalendar.dayKey(for: Self.shootStart))
     }
 
