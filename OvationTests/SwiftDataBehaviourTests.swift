@@ -505,6 +505,117 @@ struct SwiftDataBehaviourTests {
         #expect(after.bookingKey == "booking-1", "and its own edit did land")
     }
 
+    /// ovation#133, and the measurement that decides which of its three shapes is
+    /// even available. The test above records that a stale context clobbers
+    /// another's write; this one asks what a screen can DO about it, because
+    /// "merge the changes in" was proposed from how Core Data behaved and the
+    /// issue says in as many words that it needs measuring on SwiftData before it
+    /// is believed (L82, L175).
+    ///
+    /// Written as a hypothesis and then corrected to what actually happened, which
+    /// is the point of a probe: the assertions below are the OBSERVED behaviour on
+    /// macOS 26.5.1, not the expected one.
+    @Test("what a stale context has to do to see another context's write")
+    func astaleContextCanBeMadeToSeeTheWrite() throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let screen = ModelContext(container)
+        let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        screen.insert(invoice)
+        try screen.save()
+        let id = invoice.id
+
+        let writer = ModelContext(container)
+        let there = try #require(try writer.fetch(FetchDescriptor<Invoice>()).first { $0.id == id })
+        there.number = 1_123
+        try writer.save()
+
+        // FIRST QUESTION: does simply fetching again, in the stale context, hand
+        // back the new value or the object it is already holding? If a plain
+        // re-fetch is enough, shape 1 costs a screen nothing but remembering.
+        let refetched = try #require(try screen.fetch(FetchDescriptor<Invoice>()).first { $0.id == id })
+        #expect(refetched.number == OvationSchemaProbe.numberAfterPlainRefetch,
+                "a plain re-fetch in the stale context")
+
+        // SECOND QUESTION: does discarding what the context holds and reading
+        // again get there? This is the cheapest thing a screen could be told to do
+        // before it writes.
+        screen.rollback()
+        let afterRollback = try #require(try screen.fetch(FetchDescriptor<Invoice>()).first { $0.id == id })
+        #expect(afterRollback.number == OvationSchemaProbe.numberAfterRollback,
+                "after rollback and a re-read")
+
+        // THE FACT THE DECISION ACTUALLY TURNS ON. A screen does not write through
+        // the result of a fetch it just made; SwiftUI holds the object, and the
+        // clobber above happens because the screen writes through a reference it
+        // captured earlier. So the question is whether fetching in the context
+        // repairs the object the SCREEN is still holding, or only hands back a
+        // second, fresh one beside it (L237, L443).
+        #expect(refetched === invoice,
+                "the fetch hands back the very object the screen is holding")
+        #expect(invoice.number == OvationSchemaProbe.numberOnTheHeldObject,
+                "read through the reference captured before the other write")
+
+        // AND THE WHOLE POINT: the screen writes through the reference it has held
+        // all along, exactly as the clobbering test does, and saves.
+        invoice.bookingKey = "booking-1"
+        try screen.save()
+
+        let reader = ModelContext(container)
+        let after = try #require(try reader.fetch(FetchDescriptor<Invoice>()).first { $0.id == id })
+        #expect(after.number == OvationSchemaProbe.numberSurvivingTheScreensSave,
+                "the number after the screen saved its own unrelated edit")
+        #expect(after.bookingKey == "booking-1", "and the screen's own edit landed")
+    }
+
+    /// ovation#133, the second half. The probe above shows a fetch repairs the
+    /// screen's held object. A screen cannot be told to fetch before it writes
+    /// unless doing so is SAFE, and the thing that would make it unsafe is losing
+    /// what Dan has typed but not yet saved.
+    ///
+    /// This is the measurement that decides whether the repair can be owned by one
+    /// shared component (L621) or has to be a rule each screen remembers.
+    @Test("a fetch that repairs the held object does not discard the screen's unsaved edits")
+    func afetchKeepsWhatTheScreenHasNotSavedYet() throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let screen = ModelContext(container)
+        let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        screen.insert(invoice)
+        try screen.save()
+        let id = invoice.id
+
+        // Dan types something and it is NOT saved yet, which is the ordinary state
+        // of a screen he is working in.
+        invoice.bookingKey = "typed-but-not-saved"
+
+        // Meanwhile the allocator writes the number from its own context.
+        let writer = ModelContext(container)
+        let there = try #require(try writer.fetch(FetchDescriptor<Invoice>()).first { $0.id == id })
+        there.number = 1_123
+        try writer.save()
+
+        // The screen fetches, which the probe above shows repairs what it holds.
+        _ = try screen.fetch(FetchDescriptor<Invoice>())
+
+        #expect(invoice.bookingKey == OvationSchemaProbe.unsavedEditAfterAFetch,
+                "what Dan typed survives the fetch")
+        // THE ANSWER, AND IT IS THE OPPOSITE OF THE CLEAN CASE ABOVE. A context
+        // with pending changes does NOT take the other context's write when it
+        // fetches, so the repair that works on a settled screen does nothing on the
+        // one state a screen is actually in while Dan is working.
+        #expect(invoice.number == OvationSchemaProbe.numberOnADirtyHeldObject,
+                "the allocator's write, on an object the screen has already edited")
+
+        try screen.save()
+        let reader = ModelContext(container)
+        let after = try #require(try reader.fetch(FetchDescriptor<Invoice>()).first { $0.id == id })
+        #expect(after.number == OvationSchemaProbe.numberAfterADirtySave,
+                "and the save wrote the stale value back over it")
+        #expect(after.bookingKey == OvationSchemaProbe.unsavedEditAfterAFetch,
+                "while the screen's own edit landed, so the surface reports success")
+    }
+
     // MARK: Q6, what a Codable enum looks like to a reader that is not SwiftData
 
     /// ovation#223. THE QUESTION THE BACKUP ORDERING DEPENDS ON.
