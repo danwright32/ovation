@@ -22,10 +22,11 @@
 // was pointed at, and deleting it would destroy the record of what was decided
 // and when (L529).
 //
-// A DRAFT IS NOT CANCELLED, IT IS DISMISSED. It was never issued, so there is no
+// A DRAFT IS NOT CANCELLED, IT IS DELETED. It was never issued, so there is no
 // income to remove and nothing a client has seen. Two words for two states, and
 // folding them would make a cancelled invoice and an abandoned draft the same row
-// (L11). ovation#150 owns dismissing.
+// (L11). ovation#150 owns deleting, and PRD 1b records why the word changed from
+// dismissing on 2026-09-20.
 //
 // IT IS A SERIALIZED WRITER for the same reason `PaymentAllocator` is: the checks
 // above are read, decide, write, and a screen's own context would make them
@@ -53,7 +54,7 @@ enum CancellationRefusal: Error, Equatable {
     /// Money that never arrived cannot go back. Carries both numbers so the
     /// caller can offer what is actually possible.
     case refundExceedsWhatWasPaid(paid: Money, asked: Money)
-    /// It is a draft. Dismissing is the word for that (ovation#150).
+    /// It is a draft. Deleting is the word for that (ovation#150, PRD 1b).
     case neverIssued
     /// It has been cancelled or dismissed already, carrying the day it happened.
     case alreadyClosed(on: String)
@@ -77,8 +78,8 @@ enum CancellationRefusal: Error, Equatable {
                 + "Nothing has been changed."
         case .neverIssued:
             return "This invoice has never been sent, so there is nothing to cancel: no client "
-                + "has seen it and no income was reported. Dismiss the draft instead, which "
-                + "keeps it out of the way without pretending it was ever issued."
+                + "has seen it and no income was reported. Delete the draft instead, which "
+                + "takes it out of the list without pretending it was ever issued."
         case .alreadyClosed(let day):
             return "This invoice was already closed on \(day), and closing it again would "
                 + "overwrite the reason and the date recorded then. Nothing has been changed."

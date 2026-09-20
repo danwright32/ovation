@@ -269,7 +269,7 @@ enum TaxExport {
         switch invoice.closure {
         case .none: return "Issued"
         case .cancelled: return "Cancelled"
-        case .dismissed: return "Dismissed"
+        case .deleted: return "Deleted"
         }
     }
 

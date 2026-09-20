@@ -24,22 +24,43 @@ import SwiftData
 
 /// How an invoice ended, where it ended at all.
 ///
-/// ONE VALUE RATHER THAN TWO OPTIONAL DATES. Cancelled and dismissed are
-/// mutually exclusive and each carries its own date and reason, so a pair of
-/// nullable fields would allow a row that is both, and would let a reader answer
-/// "was it dismissed" by testing a field that means something else (L163).
+/// ONE VALUE RATHER THAN TWO OPTIONAL DATES. Cancelled and deleted are mutually
+/// exclusive and each carries its own date and reason, so a pair of nullable
+/// fields would allow a row that is both, and would let a reader answer "was it
+/// deleted" by testing a field that means something else (L163).
 enum InvoiceClosure: Equatable, Hashable, Codable, Sendable {
     /// A sent invoice withdrawn. PRD 5.13: if it was issued in a filed tax year
     /// this is a refusal to be raised with the accountant, not a quiet edit.
     case cancelled(on: BusinessDate, reason: String)
-    /// A draft Dan decided never to bill. PRD 5.1b: dismissing keeps the row and
-    /// records the decision, which is what lets Ovation tell a comped shoot from
-    /// an invoice he forgot.
-    case dismissed(on: BusinessDate, reason: String)
+
+    /// A draft Dan deleted because he was never going to bill it (PRD 1b,
+    /// corrected 2026-09-20).
+    ///
+    /// IT WAS `dismissed` UNTIL 2026-09-20, and the rename is a change of
+    /// behaviour rather than of wording. Dismissing kept the invoice in the list
+    /// in a band of its own; Dan declined that outright ("I'd rather just delete
+    /// it if I'm not going to do anything with it"), so the invoice leaves every
+    /// surface and `InvoiceBand` claims it for nothing.
+    ///
+    /// THE ROW SURVIVES FOR EXACTLY ONE READER, and it is not a screen. The
+    /// January reconcile (ovation#36) reads Downbeat's own export as its
+    /// independent side and names every booking that reached Ovation with no
+    /// invoice against it. Without this row a deliberate deletion is
+    /// indistinguishable from a shoot lost between the two apps, so the one
+    /// report PRD success measure 1 rests on would name three deliberate
+    /// deletions every January and stop being read (L258, L36).
+    ///
+    /// RENAMING THE CASE CHANGED ITS ENCODING, which is safe here and would not
+    /// have been a week later: `InvoiceClosure` is a synthesized `Codable`, so
+    /// the case name is the stored key. Checked before the rename rather than
+    /// assumed: the only production assignment anywhere is
+    /// `InvoiceCloser.cancel`, which writes `.cancelled`, so no stored row can
+    /// carry the old key and there is nothing to migrate (L186, L640).
+    case deleted(on: BusinessDate, reason: String)
 
     var closedOn: BusinessDate {
         switch self {
-        case .cancelled(let on, _), .dismissed(let on, _): return on
+        case .cancelled(let on, _), .deleted(let on, _): return on
         }
     }
 }

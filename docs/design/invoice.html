@@ -425,10 +425,17 @@ color: var(--faint); }
    window's title bar, and against not asking at all and offering
    an undo afterwards.
 
-   It was rendered on DISMISSING A DRAFT, which PRD 1c
+   It was rendered on DELETING A DRAFT, which PRD 1c
    deliberately moved into this screen, and what it settles is
    what the other two rare actions are written to: combining two
    drafts, and cancelling a sent invoice.
+
+   IT WAS DISMISSING UNTIL 2026-09-20. Dan declined the whole
+   idea ("I'd rather just delete it if I'm not going to do
+   anything with it"), so the action deletes and the invoice
+   leaves the list. The panel, its treatment and everything
+   above are unchanged: what changed is the action, not how it
+   is asked.
    ============================================================ */
 .askpanel { width: 380px; }
 .askpanel p { margin: 0 0 14px; font-size: 13px; line-height: 1.45; color: var(--soft); }
@@ -441,11 +448,16 @@ color: var(--faint); }
    what this rule exists to prevent. Measured rather than seen. */
 .newpanel .panelacts button.harm { color: #8C4A3C; font-weight: 600; }
 
-/* WHAT THE INVOICE IS AFTERWARDS. Dismissing is not a delete (PRD 1b): the
-   invoice stays, so it is drawn as what it now is rather than taken off the
-   screen. The lines and the totals go quiet because they are no longer a claim
-   on anyone, and the foot states the recorded decision and its date. */
-.inv.notbilled .invlines, .inv.notbilled .invsum { opacity: .45; }
+/* WHAT IS THERE AFTERWARDS, AND IT IS NOT THE INVOICE (PRD 1b, corrected
+   2026-09-20). This used to draw the invoice quietly with its foot stating the
+   recorded decision, because dismissing kept the row. Deleting does not: the
+   invoice leaves the list and every other surface, so drawing it at all would
+   be the one screen in the app contradicting what just happened. What stands in
+   its place is a single sentence saying what was done, which is a PLACEHOLDER
+   for the return to the list rather than a designed screen of its own: where
+   you land after acting inside an invoice is ovation#125 and is not settled
+   here. */
+.inv.gonenow .invlines, .inv.gonenow .invsum { opacity: .45; }
 .didit { display: flex; align-items: center; gap: 14px; }
 .didit .doneword { font-family: "Archivo", ui-sans-serif, sans-serif;
                    font-size: 12.5px; color: var(--soft); }
@@ -1875,16 +1887,19 @@ var DUE = ISSUED + 14 * 86400000;            /* PRD 7's default term */
 var DUEOPEN = false;                         /* the terms are showing */
 var DUEPANEL = false;                        /* another date is being typed */
 var ASKING = false;                          /* the panel is asking before acting */
-var NOTBILLED = false;                       /* the answer was yes, and it is recorded */
+var DELETED = false;                         /* the answer was yes, and it is gone */
 
 /* THE CONSEQUENCE, said in the words of the domain rather than of the screen.
-   It names THIS shoot, because a warning shown on every dismissal carries no
+   It names THIS shoot, because a warning shown on every deletion carries no
    information and reads the same whether it is taking one row or a subtree
    (L180).
 
-   IT MAY NOT SAY THE INVOICE IS REMOVED. PRD 1b: dismissing keeps the row and
-   records the decision and its date, which is what finally lets Ovation tell a
-   comped shoot from an invoice Dan forgot. */
+   IT SAYS THE DRAFT DOES NOT COME BACK, and that is the whole point of the
+   sentence (PRD 1b, corrected 2026-09-20). It used to say the invoice stayed in
+   the list recorded as not billed, which was true of dismissing and is false of
+   this. It does NOT mention the one line kept for the January reconcile: that
+   line exists for a report Dan does not read from here, and naming it in a
+   confirmation would read as the deletion not being a deletion (L679). */
 /* DERIVED WHEN IT IS READ, not when the file loads. Written as a `var` computed
    at load it ran BEFORE the month names it needs were assigned, and threw:
    `var` hoists the name and not the value, so `MONTHS` was undefined and the
@@ -1898,23 +1913,23 @@ function askNotBilling() {
   veil.addEventListener("click", function () { ASKING = false; redraw(); });
 
   var panel = el("div", "newpanel askpanel");
-  panel.append(el("h6", null, "Do not bill this shoot"));
+  panel.append(el("h6", null, "Delete this draft"));
   var says = el("p");
   says.append(el("span", null, "Cedar Hill Youth Orchestra will not be billed for "),
               el("b", null, shootName()),
-              el("span", null, ". The invoice stays in the list, recorded as not billed on "
-                               + TODAY + ", so it is no longer waiting on you."));
+              el("span", null, ". This draft is deleted and does not come back. "
+                               + "Nothing else about the shoot changes."));
   panel.append(says);
 
   var acts = el("div", "panelacts");
   var keep = el("button", null, "Keep it");
   keep.type = "button";
   keep.addEventListener("click", function () { ASKING = false; redraw(); });
-  var go = el("button", "go harm", "Do not bill it");
+  var go = el("button", "go harm", "Delete it");
   go.type = "button";
   go.addEventListener("click", function () {
     ASKING = false;
-    NOTBILLED = true;
+    DELETED = true;
     redraw();
   });
   acts.append(keep, go);
@@ -2388,12 +2403,12 @@ function buildInvoice() {
   /* THE FOOT STATES THE RECORDED DECISION once it is made, in place of the
      dated line and the Send, because neither is true of an invoice that is not
      being billed. */
-  if (NOTBILLED) {
-    inv.className = "inv notbilled";
+  if (DELETED) {
+    inv.className = "inv gonenow";
     var done = el("div", "didit");
     var said = el("div", "doneword");
-    said.append(el("span", null, "Not billed. "), el("b", null, shootName()),
-                el("span", null, " is recorded as not billed on " + TODAY + "."));
+    said.append(el("span", null, "Deleted. "), el("b", null, shootName()),
+                el("span", null, " is no longer in the list."));
     done.append(said);
     foot.append(done);
     inv.append(hd, lines, sumBox, foot);
@@ -2614,17 +2629,16 @@ function buildMenu() {
     : ["Apply a referral credit", function () { CREDIT = 100; }]);
   if (INVSTATE === "draft") {
     items.push(["Combine with another draft", null]);
-    /* THERE IS NO WAY BACK FROM HERE YET, and that is deliberate rather than an
-       omission. A `Bill it after all` was drawn in this menu on the reasoning
-       that a recorded decision nothing can revisit is a dead end, and Dan took
-       it out on 2026-09-08 because it was a control he had never been shown:
-       every other thing on this screen was chosen from renderings, and one
-       arrived at by argument does not get to sit beside them. So the dead end
-       is REAL and visible here rather than papered over by a guess, and undoing
-       a dismissal is an open question (ovation#150). Dismissing is offered only
-       while there is something to dismiss. */
-    if (!NOTBILLED) {
-      items.push(["Dismiss this draft", function () { ASKING = true; }]);
+    /* THERE IS NO WAY BACK, and since 2026-09-20 that is ordinary rather than a
+       dead end anybody has to defend. A `Bill it after all` was drawn here on
+       the reasoning that a recorded decision nothing can revisit strands you,
+       and Dan took it out on 2026-09-08 because it was a control he had never
+       been shown. That whole argument is spent: there is no dismissed invoice
+       sitting in a list inviting the question, because Dan chose deleting over
+       dismissing (ovation#150, PRD 1b). Deleting is the ordinary destructive
+       action every app has, and the panel asking first is the protection. */
+    if (!DELETED) {
+      items.push(["Delete this draft", function () { ASKING = true; }]);
     }
   } else {
     items.push(["Edit and resend", null], ["Cancel this invoice", null]);
