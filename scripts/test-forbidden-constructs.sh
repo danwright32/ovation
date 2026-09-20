@@ -26,8 +26,15 @@ FORBIDDEN_COUNT="$(printf '%s\n' "$FORBIDDEN" | grep -c .)"
 # a bare token in a struct is exactly where it must NOT fire (ovation#255).
 DRAWING="$([ -x "./$TARGET" ] && "./$TARGET" --list-drawing 2>/dev/null)"
 DRAWING_COUNT="$(printf '%s\n' "$DRAWING" | grep -c .)"
+# The store rule's readers are a THIRD list (ovation#133), derived the same way so
+# a reader added to that rule arrives with its own cases rather than being
+# forbidden by a check nothing exercises (L41, L217). Each one is put in a view's
+# body, in a Button's action, and in a type that is not a view at all.
+VIEWSTORE="$([ -x "./$TARGET" ] && "./$TARGET" --list-view-store 2>/dev/null)"
+VIEWSTORE_COUNT="$(printf '%s\n' "$VIEWSTORE" | grep -c .)"
 
-harness_begin "forbidden construct tests" $((32 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT))
+harness_begin "forbidden construct tests" \
+    $((32 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT + 7 + 3 * VIEWSTORE_COUNT))
 require_target "$TARGET"
 harness_temp_dir WORK
 
@@ -393,6 +400,95 @@ check "the exempted palette is genuinely found, so this case measures something"
 check "and it trips no OTHER rule, which is what its exemption silently covers" \
     "$(OVATION_CONSTRUCT_SCAN_ROOT="$PALETTE" OVATION_CONSTRUCT_ALLOWLIST="" \
         "./$TARGET" 2>&1 | grep -cE 'ambient calendar|cooperative pool')" "0"
+
+
+# ---------------------------------------------------------------------------
+# A SCREEN WRITING THE STORE (ovation#133).
+#
+# Scoped to the WHOLE body of a view type rather than to the code that draws,
+# which is the one way it differs from the rule above and the reason it exists:
+# the danger lives in the closure a press runs, and the drawing rule skips that
+# deliberately. So each reader is asserted to be refused in a Button's action,
+# which is exactly where the drawing rule lets it through.
+#
+# MEASURED, 2026-09-19 (SwiftDataBehaviourTests, OvationSchemaProbe). A screen
+# holding a stale context puts its whole snapshot back on save, so the invoice
+# number an actor allocated while Dan was typing is silently overwritten. Fetching
+# again repairs the held object only while the context has nothing unsaved, which
+# is never true of a screen somebody is working in.
+# ---------------------------------------------------------------------------
+check "the store rule still names the context constructor" \
+    "$(printf '%s\n' "$VIEWSTORE" | grep -c 'ModelContext(')" "1"
+check "and still names save, which is what actually loses the write" \
+    "$(printf '%s\n' "$VIEWSTORE" | grep -c 'save()')" "1"
+
+n=0
+while IFS= read -r SNIPPET; do
+    [ -n "$SNIPPET" ] || continue
+    n=$((n + 1))
+    VSBODY="$WORK/store-body-$n"
+    VSACTION="$WORK/store-action-$n"
+    VSPLAIN="$WORK/store-plain-$n"
+    mkdir -p "$VSBODY" "$VSACTION" "$VSPLAIN"
+    printf 'import SwiftUI\nstruct Pane: View {\n    var body: some View {\n        let _ = %s\n        Text("pane")\n    }\n}\n' \
+        "$SNIPPET" > "$VSBODY/Pane.swift"
+    printf 'import SwiftUI\nstruct Pane: View {\n    var body: some View {\n        Button("Go") {\n            _ = %s\n        }\n    }\n}\n' \
+        "$SNIPPET" > "$VSACTION/Pane.swift"
+    printf 'import SwiftData\n@ModelActor actor Allocator {\n    func write() {\n        _ = %s\n    }\n}\n' \
+        "$SNIPPET" > "$VSPLAIN/Allocator.swift"
+    check "$SNIPPET in a view's body is refused" "$(status_on "$VSBODY")" "1"
+    check "$SNIPPET in a Button's ACTION is refused too, where the drawing rule allows it" \
+        "$(status_on "$VSACTION")" "1"
+    check "$SNIPPET in an actor, which is where it belongs, is allowed" \
+        "$(status_on "$VSPLAIN")" "0"
+done <<< "$VIEWSTORE"
+
+# The shape ovation#133 is actually about, written out whole: a press that
+# allocates a number through a context the screen holds.
+ISSUING="$WORK/store-issuing"
+mkdir -p "$ISSUING"
+cat > "$ISSUING/InvoiceScreen.swift" <<'SWIFT'
+import SwiftData
+import SwiftUI
+struct InvoiceScreen: View {
+    var container: ModelContainer
+    var invoice: Invoice
+    var body: some View {
+        Button("Issue") {
+            let context = ModelContext(container)
+            invoice.number = 1_123
+            try? context.save()
+        }
+    }
+}
+SWIFT
+check "a press that writes the invoice through its own context is refused" \
+    "$(status_on "$ISSUING")" "1"
+check "and the refusal names the file and the line the context was made on" \
+    "$(run_on "$ISSUING" | grep -c 'InvoiceScreen.swift:8')" "1"
+check "and names the rule, which forbids something the others do not" \
+    "$(run_on "$ISSUING" | grep -c '^a screen writing the store: ')" "1"
+check "and does not print the source line" \
+    "$(run_on "$ISSUING" | grep -c '1_123')" "0"
+
+# The positive control for the scoping (L159). The same three tokens in a file
+# that declares no view are not this rule's business, and if they were, every
+# @ModelActor in the tree would trip it and the case above would pass for the
+# wrong reason.
+NOTAVIEW="$WORK/store-not-a-view"
+mkdir -p "$NOTAVIEW"
+cat > "$NOTAVIEW/Allocator.swift" <<'SWIFT'
+import SwiftData
+@ModelActor
+actor InvoiceNumberAllocator {
+    func allocate(_ invoice: Invoice) throws {
+        invoice.number = 1_123
+        try modelContext.save()
+    }
+}
+SWIFT
+check "an actor doing exactly this work is not refused, so the scope is real" \
+    "$(status_on "$NOTAVIEW")" "0"
 
 # ---------------------------------------------------------------------------
 # The real root, once, so the seam is not the only thing ever measured (L246).
