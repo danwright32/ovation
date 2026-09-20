@@ -61,6 +61,7 @@ enum ReviewGate {
     /// That line just disappears and nothing takes its place."
     static let order: [InvoiceRefusal] = [
         .paymentInstructionsNotSet, .contactDetailsNotSet,
+        .shootTimesNotGiven, .shootEndTimeNotGiven, .shootStartTimeNotGiven,
         .durationLongerThanAShoot,
         .taxStatusNeverRecorded, .discountExceedsSubtotal, .totalBelowZero,
     ]
@@ -87,6 +88,15 @@ enum ReviewGate {
         // cause sends somebody to change a number that changes nothing (L111).
         case .totalBelowZero:
             return "The credit is larger than everything charged, so this invoice comes to less than nothing."
+        // THE DESIGN'S OWN SENTENCES, `waiting.js`, word for word, and each names
+        // the thing that is actually missing rather than its class (PRD 51b).
+        // `scripts/check-waiting-sentences-agree.sh` is what holds them to it.
+        case .shootTimesNotGiven:
+            return "Waiting on the shoot's start and end times."
+        case .shootEndTimeNotGiven:
+            return "Waiting on the time the shoot ended."
+        case .shootStartTimeNotGiven:
+            return "Waiting on the time the shoot started."
         // THE DESIGN'S OWN SENTENCE, `waiting.js`, word for word, and the number in
         // it comes from the rule rather than from a second copy typed here (L370).
         // PRD 51c: it says the times cannot be right rather than asking for times

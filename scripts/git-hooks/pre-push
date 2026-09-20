@@ -208,6 +208,7 @@ gate_check check-motion-owner.sh "an animation is written outside the file that 
 # here rather than by somebody re-reading an invoice already sent (L98, L144).
 # Fast: one grep per Swift file under Ovation/.
 gate_check check-invoice-footer-source.sh "the invoice page is built from the shipped footer text rather than from Settings."
+gate_check check-waiting-sentences-agree.sh "a refusal the app says has drifted from the wording settled in the design record."
 
 # ovation#119. `OvationMigrationPlan.stages` is empty and `schemas` names one
 # version. Both are correct today and exactly one of them is silently wrong the

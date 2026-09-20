@@ -98,6 +98,7 @@ check-design-tokens-resolve.sh	workflow	Renders every design file and asks each 
 check-forbidden-constructs.sh	gated	A repo wide guard.
 check-invoice-screen-draws.sh	workflow	Renders docs/design/invoice.html in a headless browser and reads back what it DREW, which is the gap ovation#141 names: every other check on these files reads their source, and all three faults it was written for were invisible there. Run by .github/workflows/ci.yml's Linux job, and by its sibling test-invoice-screen-draws.sh against the committed file on every test run, which is what makes a push judge it; that suite answers CANNOT MEASURE rather than passing when there is no browser. Not gated, for the reason written once under `workflow` above.
 check-invoice-footer-source.sh	gated	Run by the push gate. The three sentences at the foot of an invoice go to clients under Dan's name and now come from Settings (ovation#319, PRD 9 and 41a); this refuses any drawing or sending path that reads InvoiceFooter.fixed instead, which renders perfectly and silently ignores everything he typed (L98, L144). Three files may read it, each for a written reason in the script. test-invoice-footer-source.sh drives every outcome over staged trees.
+check-waiting-sentences-agree.sh	gated	Run by the push gate. `docs/design/rules/waiting.js` is where the wording for what an invoice is waiting on was settled with Dan, and it says itself that the reason and both sentences come from one place so two surfaces cannot word one condition differently (PRD 51b, L118). Swift cannot read a JavaScript rule, so `ReviewGate.sentence` carries a hand copy of each tip; that was one copy until ovation#43 made it two and ovation#117 made it five, with nothing able to say they still agreed (L26, L370). This compares the literal words with each side's own interpolation masked. test-waiting-sentences-agree.sh drives every outcome over staged pairs.
 check-identity-leaks.sh	gated	A repo wide guard.
 check-isolation-floor.sh	gated	A repo wide guard.
 check-launch-sequence-wired.sh	gated	A repo wide guard.
@@ -184,6 +185,7 @@ test-embed-web-fonts.sh	suite
 test-forbidden-constructs.sh	suite	
 test-git-hooks.sh	suite	
 test-invoice-footer-source.sh	suite
+test-waiting-sentences-agree.sh	suite
 test-identity-guard.sh	suite	
 test-invoice-screen-draws.sh	suite	
 test-isolation-floor.sh	suite	

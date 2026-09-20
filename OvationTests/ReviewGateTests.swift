@@ -179,6 +179,15 @@ struct ReviewGateTests {
             invoice.lineItems = []
             invoice.add(LineItem.flat(Money(dollars: lineDollars), describedAs: "Photography"))
         }
+        // THE SHOOTS ARE TIMED, because every case in this suite is about a refusal
+        // that is NOT the times, and an untimed shoot would answer first and make
+        // each of them assert the wrong sentence (ovation#117, PRD 51b). The
+        // fixture's own line prices one hour, so 19:00 to 20:00 changes no figure
+        // in it.
+        for shoot in invoice.shoots {
+            shoot.shotFrom = ClockTime("19:00")
+            shoot.shotUntil = ClockTime("20:00")
+        }
         if let creditHours {
             invoice.referralCredit = ReferralCredit(hours: Hours(whole: creditHours),
                                                     at: invoice.hourlyRate, earnedFrom: nil)
