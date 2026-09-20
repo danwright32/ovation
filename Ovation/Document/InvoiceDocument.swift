@@ -172,8 +172,11 @@ struct InvoiceDocument: Equatable, Sendable {
         return [
             item.shoot?.name ?? item.summary,
             beneath.joined(separator: ", "),
-            item.hours.map(PDFText.hours) ?? "",
-            item.hours == nil ? "" : PDFText.money(item.unitAmount),
+            // THE HOURS THE LINE ACTUALLY CHARGES (ovation#43). A shoot that has
+            // been timed decides them, so the figure the client reads and the times
+            // Dan typed are one fact rather than two that can be made to disagree.
+            item.billedHours.map(PDFText.hours) ?? "",
+            item.billedHours == nil ? "" : PDFText.money(item.unitAmount),
             PDFText.money(item.amount),
         ]
     }

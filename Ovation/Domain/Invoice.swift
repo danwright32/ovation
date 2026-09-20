@@ -96,9 +96,24 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
     /// credit driven subtotal brings the total back to exactly zero, which is a
     /// legitimate invoice rather than this refusal.
     case totalBelowZero
+
+    /// PRD 3b and 51c, ovation#43. A shoot on this invoice spans longer than
+    /// `ShootDuration.cap`, so it prices nothing and the invoice may not go out.
+    ///
+    /// REFUSED RATHER THAN CLAMPED, which is PRD 3b's own wording: a span that long
+    /// is a typo rather than a shoot, and rounding it into a sendable number
+    /// destroys the evidence that somebody typed the wrong time (L340).
+    ///
+    /// IT IS NOT THE SAME AS NO TIMES AT ALL, and the difference is why it has its
+    /// own member. Dan, 2026-09-08, on the design's own rule: both times being
+    /// present is a different fact from no times at all, so asking for the times
+    /// again here would ask for something already given (L111). The state where a
+    /// time has NOT been typed is ovation#117, and it joins this vocabulary rather
+    /// than standing beside it.
+    case durationLongerThanAShoot
 }
 
-extension OvationSchemaV2 {
+extension OvationSchemaV3 {
     @Model
     final class Invoice {
         /// Ovation's own identity, minted fresh and never derived from anything
@@ -229,6 +244,17 @@ extension OvationSchemaV2 {
         var taxableAmount: Money { subtotal - discountAmount }
 
         /// The tax, or nothing at all for an exempt client.
+        ///
+        /// IT READS THE CLIENT'S STATUS AT RENDER TIME, and that is a decision
+        /// rather than the absence of one (PRD 5a1, ovation#122). Dan's own history
+        /// has three clients taxed on some invoices and untaxed on others after
+        /// sales tax started in 2022, and a fourth with a taxed and an untaxed line
+        /// on the same day, which reads as a status that CHANGES. Put to him on
+        /// 2026-09-19 with the measurement, he answered that the tax was applied by
+        /// hand and sometimes missed, so the history contains mistakes and the
+        /// status stays a fact about the client. Every other rate on this invoice is
+        /// frozen at creation; this one deliberately is not, and 5a1 records what
+        /// that costs if a client ever does become exempt.
         var tax: Money {
             guard client?.taxStatus.isTaxed ?? true else { return .zero }
             return taxRate.tax(on: taxableAmount)
@@ -318,6 +344,12 @@ extension OvationSchemaV2 {
             // PRD 5.4c. Below zero, never at it: a zero total is the comped invoice
             // PRD 5.1b says no guard may refuse.
             if total < .zero { found.insert(.totalBelowZero) }
+            // PRD 3b. ASKED OF EVERY SHOOT, because PRD 5.1a puts more than one on
+            // an invoice and a rule reading only the first would pass an invoice
+            // whose second shoot is the mistyped one.
+            if shoots.contains(where: \.isLongerThanAShoot) {
+                found.insert(.durationLongerThanAShoot)
+            }
             return found
         }
     }
@@ -327,6 +359,6 @@ extension OvationSchemaV2 {
 // schema VERSION, because a version has to be able to describe a shape that
 // is no longer current. Everything outside the store speaks about the shape
 // in force, so it says the bare name and this is what points that name at the
-// version in force. When a version 2 exists, this line moves to it and every
-// call site is already correct.
-typealias Invoice = OvationSchemaV2.Invoice
+// version in force. When a newer version exists, this line moves to it and
+// every call site is already correct.
+typealias Invoice = OvationSchemaV3.Invoice
