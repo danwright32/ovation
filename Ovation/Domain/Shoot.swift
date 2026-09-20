@@ -17,6 +17,17 @@
 import Foundation
 import SwiftData
 
+/// Which of a shoot's two real times has not been given yet (ovation#117).
+///
+/// A VALUE RATHER THAN TWO BOOLEANS, because "no start" and "no end" and "neither"
+/// are one fact with three readings, and a pair of flags admits a fourth that means
+/// nothing (L544, L163).
+enum ShootTimesMissing: String, CaseIterable, Hashable, Sendable {
+    case both
+    case end
+    case start
+}
+
 extension OvationSchemaV3 {
     @Model
     final class Shoot {
@@ -90,6 +101,24 @@ extension OvationSchemaV3 {
         var billedHours: Hours? {
             guard case .some(.priced(let priced)) = duration else { return nil }
             return priced.billed
+        }
+
+        /// What this shoot still needs before it can be priced, or nil when both
+        /// times are in.
+        ///
+        /// THE THREE ARE THE DESIGN'S OWN, in its own order
+        /// (`docs/design/rules/waiting.js`). They are three rather than one because
+        /// naming the class of thing instead of the thing is what that rule was
+        /// written to stop: the screen drew "Needs the times" over a draft with a
+        /// start time plainly on it, and a start with no end is the ORDINARY state
+        /// of every draft rather than an edge case (PRD 51b, Dan 2026-09-08).
+        var timesMissing: ShootTimesMissing? {
+            switch (shotFrom, shotUntil) {
+            case (nil, nil): return .both
+            case (.some, nil): return .end
+            case (nil, .some): return .start
+            case (.some, .some): return nil
+            }
         }
 
         /// PRD 3b. The two times given span longer than a shoot can be, so this one

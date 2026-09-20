@@ -46,10 +46,12 @@ enum InvoiceClosure: Equatable, Hashable, Codable, Sendable {
 
 /// Something wrong enough that the invoice must not go out as it stands.
 ///
-/// THE SECOND REFUSAL IS NOT HERE YET. An unpriced draft cannot be sent either
-/// (PRD 5.3c), and ovation#117 owns that state; when it lands it joins this
-/// vocabulary rather than becoming a second one, because a surface asking "can
-/// this be sent" must get one answer with every reason in it (L118, L53).
+/// ONE VOCABULARY, AND EVERY REASON IS IN IT. A surface asking "can this be sent"
+/// must get one answer carrying every reason, because a control that asks two
+/// independent questions can be enabled by whichever it asked last, and two
+/// vocabularies for one decision drift (L118, L53). That is why the footer's two
+/// reasons are members here rather than a second enum, and why the unpriced draft
+/// (PRD 3c, ovation#117) joined this set rather than standing beside it.
 enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
     /// PRD 5.4a. Reported rather than clamped, because clamping destroys the
     /// evidence that somebody typed the wrong number (L340).
@@ -96,6 +98,23 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
     /// credit driven subtotal brings the total back to exactly zero, which is a
     /// legitimate invoice rather than this refusal.
     case totalBelowZero
+
+    /// PRD 3c, ovation#117. A shoot on this invoice has not been given both of
+    /// its real times, so the invoice has no hours and no amount yet.
+    ///
+    /// THREE MEMBERS RATHER THAN ONE, and they are the design's own
+    /// (`docs/design/rules/waiting.js`). A single "not priced yet" would make the
+    /// screen ask for the times again over a draft already carrying its start,
+    /// which is the defect that rule was written against (PRD 51b).
+    ///
+    /// AN UNPRICED DRAFT IS NOT A ZERO INVOICE. PRD 1b makes a zero total ordinary
+    /// and says no guard may refuse one, so the two would be indistinguishable on
+    /// every surface that shows an amount while needing opposite actions, which is
+    /// exactly what L11 exists for. The list draws `no price` for this one and
+    /// `comped` for that one, settled with Dan on 2026-09-09.
+    case shootTimesNotGiven
+    case shootEndTimeNotGiven
+    case shootStartTimeNotGiven
 
     /// PRD 3b and 51c, ovation#43. A shoot on this invoice spans longer than
     /// `ShootDuration.cap`, so it prices nothing and the invoice may not go out.
@@ -291,6 +310,38 @@ extension OvationSchemaV3 {
             }
         }
 
+        /// The shoots this invoice still has NO HOURS for.
+        ///
+        /// IT ASKS WHAT THE INVOICE CHARGES, NOT WHAT THE SHOOT RECORDS, and that
+        /// distinction is the whole of it. PRD 3c's unpriced draft is one that "has
+        /// no hours and no amount"; a shoot with no typed times whose line already
+        /// carries hours is not that. Asking the shoot alone would refuse every
+        /// QuickBooks row ovation#68 imports, since those carry hours and were never
+        /// timed, and every fixture in the design record's own PDF, which is how the
+        /// narrower reading was found rather than reasoned out.
+        private var shootsWithNoHours: [Shoot] {
+            orderedShoots.filter { shoot in
+                !lineItems.contains { $0.shoot?.id == shoot.id && $0.billedHours != nil }
+            }
+        }
+
+        /// PRD 3c. It has no duration yet, so it has no hours and no amount.
+        ///
+        /// A NAME RATHER THAN A NIL AT EACH SURFACE (ovation#117). Every screen that
+        /// shows an amount has to tell this from a comped invoice that really does
+        /// come to nothing, and a surface inferring it from a zero would draw the two
+        /// the same way while they need opposite actions. The list asks this and
+        /// draws `no price`; its action word is `Add hours` (PRD 46f).
+        /// ASKED OF THE REFUSALS, not of the shoots again. A surface reading this
+        /// and a send control reading `refusals` must never disagree about one
+        /// invoice, and two predicates over the same facts is how they come to
+        /// (L370, L16). A shoot that IS timed and simply has no line yet is not
+        /// waiting on anything a person can give it, so it is not this state.
+        var isUnpriced: Bool {
+            !refusals.isDisjoint(with: [.shootTimesNotGiven, .shootEndTimeNotGiven,
+                                        .shootStartTimeNotGiven])
+        }
+
         /// Where this invoice stands on money alone.
         ///
         /// IT SAYS NOTHING ABOUT SENDING OR CANCELLING, which are different facts on
@@ -349,6 +400,18 @@ extension OvationSchemaV3 {
             // whose second shoot is the mistyped one.
             if shoots.contains(where: \.isLongerThanAShoot) {
                 found.insert(.durationLongerThanAShoot)
+            }
+            // PRD 3c. EVERY SHOOT WITH NO HOURS IS ASKED, and each names what IT is
+            // waiting on, so an invoice covering two shoots can be waiting on two
+            // different things at once. ReviewGate's order decides which one a
+            // control says.
+            for shoot in shootsWithNoHours {
+                switch shoot.timesMissing {
+                case .both: found.insert(.shootTimesNotGiven)
+                case .end: found.insert(.shootEndTimeNotGiven)
+                case .start: found.insert(.shootStartTimeNotGiven)
+                case nil: break
+                }
             }
             return found
         }

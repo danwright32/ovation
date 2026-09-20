@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 110
+harness_begin "output privacy tests" 112
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -967,6 +967,43 @@ check "the invoice footer source check prints no identity from the file it refus
     "$(leaks_in "$FOOTER_OUT")" "clean"
 check "and it really did refuse, so the case reached the lines that name a file" \
     "$(printf '%s' "$FOOTER_OUT" | grep -c 'REFUSED')" "1"
+
+# ---------------------------------------------------------------------------
+# THE WAITING SENTENCE GUARD (ovation#117). Its whole subject is COPY: the
+# sentences the app says to Dan and the design record's own words for them. When
+# they disagree it prints the sentence that is missing, which is the one thing
+# here that prints CONTENT by design rather than a filename.
+#
+# THAT IS SAFE AND IS ASSERTED RATHER THAN ASSUMED. Neither file holds client
+# data: `waiting.js` is a rule in the design record and `ReviewGate.swift` is
+# app source. But nothing stops somebody putting a real name in an example, and
+# this is the case that would find it, so the fixture PUTS ONE THERE and requires
+# the guard to stay clean about everything except the sentence itself (L129).
+# ---------------------------------------------------------------------------
+WAIT_JS="$WORK/waiting-leak.js"
+cat > "$WAIT_JS" <<JS
+function waitingOnFor(start, end) {
+  if (start === null) {
+    return { reason: "start", says: "Needs it",
+             tip: "Waiting on the time the shoot started." };
+  }
+  return null;
+}
+JS
+WAIT_SWIFT="$WORK/gate-leak.swift"
+printf 'enum ReviewGate {
+    // the draft for %s at %s
+    static func sentence() -> String {
+        return "Waiting on something else entirely."
+    }
+}
+' \
+    "$CLIENT" "$VENUE" > "$WAIT_SWIFT"
+WAIT_OUT="$(./scripts/check-waiting-sentences-agree.sh "$WAIT_JS" "$WAIT_SWIFT" 2>&1)"
+check "the waiting sentence guard prints no identity from the file it refuses" \
+    "$(leaks_in "$WAIT_OUT")" "clean"
+check "and it really did refuse, so the case reached the line that quotes a sentence" \
+    "$(printf '%s' "$WAIT_OUT" | grep -c 'DRIFTED')" "1"
 
 # ---------------------------------------------------------------------------
 # THE RUNNER XCODE WATCHER (ovation#320). It reads three things it did not write
