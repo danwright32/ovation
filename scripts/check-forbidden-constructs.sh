@@ -211,6 +211,55 @@ DRAWING_RULE = {
     ),
 }
 
+# RULE FIVE, A SCREEN WRITING THE STORE (ovation#133). Scoped like rule four, but
+# to the WHOLE body of a view type rather than to the code that draws, because the
+# danger here lives in exactly the place rule four skips: the closure a Button
+# runs.
+#
+# MEASURED, 2026-09-19, macOS 26.5.1, and the measurement is why this rule and not
+# a cheaper one. A context holding an object from before another context wrote to
+# it clobbers that write on its next save. Fetching again REPAIRS the held object,
+# but only while the context has no unsaved changes of its own; with one pending
+# edit the same fetch does nothing, the held object still reads the old value, and
+# the save puts it back while the screen's own edit lands, so the surface reports
+# success. The standing cases are in `SwiftDataBehaviourTests` with every observed
+# value in `OvationSchemaProbe`.
+#
+# So "screens re-read before they write" works exactly where nothing was at stake
+# and fails in the one state a screen is in while Dan is working in it. The shape
+# that survives is that a screen never holds a context that can write these fields
+# at all: it holds what Dan is typing, and hands it to an actor at a definite
+# moment. Dan chose that moment on 2026-09-20: when he leaves the field.
+#
+# IT IS TRUE TODAY AND THAT IS WHY IT IS WRITTEN NOW. No view in the tree holds a
+# `ModelContext` or calls `save`; every store write is already inside a
+# `@ModelActor` or in the launch sequence. ovation#133 says the decision has to be
+# settled BEFORE a screen writes rather than after, and a rule that only lives in
+# an issue is enforced by nothing (L27, L407, L621).
+VIEW_STORE_RULE = {
+    "name": "a screen writing the store",
+    "readers": (
+        "ModelContext(container)",
+        "modelContext",
+        "context.save()",
+    ),
+    "pattern": re.compile(
+        r"\b(ModelContext)\s*\("
+        r"|\b(modelContext)\b"
+        r"|\.\s*(save)\s*\(\s*\)"
+    ),
+    "because": (
+        "A screen that holds a writable context over an invoice puts back "
+        "everything it was holding when it saves, including the fields an actor "
+        "wrote while Dan was typing: the allocated invoice number, a closure, a "
+        "sent observation. Nothing throws and the screen's own edit lands, so the "
+        "surface reports success and the only later sign is an invoice with no "
+        "number, or the same number handed out twice (ovation#133, ovation#37). "
+        "A screen holds what is being typed and hands it to a @ModelActor when the "
+        "field is left; it does not hold the context."
+    ),
+}
+
 VIEW_TYPE = re.compile(r"\b(?:struct|class|extension)\s+\w+[^{]*?:\s*[^{]*?\bView\b[^{]*\{")
 DRAWING_REGIONS = (
     re.compile(r"\bvar\s+\w+\s*:\s*some\s+View\s*\{"),
@@ -386,9 +435,36 @@ def drawing_findings(lines):
     return findings
 
 
+def view_store_findings(lines):
+    """(line number, token) for every store write anywhere inside a type that
+    draws a screen. Nothing at all for a file that declares none.
+
+    THE WHOLE TYPE, not the drawing regions. Rule four deliberately skips what a
+    press runs, because a Button's action is not drawing; this rule is about that
+    action above all, since a screen that writes the store writes it from there
+    (ovation#133).
+    """
+    code = blank_strings("\n".join(text for _, text in strip_comments(lines)))
+    findings = []
+    seen = []
+    for match in VIEW_TYPE.finditer(code):
+        start = match.end() - 1
+        # A nested view type is already inside the one before it, so its hits are
+        # not counted twice.
+        if seen and start <= seen[-1]:
+            continue
+        end = matching_brace(code, start)
+        seen.append(end)
+        for hit in VIEW_STORE_RULE["pattern"].finditer(code, start, end + 1):
+            token = next(group for group in hit.groups() if group)
+            findings.append((code.count("\n", 0, hit.start()) + 1, token))
+    return findings
+
+
 def rule_names():
     """Every rule an exemption can name, the scoped one included, in order."""
-    return [rule["name"] for rule in RULES] + [DRAWING_RULE["name"]]
+    return ([rule["name"] for rule in RULES]
+            + [DRAWING_RULE["name"], VIEW_STORE_RULE["name"]])
 
 
 def parse_allowlist(entries, root, problems):
@@ -449,6 +525,10 @@ def main(argv):
         for reader in DRAWING_RULE["readers"]:
             print(reader)
         return 0
+    if "--list-view-store" in argv:
+        for reader in VIEW_STORE_RULE["readers"]:
+            print(reader)
+        return 0
     if "--list-rules" in argv:
         for name in rule_names():
             print(name)
@@ -486,7 +566,8 @@ def main(argv):
             # nothing checked rather than as a clean tree (L98).
             applying = [rule for rule in RULES if (relative, rule["name"]) not in allowed]
             drawing_applies = (relative, DRAWING_RULE["name"]) not in allowed
-            if not applying and not drawing_applies:
+            view_store_applies = (relative, VIEW_STORE_RULE["name"]) not in allowed
+            if not applying and not drawing_applies and not view_store_applies:
                 continue
             scanned += 1
             with open(path, "r", encoding="utf-8", errors="replace") as handle:
@@ -498,6 +579,9 @@ def main(argv):
             if drawing_applies:
                 for number, token in drawing_findings(lines):
                     findings.append((relative, number, token, DRAWING_RULE["name"]))
+            if view_store_applies:
+                for number, token in view_store_findings(lines):
+                    findings.append((relative, number, token, VIEW_STORE_RULE["name"]))
 
     if scanned == 0:
         print(f"CANNOT SCAN: no Swift files under {root}.")
@@ -512,7 +596,7 @@ def main(argv):
         # A sentence per rule that actually fired, because two rules forbidding
         # different things for different reasons are two findings, not one
         # (L11). A rule nobody tripped says nothing.
-        fired = [rule for rule in RULES + (DRAWING_RULE,)
+        fired = [rule for rule in RULES + (DRAWING_RULE, VIEW_STORE_RULE)
                  if any(f[3] == rule["name"] for f in findings)]
         for rule in fired:
             print(f"{rule['name']}: {rule['because']}")
