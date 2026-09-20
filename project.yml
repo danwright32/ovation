@@ -33,6 +33,31 @@ packages:
     # read from that cached `Package.resolved` rather than chosen. Moving it is a
     # commit somebody makes on purpose, with the suite run against the new one.
     exactVersion: "0.10.3"
+  # ovation#424. The shared Google package, and Ovation is its first consumer.
+  #
+  # PINNED EXACTLY, for the reason the entry above it now carries: a range plus a
+  # lockfile that lives inside the generated project is not a pin at all
+  # (ovation#437, ovation#421, L496). 0.1.0 is the first tagged release, cut by
+  # backstage's own release step, which reads every check AT the commit it tags
+  # and refuses one nothing has judged (ovation#423).
+  #
+  # IT IS 0.x DELIBERATELY: backstage#12 and backstage#15 are open questions about
+  # the package's public surface, so a 1.0 would freeze an API that is mid
+  # decision.
+  #
+  # THE REPOSITORY IS PRIVATE, AND THAT COSTS SOMETHING HERE (ovation#427).
+  # `.gitignore` excludes `Ovation.xcodeproj/`, so the resolved versions live
+  # inside a generated directory and every fresh checkout, CI run and
+  # regeneration performs a LIVE resolution against github.com. A private
+  # backstage therefore makes `xcodebuild -showBuildSettings` fail to resolve,
+  # which takes `test-project-configuration.sh` with it, and that suite runs in
+  # the push gate. Both macOS CI jobs run
+  # `scripts/configure-private-package-access.sh` first, which refuses BY NAME
+  # when `BACKSTAGE_READ_TOKEN` is absent rather than letting it surface later as
+  # an error about a missing module (L11).
+  BackstageGoogle:
+    url: https://github.com/danwright32/backstage
+    exactVersion: "0.1.0"
 options:
   bundleIdPrefix: com.danwright
   deploymentTarget:
@@ -54,7 +79,28 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    # EVERY MACHINE SPLITS EACH TARGET INTO THE SAME COMPILE JOBS (ovation#297).
+    # EVERY MACHINE SPLITS EACH OF THIS PROJECT'S OWN TARGETS INTO THE SAME
+    # COMPILE JOBS (ovation#297).
+    #
+    # NARROWED FROM "EVERY TARGET" ON 2026-09-20, BECAUSE IT WAS MEASURED AND WAS
+    # FALSE (ovation#420, ovation#424). A SwiftPM package target does NOT inherit
+    # this setting. Measured against the real build log with BackstageGoogle
+    # linked: `Ovation`'s own compile carries `-driver-batch-count 6`, which is
+    # the control, and of the ELEVEN invocations compiling `BackstageGoogle` not
+    # one carries it. A package target is also not addressable as
+    # `xcodebuild -target <name>`, so it cannot be added to the read back list in
+    # scripts/test-project-configuration.sh either.
+    #
+    # THE RESIDUAL RISK, STATED RATHER THAN LEFT TO BE DISCOVERED. ovation#297's
+    # defect was a Swift 6 non-Sendable capture diagnostic that appeared only at
+    # CI's smaller batch grouping, and package code is exactly where that class
+    # lives: `@MainActor` classes, `@Sendable` closures held as properties,
+    # escaping handlers, a continuation resumed off the main queue. So for
+    # BackstageGoogle, and for ViewInspector before it, the push gate does NOT
+    # predict CI, and a diagnostic of that kind will first appear on the runner.
+    # What limits the damage is that the package has its own suite in its own
+    # repository, and ovation#423's release step refuses a version whose checks
+    # are not green at the commit being tagged.
     #
     # In its default batch mode the Swift driver makes more, smaller groups of
     # files on a machine with more cores, and some diagnostics depend on which
@@ -141,6 +187,7 @@ targets:
       # Core Data does not throw on a foreign file, it creates its tables inside
       # whatever it is handed and reports success.
       - sdk: libsqlite3.tbd
+      - package: BackstageGoogle
     settings:
       base:
         GENERATE_INFOPLIST_FILE: NO
@@ -258,6 +305,15 @@ targets:
           - "Info.plist"
     dependencies:
       - sdk: libsqlite3.tbd
+      # ovation#424. This target compiles `Ovation`'s sources directly (see
+      # `sources:` above) rather than importing the app target, so it needs the
+      # package in its own right. NOT added to OvationHostedTests, which declares
+      # `- target: Ovation` and receives it transitively: adding it there links
+      # the package a SECOND time into a process that already has it, giving two
+      # copies of every `static let shared` in one address space, and a hosted
+      # test asserting on one would read whichever copy its own bundle linked
+      # (L83, L263).
+      - package: BackstageGoogle
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

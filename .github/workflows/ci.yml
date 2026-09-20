@@ -109,6 +109,18 @@ jobs:
       - name: Install xcodegen and flock
         run: brew install xcodegen flock
 
+      # BOTH macOS JOBS NEED THIS, and the shell one is the easy miss
+      # (ovation#424, ovation#427). It sets OVATION_SKIP_XCODE_PHASE=1, which
+      # skips the SWIFT phase only, so test-project-configuration.sh still runs
+      # `xcodebuild -showBuildSettings` and still resolves packages. backstage is
+      # PRIVATE, so without a credential that resolve fails and the suite fails
+      # with it. The script refuses BY NAME when the secret is absent rather than
+      # letting it surface later as an error about a missing module (L11).
+      - name: Let SwiftPM resolve the private backstage package
+        env:
+          BACKSTAGE_READ_TOKEN: ${{ secrets.BACKSTAGE_READ_TOKEN }}
+        run: bash scripts/configure-private-package-access.sh
+
       - name: Run every shell suite
         run: |
           set +e
@@ -243,6 +255,18 @@ jobs:
       # thing being tested here is not the thing that gates a push (L380).
       - name: Install flock and xcodegen
         run: brew install flock xcodegen
+
+      # BOTH macOS JOBS NEED THIS, and the shell one is the easy miss
+      # (ovation#424, ovation#427). It sets OVATION_SKIP_XCODE_PHASE=1, which
+      # skips the SWIFT phase only, so test-project-configuration.sh still runs
+      # `xcodebuild -showBuildSettings` and still resolves packages. backstage is
+      # PRIVATE, so without a credential that resolve fails and the suite fails
+      # with it. The script refuses BY NAME when the secret is absent rather than
+      # letting it surface later as an error about a missing module (L11).
+      - name: Let SwiftPM resolve the private backstage package
+        env:
+          BACKSTAGE_READ_TOKEN: ${{ secrets.BACKSTAGE_READ_TOKEN }}
+        run: bash scripts/configure-private-package-access.sh
 
       # THE PROJECT IS GENERATED, NOT COMMITTED. Ovation.xcodeproj is gitignored
       # and produced from project.yml, so a fresh checkout has nothing to build:
