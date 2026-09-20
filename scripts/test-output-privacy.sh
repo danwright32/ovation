@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 112
+harness_begin "output privacy tests" 117
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -1167,6 +1167,34 @@ check "the review samples check prints no identity from the sources it read" \
 check "and it really did report a leak, so the case reached the lines that print" \
     "$(printf '%s' "$SAMPLES_OUT" | grep -c 'reached the Release')" "1"
 
+# ---------------------------------------------------------------------------
+# THE PRIVATE PACKAGE CREDENTIAL (ovation#424). This one holds an actual SECRET,
+# which no other script in the set does, and it runs in a workflow whose logs are
+# published because this repository is public on purpose. So the question here is
+# not only whether it prints Dan's identity, it is whether it prints the TOKEN.
+#
+# BOTH PATHS ARE DRIVEN, because the refusing one quotes the NAME of the secret
+# and the configuring one is handed its VALUE. A test of only the refusal would
+# never hold a token at all and would pass without measuring anything (L159).
+#
+# HOME IS A THROWAWAY, so `git config --global` writes into the temp directory
+# and this case cannot touch the real machine's git config (L2).
+# ---------------------------------------------------------------------------
+PKG_TOKEN="ghp_NOTAREALTOKEN000000000000000000000000"
+mkdir -p "$WORK/pkgauth" "$WORK/pkgauth2"
+PKG_OUT="$(env HOME="$WORK/pkgauth" CI=1 BACKSTAGE_READ_TOKEN="$PKG_TOKEN" \
+    ./scripts/configure-private-package-access.sh 2>&1)"
+check "the private package credential step never prints the token it was given" \
+    "$(printf '%s' "$PKG_OUT" | grep -c "$PKG_TOKEN")" "0"
+check "and it really did configure, so the case reached the line that holds one" \
+    "$(grep -c 'insteadOf' "$WORK/pkgauth/.gitconfig" 2>/dev/null)" "1"
+check "and it prints no identity either" "$(leaks_in "$PKG_OUT")" "clean"
+PKG_REFUSED="$(env HOME="$WORK/pkgauth2" CI=1 BACKSTAGE_READ_TOKEN= \
+    ./scripts/configure-private-package-access.sh 2>&1)"
+check "the refusal names the secret, and cannot leak a value it never had" \
+    "$(printf '%s' "$PKG_REFUSED" | grep -c 'BACKSTAGE_READ_TOKEN is not set')" "1"
+check "and the refusal prints no identity" "$(leaks_in "$PKG_REFUSED")" "clean"
+
 # COMPLETENESS, derived from the script inventory rather than from a hand
 # written list (ovation#86). A list somebody maintains silently exempts whatever
 # nobody remembered to add, and the exempted one is the one this suite exists for
@@ -1193,7 +1221,13 @@ MUST_BE_COVERED="$( { roles_with gated; roles_with reads-real-data; roles_with w
 # `report-` joined it for the same reason (ovation#339): scripts/report-finding.sh
 # is run by two workflows, so the inventory puts it in the set, and it WRITES to
 # the tracker rather than inspecting anything.
-EXERCISED="$(grep -oE './scripts/(check|measure|report|select)-[a-z-]+\.(sh|py)' "$0" \
+# `configure-` joined it on 2026-09-20 for the third instance of the same thing
+# (ovation#424): scripts/configure-private-package-access.sh is run by both macOS
+# jobs, so the inventory puts it in the set, and it CONFIGURES a credential rather
+# than inspecting anything. It is also the only script in the set that holds a
+# secret, which is the strongest reason for it to be covered here, not the
+# weakest.
+EXERCISED="$(grep -oE './scripts/(check|configure|measure|report|select)-[a-z-]+\.(sh|py)' "$0" \
     | sed 's|^./scripts/||' | sort -u | tr '\n' ' ' | sed 's/ $//')"
 check "every script that can print about real data is covered by this suite" \
     "$EXERCISED" "$MUST_BE_COVERED"
