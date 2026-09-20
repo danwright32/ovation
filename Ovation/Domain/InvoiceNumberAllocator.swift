@@ -85,7 +85,7 @@ enum InvoiceNumberRefusal: Error, Equatable {
     case sendCouldNotBeDetermined(number: Int64)
     /// QuickBooks issued it, and a client and the accountant have it (ovation#71).
     case importedNumber(number: Int64)
-    /// PRD 6: a cancelled invoice keeps its number, and so does a dismissed one.
+    /// PRD 6: a cancelled invoice keeps its number, and so does a deleted one.
     case invoiceIsClosed(number: Int64)
 }
 
@@ -164,8 +164,18 @@ actor InvoiceNumberAllocator {
         case .sent: throw InvoiceNumberRefusal.invoiceWasSent(number: number)
         case .couldNotDetermine: throw InvoiceNumberRefusal.sendCouldNotBeDetermined(number: number)
         }
-        // Cancelled, dismissed and imported rows count toward the highest, for the
+        // Cancelled, deleted and imported rows count toward the highest, for the
         // reason `allInvoices` gives: their numbers are spent.
+        //
+        // A DELETED DRAFT STILL COUNTS, and that survived the 2026-09-20 rename
+        // deliberately rather than by not being looked at. A draft can hold a
+        // number it was never sent with (PRD 46g), and deleting it is the moment
+        // the number could be handed back. It is NOT handed back here: the row
+        // still exists, nothing outside Ovation has ever seen the number, and a
+        // gap in the sequence is explainable while a number meaning two different
+        // invoices is not (PRD 6, L186). Giving it back is ovation#362's question,
+        // where the crash-safe half of it lives, and it is answered there once
+        // rather than half answered here.
         if let highest = all.compactMap(\.number).max(), highest > number {
             throw InvoiceNumberRefusal.notTheHighest(number: number, highest: highest)
         }

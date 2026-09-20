@@ -219,7 +219,7 @@ check "and the claim that fired names the destructive word" \
     "$(claims_of "$SAMEWORD")" "the destructive word does not look like the ordinary one;"
 
 # 10. AN INVOICE LOSING ITS HISTORY ON ONE OF ITS TWO ENDINGS. buildInvoice ends
-#     twice now, ordinarily and for an invoice recorded as not billed, and the
+#     twice now, ordinarily and for a draft that was deleted, and the
 #     history pane is shared between them for exactly this reason. Returning the
 #     invoice alone from the second ending drops the pane, which nothing on
 #     screen would explain.
@@ -228,8 +228,8 @@ check "the second ending is where the mutation expects it" \
     "$(mutate "$LOSTPANE" 's|^    return besideItsHistory(inv, t.total);$|    return inv;|' '^    return inv;$')" "1"
 judge "$LOSTPANE"
 check_rendered_status "an invoice that loses its history is refused" "$(case_of "$LOSTPANE")" "1"
-check "and the claim that fired names the recorded decision" \
-    "$(claims_of "$LOSTPANE")" "an invoice recorded as not billed says so and keeps its history;"
+check "and the claim that fired names the deletion" \
+    "$(claims_of "$LOSTPANE")" "a deleted draft says it is gone, and names the shoot it was for;"
 
 # 11. HELD MONEY TREATED AS A PRICE REDUCTION. The one fault here that produces
 #     a WRONG INVOICE rather than a wrong screen: folding an applied payment

@@ -445,7 +445,7 @@ struct InvoiceNumberTests {
     @Test("a closed invoice's number is refused, because PRD 6 says a cancelled invoice keeps it",
           arguments: [
               InvoiceClosure.cancelled(on: .stamping(InvoiceNumberTests.day), reason: "shoot did not happen"),
-              InvoiceClosure.dismissed(on: .stamping(InvoiceNumberTests.day), reason: "duplicate booking"),
+              InvoiceClosure.deleted(on: .stamping(InvoiceNumberTests.day), reason: "duplicate booking"),
           ])
     func aClosedInvoiceKeepsItsNumber(closure: InvoiceClosure) async throws {
         let container = try Self.store()

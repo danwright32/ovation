@@ -375,11 +375,11 @@ struct InvoiceCancellationTests {
 
     // MARK: what cannot be cancelled
 
-    @Test("a DRAFT is not cancelled, it is dismissed, and the refusal says so")
+    @Test("a DRAFT is not cancelled, it is deleted, and the refusal says so")
     func adraftIsNotCancellable() async throws {
         // Two words for two states. A draft was never issued, so there is no
         // income to remove and nothing a client has seen; ovation#150 owns
-        // dismissing one. Folding them would make a cancelled invoice and an
+        // deleting one. Folding them would make a cancelled invoice and an
         // abandoned draft the same row (L11).
         let world = try World()
         let draft = world.invoice(dayKey: "2026-06-01", sent: false, number: nil)
@@ -391,7 +391,7 @@ struct InvoiceCancellationTests {
             Issue.record("a draft was cancelled")
         } catch let refusal as CancellationRefusal {
             #expect(refusal == .neverIssued)
-            #expect(refusal.sentence.lowercased().contains("dismiss"))
+            #expect(refusal.sentence.lowercased().contains("delete"))
         }
     }
 

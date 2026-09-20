@@ -545,19 +545,19 @@ window.addEventListener("load", function () {
          and a second click would then CLOSE it, so this claim would fail for a
          reason that has nothing to do with what it is about. */
       if (!document.querySelector(".menu")) edit2.click();
-      var dismiss = Array.prototype.filter.call(
+      var deleteIt = Array.prototype.filter.call(
         document.querySelectorAll(".menu div"),
-        function (d) { return d.textContent === "Dismiss this draft"; })[0];
-      if (!dismiss) {
+        function (d) { return d.textContent === "Delete this draft"; })[0];
+      if (!deleteIt) {
         claim("a rare action asks before it acts, and names this shoot", false,
-              "the Edit menu has no Dismiss this draft");
+              "the Edit menu has no Delete this draft");
       } else {
-        dismiss.click();
+        deleteIt.click();
         var asking = document.querySelector(".askpanel");
         var text = asking ? asking.textContent : "";
         claim("a rare action asks before it acts, and names this shoot",
               !!asking && text.indexOf("Side by Side concert") !== -1
-                && text.indexOf("stays in the list") !== -1,
+                && text.indexOf("does not come back") !== -1,
               asking ? text.trim().replace(/\s+/g, " ").slice(0, 120)
                      : "nothing asked");
         if (asking) {
@@ -600,18 +600,28 @@ window.addEventListener("load", function () {
           }
           if (harm) harm.click();
 
-          /* AN INVOICE RECORDED AS NOT BILLED IS NOT A DELETED ONE (PRD 1b), so
-             it stays on screen saying what it now is, and it KEEPS ITS HISTORY:
-             this ending of buildInvoice is a second one, and an invoice losing
-             its pane depending on which ending it took is a defect nothing on
-             screen would explain. */
+          /* A DELETED DRAFT SAYS IT IS GONE (PRD 1b, corrected 2026-09-20). This
+             claim used to assert the opposite: that the invoice STAYED on screen
+             drawn quiet, because dismissing kept the row. Dan replaced dismissing
+             with deleting, so what it asserts is inverted rather than adjusted,
+             and the old wording is not kept as a softened version of itself
+             (L252, L430).
+
+             IT STILL ASSERTS THE HISTORY PANE, and that is not leftover. This
+             ending of buildInvoice is a second one, and an invoice losing its
+             pane depending on which ending it took is a defect nothing on screen
+             would explain. What stands here is a placeholder for the return to
+             the list, which is ovation#125 and is not settled in this file, so
+             the pane is what the placeholder is measured against rather than a
+             claim about the finished screen. */
           var footNow = document.querySelector(".invfoot");
-          var quiet = document.querySelector(".inv.notbilled");
+          var gone = document.querySelector(".inv.gonenow");
           var pane = document.querySelector(".hpane");
-          claim("an invoice recorded as not billed says so and keeps its history",
-                !!quiet && !!pane && footNow
-                  && footNow.textContent.indexOf("recorded as not billed") !== -1,
-                (quiet ? "drawn quiet" : "NOT drawn quiet")
+          claim("a deleted draft says it is gone, and names the shoot it was for",
+                !!gone && !!pane && footNow
+                  && footNow.textContent.indexOf("Deleted.") !== -1
+                  && footNow.textContent.indexOf("Side by Side concert") !== -1,
+                (gone ? "drawn as gone" : "STILL DRAWN AS AN INVOICE")
                   + ", " + (pane ? "history kept" : "HISTORY GONE")
                   + ", foot says " + JSON.stringify(
                       footNow ? footNow.textContent.trim().replace(/\s+/g, " ").slice(0, 60) : null));
