@@ -17,7 +17,22 @@ packages:
   # would not have caught it, because the defect lives in the binding.
   ViewInspector:
     url: https://github.com/nalexn/ViewInspector
-    from: "0.10.0"
+    # PINNED EXACTLY, ovation#437. It was `from: "0.10.0"`, which is any 0.x, and
+    # SwiftPM writes its resolved version into `Package.resolved` INSIDE
+    # `Ovation.xcodeproj`, which `.gitignore` excludes because xcodegen generates
+    # it. So the resolved version lived on one Mac, in a file deliberately not
+    # committed, and every CI run resolved from scratch.
+    #
+    # The day 0.10.4 shipped, every pull request's build died in under thirty
+    # seconds on a package nothing in the diff touched: its `Package.swift` uses
+    # PackageDescription 6.0 API and the runner compiles the manifest at 5.9.
+    # This Mac went on building only because its generated project held a cached
+    # pin at 0.10.3 (L25, L31).
+    #
+    # 0.10.3 IS THE VERSION THIS REPOSITORY HAS ALWAYS BUILT AND TESTED AGAINST,
+    # read from that cached `Package.resolved` rather than chosen. Moving it is a
+    # commit somebody makes on purpose, with the suite run against the new one.
+    exactVersion: "0.10.3"
 options:
   bundleIdPrefix: com.danwright
   deploymentTarget:
