@@ -2,7 +2,7 @@
 # The suite for scripts/build-invoice-pdf-text.sh.
 #
 # ovation#167. The app's invoice PDF is checked against the settled design by
-# the TEXT the design draws: every figure, label and line of its seven fixture
+# the TEXT the design draws: every figure, label and line of its eight fixture
 # invoices, rendered in a browser and committed as
 # docs/design/invoice-pdf.expected.json, which OvationTests reads. A test that
 # asserts agreement with a designed artifact has to READ that artifact, never a
@@ -17,7 +17,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice PDF text tests" 19
+harness_begin "invoice PDF text tests" 21
 
 TARGET="scripts/build-invoice-pdf-text.sh"
 require_target "$TARGET"
@@ -62,6 +62,14 @@ elif which == "inputs":
     keys = ("number", "issued", "due", "client", "exempt", "lines")
     print(sum(1 for f in fixtures
               if all(k in f.get("input", {}) for k in keys) and f["input"]["lines"]))
+elif which == "paid-in-full-head":
+    # ovation#326. The receipt head, which is outbound copy a client may read.
+    sample = [f for f in fixtures if f.get("label") == "Paid in full"]
+    head = sample[0]["head"] if len(sample) == 1 else {}
+    print("%s / %s / %s" % (head.get("label", ""), head.get("amount", ""), head.get("due", "")))
+elif which == "paid-in-full-paid-on":
+    sample = [f for f in fixtures if f.get("label") == "Paid in full"]
+    print(sample[0].get("input", {}).get("paidOn", "") if len(sample) == 1 else "")
 elif which == "every-element-input":
     sample = [f for f in fixtures if f.get("label") == "Every element"]
     given = sample[0].get("input", {}) if len(sample) == 1 else {}
@@ -86,20 +94,41 @@ PYDAMAGE
 # ---------------------------------------------------------------------------
 check "the committed expected text is what the design draws" "$(status_in "$(pwd)/docs/design" --check)" "0"
 check "and the answer says how much it compared" \
-    "$(run_in "$(pwd)/docs/design" --check | grep -c '7 fixture(s)')" "1"
-check "the committed file holds all seven fixture invoices" \
-    "$(fact docs/design/invoice-pdf.expected.json count)" "7"
+    "$(run_in "$(pwd)/docs/design" --check | grep -c '8 fixture(s)')" "1"
+# EIGHT SINCE ovation#326, which added the settled receipt. It is one fixture and
+# not two: Dan settled that the page says NOTHING about money left held, and
+# PaymentAllocator refuses to allocate past what an invoice owes, so a deposit
+# LARGER than the bill is paid exactly and draws this same page.
+check "the committed file holds all eight fixture invoices" \
+    "$(fact docs/design/invoice-pdf.expected.json count)" "8"
 check "and the Every element invoice totals its lines above the referral credit (PRD 8)" \
     "$(fact docs/design/invoice-pdf.expected.json every-element-money)" \
     'Services $725.00 / Referral credit -$250.00 / Subtotal $475.00'
 
-# ONE SET OF INPUTS FOR BOTH SIDES (L26). The app's test builds the same seven
+# ONE SET OF INPUTS FOR BOTH SIDES (L26). The app's test builds the same eight
 # invoices and compares what it writes with what the design draws. If it typed
 # those invoices out again it would hold a second copy of the fixtures, and the
 # two copies would drift, so each fixture's INPUT travels in the same file as the
 # text it produces.
 check "each fixture carries the inputs the design builds it from" \
-    "$(fact docs/design/invoice-pdf.expected.json inputs)" "7"
+    "$(fact docs/design/invoice-pdf.expected.json inputs)" "8"
+# THE RECEIPT (ovation#326), pinned HERE because this file is where the design's
+# own text is judged, so a change to the wording fails by name rather than only
+# as a diff somewhere downstream.
+#
+# It reads `Paid in full`, WHAT THE INVOICE CAME TO, and the day the money
+# arrived. Each of the three was chosen from renderings against alternatives: a
+# head still saying `Amount due $0.00`, a figure showing what was handed over
+# rather than what the invoice was for, and a date the money is wanted by, which
+# is a demand when nothing is being demanded.
+check "the settled receipt says paid in full, the invoice's own total, and the day it was paid" \
+    "$(fact docs/design/invoice-pdf.expected.json paid-in-full-head)" \
+    'Paid in full / $272.19 / paid February 12, 2027'
+# THE DATE TRAVELS AS AN INPUT, so the app dates its receipt from the same day
+# rather than from the invoice date, which is a different day: a deposit arrives
+# BEFORE the shoot. Without this the two sides would disagree by weeks.
+check "and the day the money arrived travels with the fixture's inputs" \
+    "$(fact docs/design/invoice-pdf.expected.json paid-in-full-paid-on)" "February 12, 2027"
 check "and the Every element inputs carry its credit, its discount and its three lines" \
     "$(fact docs/design/invoice-pdf.expected.json every-element-input)" "credit 250, discount 10%, 3 lines"
 
@@ -116,7 +145,7 @@ check "and it names the remedy" \
 check "rewriting it makes it current again" "$(status_in "$D1")" "0"
 check "and every fixture now carries the design's new wording" \
     "$(fact "$D1/invoice-pdf.expected.json" last-money-labels)" \
-    "Balance due,Balance due,Balance due,Balance due,Balance due,Balance due,Balance due"
+    "Balance due,Balance due,Balance due,Balance due,Balance due,Balance due,Balance due,Balance due"
 
 # ---------------------------------------------------------------------------
 # A HAND EDIT TO THE COMMITTED FILE IS CAUGHT TOO, because the file is judged

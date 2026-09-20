@@ -426,7 +426,14 @@ var FIXTURES = [
     label: "Deposit applied",
     note: "PRD 14k. A $100.00 deposit is already applied, so the top asks for what is still owed and the money block ends Total, Payments received, Balance due (Dan, 2026-09-14).",
     number: "1129", issued: "March 6, 2027", due: "March 20, 2027",
-    client: "Calder Street Theatre", exempt: false, paid: 100,
+    client: "Calder Street Theatre", exempt: false, paid: 100, paidOn: "February 12, 2027",
+    lines: [photoLine("Spring Recital", "Calder Street Theatre", "March 6, 2027", 1.0)]
+  },
+  {
+    label: "Paid in full",
+    note: "ovation#326, Dan 2026-09-20. A deposit covering the whole amount, applied by PRD 14h before the invoice was ever sent. The page is a RECEIPT: Paid in full, what the invoice came to, and the date the money arrived. It is not sent asking for money, and Dan sends it when a client asks what their deposit bought. The money block still ends Balance due. Nothing is said about money left held, which is why a deposit LARGER than the invoice needs no fixture of its own: the allocator never puts more on an invoice than it is for, so that page is this page.",
+    number: "1130", issued: "March 6, 2027", due: "March 20, 2027",
+    client: "Calder Street Theatre", exempt: false, paid: 272.19, paidOn: "February 12, 2027",
     lines: [photoLine("Spring Recital", "Calder Street Theatre", "March 6, 2027", 1.0)]
   }
 ];
@@ -569,8 +576,14 @@ function moneyBlock(inv) {
     row("Total", money(t.total));
     row("Payments received", money(-inv.paid));
     var owed = mk("div", "row total");
+    /* STILL `Balance due`, chosen against `Paid in full` repeated from the head,
+       against `Nothing outstanding`, and against ending on `Payments received`
+       with no closing row (Dan, 2026-09-20). One vocabulary for this block
+       whatever state it is in, and the head already carries the state, so a foot
+       repeating it would state one fact twice on one surface.
+       CLAMPED AT ZERO for the reason above: a fixture may say anything. */
     owed.append(mk("span", null, "Balance due"));
-    owed.append(mk("span", "amt", money(t.total - inv.paid)));
+    owed.append(mk("span", "amt", money(Math.max(0, t.total - inv.paid))));
     m.append(owed);
   } else {
     var tot = mk("div", "row total");
@@ -590,11 +603,20 @@ function buildPage(inv) {
   var ident = mk("div", "ident");
   ident.append(mk("div", "logo"));
   head.append(ident);
+  /* PAID IN FULL IS A RECEIPT, NOT A BILL (Dan, 2026-09-20, ovation#326). PRD 14h
+     applies held money by itself when a client has exactly one open invoice, so a
+     deposit covering the whole amount leaves nothing owed BEFORE the invoice has
+     ever been sent. Such an invoice is not sent asking for money; Dan keeps it and
+     sends it when a client asks what their deposit bought, so it is still outbound
+     copy. Leading with `Amount due $0.00` beside a date the money is wanted by was
+     drawn and rejected: a date is a demand, and nothing is being demanded.
+     The figure is what THIS INVOICE came to, never what was handed over. */
+  var owedNow = Math.max(0, t.total - (inv.paid || 0));
+  var settled = (inv.paid || 0) > 0 && owedNow === 0;
   var due = mk("div", "due");
-  due.append(mk("div", "lbl", "Amount due"));
-  /* What is still owed, which is the total unless money is already applied. */
-  due.append(mk("div", "big", money(t.total - (inv.paid || 0))));
-  due.append(mk("div", "muted", "by " + inv.due));
+  due.append(mk("div", "lbl", settled ? "Paid in full" : "Amount due"));
+  due.append(mk("div", "big", money(settled ? t.total : owedNow)));
+  due.append(mk("div", "muted", settled ? "paid " + inv.paidOn : "by " + inv.due));
   head.append(due);
   pad.append(head);
 

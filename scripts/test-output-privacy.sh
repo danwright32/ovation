@@ -157,9 +157,9 @@ python3 - "$EMBED/invoice-pdf.html" "$CLIENT" "$VENUE" <<'PYEMBED'
 import sys
 path, client, venue = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(path, encoding="utf-8").read()
-old = 'mk("div", "lbl", "Amount due")'
+old = 'settled ? "Paid in full" : "Amount due"'
 assert old in text, "the planted change matched nothing, so this case tests nothing"
-open(path, "w", encoding="utf-8").write(text.replace(old, 'mk("div", "lbl", "Due to %s at %s")' % (client, venue), 1))
+open(path, "w", encoding="utf-8").write(text.replace(old, '"Due to %s at %s"' % (client, venue), 1))
 PYEMBED
 OUT_EMBED="$(OVATION_DESIGN_ROOT="$EMBED" ./scripts/check-design-embedded-page.sh 2>&1)"
 check "the embedded page check reached its drift branch over a design carrying names" \

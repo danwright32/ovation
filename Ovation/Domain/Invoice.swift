@@ -321,6 +321,26 @@ extension OvationSchemaV3 {
 
         var amountOutstanding: Money { total - amountPaid }
 
+        /// The day the money that settled this invoice arrived, where it is
+        /// settled by money at all.
+        ///
+        /// THE LATEST STANDING ALLOCATION'S PAYMENT, because an invoice can be
+        /// settled by more than one, and what a receipt states is the day it
+        /// became paid rather than the day the first instalment turned up
+        /// (ovation#326). Released allocations are excluded for the same reason
+        /// `amountPaid` excludes them: they are money that no longer stands
+        /// against this invoice.
+        ///
+        /// NIL WHERE NOTHING WAS APPLIED, and nil is not a date to be defaulted:
+        /// a receipt with no payment date is a receipt that should not have been
+        /// drawn, and `InvoiceDocument` refuses rather than printing one (L67).
+        var settledOn: BusinessDate? {
+            allocations
+                .filter { $0.releasedOn == nil }
+                .compactMap { $0.payment?.receivedOn }
+                .max { $0.dayKey < $1.dayKey }
+        }
+
         /// Releases every allocation that still stands against this invoice.
         ///
         /// RELEASED, NEVER DELETED (PRD 5.14d). An allocation is a statement about
