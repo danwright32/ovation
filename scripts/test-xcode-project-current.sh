@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode project currency tests" 17
+harness_begin "xcode project currency tests" 36
 
 TARGET="scripts/check-xcode-project-current.sh"
 require_target "$TARGET"
@@ -26,10 +26,26 @@ TREE="$WORK/tree"
 # A tree whose project.yml names two source directories, the way the real one
 # names Ovation, OvationTests and OvationHostedTests, with an excludes list the
 # reader must not mistake for a source.
+# The packages block project.yml declares, and the package references the
+# generated project holds, are set per case and default to none, so every case
+# written before ovation#419 keeps the tree it was written against.
+YML_PACKAGES=""
+PROJECT_PACKAGE_URLS=()
+
 fresh_tree() {
     [ -n "$WORK" ] || exit 1
     rm -rf "$TREE"
+    YML_PACKAGES=""
+    PROJECT_PACKAGE_URLS=()
+    PROJECT_TARGET_PACKAGES=()
+    YML_TARGET_PACKAGE=""
     mkdir -p "$TREE/App/Domain" "$TREE/AppTests" "$TREE/scripts"
+    write_yml
+}
+
+# Written on its own so a case can declare packages and rewrite the yml without
+# rebuilding the tree and losing the files already on disk.
+write_yml() {
     cat > "$TREE/project.yml" <<'YML'
 name: Ovation
 targets:
@@ -43,8 +59,52 @@ targets:
         excludes:
           - "Domain/Main.swift"
 YML
+    if [ -n "$YML_PACKAGES" ]; then printf '%s\n' "$YML_PACKAGES" >> "$TREE/project.yml"; fi
+    if [ -n "$YML_TARGET_PACKAGE" ]; then
+        local target="${YML_TARGET_PACKAGE%% *}" product="${YML_TARGET_PACKAGE#* }"
+        python3 - "$TREE/project.yml" "$target" "$product" <<'INSERT'
+import sys
+path, target, product = sys.argv[1], sys.argv[2], sys.argv[3]
+lines = open(path).read().split("\n")
+out = []
+for line in lines:
+    out.append(line)
+    if line.strip() == target + ":":
+        out.append("    dependencies:")
+        out.append("      - sdk: libsqlite3.tbd")
+        out.append("      - package: " + product)
+open(path, "w").write("\n".join(out))
+INSERT
+    fi
+    return 0
+}
+
+# project.yml's own shape: a package name, then an indented url. The comment
+# line is there because the real block carries several and a reader that does
+# not skip them reads a comment as a package.
+# project.yml's other half: a target naming a package it depends on. Written as
+# the real file writes it, under `dependencies:` beside an sdk entry, because a
+# reader that cannot tell `- package:` from `- sdk:` reads both as packages.
+YML_TARGET_PACKAGE=""
+yml_target_depends_on_package() {
+    YML_TARGET_PACKAGE="$1 $2"
+    write_yml
+}
+
+yml_declares_package() {
+    YML_PACKAGES="packages:
+  # why this dependency is worth it
+  $1:
+    url: $2
+    from: \"0.10.0\""
+    write_yml
 }
 on_disk() { mkdir -p "$(dirname "$TREE/$1")"; printf 'struct X {}\n' > "$TREE/$1"; }
+# Each "Target=Product,Product" pair a case wants the generated project to hold,
+# which is what a PBXNativeTarget's packageProductDependencies list records. A
+# target with no packages is named with nothing after the equals.
+PROJECT_TARGET_PACKAGES=()
+
 # The project, listing exactly the file names given, one PBXFileReference line
 # each in xcodegen's own format, with the non Swift references a real one has.
 project_lists() {
@@ -62,9 +122,62 @@ project_lists() {
                 *) printf '\t\t%024d /* %s */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = %s; sourceTree = "<group>"; };\n' "$id" "$name" "$name" ;;
             esac
         done
-        printf '/* End PBXFileReference section */\n\t};\n}\n'
+        printf '/* End PBXFileReference section */\n'
+        if [ ${#PROJECT_PACKAGE_URLS[@]} -gt 0 ]; then
+            printf '/* Begin XCRemoteSwiftPackageReference section */\n'
+            for name in "${PROJECT_PACKAGE_URLS[@]}"; do
+                id=$((id+1))
+                printf '\t\t%024d /* XCRemoteSwiftPackageReference */ = {\n' "$id"
+                printf '\t\t\tisa = XCRemoteSwiftPackageReference;\n'
+                printf '\t\t\trepositoryURL = "%s";\n' "$name"
+                printf '\t\t\trequirement = {\n\t\t\t\tkind = upToNextMajorVersion;\n\t\t\t\tminimumVersion = 0.10.0;\n\t\t\t};\n\t\t};\n'
+            done
+            printf '/* End XCRemoteSwiftPackageReference section */\n'
+        fi
+        if [ ${#PROJECT_TARGET_PACKAGES[@]} -gt 0 ]; then
+            printf '/* Begin PBXNativeTarget section */\n'
+            for name in "${PROJECT_TARGET_PACKAGES[@]}"; do
+                id=$((id+1))
+                printf '\t\t%024d /* %s */ = {\n' "$id" "${name%%=*}"
+                printf '\t\t\tisa = PBXNativeTarget;\n'
+                printf '\t\t\tname = %s;\n' "${name%%=*}"
+                printf '\t\t\tpackageProductDependencies = (\n'
+                local products="${name#*=}"
+                if [ "$products" != "$name" ] && [ -n "$products" ]; then
+                    local product
+                    for product in ${products//,/ }; do
+                        id=$((id+1))
+                        printf '\t\t\t\t%024d /* %s */,\n' "$id" "$product"
+                    done
+                fi
+                printf '\t\t\t);\n\t\t};\n'
+            done
+            printf '/* End PBXNativeTarget section */\n'
+        fi
+        printf '\t};\n}\n'
     } > "$TREE/Ovation.xcodeproj/project.pbxproj"
 }
+# A package reference carrying no repositoryURL, appended to a generated project.
+# Written here rather than inline so the case reads as what it asserts.
+urlless_package_reference() {
+    local file="$1"
+    python3 -c 'import sys
+path = sys.argv[1]
+text = open(path).read()
+closing = "\t};\n}\n"
+assert text.endswith(closing), "fixture shape changed"
+text = text[: -len(closing)] + """/* Begin XCRemoteSwiftPackageReference section */
+\t\t000000000000000000000099 /* XCRemoteSwiftPackageReference */ = {
+\t\t\tisa = XCRemoteSwiftPackageReference;
+\t\t\trequirement = {
+\t\t\t\tkind = upToNextMajorVersion;
+\t\t\t};
+\t\t};
+/* End XCRemoteSwiftPackageReference section */
+""" + closing
+open(path, "w").write(text)' "$file"
+}
+
 run_it() {
     OVATION_REPO_ROOT="$TREE" OVATION_XCODE_PROJECT="$TREE/Ovation.xcodeproj" \
         "./$TARGET" 2>&1
@@ -162,5 +275,152 @@ check "started with bash, a stale project still exits 1" \
 rm -rf "$TREE/Ovation.xcodeproj"
 check "and with no project it still exits 2" \
     "$(OVATION_REPO_ROOT="$TREE" OVATION_XCODE_PROJECT="$TREE/Ovation.xcodeproj" bash "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
+
+# ovation#419. EVERYTHING ABOVE COMPARES FILE SETS, and a project.yml change that
+# is not a file set change reaches no machine that already holds a generated
+# project, because `lib/ensure-xcode-project.sh` only ever CREATES one. Adding a
+# `packages:` entry is exactly that shape, and it is the shape ovation#424 has.
+
+# 12. A package project.yml declares that the generated project does not hold.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
+project_lists Main.swift MainTests.swift
+OUT="$(run_it)"; RC=$?
+check "a package project.yml declares that the project does not hold is refused" "$RC" "1"
+check "and it names the package, so the subject is right the first time" \
+    "$(mentions "$OUT" "https://github.com/nalexn/ViewInspector")" "yes"
+
+# 13. The other direction: a package removed from project.yml and still built.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector)
+project_lists Main.swift MainTests.swift
+OUT="$(run_it)"; RC=$?
+check "a package the project still holds that project.yml no longer declares is refused" "$RC" "1"
+check "and it names that one too" \
+    "$(mentions "$OUT" "https://github.com/nalexn/ViewInspector")" "yes"
+
+# 14. Declared and held: current, which is the state the real tree is in today.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
+PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector)
+project_lists Main.swift MainTests.swift
+check "a package declared and held is current" "$(status_of)" "0"
+
+# 15. A TRAILING .git IS THE SAME REPOSITORY. Each side keeps the spelling it was
+#     given, so two spellings of one URL must not read as two packages.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
+PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector.git)
+project_lists Main.swift MainTests.swift
+check "the same repository spelled with and without .git is one package" "$(status_of)" "0"
+
+# 16. NEITHER SIDE HAS ANY. A tree with no packages at all is current, and that is
+#     the tree every check written before ovation#419 stands on.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+project_lists Main.swift MainTests.swift
+check "a tree that declares no packages and holds none is current" "$(status_of)" "0"
+
+# 17. A READER THAT READ NOTHING IS NOT A VERDICT (L98), for packages too. A
+#     project holding a package section this cannot get a URL out of is a file it
+#     cannot read, never a project that is missing a package.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
+project_lists Main.swift MainTests.swift
+urlless_package_reference "$TREE/Ovation.xcodeproj/project.pbxproj"
+OUT="$(run_it)"; RC=$?
+check "a package reference with no repository URL in it is its own refusal" "$RC" "3"
+check "and it says the project could not be read, not that a package is missing" \
+    "$(mentions "$OUT" "could not be read")" "yes"
+
+# 18. WHICH TARGET HOLDS THE PACKAGE. The package is declared and held, so every
+#     check above passes, and the target that has to link it does not.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
+yml_target_depends_on_package OvationTests ViewInspector
+PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector)
+PROJECT_TARGET_PACKAGES=("Ovation=" "OvationTests=")
+project_lists Main.swift MainTests.swift
+OUT="$(run_it)"; RC=$?
+check "a target that project.yml says depends on a package, and does not, is refused" "$RC" "1"
+check "and it names the target, not just the package" "$(mentions "$OUT" "OvationTests")" "yes"
+
+# 19. The same tree with the membership actually in the project.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
+yml_target_depends_on_package OvationTests ViewInspector
+PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector)
+PROJECT_TARGET_PACKAGES=("Ovation=" "OvationTests=ViewInspector")
+project_lists Main.swift MainTests.swift
+check "a target holding the package it declares is current" "$(status_of)" "0"
+
+# 20. The other direction: linked by the project, declared by nobody.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
+PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector)
+PROJECT_TARGET_PACKAGES=("Ovation=ViewInspector" "OvationTests=")
+project_lists Main.swift MainTests.swift
+OUT="$(run_it)"; RC=$?
+check "a target linking a package project.yml does not give it is refused" "$RC" "1"
+check "and it names that target too" "$(mentions "$OUT" "Ovation")" "yes"
+
+# 21. FAIL CLOSED (L98). project.yml gives a target a package and the project
+#     holds no native target at all: nothing to compare membership against, which
+#     is not the same as membership being right.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
+yml_target_depends_on_package OvationTests ViewInspector
+PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector)
+project_lists Main.swift MainTests.swift
+OUT="$(run_it)"; RC=$?
+check "a project with no target in it cannot answer which target holds a package" "$RC" "3"
+check "and it says so rather than passing" "$(mentions "$OUT" "could not be read")" "yes"
+
+# 22. AN sdk DEPENDENCY IS NOT A PACKAGE. Every target in the real file carries
+#     `- sdk: libsqlite3.tbd`, and a reader that counts it as a package demands a
+#     package nobody declared, on every target, for ever.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
+PROJECT_TARGET_PACKAGES=("Ovation=" "OvationTests=")
+project_lists Main.swift MainTests.swift
+YML_TARGET_PACKAGE=""
+python3 - "$TREE/project.yml" <<'SDKONLY'
+import sys
+path = sys.argv[1]
+lines = open(path).read().split("\n")
+out = []
+for line in lines:
+    out.append(line)
+    if line.strip() == "Ovation:":
+        out.append("    dependencies:")
+        out.append("      - sdk: libsqlite3.tbd")
+open(path, "w").write("\n".join(out))
+SDKONLY
+check "an sdk dependency is not read as a package" "$(status_of)" "0"
+
+# 23. THE ORDER OF THE TWO VERDICTS, pinned because it is a decision (ovation#419).
+#     A tree stale in its FILES whose project also cannot answer the membership
+#     question has two true things to say and one remedy. It says the files,
+#     because that one names what to look at. Without this case the reader can be
+#     reordered and only test-run-tests.sh, three suites away, would notice.
+fresh_tree
+on_disk App/Domain/Main.swift; on_disk App/Domain/Unlisted.swift
+yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
+yml_target_depends_on_package OvationTests ViewInspector
+PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector)
+project_lists Main.swift
+OUT="$(run_it)"; RC=$?
+check "a tree stale in its files reports the files, not the unreadable membership" "$RC" "1"
+check "and it names the file rather than the package" \
+    "$(mentions "$OUT" "App/Domain/Unlisted.swift")" "yes"
 
 harness_end
