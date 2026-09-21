@@ -424,6 +424,51 @@ struct InvoiceNumberTests {
         #expect(try Self.storedNumber(of: invoice.id, in: container) == number)
     }
 
+    /// ovation#460. THE DEFECT THIS WHOLE CASE EXISTS FOR, and the one the two
+    /// above could not cover. While Ovation is handing a message to Gmail the
+    /// invoice used to stay `notSent`, which is the ONE arm of this switch that
+    /// permits a release. So a timeout, a dropped connection or a quit mid send
+    /// let Dan close the sheet, hand the number back, reopen Review and be issued
+    /// the same number for an invoice Gmail may already have delivered. Two
+    /// different invoices under one number, in a client's records and the
+    /// accountant's, which is exactly what PRD 6 exists to prevent.
+    @Test("a number whose send is in flight is refused, because the client may already have it")
+    func asendInFlightKeepsItsNumber() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let invoice = Self.invoice(context)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let number = try await allocator.allocate(to: invoice.persistentModelID)
+        let attempt = SendAttempt(destination: ["client@example.com"], wasRedirected: false,
+                                  renderSHA256: "abc", startedAt: Self.day)
+        try Self.change(invoice.id, in: container) { $0.sentStatus = .attempting(attempt) }
+
+        await #expect(throws: InvoiceNumberRefusal.sendIsInFlight(number: number)) {
+            try await allocator.release(number, from: invoice.persistentModelID)
+        }
+        #expect(try Self.storedNumber(of: invoice.id, in: container) == number,
+                "the number was handed back while a send was in flight")
+    }
+
+    /// THE POSITIVE CONTROL. An ordinary unsent draft still gives its number back,
+    /// so the three refusals above are not a release that simply never works
+    /// (L159).
+    @Test("and an ordinary unsent draft still gives its number back")
+    func anordinaryDraftStillReleases() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let invoice = Self.invoice(context)
+        try context.save()
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let number = try await allocator.allocate(to: invoice.persistentModelID)
+        try await allocator.release(number, from: invoice.persistentModelID)
+
+        #expect(try Self.storedNumber(of: invoice.id, in: container) == nil)
+    }
+
     @Test("an imported invoice's number is refused even when it is the highest")
     func anImportedNumberIsNeverGivenBack() async throws {
         // QuickBooks issued it, and a client and the accountant already have it
