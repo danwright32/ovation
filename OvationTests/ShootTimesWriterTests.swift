@@ -136,6 +136,46 @@ struct ShootTimesWriterTests {
         #expect(invoice.orderedShoots.first?.shotUntil == nil)
     }
 
+    // MARK: what a refusal says, and what the screen shows afterwards
+
+    /// EVERY REFUSAL HAS A SENTENCE, so none can reach the screen mute. A control
+    /// that does nothing and gives no reason leaves typing it again as the only
+    /// diagnosis (L109), and a vocabulary a lookup reads must be total or a new
+    /// member takes a default and reads as a deliberate silence (L113).
+    @Test("every refusal says what happened", arguments: [
+        ShootTimesRefusal.noSuchShoot, .invoiceWasSent, .sendIsUnsettled,
+    ])
+    func everyRefusalSaysWhatHappened(refusal: ShootTimesRefusal) {
+        #expect(refusal.sentence.count > 20, "\(refusal) says \(refusal.sentence)")
+        #expect(refusal.sentence.hasSuffix("."))
+    }
+
+    /// THE SCREEN IS BUILT AGAIN FROM THE STORE AFTER A WRITE, which is the flow the
+    /// invoice screen depends on: the derived duration, the line's amount, the
+    /// totals and the Review refusal all change together or not at all, because
+    /// they come from one read (L14). Asserted through `InvoiceListSource`, which is
+    /// what the app asks, rather than by driving SwiftUI.
+    @Test("a screen built after the times are typed shows what they produced")
+    func thescreenIsBuiltAgainAfterAWrite() async throws {
+        let (container, shoot, invoiceID) = try Self.draft()
+        let source = InvoiceListSource(over: container,
+                                       problems: ProblemsStore(journal: InMemoryProblemsJournal()),
+                                       now: { Self.noon })
+        defer { source.stop() }
+        let before = try #require(source.screen(for: invoiceID, footer: .fixed))
+        #expect(before.lines.first?.amount == "Needs the times")
+
+        let writer = ShootTimesWriter(modelContainer: container)
+        try await writer.setStart(ClockTime("19:00"), on: shoot)
+        try await writer.setEnd(ClockTime("20:30"), on: shoot)
+
+        let after = try #require(source.screen(for: invoiceID, footer: .fixed))
+        #expect(after.lines.first?.amount == "375.00", "the line still says \(after.lines.first?.amount ?? "")")
+        #expect(after.shoots.first?.derived
+                    == "1h 30m, billed as 1.5 hours, rounded to the nearest quarter")
+        #expect(after.refusal == nil, "it is priced now and the screen still refuses Review")
+    }
+
     // MARK: what cannot be written
 
     /// A SHOOT DELETED SINCE THE SCREEN READ IT IS REFUSED BY NAME, never trapped on.
