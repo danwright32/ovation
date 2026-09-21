@@ -447,8 +447,19 @@ struct OvationApp: App {
                      heldMoney: invoiceList?.heldMoney,
                      // ovation#457. The SOURCE resolves an invoice, because it
                      // owns the container and a view may not (PRD 51l).
+                     //
+                     // THE FOOTER IS SETTINGS', READ AT THE MOMENT OF OPENING, never
+                     // the shipped text (ovation#319). Two of the reasons an invoice
+                     // may not go out live in Settings, so a screen judged against
+                     // the shipped footer would offer Review on an invoice whose page
+                     // cannot say how to pay, and refuse one whose Settings are fine.
+                     // `check-invoice-footer-source.sh` refused the first version,
+                     // which passed `.fixed` here. Read per opening rather than once,
+                     // because Dan can change Settings between two invoices.
                      openInvoice: { [invoiceList] id in
-                         invoiceList?.screen(for: id, footer: .fixed)
+                         invoiceList?.screen(
+                             for: id,
+                             footer: InvoiceFooterSetting(defaults: .standard).footer)
                      },
                      progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
