@@ -80,6 +80,32 @@ enum BusinessCalendar {
         formatter.string(from: instant)
     }
 
+    /// One business day, from the key that names it, or nil where the key is not
+    /// a calendar day.
+    ///
+    /// REFUSED RATHER THAN MADE PLAUSIBLE, the same rule `shortDate` follows: a
+    /// malformed key must not become a date somewhere near the one intended
+    /// (L50).
+    static func day(forKey key: String) -> BusinessDate? {
+        guard let start = startOfDay(forDayKey: key) else { return nil }
+        return BusinessDate(storedInstant: start, storedDayKey: key)
+    }
+
+    /// The day a given number of days after another one.
+    ///
+    /// IT IS DAYS, NOT SECONDS, and the difference only shows across a clock
+    /// change, which is exactly when a due date matters least to notice and most
+    /// to be right. Adding fourteen times 86,400 seconds to 25 October in New
+    /// York lands on 7 November rather than the 8th, because 1 November takes an
+    /// hour back and the sum is an hour short of fourteen days. One time zone,
+    /// one calendar, one day helper (L39).
+    static func day(_ days: Int, after day: BusinessDate) -> BusinessDate? {
+        guard let start = startOfDay(forDayKey: day.dayKey),
+              let moved = calendar.date(byAdding: .day, value: days, to: start)
+        else { return nil }
+        return BusinessDate(storedInstant: moved, storedDayKey: dayKey(for: moved))
+    }
+
     /// Which business day an instant fell on, as an ORDERED NUMBER.
     ///
     /// The same fact as `dayKey`, spelled so it can be compared and rotated on.

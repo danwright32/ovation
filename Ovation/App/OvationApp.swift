@@ -19,6 +19,9 @@ struct OvationApp: App {
     /// one per press could not know that a run is already going, and two exports
     /// over one folder write the same three files over each other.
     @State private var exportCommand: YearEndExportCommand
+    /// ovation#461. The control that turns what Downbeat has queued into drafts,
+    /// which is the shortcut ovation#32's drain replaces.
+    @State private var draftCommand: BookingDraftCommand
     /// The store the launch sequence opened, handed on rather than opened again:
     /// two containers over one file are two writers (ovation#84).
     @State private var opened: ModelContainer?
@@ -132,6 +135,7 @@ struct OvationApp: App {
         // launch teaches nothing; one that is there and says what is missing is
         // the difference between a dead control and a refusal (L109).
         _exportCommand = State(initialValue: YearEndExportCommand.forThisLaunch())
+        _draftCommand = State(initialValue: BookingDraftCommand.forThisLaunch())
     }
 
 
@@ -521,6 +525,15 @@ struct OvationApp: App {
                 if let why = whyTheExportCannotRun {
                     Text(why).font(.footnote)
                 }
+                // ovation#461. Nothing in Ovation created an invoice before
+                // this, so ovation#42 had nothing to send. Same shape as the
+                // export above and for the same reason: never hidden, disabled
+                // with the reason said out loud (L49, L109).
+                Button(BookingDraftCommand.title) { runDraftFromTheQueue() }
+                    .disabled(whyTheDraftCannotRun != nil)
+                if let why = whyTheDraftCannotRun {
+                    Text(why).font(.footnote)
+                }
             }
             #if DEBUG
             CommandMenu(ReviewSamplesCommand.title) {
@@ -540,6 +553,19 @@ struct OvationApp: App {
     /// one thing are two things that can disagree (L70).
     private var whyTheExportCannotRun: String? {
         exportCommand.whyItCannotRun(container: opened)
+    }
+
+    private var whyTheDraftCannotRun: String? {
+        draftCommand.whyItCannotRun(container: opened)
+    }
+
+    /// Reads the booking queue and drafts what is in it, then refreshes the
+    /// launch notices so what it reported is on screen rather than waiting for
+    /// the next launch.
+    private func runDraftFromTheQueue() {
+        draftCommand.press(now: Date(), container: opened, problems: store) {
+            presenter.refresh()
+        }
     }
 
     /// Runs one export through the command, which is the one place that marks a
