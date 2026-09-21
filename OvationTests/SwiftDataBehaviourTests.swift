@@ -759,6 +759,137 @@ struct SwiftDataBehaviourTests {
         return out
     }
 
+    // MARK: ovation#451, how anything LEARNS that a writer committed
+
+    /// ovation#451. The invoice list is derived state, and derived state has to
+    /// re-derive on every input that feeds it (L14). The probes above settle that
+    /// a SETTLED context can see another context's write by fetching again, and
+    /// that a DIRTY one cannot. Neither says WHEN to fetch.
+    ///
+    /// WHY THAT IS A PLATFORM QUESTION RATHER THAN A DESIGN ONE. The obvious
+    /// answer is that each writer tells the screen after it saves. That is a
+    /// behaviour every present and future writer has to opt into, and a behaviour
+    /// each call site must opt into cannot be enforced by a scan (L621): the
+    /// fifth actor somebody adds is the one that forgets, and the symptom is a
+    /// screen quietly showing an old answer, which is the defect ovation#451
+    /// already is.
+    ///
+    /// So the question measured here is whether the PLATFORM says a write
+    /// happened, with no opt in available to forget. If it does, the signal is
+    /// owned by the one thing every writer necessarily goes through, which is
+    /// `save()` itself.
+    ///
+    /// Written as a hypothesis and corrected to what ran, exactly like the
+    /// ovation#133 probes above. The constants live in `ModelSaveNoticeProbe`.
+    @Test("a @ModelActor's save announces itself to the rest of the process")
+    func amodelActorSaveAnnouncesItself() async throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let screen = ModelContext(container)
+        let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        screen.insert(invoice)
+        try screen.save()
+        let id = invoice.persistentModelID
+
+        // EVERY SAVE IN THE PROCESS POSTS THIS, this suite's neighbours included,
+        // so what arrives is filtered down to the notification naming THIS
+        // invoice rather than taking whichever came first. A probe that took the
+        // first would measure whatever else the run happened to be doing (L205).
+        //
+        // The observer is registered BEFORE the write, because a notification
+        // posted before anybody was listening is indistinguishable from one that
+        // never fired (L1).
+        let seen = SaveNotices(container: container)
+        let token = NotificationCenter.default.addObserver(
+            forName: ModelContext.didSave, object: nil, queue: nil
+        ) { [seen] notice in seen.record(notice) }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        try await allocator.allocate(to: id)
+
+        let mine = seen.naming(id)
+        #expect((mine != nil) == ModelSaveNoticeProbe.actorSaveIsAnnounced,
+                "whether the actor's save posted ModelContext.didSave at all")
+        let notice = try #require(mine, "no didSave named this invoice")
+
+        #expect(Set(notice.keys) == ModelSaveNoticeProbe.didSaveKeys,
+                "the keys the notification carries")
+        #expect(notice.updated.contains(id) == ModelSaveNoticeProbe.updatedNamesTheRowWritten,
+                "whether the row the actor wrote is named under 'updated'")
+
+        // THE FACT THE DESIGN TURNS ON, and the reason this is not only about the
+        // notification firing. A signal that arrives BEFORE the write is readable
+        // would have every listener re-read the old value and then sit on it,
+        // which is the original defect with a notification bolted on top. So the
+        // read was done from a fresh context INSIDE the observer, at the moment
+        // of delivery, rather than afterwards where `allocate` has already
+        // returned and the answer is true for the wrong reason (L457).
+        #expect(notice.numberVisibleAtDelivery == ModelSaveNoticeProbe.numberReadableWhenAnnounced,
+                "what a fresh reader saw at the instant the notification arrived")
+
+        // AND WHETHER A LISTENER CAN TELL WHOSE STORE IT WAS. Every save in the
+        // process posts on this name, so a listener that cannot scope the notice
+        // to its own container re-reads on a neighbour's write. In the app there
+        // is one container and it would not show; in a suite running tests beside
+        // each other it is every other container in the process (L205, L463).
+        #expect(notice.objectIsAContextOfThisContainer
+                    == ModelSaveNoticeProbe.noticeNamesTheStoreItCameFrom,
+                "whether the notification's object identifies the container that saved")
+    }
+
+    /// Collects `ModelContext.didSave` notices, keeping only what a probe may
+    /// look at afterwards.
+    ///
+    /// IT READS THE STORE AT DELIVERY TIME rather than holding the notification,
+    /// because the question is what was true THEN.
+    private final class SaveNotices: @unchecked Sendable {
+        struct Notice {
+            let keys: [String]
+            let inserted: [PersistentIdentifier]
+            let updated: [PersistentIdentifier]
+            let deleted: [PersistentIdentifier]
+            let numberVisibleAtDelivery: Int64?
+            let objectIsAContextOfThisContainer: Bool
+        }
+
+        private let mutex = NSLock()
+        private var notices: [Notice] = []
+        private let container: ModelContainer
+
+        init(container: ModelContainer) { self.container = container }
+
+        func record(_ notification: Notification) {
+            let info = notification.userInfo ?? [:]
+            func ids(_ key: String) -> [PersistentIdentifier] {
+                (info[key] as? [PersistentIdentifier]) ?? []
+            }
+            let reader = ModelContext(container)
+            let visible = (try? reader.fetch(FetchDescriptor<Invoice>()))?
+                .compactMap(\.number).max()
+            let notice = Notice(
+                keys: info.keys.compactMap { $0 as? String }.sorted(),
+                inserted: ids("inserted"),
+                updated: ids("updated"),
+                deleted: ids("deleted"),
+                numberVisibleAtDelivery: visible,
+                objectIsAContextOfThisContainer:
+                    (notification.object as? ModelContext)?.container === container)
+            mutex.lock()
+            defer { mutex.unlock() }
+            notices.append(notice)
+        }
+
+        /// The notice naming this row, or nil where none did.
+        func naming(_ id: PersistentIdentifier) -> Notice? {
+            mutex.lock()
+            defer { mutex.unlock() }
+            return notices.first {
+                $0.inserted.contains(id) || $0.updated.contains(id) || $0.deleted.contains(id)
+            }
+        }
+    }
+
     enum ProbeFailure: Error {
         case couldNotOpen(String)
         case couldNotRead(String)
