@@ -143,6 +143,62 @@ struct InvoiceStandingTests {
         #expect(standing.money == .nothing)
     }
 
+    // MARK: a stored date that will not read back
+
+    @Test("a due date that cannot be read is not the same as having none, and does not read as waiting")
+    func anunreadableDueDateDoesNotReadAsWaiting() throws {
+        // L50. `BusinessCalendar.startOfDay(forDayKey:)` PARSES the stored key, so
+        // it can fail, and a failure used to become the same nil as "no due date".
+        // That put the invoice in "waiting on them", which is the permissive side:
+        // an invoice long past its terms would sit quietly in the band for ones
+        // that are not due yet, with nothing anywhere saying the date could not be
+        // read.
+        let context = try Self.store()
+        let invoice = Self.invoice(context)
+        invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
+        invoice.sentStatus = .sent(route: .ovationSentIt,
+                                   at: Date(timeIntervalSince1970: 1_700_000_000))
+        invoice.dueDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "not a day")
+
+        let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
+                                       couldSettleMoreThanOne: false)
+        #expect(standing.datesCouldNotBeRead)
+        #expect(standing.dueDay == nil)
+        // IT LANDS IN FRONT OF DAN. A record whose stored date will not read back
+        // is a fault, and the one screen that reaches invoices is where he has any
+        // chance of seeing it (L42: a control that exists to protect somebody fails
+        // closed).
+        #expect(InvoiceBand.allCases.filter { $0.claims(standing) } == [.overdue])
+    }
+
+    @Test("an invoice with genuinely no due date still reads as waiting, not as a fault")
+    func agenuinelyAbsentDueDateIsNotAFault() throws {
+        // The positive control for the test above. Without it, a change that
+        // flagged EVERY invoice as unreadable would pass it (L159).
+        let context = try Self.store()
+        let invoice = Self.invoice(context, due: nil)
+        invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
+        invoice.sentStatus = .sent(route: .ovationSentIt,
+                                   at: Date(timeIntervalSince1970: 1_700_000_000))
+
+        let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
+                                       couldSettleMoreThanOne: false)
+        #expect(!standing.datesCouldNotBeRead)
+        #expect(InvoiceBand.allCases.filter { $0.claims(standing) } == [.sentAwaitingPayment])
+    }
+
+    @Test("a shoot date that cannot be read puts the draft where a person will see it")
+    func anunreadableShootDateSurfaces() throws {
+        let context = try Self.store()
+        let invoice = Self.invoice(context, due: nil)
+        invoice.invoiceDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "nope")
+
+        let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
+                                       couldSettleMoreThanOne: false)
+        #expect(standing.datesCouldNotBeRead)
+        #expect(InvoiceBand.allCases.filter { $0.claims(standing) } == [.draftNeedsSending])
+    }
+
     // MARK: the endings
 
     @Test("a cancelled invoice reads as cancelled and lands in the cancelled band")

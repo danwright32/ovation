@@ -52,10 +52,18 @@ struct InvoiceBandTests {
                     for dueDay in dueDays {
                         for money in InvoiceStanding.Money.allCases {
                             for couldSettle in [false, true] {
-                                all.append(InvoiceStanding(
-                                    ending: ending, sent: sent, shootDay: shootDay,
-                                    dueDay: dueDay, money: money,
-                                    couldSettleMoreThanOne: couldSettle))
+                                // THE UNREADABLE DATE IS A DIMENSION OF THE SWEEP,
+                                // not a case beside it (L50). It changes which band
+                                // claims an invoice, so the partition has to hold
+                                // across it in both directions exactly as it does
+                                // across every other fact.
+                                for unreadable in [false, true] {
+                                    all.append(InvoiceStanding(
+                                        ending: ending, sent: sent, shootDay: shootDay,
+                                        dueDay: dueDay, money: money,
+                                        couldSettleMoreThanOne: couldSettle,
+                                        datesCouldNotBeRead: unreadable))
+                                }
                             }
                         }
                     }
@@ -83,7 +91,8 @@ struct InvoiceBandTests {
             day < InvoiceBand.today ? "overdue" : "due ahead"
         } ?? "no due date"
         let place = it.couldSettleMoreThanOne ? ", could settle more than one" : ""
-        return "\(ending), \(sent), \(shoot), \(due), \(it.money)\(place)"
+        let unread = it.datesCouldNotBeRead ? ", DATES WOULD NOT READ" : ""
+        return "\(ending), \(sent), \(shoot), \(due), \(it.money)\(place)\(unread)"
     }
 
     // MARK: the property
