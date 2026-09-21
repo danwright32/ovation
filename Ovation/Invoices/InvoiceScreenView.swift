@@ -419,19 +419,13 @@ struct InvoiceScreenView: View {
     /// THE WORD IS DRAWN QUIET AND UNPRESSABLE WHEN IT CANNOT BE PRESSED, rather
     /// than pressable with nothing behind it. It is the honest option ovation#450
     /// names: the foot says what is needed without offering to do it.
-    @ViewBuilder
+    ///
+    /// AND IT IS `ActionWord`, THE ONE COMPONENT, rather than the copy that used
+    /// to be here. There were two of these, this and the list's action, and a
+    /// second hand rolled one is what ovation#450's own guard now refuses (L613).
     private var reviewWord: some View {
-        if presenter.mayReview, let review {
-            Button("Review", action: review)
-                .buttonStyle(.plain)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(OvationPalette.ink)
-                .underline()
-        } else {
-            Text("Review")
-                .font(.system(size: 14))
-                .foregroundStyle(OvationPalette.faint)
-                .accessibilityLabel(presenter.refusal.map { "Review, not yet: \($0)" } ?? "Review")
-        }
+        ActionWord(word: "Review", size: 14,
+                   press: presenter.mayReview ? review : nil,
+                   notYet: presenter.refusal)
     }
 }

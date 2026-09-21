@@ -225,6 +225,54 @@ final class InvoiceListPresenter {
         static let addDate = "Add date"
         static let addHours = "Add hours"
         static let addTaxStatus = "Add tax status"
+
+        /// Every word, in one list, so what follows cannot be asked about a word
+        /// nobody added to it (L41, L113).
+        static let all = [send, remind, markCleared, markSent, useItHere,
+                          addDate, addHours, addTaxStatus]
+
+        /// Where pressing this word takes you, or nil where nothing does what the
+        /// word says yet (ovation#450).
+        ///
+        /// THE WORD IS NOT CHANGED BY THIS, only how it is drawn and what
+        /// pressing it does. PRD 46a counts the list's rows BY their action, and
+        /// the sidebar card's five counts come off exactly these strings, so a
+        /// word softened into "Add hours when you can" would silently move a
+        /// count (L683).
+        ///
+        /// TOTAL, AND EACH ANSWER IS A DECISION. A word added later has to be
+        /// answered here rather than taking a default that reads as considered
+        /// (L113, L129). Today exactly one has somewhere to go, and this is the
+        /// measurement rather than an impression:
+        ///
+        ///   `Add hours`        the invoice screen, which the list already opens
+        ///                      and which is where the shoot's times are typed
+        ///                      (ovation#467). LIVE.
+        ///   `Send`             the review sheet, which exists and is presented
+        ///                      only from `ReviewSamplesCommand` under `#if
+        ///                      DEBUG` (ovation#318). ovation#42 wires it.
+        ///   `Add date`         setting the invoice's own date, which no screen
+        ///                      offers: the invoice screen types the SHOOT's
+        ///                      times and nothing else.
+        ///   `Use it here`      applying a client's held money to this invoice,
+        ///                      PRD 14, which no screen offers.
+        ///   `Mark cleared`     ovation#48.
+        ///   `Mark sent`        ovation#45.
+        ///   `Remind`           nothing anywhere sends a reminder.
+        ///   `Add tax status`   the roster pass, which IS built and IS in the
+        ///                      rail, and the list cannot navigate to another
+        ///                      pane. Named here rather than left out, because
+        ///                      this is the one whose destination exists and is
+        ///                      still out of reach.
+        static func destination(of action: String) -> Destination? {
+            switch action {
+            case addHours: return .theInvoiceScreen
+            default: return nil
+            }
+        }
+
+        /// Somewhere a press can go.
+        enum Destination: Equatable { case theInvoiceScreen }
     }
 
     private static func row(for invoice: Invoice, standing: InvoiceStanding,

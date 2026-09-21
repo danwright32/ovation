@@ -107,6 +107,79 @@ struct InvoiceListViewTests {
                                 selected: .constant(nil)), presenter)
     }
 
+    // MARK: which action words are offered as controls (ovation#450)
+
+    /// EVERY ROW ENDED IN A WORD DRAWN AS A CONTROL AND NONE OF THEM DID WHAT
+    /// THE WORD SAID. This is the list at its real population, so it is the
+    /// surface where that shows: the only words offered as controls are the ones
+    /// with somewhere to go, and every other word is still THERE, because PRD
+    /// 46a counts the rows by their action.
+    @Test("only the words with somewhere to go are drawn as controls, at the real count")
+    func onlyliveWordsAreControls() throws {
+        let context = try Self.store()
+        let (invoices, held) = Self.theRealList(context)
+        let presenter = InvoiceListPresenter(invoices: invoices, heldMoney: held, today: Self.today)
+        var opened: [PersistentIdentifier] = []
+        let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
+                                   selected: .constant(nil), open: { opened.append($0) })
+
+        let pressable = try view.inspect().findAll(ViewType.Button.self)
+            .compactMap { try? $0.labelView().text().string() }
+        let drawn = try view.inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+        let rows = presenter.bands.flatMap { $0.rows }
+        let words = rows.compactMap { $0.action }
+
+        // Every word is still on the screen, whether or not it can be pressed.
+        for word in words {
+            #expect(drawn.contains(word) || pressable.contains(word),
+                    "the screen no longer says \(word)")
+        }
+        // AND ONLY THE LIVE ONES ARE CONTROLS, stated here rather than recomputed
+        // from `Action.destination`. A check whose expected value and its actual
+        // value come from the same lookup can only prove that lookup is
+        // self-consistent (L70): written that way first, this passed with every
+        // word made live, which is the whole defect.
+        #expect(Set(pressable) == ["Add hours"],
+                "pressable is \(Set(pressable))")
+        #expect(words.contains("Add hours"),
+                "no row in the real population carries a live word, so this proves nothing")
+        #expect(words.contains { $0 != "Add hours" },
+                "every word in the population is the live one, so the other half proves nothing")
+    }
+
+    /// AND PRESSING A LIVE WORD OPENS THAT ROW'S INVOICE, addressed by the row it
+    /// was pressed on rather than by whatever is selected (L166).
+    @Test("pressing a live word opens the invoice of the row it is on")
+    func pressingALiveWordOpensThatRow() throws {
+        let context = try Self.store()
+        let (invoices, held) = Self.theRealList(context)
+        let presenter = InvoiceListPresenter(invoices: invoices, heldMoney: held, today: Self.today)
+        var opened: [PersistentIdentifier] = []
+        let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
+                                   selected: .constant(nil), open: { opened.append($0) })
+        let allRows = presenter.bands.flatMap { $0.rows }
+        let wanted = try #require(allRows.first {
+            InvoiceListPresenter.Action.destination(of: $0.action ?? "") != nil
+        })
+
+        try view.inspect().find(button: wanted.action ?? "").tap()
+
+        #expect(opened == [wanted.invoiceID])
+    }
+
+    /// AND WITH NO WAY TO OPEN AN INVOICE, NO WORD IS A CONTROL. The caller
+    /// supplying nothing is the throwaway case, and a word offered with nowhere
+    /// for the press to go is the defect this issue is about (L109).
+    @Test("a list with nowhere to open an invoice offers no word as a control")
+    func nowhereToOpenOffersNoControl() throws {
+        let context = try Self.store()
+        let (view, _) = Self.view(context)
+
+        let pressable = try view.inspect().findAll(ViewType.Button.self)
+
+        #expect(pressable.isEmpty, "\(pressable.count) word(s) were pressable with nowhere to go")
+    }
+
     // MARK: every invoice is on the screen
 
     @Test("every invoice in the store is drawn, at the real count")
