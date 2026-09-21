@@ -183,7 +183,7 @@ struct ShellView: View {
             // is always, so this is the first thing Dan sees.
             //
             // A LIST THAT COULD NOT BE READ IS NOT AN EMPTY LIST. When the fetch
-            // threw, `InvoiceListLaunch` raised a problem and produced nothing,
+            // threw, `InvoiceListSource` raised a problem and produced nothing,
             // and the rail's status block carries it; drawing the empty state here
             // would say every invoice is paid and cleared, on no evidence (L10).
             if let invoices {

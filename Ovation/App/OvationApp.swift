@@ -27,13 +27,16 @@ struct OvationApp: App {
     /// the client list could not be read, which raises its own problem.
     @State private var roster: RosterPresenter?
     @State private var shell: ShellPresenter?
-    /// The invoice list, which is the screen the window opens on (ovation#49).
-    /// Nil means the read failed and a problem was raised, never that there are
-    /// no invoices.
-    @State private var invoices: InvoiceListPresenter?
-    /// What Ovation is holding across every client, or nil where it holds nothing
-    /// (PRD 46b: a quantity of nothing is not drawn).
-    @State private var heldMoney: String?
+    /// The invoice list, which is the screen the window opens on (ovation#49),
+    /// and the thing that keeps it true (ovation#451).
+    ///
+    /// IT IS THE SOURCE THAT IS HELD, not the two figures it derives. Those used
+    /// to be two pieces of state here, built once inside the launch and never
+    /// rebuilt, so the list, the card's counts and the rail's held money figure
+    /// were a photograph of the store taken at launch (L14). The source re-reads
+    /// on every write to the store, and holding it rather than its output is what
+    /// makes that reach the window.
+    @State private var invoiceList: InvoiceListSource?
     #if DEBUG
     /// ovation#318 B5. Which review sheet sample is on screen, in the Debug build
     /// only. Real invoices reach the sheet with ovation#42.
@@ -390,8 +393,7 @@ struct OvationApp: App {
         // save must be the same context or a change is written back through a
         // second one, which is two writers over one file (ovation#84).
         var rosterPair: (roster: RosterPresenter, shell: ShellPresenter)?
-        var list: InvoiceListPresenter?
-        var held: String?
+        var list: InvoiceListSource?
         if let container = openedStore.container {
             let context = ModelContext(container)
             rosterPair = RosterLaunch.presenters(
@@ -399,24 +401,19 @@ struct OvationApp: App {
                 save: { try context.save() },
                 problems: store,
                 now: Date())
-            // THE SAME CONTEXT, for the reason above: a fetch through a second one
-            // is a second reader of the same file, and the invoice list reads the
-            // very rows the roster's save writes through.
-            let now = Date()
-            list = InvoiceListLaunch.present(
-                fetchInvoices: { try context.fetch(FetchDescriptor<Invoice>()) },
-                fetchClients: { try context.fetch(FetchDescriptor<Client>()) },
-                problems: store,
-                today: .stamping(now),
-                now: now)
-            held = (try? context.fetch(FetchDescriptor<Client>()))
-                .flatMap(InvoiceListLaunch.heldMoneyLine)
+            // THE CONTAINER, NOT THIS CONTEXT, and that is the one place the
+            // invoice list differs from the roster beside it (ovation#451). The
+            // roster writes through the context above, so the context is dirty
+            // whenever Dan is part way through answering, and `SwiftDataBehaviourTests`
+            // measures that a dirty context re-reading does NOT see another
+            // context's write. The list only ever reads, so it makes a fresh
+            // context per read and sees whatever is committed.
+            list = InvoiceListSource(over: container, problems: store, now: Date.init)
         }
         opened = openedStore.container
         roster = rosterPair?.roster
         shell = rosterPair?.shell
-        invoices = list
-        heldMoney = held
+        invoiceList = list
         presenter.refresh()
     }
 
@@ -446,8 +443,8 @@ struct OvationApp: App {
     var body: some Scene {
         Window(OvationBuild.displayName, id: OvationBuild.mainWindowID) {
             RootView(presenter: presenter, store: store, exportCommand: exportCommand,
-                     roster: roster, shell: shell, invoices: invoices,
-                     heldMoney: heldMoney, progress: progress)
+                     roster: roster, shell: shell, invoices: invoiceList?.list,
+                     heldMoney: invoiceList?.heldMoney, progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
                 // order inside the launch is unchanged; what changed is that
                 // there is now somewhere for it to say what it is doing.
