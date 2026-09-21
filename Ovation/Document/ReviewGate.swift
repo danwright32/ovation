@@ -67,6 +67,33 @@ enum ReviewGate {
         return nil
     }
 
+    /// THE SHORT FORM, drawn where the figure would be, for the refusals that have
+    /// one (ovation#457, round 3).
+    ///
+    /// BOTH FORMS LIVE TOGETHER, which is `docs/design/rules/waiting.js`'s own
+    /// arrangement and its stated reason: the reason and the two sentences that
+    /// carry it come from one place "so the screen cannot say one thing where the
+    /// figure is drawn and a different thing under the main action" (L113, L118).
+    /// `sentence(for:)` above is that file's `tip`; this is its `says`.
+    ///
+    /// NIL WHERE THE DESIGN HAS NO SHORT FORM, which is every refusal that is not
+    /// a state of waiting: the two Settings ones and the two about money are not
+    /// things the amount column can say, and `waiting.js` gives them no `says`
+    /// either. A caller with nil draws the figure it has.
+    static func says(for refusal: InvoiceRefusal) -> String? {
+        switch refusal {
+        case .shootTimesNotGiven: return "Needs the times"
+        case .shootEndTimeNotGiven: return "Needs the end time"
+        case .shootStartTimeNotGiven: return "Needs the start time"
+        case .durationLongerThanAShoot: return "Longer than a shoot"
+        // NOT STATES OF WAITING, so the amount column has nothing to say for them
+        // and the foot's sentence is where they are reported.
+        case .taxStatusNeverRecorded, .discountExceedsSubtotal, .totalBelowZero,
+             .paymentInstructionsNotSet, .contactDetailsNotSet, .nothingIsBeingCharged:
+            return nil
+        }
+    }
+
     /// The one sentence for each way the page itself can be refused. Total over
     /// that vocabulary too, so a precondition added to the renderer cannot take a
     /// default here and read as a deliberate silence (L113).

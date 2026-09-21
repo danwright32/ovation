@@ -444,7 +444,24 @@ struct OvationApp: App {
         Window(OvationBuild.displayName, id: OvationBuild.mainWindowID) {
             RootView(presenter: presenter, store: store, exportCommand: exportCommand,
                      roster: roster, shell: shell, invoices: invoiceList?.list,
-                     heldMoney: invoiceList?.heldMoney, progress: progress)
+                     heldMoney: invoiceList?.heldMoney,
+                     // ovation#457. The SOURCE resolves an invoice, because it
+                     // owns the container and a view may not (PRD 51l).
+                     //
+                     // THE FOOTER IS SETTINGS', READ AT THE MOMENT OF OPENING, never
+                     // the shipped text (ovation#319). Two of the reasons an invoice
+                     // may not go out live in Settings, so a screen judged against
+                     // the shipped footer would offer Review on an invoice whose page
+                     // cannot say how to pay, and refuse one whose Settings are fine.
+                     // `check-invoice-footer-source.sh` refused the first version,
+                     // which passed `.fixed` here. Read per opening rather than once,
+                     // because Dan can change Settings between two invoices.
+                     openInvoice: { [invoiceList] id in
+                         invoiceList?.screen(
+                             for: id,
+                             footer: InvoiceFooterSetting(defaults: .standard).footer)
+                     },
+                     progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
                 // order inside the launch is unchanged; what changed is that
                 // there is now somewhere for it to say what it is doing.
