@@ -127,6 +127,35 @@ struct TaxExportTests {
         #expect(export.notIncluded[.neverIssued] == nil)
     }
 
+    /// ovation#460. THE THIRD WAY AN INVOICE CAN BE MISSING FROM THE RETURN, and
+    /// it is counted apart from both neighbours. Like the one above it MAY be real
+    /// income: Ovation handed the message to Gmail and never heard back, so the
+    /// client may hold it. Unlike it the remedy differs, because that one means the
+    /// mailbox match could not answer and this means the send itself did not
+    /// finish, and an accountant reading the manifest needs to know which.
+    ///
+    /// Membership in `IncomeOmission` is earned by matching a rule and never by
+    /// failing to match the good case (L540), which is why this has its own kind
+    /// rather than falling into the drafts.
+    @Test("an invoice whose send never finished has its own count, not the draft one")
+    func aninterruptedSendIsItsOwnCount() throws {
+        let world = try World()
+        let interrupted = world.invoice(dayKey: "2026-05-05", sent: false,
+                                        total: Money(dollars: 250))
+        interrupted.sentStatus = .attempting(
+            SendAttempt(destination: ["client@example.com"], wasRedirected: false,
+                        renderSHA256: "abc",
+                        startedAt: Date(timeIntervalSince1970: 1_800_000_000)))
+
+        let export = TaxExport.income(from: [interrupted], in: .calendarYear(2026))
+
+        #expect(export.rowsIncluded == 0, "nothing was observed, so it is not income")
+        #expect(export.notIncluded[.sendWasInterrupted] == 1)
+        #expect(export.notIncluded[.neverIssued] == nil, "it is not a draft")
+        #expect(export.notIncluded[.sentCouldNotBeDetermined] == nil,
+                "and it is not the mailbox match failing to answer")
+    }
+
     @Test("an invoice with NO DATE cannot be placed in a year and is counted as that")
     func adatelessInvoiceIsCountedNotDropped() throws {
         // A draft with no date at all is a real state (ovation#49). It cannot be
