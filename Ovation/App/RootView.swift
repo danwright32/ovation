@@ -29,6 +29,15 @@ struct RootView: View {
     var roster: RosterPresenter?
     var shell: ShellPresenter?
 
+    /// ovation#49. The invoice list, which is the screen the window opens on once
+    /// the roster has nothing to ask. Nil where the read failed, which the shell
+    /// draws its own state for, and nil in every hosted test written before it
+    /// existed, where the window is exactly what it has always been.
+    var invoices: InvoiceListPresenter?
+    /// What Ovation is holding across every client (PRD 46b), or nil where it
+    /// holds nothing.
+    var heldMoney: String?
+
     /// ovation#246. What the launch is doing, while it is doing it. Nil in every
     /// hosted test written before there was one, and in that case the window is
     /// exactly what it has always been.
@@ -57,7 +66,8 @@ struct RootView: View {
         if let progress, progress.phase == .preparing {
             StartingView(progress: progress)
         } else if shellOwnsTheWindow, let shell, let roster {
-            ShellView(shell: shell, roster: roster, problems: store)
+            ShellView(shell: shell, roster: roster, problems: store,
+                      invoices: invoices, heldMoney: heldMoney)
         } else {
             problemsWindow
         }

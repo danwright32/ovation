@@ -20,12 +20,22 @@ import Foundation
 enum PDFText {
 
     /// "$1,234.56", and "-$250.00" below zero, with the minus before the dollar sign.
-    static func money(_ amount: Money) -> String {
-        let magnitude = amount.cents.magnitude
-        let dollars = grouped(String(magnitude / 100))
+    static func money(_ value: Money) -> String {
+        (value.cents < 0 ? "-$" : "$") + amount(value)
+    }
+
+    /// "1,234.56": the figure alone, with no currency sign and no minus.
+    ///
+    /// THE INVOICE LIST SHOWS THE FIGURE WITHOUT A SIGN (`docs/design/invoice-list.html`),
+    /// and it groups its thousands exactly as the page does. This exists so there
+    /// is ONE implementation of that grouping rather than two that agree on the day
+    /// they are written: sharing the rule while copying the code is not sharing it
+    /// (L370). `money` is now this plus a sign.
+    static func amount(_ value: Money) -> String {
+        let magnitude = value.cents.magnitude
         let cents = magnitude % 100
-        let fraction = cents < 10 ? "0\(cents)" : "\(cents)"
-        return (amount.cents < 0 ? "-$" : "$") + dollars + "." + fraction
+        return grouped(String(magnitude / 100)) + "."
+            + (cents < 10 ? "0\(cents)" : "\(cents)")
     }
 
     /// "1.0 hr", "1.5 hrs", "1.25 hrs": one decimal unless the value needs two.

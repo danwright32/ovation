@@ -21,6 +21,10 @@ enum OvationPalette {
     static let chrome = Color(hex: 0xEFE8E3)
     static let rule = Color(hex: 0xE0D0C4)
     static let ruleSoft = Color(hex: 0xEEE2D8)
+    /// The tint a selected row carries, `--selbg` in the design record. A selected
+    /// row is marked by this ALONE and never a left bar (PRD 47), which is both
+    /// the macOS convention and a practical necessity once the sidebar is dark.
+    static let selection = Color(hex: 0xE4DCD6)
 
     // Ink, in the four weights the design uses.
     static let ink = Color(hex: 0x1F1812)

@@ -263,3 +263,74 @@ private extension InvoiceStanding {
         money == .nothing || money == .some
     }
 }
+
+// MARK: reading a stored invoice as a standing
+
+extension InvoiceStanding {
+
+    /// Reads one stored invoice as the handful of facts the bands are written over.
+    ///
+    /// EVERY DATE BECOMES A DAY NUMBER RELATIVE TO `today`, which is what lets the
+    /// bands be written with no calendar in them and no clock behind them. A band
+    /// comparing stored dates against `Date()` could never be tested at a chosen
+    /// moment and would walk into another answer while a suite ran (L74, L130).
+    ///
+    /// IT DERIVES NOTHING THE INVOICE ALREADY ANSWERS. The money comes through
+    /// `paymentState`, which is the app's one statement of where an invoice stands
+    /// on money; asking the allocations again here would be a second predicate over
+    /// the same facts, and two predicates over one question is how two surfaces come
+    /// to disagree about one invoice (L370, L16).
+    init(of invoice: Invoice, today: BusinessDate, couldSettleMoreThanOne: Bool) {
+        self.init(
+            ending: invoice.closure.map { closure in
+                switch closure {
+                case .cancelled: return Ending.cancelled
+                case .deleted: return Ending.deleted
+                }
+            },
+            sent: invoice.sentStatus,
+            // THE INVOICE DATE IS THE SHOOT DATE (PRD 7): the invoice is dated its
+            // booking's shoot day, and that stamped value is what decides the tax
+            // year, so it is the one the list bands on rather than a date read back
+            // off a shoot record that a combined invoice has several of.
+            shootDay: Self.day(of: invoice.invoiceDate, from: today),
+            dueDay: Self.day(of: invoice.dueDate, from: today),
+            money: Self.money(of: invoice),
+            couldSettleMoreThanOne: couldSettleMoreThanOne)
+    }
+
+    /// How many days after `today` that day falls, and nil where there is no day.
+    ///
+    /// NIL SURVIVES, and that is the whole point of this function. A missing date
+    /// defaulted to today would put a dateless draft in "send it today" looking like
+    /// an ordinary row, which is exactly the invisibility ovation#49 exists to end
+    /// (L67, L168).
+    private static func day(of date: BusinessDate?, from today: BusinessDate) -> Int? {
+        guard let date,
+              let start = BusinessCalendar.startOfDay(forDayKey: date.dayKey),
+              let base = BusinessCalendar.startOfDay(forDayKey: today.dayKey)
+        else { return nil }
+        return InvoiceBand.today
+            + BusinessCalendar.dayNumber(for: start) - BusinessCalendar.dayNumber(for: base)
+    }
+
+    /// Where the invoice stands on money, in the four answers the bands need.
+    ///
+    /// THE CLEARED STEP BELONGS TO THE PAYMENT, NEVER THE INVOICE (PRD 5.15), and
+    /// only a check has one. Reading "has not cleared" off a Zelle payment would
+    /// park an invoice in "confirm it cleared" permanently, with no control anywhere
+    /// able to answer it, which is a dead end rather than a wrong label (L109).
+    private static func money(of invoice: Invoice) -> Money {
+        switch invoice.paymentState {
+        case .unpaid: return .nothing
+        case .partlyPaid: return .some
+        case .paid:
+            let waiting = invoice.allocations.contains { allocation in
+                guard allocation.releasedOn == nil, let payment = allocation.payment
+                else { return false }
+                return payment.canBeCleared && payment.clearedOn == nil
+            }
+            return waiting ? .allOfItAwaitingAClearedCheck : .allOfItCleared
+        }
+    }
+}

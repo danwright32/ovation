@@ -40,6 +40,12 @@ struct ShellViewTests {
 
     /// PRD 44a. Present AND marked. A destination present and silent is a dead
     /// control nobody can ask about (L49, L109).
+    ///
+    /// TWO, NOT THREE, SINCE ovation#49. The invoice list is built, so it no
+    /// longer carries the mark, and the count is asserted against the destinations
+    /// that are actually unbuilt rather than against a number typed here, which
+    /// would have to be edited again for every screen and says nothing about which
+    /// ones it counted (L41, L96).
     @Test("each unbuilt destination carries the mark that says so")
     func eachUnbuiltDestinationIsMarked() throws {
         let view = ShellView(shell: ShellPresenter(selected: .roster, rosterHasWork: { true }),
@@ -49,7 +55,10 @@ struct ShellViewTests {
         let marks = try view.inspect().findAll(ViewType.Text.self).filter {
             (try? $0.string()) == ShellView.notBuiltMark
         }
-        #expect(marks.count == 3)
+        let unbuilt = ShellPresenter(selected: .roster, rosterHasWork: { true })
+            .destinations.filter { !$0.isBuilt }
+        #expect(marks.count == unbuilt.count)
+        #expect(unbuilt == [.expenses, .clients])
     }
 
     @Test("the roster is in the rail while something blocks")
