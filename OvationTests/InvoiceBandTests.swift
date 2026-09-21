@@ -82,6 +82,7 @@ struct InvoiceBandTests {
         case .notSent: sent = "not sent"
         case .sent: sent = "sent"
         case .couldNotDetermine: sent = "could not determine"
+        case .attempting: sent = "a send is in flight"
         }
         let shoot = it.shootDay.map { day in
             day == InvoiceBand.today ? "shoot today"

@@ -83,6 +83,10 @@ enum InvoiceNumberRefusal: Error, Equatable {
     case invoiceWasSent(number: Int64)
     /// Not knowing whether it was sent is not knowing it was not.
     case sendCouldNotBeDetermined(number: Int64)
+    /// ovation#460. A send is part way through, so the message may already be with
+    /// the client. Giving the number back here is what put one number on two
+    /// invoices.
+    case sendIsInFlight(number: Int64)
     /// QuickBooks issued it, and a client and the accountant have it (ovation#71).
     case importedNumber(number: Int64)
     /// PRD 6: a cancelled invoice keeps its number, and so does a deleted one.
@@ -163,6 +167,11 @@ actor InvoiceNumberAllocator {
         case .notSent: break
         case .sent: throw InvoiceNumberRefusal.invoiceWasSent(number: number)
         case .couldNotDetermine: throw InvoiceNumberRefusal.sendCouldNotBeDetermined(number: number)
+        // ovation#460. THE REFUSAL THIS CASE WAS ADDED FOR. An invoice left
+        // `notSent` across the Gmail call reached this switch through the one arm
+        // that permits a release, so a timeout handed back a number Gmail may
+        // already have delivered and the next review issued it again.
+        case .attempting: throw InvoiceNumberRefusal.sendIsInFlight(number: number)
         }
         // Cancelled, deleted and imported rows count toward the highest, for the
         // reason `allInvoices` gives: their numbers are spent.
