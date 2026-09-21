@@ -81,6 +81,9 @@ final class InvoiceScreenPresenter {
     /// a zero is a legitimate comped invoice and a missing value must not look
     /// like one.
     let due: String
+    /// Which the invoice IS, drawn at the top right: "Draft", "Invoice 1042", or a
+    /// draft that is holding a number (ovation#411).
+    let state: String
     /// Why this invoice cannot be reviewed, or nil when it can.
     let refusal: String?
     /// The shoots, with their times, in the head.
@@ -103,6 +106,7 @@ final class InvoiceScreenPresenter {
         lines = Self.rows(of: invoice)
         money = Self.moneyRows(invoice)
         due = invoice.dueDate.flatMap(BusinessCalendar.shortDate) ?? ""
+        state = Self.state(of: invoice)
         // ASKED OF THE SEND GATE, never decided again here, so the sentence on this
         // screen and the one the review refuses with cannot name different things
         // about one invoice (L118, L370). It is the whole question including the
@@ -148,6 +152,26 @@ final class InvoiceScreenPresenter {
             // The gate's own short word, never a second wording of it (L118).
             return ReviewGate.says(for: .durationLongerThanAShoot) ?? ""
         }
+    }
+
+    /// What the head's state word says.
+    ///
+    /// AN UNSENT INVOICE IS A DRAFT HOWEVER FAR ALONG IT IS, which is PRD 46g and
+    /// ovation#364: a number means the client has it, not that one was reserved.
+    ///
+    /// AND A DRAFT HOLDING A NUMBER SAYS SO (ovation#411, Dan 2026-09-21). PRD 10c
+    /// gives a number back only while nothing was numbered after it, so an invoice
+    /// that took one at Review and was never sent holds it permanently until it is
+    /// sent or closed, and NOTHING anywhere said so: the list reads it as a draft
+    /// by design, which is right there and left the number with no surface at all.
+    /// Dan chose this screen over saying nothing and over reporting it only in the
+    /// year end reconciliation, because here the number is a fact about the thing
+    /// in front of him.
+    private static func state(of invoice: Invoice) -> String {
+        guard !invoice.sentStatus.wasSent else {
+            return invoice.number.map { "Invoice \($0)" } ?? "Draft"
+        }
+        return invoice.number.map { "Draft, holding \($0)" } ?? "Draft"
     }
 
     /// The shoot and its day, or what the invoice has instead.

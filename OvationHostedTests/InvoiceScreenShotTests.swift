@@ -99,6 +99,10 @@ struct InvoiceScreenShotTests {
         /// Waiting on the time the shoot ended, which is the ordinary state of
         /// every draft (Dan, 2026-09-08) and the one the foot's refusal is for.
         case waitingOnATime
+        /// A draft that took a number at Review and was never sent, so it holds
+        /// that number until it is sent or closed (PRD 10c, ovation#411). No
+        /// ordinary fixture produces it, and until this it had no surface at all.
+        case holdingANumber
     }
 
     private static func presenter(for state: State) throws -> InvoiceScreenPresenter {
@@ -114,6 +118,7 @@ struct InvoiceScreenShotTests {
         let shoot = Shoot(name: "Autumn Evensong", when: .dayOnly(today), venue: "St Anne's")
         shoot.shotFrom = ClockTime("19:00")
         if state != .waitingOnATime { shoot.shotUntil = ClockTime("20:30") }
+        if state == .holdingANumber { invoice.number = 1_123 }
         invoice.add(shoot)
 
         // A REAL DRAFT HAS ITS SHOOT AND NO PRICED LINE. PRD 3c: "A drafted

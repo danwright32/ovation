@@ -115,6 +115,11 @@ struct InvoiceScreenView: View {
                 }
             }
             Spacer(minLength: 0)
+            // WHICH THE INVOICE IS, which the design record draws at the top right
+            // and which carries ovation#411's held number.
+            Text(presenter.state)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(OvationPalette.faint)
             Button("Back to the list", action: close)
                 .buttonStyle(.plain)
                 .font(.system(size: 13))
@@ -125,7 +130,7 @@ struct InvoiceScreenView: View {
         .padding(.bottom, 12)
         .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.rule) }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(presenter.client), \(presenter.shoot)")
+        .accessibilityLabel("\(presenter.client), \(presenter.shoot), \(presenter.state)")
     }
 
     /// THE TIMES SIT BESIDE THE SHOOT (round 4b), one labelled pair per shoot, and

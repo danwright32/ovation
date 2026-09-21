@@ -88,6 +88,49 @@ struct InvoiceScreenPresenterTests {
         #expect(Self.present(invoice).shoot.isEmpty == false)
     }
 
+    // MARK: what the invoice IS (ovation#411)
+
+    /// THE HEAD SAYS WHICH IT IS, which the design record's own `invstate` draws as
+    /// "Draft" or "Invoice 1042". An unsent invoice is a draft however far along it
+    /// is, which is PRD 46g and ovation#364: the number column means the client has
+    /// this number, not that one was reserved.
+    @Test("an unsent invoice reads as a draft, and a sent one by its number")
+    func theheadSaysWhichItIs() throws {
+        let context = try Self.store()
+        let draft = try Self.invoice(context)
+        let sent = try Self.invoice(context)
+        sent.number = 1_042
+        sent.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+
+        #expect(Self.present(draft).state == "Draft")
+        #expect(Self.present(sent).state == "Invoice 1042")
+    }
+
+    /// ovation#411, Dan's decision 2026-09-21. A number taken by a review and never
+    /// sent is held permanently until the invoice is sent or closed (PRD 10c), and
+    /// nothing anywhere said so: the list reads it as a draft by design, so the
+    /// held number had no surface at all.
+    ///
+    /// IT IS SAID WHERE THE NUMBER IS A FACT ABOUT THE THING IN FRONT OF YOU, which
+    /// is this screen, chosen over saying nothing and over reporting it only in the
+    /// year end reconciliation.
+    @Test("a draft holding a number says so, because nothing else does")
+    func adraftHoldingANumberSaysSo() throws {
+        let context = try Self.store()
+        let invoice = try Self.invoice(context)
+        invoice.number = 1_123
+
+        #expect(Self.present(invoice).state == "Draft, holding 1123")
+    }
+
+    /// AND AN ORDINARY DRAFT SAYS NOTHING EXTRA. Without this, a head that always
+    /// mentioned a number would pass the case above (L159), and a number every
+    /// draft claimed to hold would be worse than none.
+    @Test("and a draft with no number says only that it is a draft")
+    func anordinaryDraftSaysOnlyDraft() throws {
+        #expect(Self.present(try Self.invoice(try Self.store())).state == "Draft")
+    }
+
     // MARK: the lines
 
     /// EACH LINE CARRIES ITS OWN FIGURE, and this is the fault the design record's

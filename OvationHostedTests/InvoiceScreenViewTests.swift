@@ -18,7 +18,8 @@ struct InvoiceScreenViewTests {
 
     /// A draft: a shoot with a start and no end, and its line with no hours, which
     /// is the ordinary state of every invoice (PRD 3c).
-    private static func draft(sent: Bool = false, end: String? = nil) throws -> InvoiceScreenPresenter {
+    private static func draft(sent: Bool = false, end: String? = nil,
+                              number: Int64? = nil) throws -> InvoiceScreenPresenter {
         let context = ModelContext(try OvationSchema.container(inMemory: true))
         let client = Client(name: "Cedar Hill Youth Orchestra", taxStatus: .notExempt)
         client.email = "booker@example.com"
@@ -39,6 +40,7 @@ struct InvoiceScreenViewTests {
             invoice.number = 1_123
             invoice.sentStatus = .sent(route: .ovationSentIt, at: noon)
         }
+        if let number { invoice.number = number }
         return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today)
     }
 
@@ -87,6 +89,28 @@ struct InvoiceScreenViewTests {
 
         #expect(drawn.contains("Not given"))
         #expect(!drawn.contains { $0.contains("12:00") }, "a missing time was drawn as midnight")
+    }
+
+    /// THE HELD NUMBER REACHES THE WINDOW (ovation#411). The presenter can compose
+    /// the sentence perfectly and the head can fail to draw it, which is the second
+    /// of the two testable surfaces (L442), and this one is the whole point of the
+    /// issue: a number held by a draft had no surface anywhere in the app.
+    @Test("a draft holding a number says so in the window, and an ordinary one does not")
+    func theheldNumberIsDrawn() throws {
+        let holding = InvoiceScreenView(presenter: try Self.draft(number: 1_123),
+                                        close: {}, setTime: { _, _, _ in })
+        let ordinary = InvoiceScreenView(presenter: try Self.draft(), close: {},
+                                         setTime: { _, _, _ in })
+
+        let held = try Self.text(in: holding)
+        let plain = try Self.text(in: ordinary)
+
+        #expect(held.contains("Draft, holding 1123"))
+        // The positive control, without which a head drawing that sentence always
+        // would pass the line above (L159).
+        #expect(plain.contains("Draft"))
+        #expect(!plain.contains { $0.contains("holding") },
+                "an ordinary draft claimed to be holding a number")
     }
 
     /// THE TIMES ARE NOT OFFERED ON A SENT INVOICE, drawn rather than offered and
