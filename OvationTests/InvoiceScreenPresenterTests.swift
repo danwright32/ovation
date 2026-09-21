@@ -151,6 +151,27 @@ struct InvoiceScreenPresenterTests {
         #expect(row.hours.isEmpty, "there are no hours yet, and a zero would be a figure")
     }
 
+    /// THE REAL DRAFT SHAPE, and the one the case above does not cover. A draft is
+    /// a shoot AND its photography line with no hours, which is what
+    /// `Invoice.clearTimes(of:)` leaves. A line with no hours reports its RATE as
+    /// its amount, so a screen asking "does a line exist" drew `250.00` for an
+    /// invoice nobody has priced (L16, L342).
+    @Test("a shoot whose line has no hours yet is still the waiting word, never its rate")
+    func alineWithNoHoursIsStillWaiting() throws {
+        let context = try Self.store()
+        let invoice = try Self.invoice(context, until: nil, rate: nil)
+        let shoot = try #require(invoice.orderedShoots.first)
+        let line = LineItem.hourly(hours: Hours(whole: 1), at: Money(dollars: 250),
+                                   describedAs: "Photography", for: shoot)
+        invoice.add(line)
+        line.hours = nil
+
+        let row = try #require(Self.present(invoice).lines.first)
+
+        #expect(row.amount == "Needs the end time", "it drew \(row.amount)")
+        #expect(row.amount != "250.00", "the rate read as the amount")
+    }
+
     /// THE SHORT WORD AND THE LONG SENTENCE COME FROM ONE PLACE, which is
     /// `waiting.js`'s own arrangement and its stated reason: the screen must not
     /// say one thing where the figure is drawn and a different thing under the

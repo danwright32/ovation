@@ -122,10 +122,18 @@ final class InvoiceScreenPresenter {
         let byShoot = Dictionary(grouping: invoice.orderedLineItems) { $0.shoot?.persistentModelID }
         var rows: [Line] = []
         for shoot in invoice.orderedShoots {
-            if let priced = byShoot[shoot.persistentModelID], !priced.isEmpty {
-                rows += priced.map(Self.line)
-            } else {
+            // PRICED MEANS A LINE CARRIES HOURS, which is the domain's own predicate
+            // (`Invoice.shootsWithNoHours`) and not "a line exists". A real draft is
+            // a shoot AND its photography line with no hours, because that is what
+            // `Invoice.clearTimes(of:)` leaves and it is the shape that does not
+            // dead end on `nothingIsBeingCharged`. Asked as "a line exists", that
+            // draft drew the line, and a line with no hours reports its RATE as its
+            // amount, so an unpriced draft read `250.00` (L16, L342).
+            let priced = (byShoot[shoot.persistentModelID] ?? []).filter { $0.billedHours != nil }
+            if priced.isEmpty {
                 rows.append(Self.waitingRow(for: shoot, on: invoice))
+            } else {
+                rows += priced.map(Self.line)
             }
         }
         // PRD 4: rush turnaround and preview images belong to the INVOICE rather
