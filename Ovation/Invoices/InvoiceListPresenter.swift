@@ -343,6 +343,16 @@ final class InvoiceListPresenter {
             case .durationLongerThanAShoot, .discountExceedsSubtotal, .totalBelowZero,
                  .paymentInstructionsNotSet, .contactDetailsNotSet:
                 continue
+            // ovation#458. A MISSING FACT, unlike the five above, and still no word
+            // here. The words in this column are PRD 46a's vocabulary and the
+            // sidebar card counts by them, so an eighth is a change to a settled
+            // screen rather than a line in this switch, and ovation#450 owns that
+            // question for all of them at once. Until it is answered the row offers
+            // Send and the gate refuses by name, which is what the five above
+            // already do. Nothing in the app can reach this state today: the only
+            // code that creates an invoice outside tests is the Debug sample world.
+            case .nothingIsBeingCharged:
+                continue
             }
         }
         return nil

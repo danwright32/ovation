@@ -115,7 +115,8 @@ enum ReviewGate {
         .paymentInstructionsNotSet, .contactDetailsNotSet,
         .shootTimesNotGiven, .shootEndTimeNotGiven, .shootStartTimeNotGiven,
         .durationLongerThanAShoot,
-        .taxStatusNeverRecorded, .discountExceedsSubtotal, .totalBelowZero,
+        .taxStatusNeverRecorded, .nothingIsBeingCharged,
+        .discountExceedsSubtotal, .totalBelowZero,
     ]
 
     /// The one sentence for each refusal. Total over the vocabulary, so a new member
@@ -126,6 +127,12 @@ enum ReviewGate {
             return "Waiting on this client's tax status."
         case .discountExceedsSubtotal:
             return "The discount is larger than everything on this invoice."
+        // ovation#458. NAMES WHAT IS ABSENT rather than the figure it produces. A
+        // sentence about the total being zero would be wrong about the comped
+        // invoice PRD 5.1b protects, and would send Dan to look at a number when
+        // what is missing is a line.
+        case .nothingIsBeingCharged:
+            return "There is nothing on this invoice to charge for."
         // NAMES THE SCREEN TO GO TO, because neither is anything to do with the
         // invoice in front of him and nothing on this one can fix it (L111, L399).
         case .paymentInstructionsNotSet:

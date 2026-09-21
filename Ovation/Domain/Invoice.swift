@@ -89,6 +89,22 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
     /// warning and sent anyway, while passing a reading of the requirement.
     case taxStatusNeverRecorded
 
+    /// ovation#458. There is nothing on this invoice to charge for: it carries no
+    /// line items at all.
+    ///
+    /// IT IS NOT "THE TOTAL IS ZERO", and that distinction is the whole reason this
+    /// member exists rather than a check on the figure. PRD 5.1b makes a zero total
+    /// an ordinary comped invoice that no guard may refuse, and a comped shoot
+    /// carries a LINE priced at zero. An invoice with no lines is a different
+    /// record saying a different thing, and until this existed the two were
+    /// indistinguishable to every surface and to the send gate (L11).
+    ///
+    /// IT IS NOT `isUnpriced` EITHER. That means the shoot has no duration yet, and
+    /// its remedy is the hours (PRD 3c). Here the hours can be perfectly present
+    /// and the line was never made, so offering `Add hours` would send Dan to fill
+    /// in something already filled in (L111, L342).
+    case nothingIsBeingCharged
+
     /// ovation#319, PRD 9. The foot of the page does not say how to pay.
     ///
     /// THE TWO BELOW ARE NOT PROPERTIES OF AN INVOICE. They come from Settings and
@@ -462,6 +478,12 @@ extension OvationSchemaV3 {
                 found.insert(.discountExceedsSubtotal)
             }
             if client?.taxStatus == .neverRecorded { found.insert(.taxStatusNeverRecorded) }
+            // ovation#458. ASKED OF THE LINES AND NEVER OF THE TOTAL, because PRD
+            // 5.1b protects a zero total and a comped invoice is exactly that: a
+            // line priced at zero. What cannot be sent is a document with nothing
+            // on it, which came to zero, rendered cleanly and passed every other
+            // refusal.
+            if lineItems.isEmpty { found.insert(.nothingIsBeingCharged) }
             // PRD 5.4c. Below zero, never at it: a zero total is the comped invoice
             // PRD 5.1b says no guard may refuse.
             if total < .zero { found.insert(.totalBelowZero) }

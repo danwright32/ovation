@@ -179,11 +179,71 @@ struct UnpricedDraftTests {
                 "PRD 1b: no guard may refuse a zero invoice")
     }
 
+    // MARK: an invoice with nothing on it at all (ovation#458)
+
+    /// THE CASE ovation#458 WAS FILED FOR, and it is the comped invoice's twin.
+    /// A shoot with both times and NO line item comes to zero, and until this
+    /// refusal existed nothing anywhere caught it: `shootsWithNoHours` includes the
+    /// shoot, `timesMissing` is nil because both times are present so no times
+    /// refusal is inserted, the subtotal sums an empty list, and PRD 5.1b protects
+    /// a zero total from every guard. It rendered cleanly and could be sent.
+    @Test("an invoice with no line items at all is refused")
+    func aninvoiceWithNoLinesIsRefused() throws {
+        let context = try Self.store()
+        let invoice = Self.invoice(context)
+        try Self.shoot(on: invoice, from: "19:00", until: "20:00")
+
+        #expect(invoice.total == .zero)
+        #expect(invoice.refusals.contains(.nothingIsBeingCharged))
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) ==
+                "There is nothing on this invoice to charge for.")
+    }
+
+    /// THE POSITIVE CONTROL, AND IT IS THE WHOLE DIFFICULTY OF THIS REFUSAL. PRD
+    /// 5.1b says a zero total is an ordinary comped invoice that no guard may
+    /// refuse, so the refusal cannot be written as "the total is zero". What is
+    /// wrong is having no LINES. A comped shoot has a line priced at zero, which is
+    /// a different record saying a different thing (L11).
+    @Test("and a comped invoice, which has a line priced at zero, is not")
+    func acompedInvoiceIsStillAllowed() throws {
+        let context = try Self.store()
+        let invoice = Self.invoice(context)
+        let shoot = try Self.shoot(on: invoice, from: "19:00", until: "20:00")
+        invoice.add(LineItem.hourly(hours: Hours(whole: 1), at: .zero,
+                                    describedAs: "Photography", for: shoot))
+
+        #expect(invoice.total == .zero, "both come to nothing, which is the point")
+        #expect(!invoice.refusals.contains(.nothingIsBeingCharged))
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) == nil)
+    }
+
+    /// AND IT IS NOT FOLDED INTO `isUnpriced`, which is a different question. That
+    /// one means the shoot has no duration yet, and its remedy on the list is
+    /// `Add hours` (PRD 3c, 46f). Here the hours are in and the LINE was never
+    /// made, so `Add hours` would send Dan to fill in something already filled in
+    /// (L111). What the list should draw for this state is ovation#450's question,
+    /// with the other seven action words.
+    @Test("it is not the same state as an unpriced draft")
+    func itisNotAnUnpricedDraft() throws {
+        let context = try Self.store()
+        let invoice = Self.invoice(context)
+        try Self.shoot(on: invoice, from: "19:00", until: "20:00")
+
+        #expect(invoice.isUnpriced == false)
+    }
+
     @Test("an invoice whose shoots are all timed is not unpriced")
     func atimedInvoiceIsNotUnpriced() throws {
         let context = try Self.store()
         let invoice = Self.invoice(context)
-        try Self.shoot(on: invoice, from: "19:30", until: "21:00")
+        let shoot = try Self.shoot(on: invoice, from: "19:30", until: "21:00")
+        // A LINE, because this case asserts the invoice carries NO refusals and an
+        // invoice with no lines now carries one (ovation#458). It passed before
+        // only because that refusal did not exist, which is the defect rather than
+        // a property of a timed invoice: a fixture has to be what real data is
+        // (L48).
+        invoice.add(LineItem.hourly(hours: Hours(whole: 1), at: Money(dollars: 250),
+                                    describedAs: "Photography", for: shoot))
 
         #expect(invoice.isUnpriced == false)
         #expect(invoice.refusals.isEmpty)
