@@ -120,6 +120,11 @@ final class InvoiceListSource {
         do {
             store = try read()
         } catch {
+            // BOTH FIGURES GO, and the held money one cannot be read as "holds
+            // nothing" although nil is also what that means (L10, L11). `ShellView`
+            // draws the held money line only INSIDE the list, so a nil list replaces
+            // the whole surface with the could-not-be-read state and the figure is
+            // not on screen at all to be misread.
             list = nil
             heldMoney = nil
             _ = problems.raise(

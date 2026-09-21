@@ -131,8 +131,13 @@ struct StoreWriteNoticesTests {
         }
         #expect(heard.count == 0, "a notice was handled before the main actor was yielded to")
 
+        // NO DRAIN WAIT HERE, and that is the point of posting synchronously. All
+        // eight posts run before the main actor is yielded to, so at most one Task
+        // can have been scheduled: once one hand off has arrived, the count is
+        // final and there is nothing still in flight to wait out. A pause "long
+        // enough for the rest to arrive" would be an assertion about the machine's
+        // load (L290).
         #expect(await Self.settle(until: { heard.count >= 1 }), "nothing was heard at all")
-        _ = await Self.settle(until: { false }, within: 0.2)
         #expect(heard.count == 1, "eight notices in one burst produced \(heard.count) hand offs")
     }
 
@@ -158,6 +163,12 @@ struct StoreWriteNoticesTests {
                 "the second notice was swallowed by the first one's slot")
     }
 
+    /// THE BARRIER IS ANOTHER LISTENER, not a pause. Proving that nothing arrived
+    /// needs a moment after which it is known nothing more can, and waiting a
+    /// couple of hundred milliseconds for that is an assertion about how loaded
+    /// the machine is (L290). A second listener registered on the same centre gets
+    /// the same post, so once IT has heard the write, the stopped one has had its
+    /// chance at the very same notification and declined it.
     @Test("a listener that has been stopped hears nothing more")
     func astoppedListenerIsSilent() async throws {
         let container = try OvationSchema.container(inMemory: true)
@@ -174,8 +185,14 @@ struct StoreWriteNoticesTests {
         let before = heard.count
 
         notices.stop()
+
+        let witness = Heard()
+        let stillListening = StoreWriteNotices(container: container) { witness.heard() }
+        defer { stillListening.stop() }
+
         try await allocator.allocate(to: second)
-        _ = await Self.settle(until: { false }, within: 0.2)
+        #expect(await Self.settle(until: { witness.count >= 1 }),
+                "the witness heard nothing either, so this case proves nothing")
 
         #expect(heard.count == before,
                 "a stopped listener heard \(heard.count - before) more")
