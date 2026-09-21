@@ -221,6 +221,15 @@ extension OvationSchemaV3 {
         // it, in OvationSchemaV1Shape.swift, because version 1 had it.
 
         /// The booking this was drafted from, for LOOKUP only. See the header.
+        ///
+        /// NOT THE HOME OF THAT KEY, and nothing writes it today (ovation#461).
+        /// `Shoot.bookingKey` is the home: PRD 5.1a puts more than one shoot on
+        /// one invoice and ovation#147 combines two bookings onto one, so an
+        /// invoice has no single booking to be keyed by while a shoot always has
+        /// exactly one. `BookingDrafter` asks the SHOOTS whether a booking has
+        /// already been drafted, and a writer that stamped this one instead would
+        /// mint a second invoice silently (L83). ovation#32 and ovation#68 own
+        /// what becomes of this field.
         var bookingKey: String?
 
         /// The QuickBooks row this was imported from, for lookup only. ovation#68
