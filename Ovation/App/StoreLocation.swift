@@ -152,4 +152,33 @@ enum StoreLocation {
         guard !isDisposableLaunch else { return nil }
         return bookingQueueDirectory(appSupport: appSupport, isDebugBuild: isDebugBuild)
     }
+
+    /// Where the Gmail client configuration and the refresh token live, or nil
+    /// where this run may not reach live Google (ovation#425).
+    ///
+    /// IT ASKS A DIFFERENT QUESTION FROM THE TWO ABOVE, and that is the only way
+    /// it differs from them. They refuse a disposable launch and are perfectly
+    /// happy in a Debug build, which has a real store of its own under
+    /// `Ovation-Debug`. This refuses a Debug build too, because Dan settled on
+    /// 2026-09-19 that a Debug build may not reach live Google, and the reasoning
+    /// is on `AppEnvironment.mayReachLiveGoogle`.
+    ///
+    /// SO THERE IS NO DEBUG VARIANT OF THIS FOLDER, and there must not be. A
+    /// `Google` folder under `Ovation-Debug` would be a place for a Debug build to
+    /// put a real refresh token, which is the thing the refusal exists to prevent;
+    /// the absence of the path is what makes it structural rather than a rule
+    /// somebody follows (L196). A Debug run cannot arrive here at all, so the
+    /// folder below is always the real build's.
+    ///
+    /// IT CREATES NOTHING, for the reason `dataDirectory` gives: a directory that
+    /// exists is evidence to whatever reads it next, and merely displaying a path
+    /// must not make it.
+    nonisolated static func liveCredentialsDirectory(
+        appSupport: URL = StoreLocation.appSupport,
+        mayReachLiveGoogle: Bool = AppEnvironment.mayReachLiveGoogle()
+    ) -> URL? {
+        guard mayReachLiveGoogle else { return nil }
+        return dataDirectory(appSupport: appSupport, isDebugBuild: false)
+            .appendingPathComponent("Google", isDirectory: true)
+    }
 }

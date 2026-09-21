@@ -62,6 +62,14 @@ enum LiveDataFloor {
               reaches: "the folder the CSVs are written to. A test naming it writes "
                 + "over whatever is there",
               resolve: { YearEndExport.liveExportDirectory() }, issue: nil),
+        // BUILT BY ovation#425, and it refuses one thing more than its neighbours:
+        // a Debug build as well as a disposable launch, because Dan settled that a
+        // Debug build may not reach live Google. `AppEnvironment.mayReachLiveGoogle`
+        // carries why that is a narrower question than the one the rest ask.
+        .init(name: "liveCredentialsDirectory",
+              reaches: "the folder holding the Gmail client configuration and the "
+                + "refresh token, which is the key to Dan's real mailbox",
+              resolve: { StoreLocation.liveCredentialsDirectory() }, issue: nil),
 
         // NOT BUILT. Named now so the floor is extended by this list rather than
         // by whoever notices, and so a later milestone inherits the requirement
@@ -69,9 +77,6 @@ enum LiveDataFloor {
         .init(name: "liveGmailClient",
               reaches: "Dan's real mailbox. Under the gmail.modify route it relabels "
                 + "his real receipts, which is not recoverable",
-              resolve: nil, issue: "ovation#76"),
-        .init(name: "liveCredentialStore",
-              reaches: "the 0600 token file holding a refresh token with send and modify rights",
               resolve: nil, issue: "ovation#76"),
         .init(name: "liveConsumedBookingLedger",
               reaches: "the record of which bookings were invoiced. A test write "

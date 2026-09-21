@@ -163,6 +163,22 @@ RULES = (
         ),
     },
     {
+        "name": "a second Gmail call site",
+        "tokens": ("GmailAuthManager(",),
+        "because": (
+            "ovation#425: Ovation constructs a Gmail auth manager in exactly one "
+            "place, OvationGmail.authManager, which is where the approved scope "
+            "list is applied and where the live credentials directory is refused "
+            "for a disposable launch and for a Debug build. A second construction "
+            "carries its own scope argument and its own idea of which directory to "
+            "use, and neither is checked by anything: the scopes test asserts what "
+            "ONE manager resolved, so a second site asking for gmail.modify would "
+            "leave it green (L531, L621). Call OvationGmail.authManager, and if it "
+            "refuses what you need, add the scope to its approved list knowing what "
+            "that costs."
+        ),
+    },
+    {
         "name": "ambient calendar",
         "tokens": ("Calendar.current", "NSCalendar.current", "TimeZone.current", "Locale.current"),
         "because": (
@@ -325,11 +341,37 @@ DEFAULT_ALLOWLIST = (
     "Roster/OvationPalette.swift : floating point money # colour channels, not money: SwiftUI's Color "
     "takes Doubles and has no integer form, and this file holds nothing but the "
     "palette quoted from docs/design/shell/palette.css",
+    # THE ONE GMAIL CALL SITE, which is the rule rather than an exception to it.
+    # The rule above exists to make this file the only construction in the tree,
+    # so the file it names has to be exempt from it or the rule refuses the very
+    # thing it is protecting. It is scoped to that one file, and the parser
+    # refuses an entry naming a file that is not there, so this cannot outlive
+    # the call site it exempts.
+    "Mail/OvationGmail.swift : a second Gmail call site # this IS the one call site: "
+    "it owns the approved scope list and the refusal of a disposable launch and of a "
+    "Debug build, and the rule exists to keep every other construction out",
 )
+
+def _bounded(token):
+    """One token, with a word boundary only at an end that is a word character.
+
+    A TOKEN ENDING IN PUNCTUATION MUST NOT CARRY A TRAILING `\\b`, and this is a
+    real hole rather than tidiness. `\\b` matches between a word character and a
+    non word one, so `GmailAuthManager(\\b` needs a word character AFTER the
+    paren: it matches `GmailAuthManager(credentialsDirectory:` and does NOT match
+    a call whose paren ends the line, which is how every long call in this
+    codebase is written. The rule would have read as working and been defeated by
+    a line break (L135, L673). The same is true at the front for a token starting
+    with punctuation.
+    """
+    start = r"\b" if token[:1].isalnum() or token[:1] == "_" else ""
+    end = r"\b" if token[-1:].isalnum() or token[-1:] == "_" else ""
+    return start + re.escape(token) + end
+
 
 for _rule in RULES:
     _rule["pattern"] = re.compile(
-        r"\b(" + "|".join(re.escape(t) for t in _rule["tokens"]) + r")\b"
+        "(" + "|".join(_bounded(t) for t in _rule["tokens"]) + ")"
     )
 
 

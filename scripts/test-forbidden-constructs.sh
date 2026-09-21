@@ -34,7 +34,7 @@ VIEWSTORE="$([ -x "./$TARGET" ] && "./$TARGET" --list-view-store 2>/dev/null)"
 VIEWSTORE_COUNT="$(printf '%s\n' "$VIEWSTORE" | grep -c .)"
 
 harness_begin "forbidden construct tests" \
-    $((32 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT + 7 + 3 * VIEWSTORE_COUNT))
+    $((35 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT + 7 + 3 * VIEWSTORE_COUNT))
 require_target "$TARGET"
 harness_temp_dir WORK
 
@@ -259,6 +259,31 @@ for TYPE in $FORBIDDEN; do
     printf 'struct Charge {\n    let amount: %s\n}\n' "$TYPE" > "$BAD/Charge.swift"
     check "a $TYPE in the sources is refused" "$(status_on "$BAD")" "1"
 done
+
+# ---------------------------------------------------------------------------
+# A TOKEN THAT ENDS IN PUNCTUATION, which the loop above cannot exercise (ovation#425).
+#
+# Its fixture writes the token as a type annotation, so whatever follows
+# `GmailAuthManager(` is a newline. That is exactly the shape a trailing `\b`
+# fails on, and it is not a contrived one: every long call in this codebase puts
+# its first argument on the next line. The loop above therefore ALREADY covers the
+# hole, and these two cases say so out loud, because a case that only passes by
+# accident of how its fixture is written is one the next edit removes.
+# ---------------------------------------------------------------------------
+PUNCT="$WORK/bad-multiline-call"
+mkdir -p "$PUNCT"
+printf 'enum Sneaky {\n    static func make() throws -> GmailAuthManager {\n        try GmailAuthManager(\n            credentialsDirectory: URL(filePath: "/tmp"), scopes: ["s"])\n    }\n}\n' \
+    > "$PUNCT/Sneaky.swift"
+check "a construction whose opening paren ends the line is still refused" \
+    "$(status_on "$PUNCT")" "1"
+check "and the refusal names the Gmail rule rather than another" \
+    "$(run_on "$PUNCT" | grep -c '^a second Gmail call site: ')" "1"
+
+ALLOWED="$WORK/allowed-gmail-call-site"
+mkdir -p "$ALLOWED/Mail"
+cp "$PUNCT/Sneaky.swift" "$ALLOWED/Mail/OvationGmail.swift"
+check "and the one call site named in the allowlist is not refused" \
+    "$(status_on "$ALLOWED" "Mail/OvationGmail.swift : a second Gmail call site # the one call site")" "0"
 
 BAD="$WORK/bad-Double"
 check "the refusal names the file and the line" \

@@ -57,4 +57,38 @@ enum AppEnvironment {
             || environment["XCTestBundlePath"] != nil
             || environment["XCTestSessionIdentifier"] != nil
     }
+
+    /// Whether this launch may reach live Google: Dan's real mailbox, and the
+    /// token file that opens it.
+    ///
+    /// STRICTLY NARROWER THAN `isDisposableLaunch`, AND IT HAS TO BE ITS OWN
+    /// QUESTION. ovation#425 asked for the Debug reason to grow INSIDE
+    /// `isDisposableLaunch`, on the principle that several behaviours a design
+    /// treats as one condition must read one predicate (L261). Followed literally
+    /// it breaks the Debug build: every reader of `isDisposableLaunch` refuses
+    /// under it, so `liveStoreURL`, the problems journal, the documents root, the
+    /// export folder and the backups folder would all answer nil, and a Debug run
+    /// would have no store at all. The whole point of the `Ovation-Debug` folder
+    /// is that a Debug build HAS one, separate from Dan's.
+    ///
+    /// SO THEY ARE NOT ONE CONDITION. A disposable launch may touch nothing real.
+    /// A Debug build is a real run with a real store of its own, and it may not
+    /// touch Dan's mailbox (Dan, 2026-09-19). Writing the second as the first
+    /// would not be sharing a predicate, it would be answering a question nobody
+    /// asked.
+    ///
+    /// IT IS DERIVED RATHER THAN COMPETING, which is what L261 is actually after:
+    /// there is still one place a new reason to be unreal is added, and anything
+    /// added to `isDisposableLaunch` is inherited here without a second edit. A
+    /// fourth independent predicate spelling out the test conditions again is the
+    /// thing that would disagree.
+    ///
+    /// `isDebugBuild` is injected so both answers can be exercised from one build,
+    /// which is the only way either is ever seen (L535).
+    nonisolated static func mayReachLiveGoogle(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isDebugBuild: Bool = StoreLocation.isDebugBuild
+    ) -> Bool {
+        !isDisposableLaunch(environment: environment) && !isDebugBuild
+    }
 }
