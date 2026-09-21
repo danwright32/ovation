@@ -78,7 +78,7 @@ struct InvoiceDocument: Equatable, Sendable {
     /// shows it like any other invoice; the refusal to SEND belongs to
     /// `Invoice.refusals`, and the page Dan reviews before that refusal is the same
     /// page as always.
-    enum Refusal: Error, Equatable, Sendable {
+    enum Refusal: Error, Equatable, Sendable, CaseIterable {
         case noNumber
         case noInvoiceDate
         case noDueDate
@@ -111,8 +111,56 @@ struct InvoiceDocument: Equatable, Sendable {
     let money: [[String]]
     let foot: [FootBlock]
 
-    init(invoice: Invoice, footer: InvoiceFooter) throws {
-        guard let number = invoice.number else { throw Refusal.noNumber }
+    /// Why this invoice could never be drawn as a page, or nil where it can.
+    ///
+    /// ASKED BY `ReviewGate` (ovation#446), and this file's own reasoning further
+    /// down is why it has to be: the page is deliberately still BUILT when an
+    /// optional line is missing, so Dan can see what is wrong with it, and "the
+    /// refusal belongs to `ReviewGate`, which stops the send". Until ovation#446
+    /// the gate knew about none of these, so Review would open over an invoice no
+    /// page could be made from at all, offering an approval that could not be given
+    /// (L109). The missing due date ovation#446 was filed about was one of five of
+    /// exactly that shape.
+    ///
+    /// IT BUILDS THE DOCUMENT AND REPORTS WHAT THAT SAID, rather than carrying a
+    /// second copy of the preconditions. A copy would be one list the page is drawn
+    /// from and another the gate judges by, and two same named rules either side of
+    /// a boundary implement different things for ever (L370, L263). Building is
+    /// string assembly and no rendering, so asking costs a page of strings.
+    ///
+    /// THE NUMBER IS NOT ASKED, and it is excluded structurally rather than
+    /// filtered out afterwards (L362). Review is what ISSUES the number
+    /// (ovation#327), so an invoice about to be correctly reviewed has none, and a
+    /// gate that refused for that would refuse every invoice it exists to let
+    /// through. The stand in below is what carries the question past the number,
+    /// and it never leaves this function.
+    static func refusalToRender(
+        _ invoice: Invoice, footer: InvoiceFooter = .fixed
+    ) -> Refusal? {
+        do {
+            _ = try InvoiceDocument(invoice: invoice, footer: footer,
+                                    numberIfUnissued: numberStandingInForOneNotYetIssued)
+            return nil
+        } catch let refusal as Refusal {
+            return refusal
+        } catch {
+            // UNREACHABLE, and refused rather than waved through if it ever is.
+            // The initialiser throws `Refusal` and nothing else; a gate that read
+            // an unknown error as "nothing wrong" would open the sheet on the one
+            // case nobody anticipated (L42).
+            return .unreadableDate
+        }
+    }
+
+    /// Never printed, never stored, and never seen: it exists only so
+    /// `refusalToRender` can ask about everything BELOW the number.
+    private static let numberStandingInForOneNotYetIssued: Int64 = 1
+
+    /// - Parameter numberIfUnissued: used in place of the invoice's own number, and
+    ///   supplied only by `refusalToRender`. Nil everywhere else, so a real render
+    ///   of an unnumbered invoice is still refused by name.
+    init(invoice: Invoice, footer: InvoiceFooter, numberIfUnissued: Int64? = nil) throws {
+        guard let number = invoice.number ?? numberIfUnissued else { throw Refusal.noNumber }
         guard let invoiceDate = invoice.invoiceDate else { throw Refusal.noInvoiceDate }
         guard let dueDate = invoice.dueDate else { throw Refusal.noDueDate }
         guard let client = invoice.client else { throw Refusal.noClient }

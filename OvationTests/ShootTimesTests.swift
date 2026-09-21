@@ -26,6 +26,13 @@ struct ShootTimesTests {
         let invoice = Invoice(client: client, kind: .fromABooking,
                               invoiceDate: .stamping(Date(timeIntervalSince1970: 1_794_531_600)),
                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        // DUE 14 DAYS LATER, which PRD 7 says every invoice is. It was missing
+        // until ovation#446, and two cases here passed BECAUSE of that: they assert
+        // `ReviewGate` refuses nothing, and the gate could not see a missing due
+        // date at all, so an invoice no page could be drawn from was being used to
+        // prove that a comped one is allowed through. A fixture has to be what real
+        // data is, not whatever makes the rule under test fire (L48).
+        invoice.dueDate = .stamping(Date(timeIntervalSince1970: 1_794_531_600 + 14 * 86_400))
         context.insert(invoice)
         return invoice
     }

@@ -45,7 +45,59 @@ enum ReviewGate {
         for refusal in order where refusals.contains(refusal) {
             return sentence(for: refusal)
         }
+        // AND THEN WHATEVER WOULD STOP A PAGE BEING DRAWN AT ALL (ovation#446).
+        // `InvoiceDocument` refuses an invoice with no due date, no invoice date,
+        // no client, a date that cannot be read or a due date before the invoice
+        // date, and says in its own header that the refusal belongs here. It did
+        // not: Review opened over every one of them and the sheet then had nothing
+        // to show.
+        //
+        // IT IS ASKED RATHER THAN COPIED, so there is one list of what a page needs
+        // and it is the one the page is actually drawn from (L370).
+        //
+        // LAST IN THE ORDER, ON PURPOSE. Everything above is a state Dan reaches in
+        // the ordinary course of filling in a draft, and these mean something is
+        // wrong with the record itself. Saying "waiting on a due date" over a draft
+        // whose real state is that it has no end time yet is the shape Dan argued
+        // against when the order was settled: "what happens if I set the tax status
+        // before the hours? That line just disappears and nothing takes its place."
+        if let cannotBeDrawn = InvoiceDocument.refusalToRender(invoice, footer: footer) {
+            return sentence(forCannotBeDrawn: cannotBeDrawn)
+        }
         return nil
+    }
+
+    /// The one sentence for each way the page itself can be refused. Total over
+    /// that vocabulary too, so a precondition added to the renderer cannot take a
+    /// default here and read as a deliberate silence (L113).
+    static func sentence(forCannotBeDrawn refusal: InvoiceDocument.Refusal) -> String {
+        switch refusal {
+        // NOT REACHABLE FROM HERE, and that is structural rather than hopeful:
+        // `refusalToRender` carries its own stand in past the number, because
+        // Review is what issues it. Worded anyway, because a vocabulary a lookup
+        // reads must be total whatever the caller happens to do today.
+        case .noNumber:
+            return "This invoice has no number yet."
+        // PRD 7: the invoice is dated its booking's shoot date. So the thing that
+        // is missing is the shoot's date, and naming the field rather than the
+        // shoot would send Dan looking for a date field that is not what he has to
+        // fill in (L399).
+        case .noInvoiceDate:
+            return "Waiting on the shoot's date, which is this invoice's date."
+        case .noDueDate:
+            return "Waiting on the date this invoice is due."
+        case .noClient:
+            return "This invoice has no client, so there is nobody to send it to."
+        // THE SAME SENTENCE AS THE INVOICE'S OWN, never a second wording of one
+        // condition (L118). Both vocabularies carry this member and either can
+        // reach it, so they say the same thing.
+        case .discountExceedsSubtotal:
+            return sentence(for: .discountExceedsSubtotal)
+        case .unreadableDate:
+            return "One of this invoice's dates cannot be read, so no page can be made from it."
+        case .dueBeforeInvoiceDate:
+            return "The due date is before the invoice date."
+        }
     }
 
     /// Every refusal, in the order a control says them.
