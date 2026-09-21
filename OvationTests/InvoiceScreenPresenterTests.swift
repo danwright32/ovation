@@ -325,6 +325,25 @@ struct InvoiceScreenPresenterTests {
         #expect(total.value == "0.00")
     }
 
+    /// THE SCREEN IS JUDGED AGAINST THE FOOTER IT IS GIVEN, which is the property
+    /// the app's wiring depends on. `OvationApp` hands it the footer from Settings
+    /// at the moment an invoice is opened (ovation#319), because two of the reasons
+    /// an invoice may not go out live there. If the screen ignored its footer and
+    /// judged against the shipped text, passing Settings' footer would change
+    /// nothing, and `check-invoice-footer-source.sh`'s refusal of the shipped text
+    /// would be protecting a value nothing reads.
+    @Test("with no payment instructions in Settings, the screen refuses Review and says why")
+    func thescreenIsJudgedAgainstTheFooterItIsGiven() throws {
+        let invoice = try Self.invoice(try Self.store())
+        var footer = InvoiceFooter.fixed
+        footer.payment = ""
+
+        let screen = InvoiceScreenPresenter(invoice: invoice, footer: footer, today: Self.today)
+
+        #expect(screen.refusal == "Settings has no payment instructions, so no invoice can be sent.")
+        #expect(screen.mayReview == false)
+    }
+
     // MARK: the foot
 
     /// PRD 7 AND ROUND 8. The due date is in the foot and it is the date, not a
