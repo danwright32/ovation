@@ -77,6 +77,15 @@ enum IncomeOmission: String, CaseIterable, Hashable, Sendable {
     /// Ovation looked and could not tell whether it was sent. This is the one
     /// that may be real income missing from the return.
     case sentCouldNotBeDetermined
+    /// ovation#460. Ovation was part way through sending it and never heard back,
+    /// so like the one above this MAY be real income missing from the return.
+    ///
+    /// ITS OWN KIND rather than folded into either neighbour, because membership
+    /// here is earned by matching a rule and not by failing to match the good case
+    /// (L540), and the remedy differs: `sentCouldNotBeDetermined` means the mailbox
+    /// match could not answer, this means Ovation's own send did not finish. An
+    /// accountant reading the manifest needs to know which.
+    case sendWasInterrupted
     /// It has no invoice date, so it cannot be placed in any year.
     case noInvoiceDate
     /// It HAS a stamped day key and that key cannot be read as a day, so it
@@ -194,6 +203,7 @@ enum TaxExport {
             case .sent: continue
             case .notSent: counts[.neverIssued, default: 0] += 1
             case .couldNotDetermine: counts[.sentCouldNotBeDetermined, default: 0] += 1
+            case .attempting: counts[.sendWasInterrupted, default: 0] += 1
             }
         }
         return counts
