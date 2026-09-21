@@ -41,9 +41,19 @@ struct ShellView: View {
     /// drawn.
     var heldMoney: String?
 
+    /// ovation#457. How to build the screen for a row, or nil where nothing can
+    /// (every hosted test written before this, and every launch with no store).
+    ///
+    /// A CLOSURE RATHER THAN THE SOURCE ITSELF, so this view cannot reach a
+    /// `ModelContext` even by accident: the resolution lives on
+    /// `InvoiceListSource`, which owns the container (PRD 51l, ovation#440).
+    var openInvoice: ((PersistentIdentifier) -> InvoiceScreenPresenter?)?
+
     /// Which invoice is selected. It lives here rather than inside the list
     /// because coming back from an invoice has to find the row again (ovation#125).
     @State private var selectedInvoice: PersistentIdentifier?
+    /// The invoice being worked on, or nil while the list is showing (ovation#457).
+    @State private var openedInvoice: InvoiceScreenPresenter?
 
     /// What a destination with no screen behind it says about itself. A constant
     /// because a test counts them, and because the same words appear once per
@@ -186,9 +196,18 @@ struct ShellView: View {
             // threw, `InvoiceListSource` raised a problem and produced nothing,
             // and the rail's status block carries it; drawing the empty state here
             // would say every invoice is paid and cleared, on no evidence (L10).
-            if let invoices {
+            // ovation#457. THE INVOICE TAKES THE WHOLE CONTENT AREA (round 1), so
+            // the list goes away while it is open rather than sitting beside it.
+            // Coming back to a list you recognise, with its scroll position and
+            // the row that moved, is ovation#125.
+            if let open = openedInvoice {
+                InvoiceScreenView(presenter: open, close: { openedInvoice = nil })
+            } else if let invoices {
                 InvoiceListView(presenter: invoices, heldMoney: heldMoney,
-                                selected: $selectedInvoice)
+                                selected: $selectedInvoice,
+                                open: openInvoice == nil ? nil : { id in
+                                    openedInvoice = openInvoice?(id)
+                                })
             } else {
                 couldNotBeRead
             }

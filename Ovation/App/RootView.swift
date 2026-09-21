@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// Plan 1.13, ovation#59. The one window, showing the one launch notice and the
@@ -38,6 +39,10 @@ struct RootView: View {
     /// holds nothing.
     var heldMoney: String?
 
+    /// ovation#457. How to build the screen for a row, passed through rather than
+    /// resolved here, because no view may hold the store's context (PRD 51l).
+    var openInvoice: ((PersistentIdentifier) -> InvoiceScreenPresenter?)?
+
     /// ovation#246. What the launch is doing, while it is doing it. Nil in every
     /// hosted test written before there was one, and in that case the window is
     /// exactly what it has always been.
@@ -67,7 +72,8 @@ struct RootView: View {
             StartingView(progress: progress)
         } else if shellOwnsTheWindow, let shell, let roster {
             ShellView(shell: shell, roster: roster, problems: store,
-                      invoices: invoices, heldMoney: heldMoney)
+                      invoices: invoices, heldMoney: heldMoney,
+                      openInvoice: openInvoice)
         } else {
             problemsWindow
         }

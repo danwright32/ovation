@@ -444,7 +444,13 @@ struct OvationApp: App {
         Window(OvationBuild.displayName, id: OvationBuild.mainWindowID) {
             RootView(presenter: presenter, store: store, exportCommand: exportCommand,
                      roster: roster, shell: shell, invoices: invoiceList?.list,
-                     heldMoney: invoiceList?.heldMoney, progress: progress)
+                     heldMoney: invoiceList?.heldMoney,
+                     // ovation#457. The SOURCE resolves an invoice, because it
+                     // owns the container and a view may not (PRD 51l).
+                     openInvoice: { [invoiceList] id in
+                         invoiceList?.screen(for: id, footer: .fixed)
+                     },
+                     progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
                 // order inside the launch is unchanged; what changed is that
                 // there is now somewhere for it to say what it is doing.

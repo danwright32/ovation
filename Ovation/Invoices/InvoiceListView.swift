@@ -36,6 +36,15 @@ struct InvoiceListView: View {
     /// has to find it again (ovation#125).
     @Binding var selected: PersistentIdentifier?
 
+    /// ovation#457. Opening the invoice, which is what a row IS for: ovation#111
+    /// designed "the one you open when you click a row on the invoice list". Nil
+    /// where nothing can open one, and then a row only selects, which is what it
+    /// did before there was anywhere to go.
+    ///
+    /// IT IS NOT THE ACTION WORD. The eight words at the end of a row are
+    /// ovation#450's question and are still unpressable; this is the row itself.
+    var open: ((PersistentIdentifier) -> Void)?
+
     /// The column widths, from the design record's own `--cols`. Named here once
     /// so the header and every row are laid out by one declaration and cannot
     /// drift apart (L553).
@@ -176,7 +185,14 @@ struct InvoiceListView: View {
         // sidebar is dark.
         .background(selected == row.invoiceID ? OvationPalette.selection : Color.clear)
         .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.ruleSoft) }
-        .onTapGesture { selected = row.invoiceID }
+        // SELECTING AND OPENING ARE ONE GESTURE ON THIS ROW, because the design
+        // record's list opens the invoice on a click and the selection is what
+        // ovation#125 comes back to. A second gesture to open would leave the
+        // first doing nothing a person can see (L49).
+        .onTapGesture {
+            selected = row.invoiceID
+            open?(row.invoiceID)
+        }
         // READ AS ONE LINE, because that is what it is (PRD 47). Five separate
         // labels would be read out as five unrelated fragments.
         .accessibilityElement(children: .ignore)

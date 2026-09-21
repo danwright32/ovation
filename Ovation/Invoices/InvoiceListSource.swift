@@ -72,6 +72,9 @@ final class InvoiceListSource {
     private(set) var heldMoney: String?
 
     private let read: Read
+    /// How to make a read only context, where there is a store at all. Nil under
+    /// the closure based initialiser, which a test drives without one.
+    private let makeReader: (() -> ModelContext)?
     private let problems: ProblemsStore
     private let now: () -> Date
     private var notices: StoreWriteNotices?
@@ -83,8 +86,10 @@ final class InvoiceListSource {
     ///     decided against a day (PRD 46), so an app left open overnight would go
     ///     on banding against the day it was opened and an invoice would fall due
     ///     with the screen never saying so (L175, L74).
-    init(read: @escaping Read, problems: ProblemsStore, now: @escaping () -> Date) {
+    init(read: @escaping Read, problems: ProblemsStore, now: @escaping () -> Date,
+         makeReader: (() -> ModelContext)? = nil) {
         self.read = read
+        self.makeReader = makeReader
         self.problems = problems
         self.now = now
         reread()
@@ -107,7 +112,8 @@ final class InvoiceListSource {
                         clients: try reader.fetch(FetchDescriptor<Client>()))
             },
             problems: problems,
-            now: now)
+            now: now,
+            makeReader: { ModelContext(container) })
         notices = StoreWriteNotices(container: container) { [weak self] in
             self?.reread()
         }
@@ -164,6 +170,31 @@ final class InvoiceListSource {
                                  because: "the invoices were read",
                                  now: moment)
         }
+    }
+
+    /// The screen for one invoice, or nil where that row is no longer there.
+    ///
+    /// THE SOURCE RESOLVES IT BECAUSE A VIEW MAY NOT (PRD 51l, ovation#440). The
+    /// list's rows carry a `PersistentIdentifier` and nothing else useful, and a
+    /// screen needs the invoice, its client and its lines. `check-forbidden-constructs.sh`
+    /// refuses a view that makes a `ModelContext`, so the resolution lives here,
+    /// where the container already does.
+    ///
+    /// NIL RATHER THAN A TRAP. `ModelContext`'s subscript traps on a row deleted
+    /// since the caller read it, and the list is a photograph taken at the last
+    /// write, so a row Dan presses can be gone. It is fetched and matched rather
+    /// than subscripted, and an absent row is an answer (L10).
+    ///
+    /// A FRESH CONTEXT, for the reason the read above gives: it only ever fetches,
+    /// so it cannot be the second writer ovation#84 forbids.
+    func screen(for id: PersistentIdentifier, footer: InvoiceFooter) -> InvoiceScreenPresenter? {
+        guard let makeReader else { return nil }
+        let reader = makeReader()
+        guard let invoice = try? reader.fetch(FetchDescriptor<Invoice>())
+            .first(where: { $0.persistentModelID == id })
+        else { return nil }
+        return InvoiceScreenPresenter(invoice: invoice, footer: footer,
+                                      today: .stamping(now()))
     }
 
     /// Stops listening for writes. Idempotent.
