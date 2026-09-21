@@ -14,6 +14,7 @@
 //
 // MONEY HELD IS NOT DRAWN AT ALL YET, and that is the zero rule rather than an
 // omission: PRD 46b makes it a quantity, and a quantity of nothing is not drawn.
+import SwiftData
 import SwiftUI
 
 struct ShellView: View {
@@ -29,6 +30,20 @@ struct ShellView: View {
     /// future call site forget the wiring and still compile, which is the whole
     /// shape of this failure (L168).
     @Bindable var problems: ProblemsStore
+
+    /// The invoice list, or nil where it could not be read out of the store.
+    /// NOT OPTIONAL BECAUSE IT IS OPTIONAL TO PASS: the nil means one thing only,
+    /// that the read failed and a problem was raised for it.
+    var invoices: InvoiceListPresenter?
+
+    /// What Ovation is holding across every client, drawn under the card (PRD 46b),
+    /// and nil where it is holding nothing, because a quantity of nothing is not
+    /// drawn.
+    var heldMoney: String?
+
+    /// Which invoice is selected. It lives here rather than inside the list
+    /// because coming back from an invoice has to find the row again (ovation#125).
+    @State private var selectedInvoice: PersistentIdentifier?
 
     /// What a destination with no screen behind it says about itself. A constant
     /// because a test counts them, and because the same words appear once per
@@ -162,7 +177,22 @@ struct ShellView: View {
         switch shell.selected {
         case .roster:
             RosterPassView(presenter: roster)
-        case .invoices, .expenses, .clients:
+        case .invoices:
+            // THE SCREEN THE WINDOW OPENS ON (ovation#49). `RosterLaunch` selects
+            // this whenever the roster has nothing to ask, which since ovation#298
+            // is always, so this is the first thing Dan sees.
+            //
+            // A LIST THAT COULD NOT BE READ IS NOT AN EMPTY LIST. When the fetch
+            // threw, `InvoiceListLaunch` raised a problem and produced nothing,
+            // and the rail's status block carries it; drawing the empty state here
+            // would say every invoice is paid and cleared, on no evidence (L10).
+            if let invoices {
+                InvoiceListView(presenter: invoices, heldMoney: heldMoney,
+                                selected: $selectedInvoice)
+            } else {
+                couldNotBeRead
+            }
+        case .expenses, .clients:
             // Reachable only from a test today, because `go(to:)` refuses an
             // unbuilt destination. It is drawn rather than left blank so that
             // the state has a sentence if it is ever reached (L10).
@@ -178,5 +208,23 @@ struct ShellView: View {
             .padding(24)
             .background(OvationPalette.background)
         }
+    }
+
+    /// The state where the store opened and its invoices did not come out of it.
+    /// It names what cannot be done rather than only that something failed, and it
+    /// points at the rail, where the problem itself is written (L11, L111).
+    private var couldNotBeRead: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("The invoices could not be read")
+                .font(.system(size: 22, weight: .regular, design: .serif))
+                .foregroundStyle(OvationPalette.ink)
+            Text("Nothing can be sent, chased or marked paid until this is fixed. "
+                 + "What went wrong is at the foot of the rail.")
+                .font(.system(size: 13))
+                .foregroundStyle(OvationPalette.soft)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(24)
+        .background(OvationPalette.background)
     }
 }

@@ -1,0 +1,265 @@
+// ovation#49, PRD section 6, 46, 46a, 46d, 46f, 47. The one list, drawn.
+//
+// TRANSLATED FROM `docs/design/invoice-list.html`, NOT COPIED, on the same terms
+// as `RosterPassView`: an action is a word rather than a button, the window chrome
+// is the system's, and the type is the system's.
+//
+// IT DECIDES NOTHING. Every row, every word and every count comes from
+// `InvoiceListPresenter`. A decision made inside a view body can only be checked
+// by rendering it, and the states that matter on this screen are the ones no
+// ordinary fixture produces.
+//
+// NO BAND HEADINGS (PRD 46, Dan 2026-09-06). The bands decide the ORDER and are
+// not drawn: a heading reading "Send it today" over a row whose action word reads
+// Send labelled one fact three times, and with one to three invoices per band
+// nearly every other line on screen was a heading. What separates them is air and
+// a rule, which is what the design record settled instead.
+//
+// NO RED ANYWHERE (PRD 45, Dan 2026-09-06: red "feels like something is wrong").
+// An overdue invoice is not an error. Nothing failed and the money has not
+// arrived, so lateness is an age in tabular figures, a duration rather than an
+// alarm. Red belongs to the Problems store alone, and if this screen borrows that
+// vocabulary the one surface that should alarm him has nothing left to say with.
+import SwiftData
+import SwiftUI
+
+struct InvoiceListView: View {
+
+    @Bindable var presenter: InvoiceListPresenter
+
+    /// What Ovation is holding across every client, drawn above the waiting band.
+    /// PRD 46d: the band exists because that money could settle more than one of
+    /// these invoices and Ovation will not choose.
+    var heldMoney: String?
+
+    /// Which row is selected, owned by the caller because coming back to the list
+    /// has to find it again (ovation#125).
+    @Binding var selected: PersistentIdentifier?
+
+    /// The column widths, from the design record's own `--cols`. Named here once
+    /// so the header and every row are laid out by one declaration and cannot
+    /// drift apart (L553).
+    private enum Column {
+        static let shootDate: CGFloat = 152
+        static let number: CGFloat = 44
+        static let amount: CGFloat = 88
+        static let action: CGFloat = 84
+        static let gap: CGFloat = 14
+        static let sideMargin: CGFloat = 24
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            columnHeader
+            if presenter.bands.isEmpty {
+                empty
+            } else {
+                rows
+            }
+        }
+        .background(OvationPalette.background)
+    }
+
+    // MARK: the heads
+
+    /// LAID OUT ON THE SAME WIDTHS AS THE ROWS, so a label cannot sit over the
+    /// wrong column. A header aligned separately from its cells is two declarations
+    /// of one fact, and they diverge while each site reads as correct (L553).
+    private var columnHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Column.gap) {
+            Text("Shoot").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Shoot date").frame(width: Column.shootDate, alignment: .leading)
+            Text("Invoice").frame(width: Column.number, alignment: .leading)
+            Text("Amount").frame(width: Column.amount, alignment: .trailing)
+            Text("Action").frame(width: Column.action, alignment: .trailing)
+        }
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(OvationPalette.quiet)
+        .padding(.horizontal, Column.sideMargin)
+        .padding(.top, 10)
+        .padding(.bottom, 7)
+        .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.rule) }
+        .accessibilityHidden(true)
+    }
+
+    /// A POSITIVE STATEMENT ON THE HEALTHY DAY (L610). An empty list is the good
+    /// outcome here, not a screen that failed to load, so it says which.
+    private var empty: some View {
+        Text("Nothing is waiting. Every invoice is sent, paid and cleared.")
+            .font(.system(size: 13))
+            .foregroundStyle(OvationPalette.soft)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(Column.sideMargin)
+    }
+
+    // MARK: the list
+
+    private var rows: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(presenter.bands.enumerated()), id: \.element.band) { index, band in
+                    if band.band == .toPlace, let heldMoney {
+                        waitingHead(heldMoney)
+                    }
+                    ForEach(band.rows) { row in
+                        line(row, idle: Self.isIdle(band.band))
+                    }
+                    // THE WAITING BAND HAS TO END. It sits at the TOP, so without
+                    // something closing it the whole list beneath reads as its
+                    // contents, which is the fault the design record records being
+                    // caught on 2026-09-10: a band saying 2 above a list that did
+                    // not hold 2.
+                    if band.band == .toPlace && index < presenter.bands.count - 1 {
+                        Divider()
+                            .overlay(OvationPalette.rule)
+                            .padding(.top, 16)
+                    }
+                }
+            }
+        }
+    }
+
+    /// PRD 46d. What is held, above the invoices it could settle.
+    private func waitingHead(_ held: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Column.gap) {
+            Text("Money is waiting on a decision")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("\(held) held")
+                .monospacedDigit()
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(OvationPalette.quiet)
+        .padding(.horizontal, Column.sideMargin)
+        .padding(.vertical, 9)
+        .background(OvationPalette.chrome)
+        .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.ruleSoft) }
+    }
+
+    private func line(_ row: InvoiceListPresenter.Row, idle: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Column.gap) {
+            who(row, idle: idle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(row.shootDate)
+                .font(.system(size: 12.5, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(OvationPalette.soft)
+                .frame(width: Column.shootDate, alignment: .leading)
+
+            Text(row.number)
+                .font(.system(size: 12.5, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(OvationPalette.soft)
+                .frame(width: Column.number, alignment: .leading)
+
+            // MONEY IS ALWAYS IN TABULAR FIGURES WITH ALIGNED DECIMALS (PRD 47),
+            // because an amount that can be misread is the one thing this app
+            // cannot afford. A word in this column is drawn quieter so it is not
+            // read as a figure.
+            Text(row.amount)
+                .font(.system(size: 13.5, weight: Self.isWord(row.amount) ? .regular : .medium,
+                              design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(idle || Self.isWord(row.amount)
+                                 ? OvationPalette.quiet : OvationPalette.ink)
+                .frame(width: Column.amount, alignment: .trailing)
+
+            end(row)
+                .frame(width: Column.action, alignment: .trailing)
+        }
+        .padding(.horizontal, Column.sideMargin)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        // A SELECTED ROW IS MARKED BY A TINT ALONE AND NEVER A LEFT BAR (PRD 47),
+        // which is both the macOS convention and a practical necessity once the
+        // sidebar is dark.
+        .background(selected == row.invoiceID ? OvationPalette.selection : Color.clear)
+        .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.ruleSoft) }
+        .onTapGesture { selected = row.invoiceID }
+        // READ AS ONE LINE, because that is what it is (PRD 47). Five separate
+        // labels would be read out as five unrelated fragments.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.spoken(row))
+        .accessibilityAddTraits(selected == row.invoiceID ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// THE SHOOT CARRIES THE WEIGHT, NOT THE CLIENT (Dan, 2026-09-09, settled
+    /// against three alternatives and shown to him on a client holding three
+    /// separate invoices for three shoots).
+    private func who(_ row: InvoiceListPresenter.Row, idle: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Text(row.client)
+                .font(.system(size: 13))
+                .foregroundStyle(idle ? OvationPalette.quiet : OvationPalette.soft)
+            Text(row.shoot)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(idle ? OvationPalette.quiet : OvationPalette.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if row.otherShoots > 0 {
+                Text(Self.moreShoots(row.otherShoots))
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(OvationPalette.faint)
+            }
+        }
+    }
+
+    /// The age and the action, at the end of the line.
+    private func end(_ row: InvoiceListPresenter.Row) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 11) {
+            if let age = row.age {
+                Text(age)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(OvationPalette.faint)
+            }
+            if let action = row.action {
+                // A CONTROL LOOKS LIKE A CONTROL AT REST, not only on hover and not
+                // only in a tooltip (L49). It is a word rather than a button, which
+                // is the design record's own idiom, and it carries the underline at
+                // rest so it reads as pressable without one.
+                Text(action)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .underline()
+                    .foregroundStyle(OvationPalette.ink)
+            }
+        }
+    }
+
+    // MARK: what the words are
+
+    /// The idle bands, drawn quieter. PRD section 6 gives them air rather than a
+    /// label: there is nothing to do about any of them today.
+    static func isIdle(_ band: InvoiceBand) -> Bool {
+        switch band {
+        case .draftShootAhead, .paidOrCleared, .cancelled: return true
+        case .toPlace, .draftShootToday, .overdue, .draftNeedsSending,
+             .checkNotCleared, .sayWhetherItWasSent, .sentAwaitingPayment: return false
+        }
+    }
+
+    /// Whether the amount column is holding a word rather than a figure.
+    private static func isWord(_ amount: String) -> Bool {
+        amount.first.map { !$0.isNumber } ?? true
+    }
+
+    /// "+1 shoot", "+2 shoots". Singular and plural are separate, because
+    /// "+1 shoots" is the kind of line that makes a person stop trusting the rest
+    /// of the screen.
+    static func moreShoots(_ count: Int) -> String {
+        "+\(count) " + (count == 1 ? "shoot" : "shoots")
+    }
+
+    /// One sentence per row for a screen reader, in the order the line reads.
+    static func spoken(_ row: InvoiceListPresenter.Row) -> String {
+        var said = [row.client, row.shoot]
+        if row.otherShoots > 0 { said.append(moreShoots(row.otherShoots)) }
+        said.append(row.shootDate)
+        said.append(row.number == "draft" ? "draft" : "invoice \(row.number)")
+        said.append(row.amount)
+        if let age = row.age { said.append("\(age) past due") }
+        if let action = row.action { said.append(action) }
+        return said.filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+}

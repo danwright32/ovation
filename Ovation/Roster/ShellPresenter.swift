@@ -41,16 +41,23 @@ enum Destination: String, CaseIterable, Hashable, Sendable {
     /// (L49, L109). The mark beside it in the rail is the reason, which is why
     /// pressing one is allowed to do nothing: the answer is already on screen.
     ///
-    /// MOVING A CASE TO `true` IS A DECISION, NOT A LINE. `ShellPresenterTests`
-    /// asserts that `roster` is still the only one, and it fails the day that
-    /// stops being true, on purpose: the roster leaving the rail is unreachable
-    /// while nothing else is built, so whoever builds the second screen is the
-    /// first person who has to answer what the window shows once the roster has
-    /// settled and gone.
+    /// MOVING A CASE TO `true` IS A DECISION, NOT A LINE, and this is the record
+    /// of the first one. The guard here used to say `roster` was the only built
+    /// screen and to fail the day that stopped being true, on purpose, because
+    /// the roster leaving the rail was unreachable while nothing else existed:
+    /// whoever built the second screen was the first person who had to answer
+    /// what the window shows once the roster has settled and gone.
+    ///
+    /// ANSWERED 2026-09-20 (ovation#49), AND IT WAS ALREADY ANSWERED. The
+    /// question had a settled answer sitting in `RosterLaunch.presenters`, which
+    /// opens on `.invoices` whenever the roster has nothing to ask, and since
+    /// ovation#298 the live roster never has. So the window has been opening on
+    /// the invoice list this whole time; what was missing was the list. Nothing
+    /// was decided here beyond building it.
     var isBuilt: Bool {
         switch self {
-        case .roster: return true
-        case .invoices, .expenses, .clients: return false
+        case .roster, .invoices: return true
+        case .expenses, .clients: return false
         }
     }
 }

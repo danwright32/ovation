@@ -130,15 +130,32 @@ struct InvoiceStanding: Equatable, Hashable, Sendable {
     /// off the invoice here.
     var couldSettleMoreThanOne: Bool
 
+    /// A date is STORED on this invoice and would not read back (L50).
+    ///
+    /// IT IS NOT THE SAME AS HAVING NO DATE, and separating them is the whole
+    /// reason this exists. A stored day key is PARSED to be compared, so the parse
+    /// can fail; folded into the same nil as "no date given", a due date that will
+    /// not read lands in "waiting on them", which is the permissive side. An
+    /// invoice months past its terms would then sit among the ones not due yet,
+    /// with nothing on any screen saying its date could not be read.
+    ///
+    /// IT CANNOT HAPPEN THROUGH THE APP, and that is why it must fail safe rather
+    /// than be validated away. Every `BusinessDate` Ovation writes comes from
+    /// `.stamping(_:)`, which always produces a readable key, so reaching this
+    /// means the store was damaged or edited by hand. That is exactly the case
+    /// where a silent permissive default is worst.
+    var datesCouldNotBeRead: Bool
+
     init(ending: Ending? = nil, sent: SentStatus = .notSent, shootDay: Int? = nil,
          dueDay: Int? = nil, money: Money = .nothing,
-         couldSettleMoreThanOne: Bool = false) {
+         couldSettleMoreThanOne: Bool = false, datesCouldNotBeRead: Bool = false) {
         self.ending = ending
         self.sent = sent
         self.shootDay = shootDay
         self.dueDay = dueDay
         self.money = money
         self.couldSettleMoreThanOne = couldSettleMoreThanOne
+        self.datesCouldNotBeRead = datesCouldNotBeRead
     }
 
     /// Whether this invoice is drawn in the list at all.
@@ -184,10 +201,11 @@ extension InvoiceBand {
             return it.isLive && it.sent.needsAPerson
 
         case .draftShootToday:
-            return it.isLiveDraft && it.shootDay == Self.today
+            return it.isLiveDraft && !it.datesCouldNotBeRead && it.shootDay == Self.today
 
         case .draftShootAhead:
-            return it.isLiveDraft && (it.shootDay ?? Int.min) > Self.today
+            return it.isLiveDraft && !it.datesCouldNotBeRead
+                && (it.shootDay ?? Int.min) > Self.today
 
         // THE DATELESS DRAFT LIVES HERE, and it is the reason this band is not
         // simply "the shoot has passed" (PRD section 6, ovation#49). An invoice can
@@ -201,7 +219,8 @@ extension InvoiceBand {
         // the opposite default for the same reason, so a nil is claimed here and
         // nowhere else.
         case .draftNeedsSending:
-            return it.isLiveDraft && (it.shootDay ?? Int.min) < Self.today
+            return it.isLiveDraft
+                && (it.datesCouldNotBeRead || (it.shootDay ?? Int.min) < Self.today)
 
         case .checkNotCleared:
             return it.isLiveIssued && it.money == .allOfItAwaitingAClearedCheck
@@ -212,9 +231,12 @@ extension InvoiceBand {
         // PART PAID IS NOT A BAND (PRD section 6). It sits wherever its dates put
         // it, which is here when it is past its terms, and the row carries the
         // outstanding figure rather than the total.
+        // A DATE THAT WOULD NOT READ BACK IS CHASED, NOT LEFT WAITING (L50, L42).
+        // It is a fault in a stored record, and the invoice list is the only way
+        // to reach an invoice, so this is the one place Dan can see it at all.
         case .overdue:
             return it.isLiveIssued && it.isStillOwedSomething
-                && (it.dueDay ?? Int.max) < Self.today
+                && (it.datesCouldNotBeRead || (it.dueDay ?? Int.max) < Self.today)
 
         // A SENT INVOICE WITH NO DUE DATE IS WAITING, NOT LATE, and that pair was
         // the SECOND gap this band's property test found (ovation#49, 2026-09-20).
@@ -230,7 +252,7 @@ extension InvoiceBand {
         // before it went out. Placing it here is the list's answer, not the send
         // gate's, and the gate is where the refusal belongs (ovation#446).
         case .sentAwaitingPayment:
-            return it.isLiveIssued && it.isStillOwedSomething
+            return it.isLiveIssued && it.isStillOwedSomething && !it.datesCouldNotBeRead
                 && (it.dueDay ?? Int.max) >= Self.today
         }
     }
@@ -261,5 +283,82 @@ private extension InvoiceStanding {
     /// Money is still owed on it.
     var isStillOwedSomething: Bool {
         money == .nothing || money == .some
+    }
+}
+
+// MARK: reading a stored invoice as a standing
+
+extension InvoiceStanding {
+
+    /// Reads one stored invoice as the handful of facts the bands are written over.
+    ///
+    /// EVERY DATE BECOMES A DAY NUMBER RELATIVE TO `today`, which is what lets the
+    /// bands be written with no calendar in them and no clock behind them. A band
+    /// comparing stored dates against `Date()` could never be tested at a chosen
+    /// moment and would walk into another answer while a suite ran (L74, L130).
+    ///
+    /// IT DERIVES NOTHING THE INVOICE ALREADY ANSWERS. The money comes through
+    /// `paymentState`, which is the app's one statement of where an invoice stands
+    /// on money; asking the allocations again here would be a second predicate over
+    /// the same facts, and two predicates over one question is how two surfaces come
+    /// to disagree about one invoice (L370, L16).
+    init(of invoice: Invoice, today: BusinessDate, couldSettleMoreThanOne: Bool) {
+        self.init(
+            ending: invoice.closure.map { closure in
+                switch closure {
+                case .cancelled: return Ending.cancelled
+                case .deleted: return Ending.deleted
+                }
+            },
+            sent: invoice.sentStatus,
+            // THE INVOICE DATE IS THE SHOOT DATE (PRD 7): the invoice is dated its
+            // booking's shoot day, and that stamped value is what decides the tax
+            // year, so it is the one the list bands on rather than a date read back
+            // off a shoot record that a combined invoice has several of.
+            shootDay: Self.day(of: invoice.invoiceDate, from: today),
+            dueDay: Self.day(of: invoice.dueDate, from: today),
+            money: Self.money(of: invoice),
+            couldSettleMoreThanOne: couldSettleMoreThanOne,
+            // A DATE THAT IS THERE AND DID NOT READ. Asked as "present but
+            // produced no day", which is the only way to tell it from a date
+            // nobody gave (L50).
+            datesCouldNotBeRead:
+                (invoice.invoiceDate != nil && Self.day(of: invoice.invoiceDate, from: today) == nil)
+                || (invoice.dueDate != nil && Self.day(of: invoice.dueDate, from: today) == nil))
+    }
+
+    /// How many days after `today` that day falls, and nil where there is no day.
+    ///
+    /// NIL SURVIVES, and that is the whole point of this function. A missing date
+    /// defaulted to today would put a dateless draft in "send it today" looking like
+    /// an ordinary row, which is exactly the invisibility ovation#49 exists to end
+    /// (L67, L168).
+    private static func day(of date: BusinessDate?, from today: BusinessDate) -> Int? {
+        guard let date,
+              let start = BusinessCalendar.startOfDay(forDayKey: date.dayKey),
+              let base = BusinessCalendar.startOfDay(forDayKey: today.dayKey)
+        else { return nil }
+        return InvoiceBand.today
+            + BusinessCalendar.dayNumber(for: start) - BusinessCalendar.dayNumber(for: base)
+    }
+
+    /// Where the invoice stands on money, in the four answers the bands need.
+    ///
+    /// THE CLEARED STEP BELONGS TO THE PAYMENT, NEVER THE INVOICE (PRD 5.15), and
+    /// only a check has one. Reading "has not cleared" off a Zelle payment would
+    /// park an invoice in "confirm it cleared" permanently, with no control anywhere
+    /// able to answer it, which is a dead end rather than a wrong label (L109).
+    private static func money(of invoice: Invoice) -> Money {
+        switch invoice.paymentState {
+        case .unpaid: return .nothing
+        case .partlyPaid: return .some
+        case .paid:
+            let waiting = invoice.allocations.contains { allocation in
+                guard allocation.releasedOn == nil, let payment = allocation.payment
+                else { return false }
+                return payment.canBeCleared && payment.clearedOn == nil
+            }
+            return waiting ? .allOfItAwaitingAClearedCheck : .allOfItCleared
+        }
     }
 }

@@ -48,14 +48,26 @@ struct ShellPresenterTests {
     /// leave the rail. The rule still has to be right, because the day a second
     /// screen ships it starts firing.
     ///
-    /// **This test FAILS the day a second destination is built**, on purpose. It
-    /// is the only thing that makes whoever builds it answer the question this
-    /// round did not: what the window shows once the roster has settled and
-    /// gone. A rule that is correct and unreachable is exactly the kind that
-    /// ships wrong (L535).
-    @Test("the roster is still the only built destination, so the leaving rule cannot yet fire")
-    func theLeavingRuleIsDormantBecauseNothingElseIsBuilt() {
-        #expect(Destination.allCases.filter(\.isBuilt) == [.roster])
+    /// **It FIRED, on 2026-09-20 (ovation#49)**, which is what it was for. The
+    /// question it made somebody answer, what the window shows once the roster has
+    /// settled and gone, turned out to have been answered already:
+    /// `RosterLaunch.presenters` opens on `.invoices` whenever the roster has
+    /// nothing to ask, and since ovation#298 the live roster never has. So the
+    /// window has been opening on the invoice list all along and the list was what
+    /// was missing.
+    ///
+    /// IT IS INVERTED RATHER THAN DELETED OR SOFTENED. The rule it was dormant
+    /// about is live now, so what it asserts is that the leaving rule can fire and
+    /// that the two screens still unbuilt cannot select (L252, L430).
+    @Test("the invoice list is built, so the leaving rule can now actually fire")
+    func theLeavingRuleCanNowFire() {
+        #expect(Destination.allCases.filter(\.isBuilt) == [.invoices, .roster])
+
+        // The rule firing for real: standing on the list, with nothing blocking,
+        // the roster is gone from the rail.
+        let shell = ShellPresenter(selected: .invoices, rosterHasWork: { false })
+        #expect(!shell.destinations.contains(.roster))
+        #expect(shell.selected == .invoices)
     }
 
     @Test("but the rule itself is right: elsewhere plus nothing blocking means gone")
@@ -72,7 +84,7 @@ struct ShellPresenterTests {
     /// PRD 44a. They are PRESENT and they SAY SO. A destination that is simply
     /// absent teaches nothing, and one that is present and silent is a dead
     /// control nobody can ask about (L49, L109).
-    @Test("the three unbuilt destinations are in the rail and are marked unbuilt")
+    @Test("the two still unbuilt destinations are in the rail and are marked unbuilt")
     func unbuiltDestinationsArePresentAndMarked() {
         let shell = ShellPresenter(selected: .roster, rosterHasWork: { true })
 
@@ -80,21 +92,36 @@ struct ShellPresenterTests {
         #expect(shell.destinations.contains(.expenses))
         #expect(shell.destinations.contains(.clients))
 
-        #expect(!Destination.invoices.isBuilt)
         #expect(!Destination.expenses.isBuilt)
         #expect(!Destination.clients.isBuilt)
         #expect(Destination.roster.isBuilt)
+        #expect(Destination.invoices.isBuilt)
     }
 
     /// A rail entry that cannot be reached must not be SELECTABLE, or pressing
     /// it takes Dan to a blank screen and the mark beside it was decoration.
+    ///
+    /// DRIVEN ON A DESTINATION THAT IS STILL UNBUILT. It used to press `.invoices`,
+    /// which is now built, and a test proving a refusal has to be driven on a case
+    /// that is actually refused or it proves the opposite by accident (L159).
     @Test("pressing a destination that is not built does not move you")
     func pressingAnUnbuiltDestinationDoesNothing() {
         let shell = ShellPresenter(selected: .roster, rosterHasWork: { true })
 
-        shell.go(to: .invoices)
+        shell.go(to: .expenses)
 
         #expect(shell.selected == .roster)
+    }
+
+    @Test("and pressing one that IS built moves you")
+    func pressingABuiltDestinationMoves() {
+        // The positive control for the test above: without it, a `go(to:)` that
+        // refused everything would pass it (L159).
+        let shell = ShellPresenter(selected: .roster, rosterHasWork: { true })
+
+        shell.go(to: .invoices)
+
+        #expect(shell.selected == .invoices)
     }
 
     @Test("every destination has a name, and no two share one")
