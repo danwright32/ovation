@@ -61,7 +61,11 @@ struct InvoiceScreenShotTests {
             let presenter = try Self.presenter(for: state)
             let file = directory.appending(path: "invoice-\(state.rawValue).png")
             try OffscreenShot.capture(
-                InvoiceScreenView(presenter: presenter, close: {}, review: {}),
+                // A REAL SETTER, so the time fields are drawn as the controls they
+                // will be rather than as the plain text a nil setter draws. The
+                // picture exists to show what Dan will meet.
+                InvoiceScreenView(presenter: presenter, close: {},
+                                  setTime: { _, _, _ in }, review: {}),
                 size: Self.windowSize, scheme: .light, to: file)
             written.append(file.lastPathComponent)
 
@@ -70,7 +74,8 @@ struct InvoiceScreenShotTests {
             // comparison somebody made, and nobody made it.
             let darkFile = directory.appending(path: "dark-check-\(state.rawValue).png")
             try OffscreenShot.capture(
-                InvoiceScreenView(presenter: presenter, close: {}, review: {}),
+                InvoiceScreenView(presenter: presenter, close: {},
+                                  setTime: { _, _, _ in }, review: {}),
                 size: Self.windowSize, scheme: .dark, to: darkFile)
             let light = try Data(contentsOf: file)
             let dark = try Data(contentsOf: darkFile)

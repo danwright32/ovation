@@ -49,11 +49,24 @@ struct ShellView: View {
     /// `InvoiceListSource`, which owns the container (PRD 51l, ovation#440).
     var openInvoice: ((PersistentIdentifier) -> InvoiceScreenPresenter?)?
 
+    /// ovation#457. Writing a time Dan typed, which is what makes a draft sendable
+    /// (PRD 3c). Nil where nothing can write. The write itself is
+    /// `ShootTimesWriter`; this view only says which shoot and which end.
+    var writeTime: ((PersistentIdentifier, InvoiceScreenView.Edge, ClockTime?) async -> String?)?
+
     /// Which invoice is selected. It lives here rather than inside the list
     /// because coming back from an invoice has to find the row again (ovation#125).
     @State private var selectedInvoice: PersistentIdentifier?
     /// The invoice being worked on, or nil while the list is showing (ovation#457).
     @State private var openedInvoice: InvoiceScreenPresenter?
+    /// Which one, so the screen can be built again after a write changes it.
+    @State private var openedInvoiceID: PersistentIdentifier?
+    /// Why the last write was refused, or nil. A refusal here is a race (the row
+    /// went, or the invoice was sent from elsewhere), because the field is not
+    /// offered at all on an invoice that may not be edited. It is still SAID: a
+    /// write that silently does nothing leaves typing it again as the only
+    /// diagnosis (L109, L148).
+    @State private var refusedWrite: String?
 
     /// What a destination with no screen behind it says about itself. A constant
     /// because a test counts them, and because the same words appear once per
@@ -182,6 +195,20 @@ struct ShellView: View {
 
     // MARK: what you are standing on
 
+    /// Hands one typed time to the writer, then builds the screen again from the
+    /// store.
+    ///
+    /// IT RE-READS RATHER THAN EDITING WHAT IS ON SCREEN. The presenter holds
+    /// values, so the derived duration, the line's amount, the totals and the
+    /// Review refusal all change together or not at all, and they come from the
+    /// same read (L14). Editing the screen in place would be a second derivation
+    /// of the same facts.
+    private func typed(_ shoot: PersistentIdentifier, _ edge: InvoiceScreenView.Edge,
+                       _ time: ClockTime?) async {
+        refusedWrite = await writeTime?(shoot, edge, time)
+        if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
+    }
+
     @ViewBuilder
     private var content: some View {
         switch shell.selected {
@@ -201,11 +228,18 @@ struct ShellView: View {
             // Coming back to a list you recognise, with its scroll position and
             // the row that moved, is ovation#125.
             if let open = openedInvoice {
-                InvoiceScreenView(presenter: open, close: { openedInvoice = nil })
+                InvoiceScreenView(
+                    presenter: open,
+                    close: { openedInvoice = nil; openedInvoiceID = nil },
+                    setTime: writeTime == nil ? nil : { shoot, edge, time in
+                        Task { await typed(shoot, edge, time) }
+                    },
+                    refused: refusedWrite)
             } else if let invoices {
                 InvoiceListView(presenter: invoices, heldMoney: heldMoney,
                                 selected: $selectedInvoice,
                                 open: openInvoice == nil ? nil : { id in
+                                    openedInvoiceID = id
                                     openedInvoice = openInvoice?(id)
                                 })
             } else {

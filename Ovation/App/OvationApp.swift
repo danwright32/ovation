@@ -461,6 +461,26 @@ struct OvationApp: App {
                              for: id,
                              footer: InvoiceFooterSetting(defaults: .standard).footer)
                      },
+                     // ovation#457. THE WRITE IS AN ACTOR'S, never the view's
+                     // (PRD 51l). It answers with a sentence when it refuses, which
+                     // on this screen can only be a race, because the field is not
+                     // offered on an invoice that may not be edited.
+                     writeTime: opened.map { container in
+                         { shoot, edge, time in
+                             let writer = ShootTimesWriter(modelContainer: container)
+                             do {
+                                 switch edge {
+                                 case .start: try await writer.setStart(time, on: shoot)
+                                 case .end: try await writer.setEnd(time, on: shoot)
+                                 }
+                                 return nil
+                             } catch let refusal as ShootTimesRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That time could not be saved: \(error)"
+                             }
+                         }
+                     },
                      progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
                 // order inside the launch is unchanged; what changed is that

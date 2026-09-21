@@ -44,6 +44,18 @@ enum PDFText {
     /// rate stopped adding up to the amount beside them, and PRD 50c exists so a
     /// client can reconstruct every figure.
     static func hours(_ duration: Hours) -> String {
+        let unit = duration.hundredths == 100 ? " hr" : " hrs"
+        return hoursFigure(duration) + unit
+    }
+
+    /// The same number WITHOUT its unit, for a sentence that supplies its own.
+    ///
+    /// ONE DEFINITION, TWO RENDERINGS (ovation#457). The invoice screen writes
+    /// "billed as 1.50 hours" in running text, so it needs the figure and not the
+    /// abbreviation; deriving it a second time there would be two formatters for
+    /// one number, and the quarter hour is exactly where they would disagree
+    /// (L370). The design record's own `writtenHours` is this rule.
+    static func hoursFigure(_ duration: Hours) -> String {
         let magnitude = duration.hundredths.magnitude
         let whole = magnitude / 100
         let part = magnitude % 100
@@ -53,8 +65,7 @@ enum PDFText {
         } else {
             decimals = part < 10 ? "0\(part)" : "\(part)"
         }
-        let unit = duration.hundredths == 100 ? " hr" : " hrs"
-        return (duration.hundredths < 0 ? "-" : "") + "\(whole).\(decimals)" + unit
+        return (duration.hundredths < 0 ? "-" : "") + "\(whole).\(decimals)"
     }
 
     /// "October 25, 2026", from the business day the date was STAMPED with.

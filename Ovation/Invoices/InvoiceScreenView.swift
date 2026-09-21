@@ -36,6 +36,25 @@ struct InvoiceScreenView: View {
     /// way out.
     let close: () -> Void
 
+    /// Which end of a shoot a time belongs to.
+    enum Edge { case start, end }
+
+    /// Writing a time Dan has typed, or nil where nothing can write it (every
+    /// hosted test written before this, and any caller with no store). The write
+    /// itself is `ShootTimesWriter`, reached through the app, because a view may
+    /// not hold a context (PRD 51l, ovation#440).
+    var setTime: ((PersistentIdentifier, Edge, ClockTime?) -> Void)?
+
+    /// Which empty time fields Dan has asked to fill in. Local to the screen and
+    /// deliberately not stored: it is a state of this viewing, and reopening the
+    /// invoice should show the word again rather than a picker over nothing.
+    @State private var revealed: Set<String> = []
+
+    /// Why the last write was refused, or nil. Shown in the head, beside the times
+    /// it is about, because the thing stopping the invoice should be answerable
+    /// where it is said, which is the design record's own rule for the tax status.
+    var refused: String?
+
     /// Opening the review, or nil where the caller has nowhere for it to go yet.
     /// NIL DRAWS THE WORD QUIET RATHER THAN HIDING IT, so the foot does not change
     /// shape depending on what is wired (L678).
@@ -83,6 +102,17 @@ struct InvoiceScreenView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(OvationPalette.quiet)
                     .lineLimit(1)
+                times
+                if let refused {
+                    // NEVER RED. A refused write is not something that went wrong
+                    // with the invoice, it is a state that changed underneath the
+                    // screen, and red belongs only where something genuinely is
+                    // (PRD 5.45).
+                    Text(refused)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(OvationPalette.soft)
+                        .padding(.top, 4)
+                }
             }
             Spacer(minLength: 0)
             Button("Back to the list", action: close)
@@ -96,6 +126,148 @@ struct InvoiceScreenView: View {
         .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.rule) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(presenter.client), \(presenter.shoot)")
+    }
+
+    /// THE TIMES SIT BESIDE THE SHOOT (round 4b), one labelled pair per shoot, and
+    /// they are the piece that makes a draft sendable: PRD 3c says a draft carries
+    /// no duration and cannot go out until Dan supplies one, and this is where he
+    /// supplies it.
+    ///
+    /// ONE PAIR PER SHOOT, because PRD 5.1a puts more than one on a combined
+    /// invoice and Dan asked for that case to be drawn before he chose this
+    /// placement: "I worry about how it would work for invoices with multiple
+    /// events."
+    @ViewBuilder
+    private var times: some View {
+        if !presenter.shoots.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(presenter.shoots) { shoot in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if presenter.shoots.count > 1 {
+                            Text(shoot.name)
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(OvationPalette.quiet)
+                                .lineLimit(1)
+                        }
+                        Text("Ran").font(.system(size: 12.5))
+                            .foregroundStyle(OvationPalette.quiet)
+                        timeField(shoot, .start, shoot.start, label: "Start time")
+                        Text("to").font(.system(size: 12.5))
+                            .foregroundStyle(OvationPalette.quiet)
+                        timeField(shoot, .end, shoot.end, label: "End time")
+                        if !shoot.derived.isEmpty {
+                            Text(shoot.derived)
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(OvationPalette.quiet)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    /// ONE TIME, AS THE PLATFORM'S OWN CONTROL. The design record says so in as many
+    /// words: "In the real app this is a SwiftUI DatePicker in its field style,
+    /// which is exactly this: a compact field of segments with a stepper. So this
+    /// rendering approximates the PLATFORM control rather than inventing one."
+    ///
+    /// IN THE BUSINESS ZONE, NOT THE MAC'S. A `DatePicker` renders its `Date` in the
+    /// environment's time zone, so on a Mac set to anything but New York the hour
+    /// drawn would not be the hour stored. `BusinessCalendar.timeZone` is the one
+    /// zone every date in this app goes through (plan 1.5, L39), and it is put into
+    /// the environment rather than read from `Calendar.current`, which the
+    /// forbidden constructs scanner refuses for exactly this reason.
+    @ViewBuilder
+    private func timeField(_ shoot: InvoiceScreenPresenter.TimedShoot, _ edge: Edge,
+                           _ time: ClockTime?, label: String) -> some View {
+        if presenter.mayEdit, let setTime {
+            // A TIME THAT IS NOT GIVEN IS NOT DRAWN AS A TIME, and this is the one
+            // place the platform control cannot do what the design record's own can.
+            // `DatePicker` has no empty state: handed a placeholder it renders it as
+            // a real time, and a draft with no end time drew "Ran 7:00 PM to
+            // 12:00 AM", which is a plausible shoot ending at midnight. A
+            // placeholder for a missing required value is a detection, not a label
+            // (L67), and the design record has `.tempty` for exactly this.
+            //
+            // SO IT IS REVEALED RATHER THAN PRE-FILLED. Until Dan asks for the
+            // field, the word says there is no time. Asking for it shows the picker
+            // seeded at the shoot's start, and NOTHING IS WRITTEN until he moves it,
+            // so the seed is a starting point he can see rather than a value that
+            // arrived on its own. PRD 3c rejected pre-filling an hour for the same
+            // reason: a figure nobody typed is indistinguishable from one somebody
+            // did, on exactly the shoots where the mistake matters.
+            if time == nil && !revealed.contains(Self.key(shoot, edge)) {
+                Button("Not given") { revealed.insert(Self.key(shoot, edge)) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(OvationPalette.faint)
+                    .accessibilityLabel("\(label) for \(shoot.name), not given")
+            } else {
+                DatePicker(
+                    label,
+                    selection: Binding(
+                        get: { Self.date(of: time ?? shoot.start) },
+                        set: { setTime(shoot.id, edge, Self.clockTime(of: $0)) }),
+                    displayedComponents: .hourAndMinute)
+                    .datePickerStyle(.field)
+                    .labelsHidden()
+                    .environment(\.timeZone, BusinessCalendar.timeZone)
+                    .accessibilityLabel("\(label) for \(shoot.name)")
+                    .fixedSize()
+            }
+        } else {
+            // NOT OFFERED RATHER THAN OFFERED AND REFUSED. A sent invoice's times
+            // priced a document a client holds, and a control that opens onto a
+            // refusal is a dead control (L651, L109).
+            Text(time.map(Self.written) ?? "not given")
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(time == nil ? OvationPalette.faint : OvationPalette.ink)
+        }
+    }
+
+    /// The gregorian calendar pinned to the one zone every date in this app goes
+    /// through (plan 1.5, L39). `Calendar.current` is refused by the forbidden
+    /// constructs scanner, and this is why: an hour drawn in the Mac's zone and
+    /// stored in New York's are different hours the day Dan travels.
+    private static var businessCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = BusinessCalendar.timeZone
+        return calendar
+    }
+
+    /// A clock time as a `Date` the picker can show, on an arbitrary day.
+    ///
+    /// BUILT FROM COMPONENTS, NOT BY ADDING SECONDS TO A REFERENCE DATE. The
+    /// reference date is midnight UTC, which is 19:00 the previous day in New York,
+    /// so adding the minutes to it drew an hour five off the one stored.
+    static func date(of time: ClockTime?) -> Date {
+        let minutes = time?.minutesSinceMidnight ?? 0
+        var parts = DateComponents()
+        parts.year = 2000; parts.month = 1; parts.day = 1
+        parts.hour = minutes / 60
+        parts.minute = minutes % 60
+        return businessCalendar.date(from: parts) ?? Date(timeIntervalSinceReferenceDate: 0)
+    }
+
+    /// And back again, through the same zone the picker drew it in.
+    static func clockTime(of date: Date) -> ClockTime? {
+        let parts = businessCalendar.dateComponents([.hour, .minute], from: date)
+        guard let hour = parts.hour, let minute = parts.minute else { return nil }
+        return ClockTime(hour: hour, minute: minute)
+    }
+
+    /// One field's identity, so revealing the end of one shoot does not reveal the
+    /// end of another (L166).
+    static func key(_ shoot: InvoiceScreenPresenter.TimedShoot, _ edge: Edge) -> String {
+        "\(shoot.id)-\(edge == .start ? "start" : "end")"
+    }
+
+    /// `19:00`, the way the duration rule reads and writes one.
+    static func written(_ time: ClockTime) -> String {
+        let hour = time.minutesSinceMidnight / 60, minute = time.minutesSinceMidnight % 60
+        return String(format: "%02d:%02d", hour, minute)
     }
 
     // MARK: the lines
