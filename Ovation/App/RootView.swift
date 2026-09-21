@@ -43,6 +43,9 @@ struct RootView: View {
     /// resolved here, because no view may hold the store's context (PRD 51l).
     var openInvoice: ((PersistentIdentifier) -> InvoiceScreenPresenter?)?
 
+    /// ovation#457. Writing a time Dan typed, passed through for the same reason.
+    var writeTime: ((PersistentIdentifier, InvoiceScreenView.Edge, ClockTime?) async -> String?)?
+
     /// ovation#246. What the launch is doing, while it is doing it. Nil in every
     /// hosted test written before there was one, and in that case the window is
     /// exactly what it has always been.
@@ -73,7 +76,7 @@ struct RootView: View {
         } else if shellOwnsTheWindow, let shell, let roster {
             ShellView(shell: shell, roster: roster, problems: store,
                       invoices: invoices, heldMoney: heldMoney,
-                      openInvoice: openInvoice)
+                      openInvoice: openInvoice, writeTime: writeTime)
         } else {
             problemsWindow
         }

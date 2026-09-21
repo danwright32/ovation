@@ -54,6 +54,19 @@ final class InvoiceScreenPresenter {
         let isTotal: Bool
     }
 
+    /// One shoot in the head, with the times Dan types and what they produce
+    /// (round 4b: "beside the shoot", chosen by Dan and then re-drawn at the
+    /// multiple event case he was worried about).
+    struct TimedShoot: Identifiable, Equatable {
+        let id: PersistentIdentifier
+        let name: String
+        let start: ClockTime?
+        let end: ClockTime?
+        /// What the times produce, or what is missing. Empty when there is
+        /// nothing to say.
+        let derived: String
+    }
+
     /// The four columns, in the design's order.
     static let columns = ["Description", "Hours", "Rate", "Amount"]
 
@@ -70,6 +83,17 @@ final class InvoiceScreenPresenter {
     let due: String
     /// Why this invoice cannot be reviewed, or nil when it can.
     let refusal: String?
+    /// The shoots, with their times, in the head.
+    let shoots: [TimedShoot]
+    /// Whether the times may be typed at all.
+    ///
+    /// AN ORDINARY DRAFT ONLY. A sent invoice's times priced a document a client
+    /// holds, and an unsettled send's may already be in their inbox, so the field
+    /// is not offered rather than offered and then refused: a control that opens
+    /// onto a refusal is a dead control (L651, L109). `ShootTimesWriter` refuses
+    /// the same states, because a screen gating a write is not the write being
+    /// guarded (L196).
+    let mayEdit: Bool
 
     var mayReview: Bool { refusal == nil }
 
@@ -85,6 +109,45 @@ final class InvoiceScreenPresenter {
         // footer's two reasons, because a screen offering Review must refuse
         // exactly what Review refuses (L651).
         refusal = ReviewGate.refusal(for: invoice, footer: footer)
+        shoots = invoice.orderedShoots.map { Self.timed($0, on: invoice) }
+        mayEdit = invoice.sentStatus == .notSent
+    }
+
+    /// One shoot's times and what they produce.
+    private static func timed(_ shoot: Shoot, on invoice: Invoice) -> TimedShoot {
+        TimedShoot(id: shoot.persistentModelID, name: shoot.name,
+                   start: shoot.shotFrom, end: shoot.shotUntil,
+                   derived: derived(of: shoot, on: invoice))
+    }
+
+    /// THE ROUNDING IS NEVER SILENT, AND IT SAYS WHICH RULE MOVED THE FIGURE, which
+    /// round 4 settled and neither of the two files the design record was merged
+    /// from ever drew: both stopped at "billed as 1.50", so the reason the figure
+    /// moved was on the page nowhere. `ShootDuration.Priced.atMinimum` has existed
+    /// since it was written and nothing had read it (L46).
+    private static func derived(of shoot: Shoot, on invoice: Invoice) -> String {
+        guard let start = shoot.shotFrom, let end = shoot.shotUntil else {
+            // Nothing to derive yet, and the row already carries the waiting word,
+            // so the head says nothing rather than saying it twice (L605).
+            return ""
+        }
+        switch ShootDuration.between(start, and: end) {
+        case .priced(let priced):
+            // THE REASON IS ALWAYS GIVEN, which is what round 4 settled, and it is
+            // not a claim that the figure moved: it names the rule that produced
+            // it. An earlier version here gave it only when the figure had moved
+            // UP, which left the design's own worked example ("1h 32m, billed as
+            // 1.50 hours, rounded to the nearest quarter") unexplained, because
+            // 1.53 hours rounds DOWN to the quarter.
+            let why = priced.atMinimum
+                ? "the one hour minimum"
+                : "rounded to the nearest quarter"
+            return "\(elapsed(priced.elapsedMinutes)), billed as "
+                + "\(PDFText.hoursFigure(priced.billed)) hours, \(why)"
+        case .longerThanAShoot:
+            // The gate's own short word, never a second wording of it (L118).
+            return ReviewGate.says(for: .durationLongerThanAShoot) ?? ""
+        }
     }
 
     /// The shoot and its day, or what the invoice has instead.
@@ -239,6 +302,15 @@ final class InvoiceScreenPresenter {
                              isTotal: false))
         rows.append(MoneyRow(label: "Total", value: figure(invoice.total), isTotal: true))
         return rows
+    }
+
+    /// "20m", "1h", "1h 32m": the design record's own `elapsedText`. A zero hour
+    /// and a zero minute are each left out rather than written, because "0h 20m"
+    /// and "1h 0m" are both a quantity of nothing drawn.
+    private static func elapsed(_ minutes: Int) -> String {
+        let hours = minutes / 60, rest = minutes % 60
+        guard hours > 0 else { return "\(rest)m" }
+        return rest > 0 ? "\(hours)h \(rest)m" : "\(hours)h"
     }
 
     /// A percentage as the design writes it, from basis points.

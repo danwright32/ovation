@@ -186,6 +186,92 @@ struct InvoiceScreenPresenterTests {
         #expect(screen.refusal == "Waiting on the time the shoot ended.")
     }
 
+    // MARK: the times in the head (round 4b)
+
+    /// ROUND 4 SETTLED BOTH SENTENCES, and neither of the two files the design
+    /// record was merged from ever drew either: both stopped at "billed as 1.50",
+    /// so the reason the figure moved was on the page nowhere. The rounding is
+    /// never silent and it says WHICH rule moved it.
+    @Test("a rounded duration says so, and says it was the quarter hour")
+    func aroundedDurationSaysWhichRuleMovedIt() throws {
+        // 19:00 to 20:32 is 1h 32m, which the quarter hour rule takes to 1.75.
+        let invoice = try Self.invoice(try Self.store(), until: "20:32", rate: nil)
+
+        let shoot = try #require(Self.present(invoice).shoots.first)
+
+        #expect(shoot.derived == "1h 32m, billed as 1.5 hours, rounded to the nearest quarter")
+    }
+
+    /// AND AT THE FLOOR IT NAMES THE MINIMUM INSTEAD, because a reader told the
+    /// figure was "rounded to the nearest quarter" when the one hour minimum is
+    /// what produced it has been given the wrong reason (L11).
+    @Test("a duration at the floor names the one hour minimum, not the quarter")
+    func adurationAtTheFloorNamesTheMinimum() throws {
+        let invoice = try Self.invoice(try Self.store(), until: "19:20", rate: nil)
+
+        let shoot = try #require(Self.present(invoice).shoots.first)
+
+        #expect(shoot.derived == "20m, billed as 1.0 hours, the one hour minimum")
+    }
+
+    /// AND THE RULE IS NAMED EVEN WHERE IT MOVED NOTHING, because the sentence
+    /// names the rule that produced the figure rather than claiming a change. 1.5
+    /// IS the nearest quarter to 1h 30m.
+    @Test("an exact duration still names the rule that produced it")
+    func anexactDurationStillNamesTheRule() throws {
+        let invoice = try Self.invoice(try Self.store(), until: "20:30", rate: nil)
+
+        let shoot = try #require(Self.present(invoice).shoots.first)
+
+        #expect(shoot.derived == "1h 30m, billed as 1.5 hours, rounded to the nearest quarter")
+    }
+
+    /// THE HEAD SAYS NOTHING WHERE THE ROW ALREADY SAYS IT. An untimed shoot's row
+    /// carries "Needs the end time", and repeating it in the head states one fact
+    /// twice on one screen (L605).
+    @Test("an untimed shoot's head says nothing, because its row already says it")
+    func anuntimedShootsHeadIsSilent() throws {
+        let invoice = try Self.invoice(try Self.store(), until: nil, rate: nil)
+
+        let screen = Self.present(invoice)
+
+        #expect(screen.shoots.first?.derived.isEmpty == true)
+        #expect(screen.lines.first?.amount == "Needs the end time")
+    }
+
+    /// THE TIMES ARE OFFERED ONLY ON A DRAFT. A sent invoice's times priced a
+    /// document a client holds, so the field is not offered rather than offered
+    /// and then refused (L651).
+    @Test("a sent invoice's times are not offered for typing", arguments: [true, false])
+    func asentInvoicesTimesAreNotOffered(sent: Bool) throws {
+        let context = try Self.store()
+        let invoice = try Self.invoice(context)
+        if sent {
+            invoice.number = 1_123
+            invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+        }
+
+        #expect(Self.present(invoice).mayEdit == !sent)
+    }
+
+    /// THE PICKER SHOWS A `Date` AND THE STORE HOLDS A CLOCK TIME, so the two
+    /// conversions have to be each other's inverse or an hour typed is not the hour
+    /// saved. It is asserted across the WHOLE day, because the failure it exists to
+    /// catch is a zone offset, which shifts some hours past a boundary and leaves
+    /// others alone.
+    ///
+    /// THE FIRST VERSION WAS WRONG THIS WAY. It added the minutes to
+    /// `Date(timeIntervalSinceReferenceDate: 0)`, which is midnight UTC and 19:00
+    /// the previous day in New York, so every hour drew five off.
+    @Test("every minute of the day survives the trip to the picker and back")
+    func everyMinuteSurvivesTheRoundTrip() throws {
+        for minutes in stride(from: 0, to: 24 * 60, by: 1) {
+            let time = try #require(ClockTime(hour: minutes / 60, minute: minutes % 60))
+            let back = InvoiceScreenView.clockTime(of: InvoiceScreenView.date(of: time))
+            #expect(back == time, "\(minutes) minutes past midnight came back as \(String(describing: back))")
+        }
+    }
+
     // MARK: the money
 
     /// THE SAME ARITHMETIC THE PAGE IS DRAWN FROM, never a second reading of it.
