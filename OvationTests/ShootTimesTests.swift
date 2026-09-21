@@ -273,6 +273,13 @@ struct ShootTimesTests {
         let context = try Self.store()
         let invoice = Self.invoice(context)
         let shoot = try Self.shoot(on: invoice, from: "19:00", until: "01:30")
+        // A LINE, because the last assertion is that the gate refuses NOTHING, and
+        // an invoice with no lines now carries its own refusal (ovation#458). The
+        // case is about the duration cap, so the fixture has to be an invoice that
+        // is otherwise sendable rather than one that passes because a refusal did
+        // not exist yet (L48).
+        invoice.add(LineItem.hourly(hours: Hours(hundredths: 650), at: Money(dollars: 250),
+                                    describedAs: "Photography", for: shoot))
 
         #expect(shoot.billedHours == Hours(hundredths: 650))
         #expect(invoice.refusals.contains(.durationLongerThanAShoot) == false)
