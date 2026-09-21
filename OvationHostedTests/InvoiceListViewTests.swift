@@ -117,8 +117,15 @@ struct InvoiceListViewTests {
 
         // THE COUNT IS ASSERTED, not a sample of it. A list whose job is to hold
         // everything is exactly the surface where a missing row is invisible.
-        #expect(presenter.bands.flatMap(\.rows).count == 11)
-        for row in presenter.bands.flatMap(\.rows) {
+        //
+        // COMPUTED OUTSIDE THE MACRO, like the other chains in this file. `#expect`
+        // expands into a macro that re-types the whole expression, and a chain of
+        // flatMap into filter into count inside one is enough for the type checker
+        // to give up: it compiled here and failed the CI build with "unable to
+        // type-check this expression in reasonable time".
+        let rows = presenter.bands.flatMap(\.rows)
+        #expect(rows.count == 11)
+        for row in rows {
             #expect(drawn.contains(row.shoot), "the screen is missing \(row.shoot)")
         }
     }
@@ -140,8 +147,10 @@ struct InvoiceListViewTests {
         // on the real screen. The Invoice column means the client has this number.
         let context = try Self.store()
         let (_, presenter) = Self.view(context)
-        let holding = try #require(presenter.bands.flatMap(\.rows)
-            .first { $0.shoot == "Autumn Winds" })
+        let everyRow = presenter.bands.flatMap(\.rows)
+        let holding = try #require(everyRow.first { (row: InvoiceListPresenter.Row) in
+            row.shoot == "Autumn Winds"
+        })
         #expect(holding.number == "draft")
     }
 
@@ -183,7 +192,9 @@ struct InvoiceListViewTests {
         // are drawn once, here.
         let place = try #require(presenter.bands.first { $0.band == .toPlace })
         #expect(place.rows.count == 2)
-        #expect(presenter.bands.flatMap(\.rows).filter { $0.shoot == "Family concert" }.count == 1)
+        let familyConcerts = presenter.bands.flatMap(\.rows)
+            .filter { (row: InvoiceListPresenter.Row) in row.shoot == "Family concert" }
+        #expect(familyConcerts.count == 1)
     }
 
     // MARK: the empty day
@@ -196,7 +207,8 @@ struct InvoiceListViewTests {
         let view = InvoiceListView(presenter: presenter, heldMoney: nil,
                                    selected: .constant(nil))
         let drawn = try view.inspect().findAll(ViewType.Text.self).map { try $0.string() }
-        #expect(drawn.contains { $0.contains("Nothing is waiting") })
+        let saysSo = drawn.contains { (said: String) in said.contains("Nothing is waiting") }
+        #expect(saysSo)
     }
 
     // MARK: what a screen reader hears
