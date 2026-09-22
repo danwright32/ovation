@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 117
+harness_begin "output privacy tests" 119
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -967,6 +967,26 @@ check "the invoice footer source check prints no identity from the file it refus
     "$(leaks_in "$FOOTER_OUT")" "clean"
 check "and it really did refuse, so the case reached the lines that name a file" \
     "$(printf '%s' "$FOOTER_OUT" | grep -c 'REFUSED')" "1"
+
+# ---------------------------------------------------------------------------
+# THE ONE ACTION WORD CHECK (ovation#450). It reads every Swift file under the
+# app and prints the PATHS and LINE NUMBERS of the ones drawing an underlined
+# control. It must never print a LINE of any of them: the files it refuses are
+# the ones that draw invoices and rows, so the lines around a match are exactly
+# where a real client's name would sit if one were ever written into a preview,
+# a fixture or a comment.
+# ---------------------------------------------------------------------------
+WORD_TREE="$WORK/action-word-tree"
+mkdir -p "$WORD_TREE/Ovation/Invoices"
+printf 'struct ActionWord: View { var body: some View { Text("x").underline() } }\n' \
+    > "$WORD_TREE/Ovation/Invoices/ActionWord.swift"
+printf '// the row for %s at %s\nText(action).underline()\n' \
+    "$CLIENT" "$VENUE" > "$WORD_TREE/Ovation/Invoices/InvoiceListView.swift"
+WORD_OUT="$(OVATION_REPO_ROOT="$WORD_TREE" ./scripts/check-one-action-word.sh 2>&1)"
+check "the one action word check prints no identity from the file it refuses" \
+    "$(leaks_in "$WORD_OUT")" "clean"
+check "and it really did refuse, so the case reached the lines that name a file" \
+    "$(printf '%s' "$WORD_OUT" | grep -c 'REFUSED')" "1"
 
 # ---------------------------------------------------------------------------
 # THE WAITING SENTENCE GUARD (ovation#117). Its whole subject is COPY: the

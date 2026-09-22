@@ -235,12 +235,46 @@ struct InvoiceListView: View {
                 // only in a tooltip (L49). It is a word rather than a button, which
                 // is the design record's own idiom, and it carries the underline at
                 // rest so it reads as pressable without one.
-                Text(action)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .underline()
-                    .foregroundStyle(OvationPalette.ink)
+                //
+                // AND A WORD WITH NOWHERE TO GO IS DRAWN QUIET (ovation#450). All
+                // eight of these were drawn as controls and none of them did what
+                // the word said, which is worse than a greyed control because it
+                // looks exactly like the live one it will become (L109, L148).
+                // Which words have somewhere to go is `Action.destination`, in one
+                // place, beside the words themselves.
+                //
+                // THE ROW STILL OPENS ON A TAP, including a tap that lands on a
+                // quiet word, and that is deliberate: opening the invoice is what
+                // this ROW does everywhere along its length. What the quiet
+                // treatment withdraws is the OFFER that the word itself will do
+                // what it says.
+                ActionWord(word: action, size: 12.5,
+                           press: Self.press(action, on: row, open: open),
+                           notYet: Self.notYet(action))
             }
         }
+    }
+
+    /// What pressing the action word does, or nil where nothing does what the
+    /// word says yet.
+    ///
+    /// THE PREDICATE IS `Action.destination` READ ONCE, so whether the word is
+    /// drawn as a control and what pressing it does are ONE answer rather than
+    /// two that can disagree (L70).
+    private static func press(_ action: String, on row: InvoiceListPresenter.Row,
+                              open: ((PersistentIdentifier) -> Void)?)
+        -> (() -> Void)? {
+        guard let open, InvoiceListPresenter.Action.destination(of: action)
+                == .theInvoiceScreen else { return nil }
+        return { open(row.invoiceID) }
+    }
+
+    /// What a screen reader hears after a word that cannot be pressed. It names
+    /// what is missing rather than saying "not available", because a refusal has
+    /// to say what would change it (L111).
+    private static func notYet(_ action: String) -> String? {
+        guard InvoiceListPresenter.Action.destination(of: action) == nil else { return nil }
+        return "there is no screen for this yet"
     }
 
     // MARK: what the words are

@@ -210,6 +210,16 @@ gate_check check-motion-owner.sh "an animation is written outside the file that 
 gate_check check-invoice-footer-source.sh "the invoice page is built from the shipped footer text rather than from Settings."
 gate_check check-waiting-sentences-agree.sh "a refusal the app says has drifted from the wording settled in the design record."
 
+# ovation#450. A control in this product is a WORD carrying an underline at rest,
+# and `ActionWord` owns both halves of that pair: the pressable treatment and the
+# quiet one a word gets when nothing does what it says yet. There were two hand
+# rolled copies when it was written and they had already drifted, one saying why
+# it could not be pressed and the other silent. A shared component that converts
+# the site in front of whoever built it and leaves the rest is not consolidation
+# (L613), and the receipts queue, the review screen and the Clients screen all
+# still want this word. Fast: one grep per Swift file under Ovation/.
+gate_check check-one-action-word.sh "a second hand rolled copy of the product's word-that-is-a-control."
+
 # ovation#119. `OvationMigrationPlan.stages` is empty and `schemas` names one
 # version. Both are correct today and exactly one of them is silently wrong the
 # moment a second version is added, because SwiftData does not refuse a missing
