@@ -131,6 +131,49 @@ struct InvoiceScreenPresenterTests {
         #expect(Self.present(try Self.invoice(try Self.store())).state == "Draft")
     }
 
+    // MARK: the venue (ovation#95)
+
+    /// THE VENUE IS HOW A SHOOT IS RECOGNISED. Two invoices for one client in one
+    /// week are told apart by where they were, not by the name repeated on both,
+    /// and every handoff record Downbeat writes carries one.
+    @Test("the line names the venue under the shoot")
+    func thelineNamesTheVenue() throws {
+        let invoice = try Self.invoice(try Self.store())
+
+        let beneath = Self.present(invoice).lines.first?.beneath
+
+        #expect(beneath?.contains("St Anne's") == true, "it says \(beneath ?? "nothing")")
+    }
+
+    /// AND A SHOOT WITH NO VENUE SAYS SO RATHER THAN LEAVING A GAP (ovation#95).
+    /// A missing required value shown as a blank is indistinguishable from a
+    /// value nobody needed, and this one is how the shoot is told from the other
+    /// one that week (L67, L626). Every record from Downbeat carries a venue, so
+    /// a shoot with none was raised some other way and is exactly the case worth
+    /// naming.
+    @Test("a shoot with no venue recorded says so, rather than drawing a gap")
+    func anovenueShootSaysSo() throws {
+        let invoice = try Self.invoice(try Self.store())
+        invoice.orderedShoots.first?.venue = nil
+
+        let beneath = try #require(Self.present(invoice).lines.first?.beneath)
+
+        #expect(beneath.hasPrefix("No venue recorded"), "it says \(beneath)")
+        // The day is still there, so naming the gap did not cost the fact beside
+        // it: the two are one line and both belong on it.
+        #expect(beneath.contains("Nov"), "the day went with the venue: \(beneath)")
+    }
+
+    @Test("and an empty venue is the same as none, not a gap of its own")
+    func anemptyVenueIsTheSame() throws {
+        let invoice = try Self.invoice(try Self.store())
+        invoice.orderedShoots.first?.venue = "   "
+
+        let beneath = try #require(Self.present(invoice).lines.first?.beneath)
+
+        #expect(beneath.hasPrefix("No venue recorded"), "it says \(beneath)")
+    }
+
     // MARK: the lines
 
     /// EACH LINE CARRIES ITS OWN FIGURE, and this is the fault the design record's

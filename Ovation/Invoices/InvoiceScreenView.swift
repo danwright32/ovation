@@ -85,6 +85,7 @@ struct InvoiceScreenView: View {
         }
         .background(OvationPalette.background)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .ovationAppearance()
     }
 
     // MARK: the head

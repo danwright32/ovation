@@ -32,6 +32,7 @@ struct InvoiceSettingsView: View {
 
     var body: some View {
         ScrollView { fields }
+            .ovationAppearance()
     }
 
     /// The pane's content, without the scrolling around it.

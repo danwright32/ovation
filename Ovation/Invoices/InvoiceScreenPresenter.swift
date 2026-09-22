@@ -232,11 +232,6 @@ final class InvoiceScreenPresenter {
     /// A shoot with nothing priced against it yet: a word where the amount would
     /// be, in the design record's own short form.
     private static func waitingRow(for shoot: Shoot, on invoice: Invoice) -> Line {
-        var beneath: [String] = []
-        if let venue = shoot.venue, !venue.isEmpty { beneath.append(venue) }
-        if let day = shoot.day, let written = BusinessCalendar.shortDate(day) {
-            beneath.append(written)
-        }
         // THE SHORT FORM THE GATE OWNS, never a second wording written here, so
         // the word beside the figure and the sentence under the action come from
         // one place (L118, L370).
@@ -245,10 +240,34 @@ final class InvoiceScreenPresenter {
             .flatMap(ReviewGate.says)
         return Line(id: shoot.persistentModelID,
                     describes: shoot.name,
-                    beneath: beneath.joined(separator: ", "),
+                    beneath: Self.beneath(shoot),
                     hours: "", rate: "",
                     amount: word ?? "",
                     amountIsAWord: word != nil)
+    }
+
+    /// Where the shoot was and when, under its description.
+    ///
+    /// ovation#95. THE VENUE IS HOW A SHOOT IS RECOGNISED: two invoices for one
+    /// client in one week are told apart by where they were, not by the name
+    /// repeated on both, and every handoff record Downbeat writes carries one.
+    ///
+    /// A MISSING ONE IS NAMED RATHER THAN LEFT AS A GAP. A required value shown
+    /// as a blank is indistinguishable from one nobody needed (L67), and an
+    /// omitted element does not remove the space it occupied, so the line simply
+    /// read as a date sitting where a place should be (L626). A venue of
+    /// whitespace drew a leading comma, which reads as a layout fault.
+    ///
+    /// ONE DERIVATION FOR BOTH LINES, the priced one and the one still waiting on
+    /// a time, because they are two renderings of one fact and written twice they
+    /// drift (L370).
+    private static func beneath(_ shoot: Shoot) -> String {
+        let venue = (shoot.venue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var parts = [venue.isEmpty ? "No venue recorded" : venue]
+        if let day = shoot.day, let written = BusinessCalendar.shortDate(day) {
+            parts.append(written)
+        }
+        return parts.joined(separator: ", ")
     }
 
     /// One line's four columns.
@@ -257,17 +276,10 @@ final class InvoiceScreenPresenter {
     /// the figure a client reads and the figure Dan approves are one fact. What
     /// differs is only the formatting helper each surface uses.
     private static func line(_ item: LineItem) -> Line {
-        var beneath: [String] = []
-        if let shoot = item.shoot {
-            if let venue = shoot.venue, !venue.isEmpty { beneath.append(venue) }
-            if let day = shoot.day, let written = BusinessCalendar.shortDate(day) {
-                beneath.append(written)
-            }
-        }
         return Line(
             id: item.persistentModelID,
             describes: item.shoot?.name ?? item.summary,
-            beneath: beneath.joined(separator: ", "),
+            beneath: item.shoot.map(Self.beneath) ?? "",
             // A FLAT CHARGE DRAWS NEITHER, blank rather than zero. The design
             // record says it in as many words: a value the invoice has no number
             // for yet is blank, never zero, because a zero is legitimate.
