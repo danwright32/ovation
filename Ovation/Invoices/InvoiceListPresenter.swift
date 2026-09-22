@@ -275,6 +275,17 @@ final class InvoiceListPresenter {
         enum Destination: Equatable { case theInvoiceScreen }
     }
 
+    /// Where the list goes when it comes back, given the row that was open.
+    ///
+    /// AN EMPTY LIST IS NOT A ROW THAT LEFT. The empty state already says the
+    /// healthy thing, and a notice beside it would state one fact twice and
+    /// contradict itself (L605, L10).
+    func returning(to row: PersistentIdentifier?) -> ReturningToTheList {
+        guard let row, !bands.isEmpty else { return .nothingInParticular }
+        let here = bands.contains { $0.rows.contains { $0.invoiceID == row } }
+        return here ? .showing(row) : .theRowHasGone
+    }
+
     private static func row(for invoice: Invoice, standing: InvoiceStanding,
                             band: InvoiceBand, today: BusinessDate) -> Row {
         let shoots = invoice.orderedShoots
@@ -413,5 +424,37 @@ final class InvoiceListPresenter {
     private static func age(of standing: InvoiceStanding) -> String? {
         guard let dueDay = standing.dueDay, dueDay < InvoiceBand.today else { return nil }
         return "\(InvoiceBand.today - dueDay)d"
+    }
+}
+
+/// ovation#125. What the invoice list does when it comes back with a row in mind.
+///
+/// ROUND 1 OF ovation#111 SETTLED THAT THE INVOICE TAKES THE WHOLE SCREEN, so the
+/// list goes away and comes back, and nothing said what you come back TO.
+///
+/// THREE ANSWERS, BECAUSE THEY NEED THREE DIFFERENT THINGS. The row is still
+/// there and is scrolled back to; it was there and is not now, which is SAID; or
+/// nothing was open and this is an ordinary arrival. Folding the middle one into
+/// either of the others is how an invoice vanishes from under the eye (L426, L10).
+enum ReturningToTheList: Equatable {
+    /// Still here. Scroll to it and leave it selected.
+    case showing(PersistentIdentifier)
+    /// It was here and is not now.
+    case theRowHasGone
+    /// Nothing in mind, or nothing to come back to.
+    case nothingInParticular
+
+    /// What the list says about it, or nil where it says nothing.
+    ///
+    /// IT CLAIMS ONLY WHAT IT MEASURED. The list knows the row is not here and
+    /// does not know why, so it does not say sent, or paid, or deleted: the
+    /// causes each need their own sentence from whatever caused them (L11).
+    var sentence: String? {
+        switch self {
+        case .theRowHasGone:
+            return "The invoice you had open is not on this list any more."
+        case .showing, .nothingInParticular:
+            return nil
+        }
     }
 }
