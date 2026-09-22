@@ -60,6 +60,7 @@ struct InvoiceListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             columnHeader
+            if let said = presenter.returning(to: selected).sentence { rowHasGone(said) }
             if presenter.bands.isEmpty {
                 empty
             } else {
@@ -91,6 +92,27 @@ struct InvoiceListView: View {
         .accessibilityHidden(true)
     }
 
+    /// ovation#125. THE ROW YOU CAME BACK FOR IS NOT HERE, said rather than left
+    /// to be worked out. An item that leaves must not simply vanish from under the
+    /// eye: landing silently at the top of a rearranged list is indistinguishable
+    /// from having never been anywhere (L426, L10).
+    ///
+    /// NEVER RED, and it carries no control. Nothing went wrong, and the list
+    /// cannot offer a way back to a row that is not on it: the remedy is
+    /// whichever action took it off, and that action says its own piece (L80,
+    /// L112). It clears the moment another row is selected, because the notice is
+    /// about the row you were on rather than a condition of the list.
+    private func rowHasGone(_ said: String) -> some View {
+        Text(said)
+            .font(.system(size: 12.5))
+            .foregroundStyle(OvationPalette.quiet)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Column.sideMargin)
+            .padding(.vertical, 9)
+            .background(OvationPalette.selection)
+            .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.ruleSoft) }
+    }
+
     /// A POSITIVE STATEMENT ON THE HEALTHY DAY (L610). An empty list is the good
     /// outcome here, not a screen that failed to load, so it says which.
     private var empty: some View {
@@ -103,15 +125,39 @@ struct InvoiceListView: View {
 
     // MARK: the list
 
+    /// ovation#125. THE LIST COMES BACK TO THE ROW YOU OPENED, wherever it now
+    /// is, rather than to the top. The invoice takes the whole screen (round 1 of
+    /// ovation#111), so this list is BUILT AGAIN every time one is closed, and a
+    /// scroll view built again starts at the top. At 24 invoices that already
+    /// costs something, and working down a run of drafts gets worse the further
+    /// down it goes, which is when a short fixture stops showing it.
+    ///
+    /// IT ANCHORS ON THE ROW RATHER THAN ON AN OFFSET, because acting inside the
+    /// invoice can move it: an offset would come back to whatever has since taken
+    /// that place, which reads as the list having reordered itself (L426).
     private var rows: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+        ScrollViewReader { scroll in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    bandsAndRows
+                }
+            }
+            .onAppear {
+                guard case .showing(let row) = presenter.returning(to: selected) else { return }
+                scroll.scrollTo(row, anchor: .center)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var bandsAndRows: some View {
                 ForEach(Array(presenter.bands.enumerated()), id: \.element.band) { index, band in
                     if band.band == .toPlace, let heldMoney {
                         waitingHead(heldMoney)
                     }
                     ForEach(band.rows) { row in
                         line(row, idle: Self.isIdle(band.band))
+                            .id(row.invoiceID)
                     }
                     // THE WAITING BAND HAS TO END. It sits at the TOP, so without
                     // something closing it the whole list beneath reads as its
@@ -124,8 +170,6 @@ struct InvoiceListView: View {
                             .padding(.top, 16)
                     }
                 }
-            }
-        }
     }
 
     /// PRD 46d. What is held, above the invoices it could settle.

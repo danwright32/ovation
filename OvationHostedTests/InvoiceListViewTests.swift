@@ -180,6 +180,47 @@ struct InvoiceListViewTests {
         #expect(pressable.isEmpty, "\(pressable.count) word(s) were pressable with nowhere to go")
     }
 
+    // MARK: coming back to the list (ovation#125)
+
+    /// THE ROW YOU CAME BACK FOR IS NOT HERE, AND THE WINDOW SAYS SO. The
+    /// presenter can decide this perfectly and the screen can still drop it,
+    /// which is the second of the two testable surfaces (L442), and dropping it
+    /// is the whole failure: an invoice that vanishes from under the eye.
+    @Test("a selection that is no longer on the list is said in the window")
+    func agoneSelectionIsDrawn() throws {
+        let context = try Self.store()
+        let (invoices, held) = Self.theRealList(context)
+        let absent = invoices[0]
+        let presenter = InvoiceListPresenter(invoices: Array(invoices.dropFirst()),
+                                             heldMoney: held, today: Self.today)
+        let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
+                                   selected: .constant(absent.persistentModelID))
+
+        let drawn = try view.inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+
+        #expect(drawn.contains(ReturningToTheList.theRowHasGone.sentence ?? ""),
+                "the window said nothing about the row that left")
+    }
+
+    /// AND A LIST YOU CAME BACK TO NORMALLY SAYS NOTHING ABOUT IT. Without this,
+    /// a screen that always carried the sentence would pass the case above
+    /// (L159), and a list claiming on every return that something had gone would
+    /// be worse than one that never said it.
+    @Test("a selection that is still on the list draws no notice at all")
+    func apresentSelectionDrawsNoNotice() throws {
+        let context = try Self.store()
+        let (invoices, held) = Self.theRealList(context)
+        let presenter = InvoiceListPresenter(invoices: invoices, heldMoney: held,
+                                             today: Self.today)
+        let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
+                                   selected: .constant(invoices[0].persistentModelID))
+
+        let drawn = try view.inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+
+        #expect(!drawn.contains(ReturningToTheList.theRowHasGone.sentence ?? ""))
+        #expect(!drawn.contains { $0.contains("not on this list") })
+    }
+
     // MARK: every invoice is on the screen
 
     @Test("every invoice in the store is drawn, at the real count")
