@@ -48,6 +48,9 @@ struct RootView: View {
     /// ovation#473. What saving a due date does, or nil where this launch has no
     /// store to write to.
     var writeDueDate: ((PersistentIdentifier, BusinessDate) async -> String?)?
+    /// ovation#457, PRD 5.5. Recording a client's sales tax status, passed through
+    /// for the same reason: this view reaches no store of its own.
+    var writeTaxStatus: ((PersistentIdentifier, TaxStatus) async -> String?)?
 
     /// ovation#246. What the launch is doing, while it is doing it. Nil in every
     /// hosted test written before there was one, and in that case the window is
@@ -80,7 +83,7 @@ struct RootView: View {
             ShellView(shell: shell, roster: roster, problems: store,
                       invoices: invoices, heldMoney: heldMoney,
                       openInvoice: openInvoice, writeTime: writeTime,
-                      writeDueDate: writeDueDate)
+                      writeDueDate: writeDueDate, writeTaxStatus: writeTaxStatus)
         } else {
             problemsWindow
         }

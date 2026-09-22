@@ -89,4 +89,24 @@ struct VocabularyTests {
         #expect(PaymentMethod.payPal.rawValue == "paypal")
         #expect(ExpenseCategory.contractLabour.rawValue == "contract-labour")
     }
+
+    // MARK: the tax status (ovation#457)
+
+    /// A VOCABULARY IN CODE IS A PICKER, NEVER A TEXT BOX (L611), and the two
+    /// surfaces that ask this question offer ONE list rather than each holding
+    /// its own copy of it (L41).
+    @Test("the answers are every status but the absence of one")
+    func theanswersAreEveryStatusButTheAbsenceOfOne() {
+        #expect(TaxStatus.answers == [.exempt, .notExempt])
+        #expect(Set(TaxStatus.answers) == Set(TaxStatus.allCases).subtracting([.neverRecorded]))
+    }
+
+    /// DERIVED, NOT LISTED, which is what makes this hold when a fourth status is
+    /// added: a hand written list would leave it unofferable on both screens and
+    /// nothing would say so (L41, L96).
+    @Test("never recorded is the one thing a person can never choose")
+    func neverrecordedIsNotAnAnswer() {
+        #expect(TaxStatus.answers.contains(.neverRecorded) == false)
+        #expect(TaxStatus.answers.count == TaxStatus.allCases.count - 1)
+    }
 }

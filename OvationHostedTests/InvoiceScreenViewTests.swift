@@ -19,9 +19,10 @@ struct InvoiceScreenViewTests {
     /// A draft: a shoot with a start and no end, and its line with no hours, which
     /// is the ordinary state of every invoice (PRD 3c).
     private static func draft(sent: Bool = false, end: String? = nil,
-                              number: Int64? = nil) throws -> InvoiceScreenPresenter {
+                              number: Int64? = nil,
+                              taxStatus: TaxStatus = .notExempt) throws -> InvoiceScreenPresenter {
         let context = ModelContext(try OvationSchema.container(inMemory: true))
-        let client = Client(name: "Cedar Hill Youth Orchestra", taxStatus: .notExempt)
+        let client = Client(name: "Cedar Hill Youth Orchestra", taxStatus: taxStatus)
         client.email = "booker@example.com"
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: today,
@@ -127,5 +128,111 @@ struct InvoiceScreenViewTests {
 
         #expect(sentPickers == 0, "a sent invoice offered \\(sentPickers) time field(s)")
         #expect(draftPickers == 2, "a draft should offer both times, and offered \\(draftPickers)")
+    }
+
+    // MARK: the tax status, answered where it is said (ovation#457, PRD 5.5)
+
+    /// THE THING STOPPING THE INVOICE IS ANSWERABLE WHERE IT IS SAID, which is the
+    /// design record's own rule for this question. Until this existed the foot
+    /// named the one thing outstanding and the screen offered no way to do it, and
+    /// the only place the status could be set was a different screen reached from
+    /// a different place (L80, L111).
+    @Test("the question and its two answers reach the window")
+    func thetaxQuestionIsDrawn() throws {
+        let view = InvoiceScreenView(presenter: try Self.draft(taxStatus: .neverRecorded),
+                                     close: {}, setTime: { _, _, _ in },
+                                     answerTax: { _, _ in })
+
+        let drawn = try Self.text(in: view)
+        let pressable = try view.inspect().findAll(ViewType.Button.self)
+            .compactMap { try? $0.labelView().text().string() }
+
+        #expect(drawn.contains("Tax status never recorded for this client."))
+        #expect(TaxStatus.answers.allSatisfy { pressable.contains($0.exportLabel) },
+                "the window offered \(pressable)")
+    }
+
+    /// THE POSITIVE CONTROL, without which a screen that never asks would pass the
+    /// case above (L159).
+    @Test("and a client whose status is recorded is asked nothing")
+    func anansweredClientIsAskedNothing() throws {
+        let view = InvoiceScreenView(presenter: try Self.draft(), close: {},
+                                     setTime: { _, _, _ in }, answerTax: { _, _ in })
+
+        let drawn = try Self.text(in: view)
+
+        #expect(!drawn.contains { $0.contains("Tax status never recorded") })
+        #expect(drawn.contains { $0.hasPrefix("Sales tax") },
+                "an answered client should still be drawing a tax row")
+    }
+
+    /// AND PRESSING ONE HANDS BACK THE ANSWER IT NAMES. A control wired to the
+    /// wrong value is the defect no rendering can show: both answers draw
+    /// identically and only the press tells them apart (L442).
+    @Test("pressing an answer hands back the status that answer names", arguments: TaxStatus.answers)
+    func pressinganAnswerHandsItBack(_ answer: TaxStatus) throws {
+        let presenter = try Self.draft(taxStatus: .neverRecorded)
+        var given: [TaxStatus] = []
+        var about: [PersistentIdentifier] = []
+        let view = InvoiceScreenView(presenter: presenter,
+                                     close: {}, setTime: { _, _, _ in },
+                                     answerTax: { about.append($0); given.append($1) })
+
+        try view.inspect().find(ViewType.Button.self, where: { button in
+            (try? button.labelView().text().string()) == answer.exportLabel
+        }).tap()
+
+        #expect(given == [answer])
+        // ADDRESSED BY THE CLIENT THE QUESTION WAS ASKED ABOUT, never looked up
+        // again when it is answered (L166).
+        #expect(about == [presenter.taxQuestion?.about])
+    }
+
+    /// A REFUSED ANSWER IS SAID, never swallowed, for the reason every other write
+    /// on this screen says its refusal: a control that does nothing and gives no
+    /// reason leaves pressing it again as the only diagnosis (L109, L148).
+    @Test("a refused answer reaches the window, in the writer's own words")
+    func arefusedAnswerIsDrawn() throws {
+        let view = InvoiceScreenView(presenter: try Self.draft(taxStatus: .neverRecorded),
+                                     close: {}, setTime: { _, _, _ in },
+                                     answerTax: { _, _ in },
+                                     refusedTax: ClientTaxStatusRefusal.noSuchClient.sentence)
+
+        let drawn = try Self.text(in: view)
+
+        #expect(drawn.contains(ClientTaxStatusRefusal.noSuchClient.sentence))
+    }
+
+    /// NOTHING TO WRITE WITH DRAWS NO ANSWERS, rather than two words that look
+    /// pressable and are not, which is the defect ovation#450 named and this
+    /// screen's own header says it must not ship (L109).
+    @Test("with nowhere to put the answer the question is stated and not offered")
+    func nowritePathOffersNoAnswers() throws {
+        let view = InvoiceScreenView(presenter: try Self.draft(taxStatus: .neverRecorded),
+                                     close: {}, setTime: { _, _, _ in })
+
+        let drawn = try Self.text(in: view)
+        let pressable = try view.inspect().findAll(ViewType.Button.self)
+            .compactMap { try? $0.labelView().text().string() }
+
+        #expect(drawn.contains("Tax status never recorded for this client."))
+        #expect(!pressable.contains { TaxStatus.answers.map(\.exportLabel).contains($0) })
+    }
+
+    /// EVERY FACT ONCE PER SCREEN (L605), read as one surface rather than as two
+    /// components each correct on its own. The foot said "Waiting on this client's
+    /// tax status." while the money block said "Tax status never recorded for this
+    /// client." four inches above it, and both were right.
+    @Test("the window states the tax status once, in the block that can answer it")
+    func thewindowStatesTheTaxStatusOnce() throws {
+        let view = InvoiceScreenView(presenter: try Self.draft(taxStatus: .neverRecorded),
+                                     close: {}, setTime: { _, _, _ in },
+                                     answerTax: { _, _ in })
+
+        let drawn = try Self.text(in: view)
+
+        #expect(drawn.contains("Tax status never recorded for this client."))
+        #expect(!drawn.contains(ReviewGate.sentence(for: .taxStatusNeverRecorded)),
+                "the foot repeated what the money block was already answering")
     }
 }

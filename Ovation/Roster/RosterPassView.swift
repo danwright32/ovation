@@ -196,8 +196,13 @@ struct RosterPassView: View {
             // A VOCABULARY IN CODE IS A PICKER, NEVER A TEXT BOX (L611), and the
             // two answers come from the enum the rest of the app reads rather
             // than from two strings written here.
+            //
+            // FROM `TaxStatus.answers`, THE ONE LIST, since ovation#457 gave the
+            // invoice screen the same question to ask. Two screens each holding
+            // their own copy of a vocabulary is how they come to offer different
+            // things (L41, L89).
             HStack(spacing: 6) {
-                ForEach([TaxStatus.exempt, TaxStatus.notExempt], id: \.self) { status in
+                ForEach(TaxStatus.answers, id: \.self) { status in
                     Button { record(status, on: client) } label: {
                         chip(status.exportLabel)
                     }

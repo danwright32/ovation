@@ -94,8 +94,55 @@ final class InvoiceScreenPresenter {
     let state: String
     /// Why this invoice cannot be reviewed, or nil when it can.
     let refusal: String?
+    /// The refusal the FOOT draws, which is the gate's answer except where the
+    /// money block is already stating that same fact with the two answers beside
+    /// it. ovation#457.
+    ///
+    /// EVERY FACT ONCE PER SCREEN (L605). `refusal` is unchanged and still governs
+    /// whether Review may be pressed and what it says to a screen reader; this is
+    /// only what is DRAWN at the foot, and it exists because the tax question is
+    /// the first refusal on this screen with a remedy in the body. Saying it in
+    /// both places is the composition defect that shows only when the page is read
+    /// as one surface, and it shipped that way until the screen was looked at.
+    ///
+    /// IT STANDS DOWN FOR THAT ONE FACT AND NOT FOR ANY OTHER (L324). A missing
+    /// payment line stops every invoice in the app and the gate says it FIRST, so
+    /// a rule that went quiet whenever the question was on screen would hide it
+    /// and send Dan to answer a tax status that is not what is stopping him.
+    ///
+    /// COMPARED AGAINST THE GATE'S OWN SENTENCE rather than a second copy of those
+    /// words here, so the two cannot drift into disagreeing (L118, L370).
+    let refusalAtTheFoot: String?
+
     /// The shoots, with their times, in the head.
     let shoots: [TimedShoot]
+    /// The one question this screen asks about the CLIENT rather than the invoice,
+    /// or nil once it has been answered. ovation#457, PRD 5.5.
+    ///
+    /// IT IS ANSWERABLE WHERE IT IS SAID, which is the design record's own rule:
+    /// the two answers sit in the block that states the fact. Until this existed
+    /// the foot named the one thing stopping the invoice and offered no way to do
+    /// it, and the only place the status could be set was the roster pass, which
+    /// is a different screen reached from a different place (L80, L111).
+    let taxQuestion: TaxQuestion?
+
+    /// The tax status question, as the design record draws it.
+    struct TaxQuestion: Equatable {
+        /// The design record's own sentence. It STATES THE FACT AND EXPLAINS NO
+        /// INTERFACE (L604): the record settled deliberately that no sentence here
+        /// says the answer is recorded on the client, because that was the
+        /// interface being explained rather than the domain.
+        let says: String
+        /// The answers, from `TaxStatus.answers` rather than two strings written
+        /// here, so this screen and the roster pass offer one list (L611, L89).
+        let answers: [TaxStatus]
+        /// WHO IT IS ABOUT, carried by the question rather than looked up again
+        /// when it is answered. The answer is a fact about this client, so the
+        /// action is addressed by the same thing the question was asked about and
+        /// cannot land on another (L166).
+        let about: PersistentIdentifier
+    }
+
     /// Whether the times may be typed at all.
     ///
     /// AN ORDINARY DRAFT ONLY. A sent invoice's times priced a document a client
@@ -123,6 +170,13 @@ final class InvoiceScreenPresenter {
         // footer's two reasons, because a screen offering Review must refuse
         // exactly what Review refuses (L651).
         refusal = ReviewGate.refusal(for: invoice, footer: footer)
+        // ONE READING, used by the question itself and by the foot's decision
+        // about whether to repeat it, so the two cannot disagree (L16).
+        let asking = Self.taxQuestion(for: invoice)
+        taxQuestion = asking
+        refusalAtTheFoot = asking != nil
+            && refusal == ReviewGate.sentence(for: .taxStatusNeverRecorded)
+            ? nil : refusal
         shoots = invoice.orderedShoots.map { Self.timed($0, on: invoice) }
         mayEdit = invoice.sentStatus == .notSent
     }
@@ -377,13 +431,53 @@ final class InvoiceScreenPresenter {
             rows.append(MoneyRow(label: "Taxable", value: figure(invoice.taxableAmount),
                                  isTotal: false))
         }
+        // NEVER RECORDED IS NOT THE SAME AS NOT EXEMPT, which PRD 5.5 states
+        // outright, and neither the tax nor the total is drawn until it has been
+        // answered. The design record draws exactly this: "a figure taken off a
+        // price nobody has established asserts something the screen cannot
+        // support."
+        //
+        // THE DEFECT THIS FIXES (ovation#457, found 2026-09-22). `isTaxed` answers
+        // TRUE for a status nobody recorded, deliberately, so a tax return can
+        // never under collect on an unknown. The screen read that as a decision
+        // and printed "Sales tax, 8.875%" with a real figure and a total beneath
+        // it, which is a tax decision the app does not have rendered as the
+        // recorded one (L192). The two zeroes on this screen are different things
+        // and so are the two taxed states: an exempt client's $0.00 is a MEASURED
+        // value, and an unanswered status has no value at all.
+        //
+        // AND A CLIENTLESS INVOICE IS THE SAME CASE, found in this diff rather than
+        // separately (L387). `invoice.tax` charges it, because its own guard reads
+        // `client?.taxStatus.isTaxed ?? true`, while the label here read `== true`
+        // and so called it exempt: one row asserting an exemption over a charged
+        // figure. Nothing recorded a status for a client that does not exist, so
+        // neither row is drawn, and `ReviewGate` already refuses the invoice
+        // through `InvoiceDocument.refusalToRender`.
+        //
+        // ONE READING OF THE STATUS decides both the label and whether the row is
+        // there, so the word and the figure beside it cannot disagree again (L544).
+        guard let status = invoice.client?.taxStatus, status != .neverRecorded else {
+            return rows
+        }
         // THE DESIGN'S OWN SEPARATOR, a comma rather than the PDF's parenthesis.
         // Both were settled on the surface they are drawn on.
-        let rate = invoice.client?.taxStatus.isTaxed == true ? invoice.taxRate.description : "exempt"
+        let rate = status.isTaxed ? invoice.taxRate.description : "exempt"
         rows.append(MoneyRow(label: "Sales tax, \(rate)", value: figure(invoice.tax),
                              isTotal: false))
         rows.append(MoneyRow(label: "Total", value: figure(invoice.total), isTotal: true))
         return rows
+    }
+
+    /// The tax status question, asked only while it is outstanding.
+    ///
+    /// AND ONLY WHERE THERE IS SOMEBODY TO ANSWER ABOUT. A clientless invoice has
+    /// no recorded status either, but the answer is a fact about a client, so a
+    /// question with nowhere to put its answer is not asked (L109).
+    private static func taxQuestion(for invoice: Invoice) -> TaxQuestion? {
+        guard let client = invoice.client, client.taxStatus == .neverRecorded else { return nil }
+        return TaxQuestion(says: "Tax status never recorded for this client.",
+                           answers: TaxStatus.answers,
+                           about: client.persistentModelID)
     }
 
     /// "20m", "1h", "1h 32m": the design record's own `elapsedText`. A zero hour

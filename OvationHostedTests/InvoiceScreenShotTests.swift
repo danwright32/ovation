@@ -65,7 +65,8 @@ struct InvoiceScreenShotTests {
                 // will be rather than as the plain text a nil setter draws. The
                 // picture exists to show what Dan will meet.
                 InvoiceScreenView(presenter: presenter, close: {},
-                                  setTime: { _, _, _ in }, review: {}),
+                                  setTime: { _, _, _ in },
+                                  answerTax: { _, _ in }, review: {}),
                 size: Self.windowSize, scheme: .light, to: file)
             written.append(file.lastPathComponent)
 
@@ -75,7 +76,8 @@ struct InvoiceScreenShotTests {
             let darkFile = directory.appending(path: "dark-check-\(state.rawValue).png")
             try OffscreenShot.capture(
                 InvoiceScreenView(presenter: presenter, close: {},
-                                  setTime: { _, _, _ in }, review: {}),
+                                  setTime: { _, _, _ in },
+                                  answerTax: { _, _ in }, review: {}),
                 size: Self.windowSize, scheme: .dark, to: darkFile)
             let light = try Data(contentsOf: file)
             let dark = try Data(contentsOf: darkFile)
@@ -103,11 +105,18 @@ struct InvoiceScreenShotTests {
         /// that number until it is sent or closed (PRD 10c, ovation#411). No
         /// ordinary fixture produces it, and until this it had no surface at all.
         case holdingANumber
+        /// The client's tax status was never recorded, which is 25 of Dan's 31
+        /// real clients as the roster pass found them (ovation#298). The money
+        /// block asks the question instead of drawing a tax figure and a total
+        /// nobody has decided, and the two answers are in it.
+        case waitingOnTheTaxStatus
     }
 
     private static func presenter(for state: State) throws -> InvoiceScreenPresenter {
         let context = ModelContext(try OvationSchema.container(inMemory: true))
-        let client = Client(name: "Cedar Hill Youth Orchestra", taxStatus: .notExempt)
+        let client = Client(name: "Cedar Hill Youth Orchestra",
+                            taxStatus: state == .waitingOnTheTaxStatus
+                                ? .neverRecorded : .notExempt)
         client.email = "booker@example.com"
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: today,
