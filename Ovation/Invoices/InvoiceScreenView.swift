@@ -44,6 +44,11 @@ struct InvoiceScreenView: View {
     /// itself is `ShootTimesWriter`, reached through the app, because a view may
     /// not hold a context (PRD 51l, ovation#440).
     var setTime: ((PersistentIdentifier, Edge, ClockTime?) -> Void)?
+    /// ovation#473. What saving a due date does, or nil where the caller has
+    /// nowhere for it to go yet.
+    var setDueDate: ((BusinessDate) -> Void)?
+    /// Why the last date was not saved, said rather than swallowed (L109).
+    var refusedDate: String?
 
     /// Which empty time fields Dan has asked to fill in. Local to the screen and
     /// deliberately not stored: it is a state of this viewing, and reopening the
@@ -398,11 +403,14 @@ struct InvoiceScreenView: View {
     /// with no reason is a dead control (L109).
     private var foot: some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
-            if !presenter.due.isEmpty {
-                Text("Due \(presenter.due)")
-                    .font(.system(size: 12.5, design: .monospaced))
-                    .foregroundStyle(OvationPalette.soft)
-            }
+            // ovation#473. WHEN IT WAS WRITTEN AND WHEN IT IS DUE, and the second
+            // is a control. PRD 5.7 makes the due date overridable per invoice and
+            // the app printed it as text, so the one thing the requirement says can
+            // be changed could not be.
+            DueDateControl(issued: presenter.issued, due: presenter.due,
+                           choices: presenter.dueChoices,
+                           save: presenter.mayEdit ? setDueDate : nil,
+                           refused: refusedDate)
             Spacer(minLength: 0)
             if let refusal = presenter.refusal {
                 Text(refusal)

@@ -53,6 +53,9 @@ struct ShellView: View {
     /// (PRD 3c). Nil where nothing can write. The write itself is
     /// `ShootTimesWriter`; this view only says which shoot and which end.
     var writeTime: ((PersistentIdentifier, InvoiceScreenView.Edge, ClockTime?) async -> String?)?
+    /// ovation#473. What saving a due date does, and what it says when it does
+    /// not. Nil where this launch has no store to write to.
+    var writeDueDate: ((PersistentIdentifier, BusinessDate) async -> String?)?
 
     /// Which invoice is selected. It lives here rather than inside the list
     /// because coming back from an invoice has to find the row again (ovation#125).
@@ -61,6 +64,9 @@ struct ShellView: View {
     @State private var openedInvoice: InvoiceScreenPresenter?
     /// Which one, so the screen can be built again after a write changes it.
     @State private var openedInvoiceID: PersistentIdentifier?
+    /// Why the last due date was not saved, or nil. Held here rather than in the
+    /// screen because the screen is rebuilt after every write.
+    @State private var refusedDate: String?
     /// Why the last write was refused, or nil. A refusal here is a race (the row
     /// went, or the invoice was sent from elsewhere), because the field is not
     /// offered at all on an invoice that may not be edited. It is still SAID: a
@@ -210,6 +216,14 @@ struct ShellView: View {
         if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
     }
 
+    /// The same shape for the due date: write, then re-read, so the foot and
+    /// everything derived from the date change together or not at all (L14).
+    private func dated(_ due: BusinessDate) async {
+        guard let openedInvoiceID else { return }
+        refusedDate = await writeDueDate?(openedInvoiceID, due)
+        openedInvoice = openInvoice?(openedInvoiceID)
+    }
+
     @ViewBuilder
     private var content: some View {
         switch shell.selected {
@@ -235,6 +249,10 @@ struct ShellView: View {
                     setTime: writeTime == nil ? nil : { shoot, edge, time in
                         Task { await typed(shoot, edge, time) }
                     },
+                    setDueDate: writeDueDate == nil ? nil : { due in
+                        Task { await dated(due) }
+                    },
+                    refusedDate: refusedDate,
                     refused: refusedWrite)
             } else if let invoices {
                 InvoiceListView(presenter: invoices, heldMoney: heldMoney,
