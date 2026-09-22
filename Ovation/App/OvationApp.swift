@@ -485,6 +485,21 @@ struct OvationApp: App {
                              }
                          }
                      },
+                     // ovation#473. The same shape for the due date, which PRD 5.7
+                     // makes overridable per invoice and nothing could change.
+                     writeDueDate: opened.map { container in
+                         { invoice, due in
+                             let writer = InvoiceDueDateWriter(modelContainer: container)
+                             do {
+                                 try await writer.setDueDate(due, on: invoice)
+                                 return nil
+                             } catch let refusal as InvoiceDueDateRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That date could not be saved: \(error)"
+                             }
+                         }
+                     },
                      progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
                 // order inside the launch is unchanged; what changed is that

@@ -81,6 +81,14 @@ final class InvoiceScreenPresenter {
     /// a zero is a legitimate comped invoice and a missing value must not look
     /// like one.
     let due: String
+    /// The date the invoice was written, rendered, or empty where it has none.
+    ///
+    /// THE FOOT SAYS BOTH (ovation#473). The design record draws "Dated 29 Aug
+    /// 2026, due ...", and the app printed only the second, so the number every
+    /// term is counted from appeared on the screen nowhere.
+    let issued: String
+    /// What the due control offers.
+    let dueChoices: [DueChoice]
     /// Which the invoice IS, drawn at the top right: "Draft", "Invoice 1042", or a
     /// draft that is holding a number (ovation#411).
     let state: String
@@ -106,6 +114,8 @@ final class InvoiceScreenPresenter {
         lines = Self.rows(of: invoice)
         money = Self.moneyRows(invoice)
         due = invoice.dueDate.flatMap(BusinessCalendar.shortDate) ?? ""
+        issued = invoice.invoiceDate.flatMap(BusinessCalendar.shortDate) ?? ""
+        dueChoices = Self.dueChoices(for: invoice)
         state = Self.state(of: invoice)
         // ASKED OF THE SEND GATE, never decided again here, so the sentence on this
         // screen and the one the review refuses with cannot name different things
@@ -115,6 +125,42 @@ final class InvoiceScreenPresenter {
         refusal = ReviewGate.refusal(for: invoice, footer: footer)
         shoots = invoice.orderedShoots.map { Self.timed($0, on: invoice) }
         mayEdit = invoice.sentStatus == .notSent
+    }
+
+    /// One term the due control offers.
+    struct DueChoice: Identifiable, Equatable, Sendable {
+        var id: String { says }
+        /// What the list calls it, from `PaymentTerms` rather than written again.
+        let says: String
+        /// The day it lands on, said beside the label rather than left to be
+        /// counted, which is what the design record's own list draws.
+        let lands: String
+        let day: BusinessDate
+        /// Whether the invoice is already on this term.
+        let isCurrent: Bool
+    }
+
+    /// The terms, each counted from the INVOICE date.
+    ///
+    /// FROM THE INVOICE DATE, NEVER FROM TODAY, so the four dates in the list are
+    /// the same ones tomorrow. A term computed at read time from the clock can
+    /// never age, because every evaluation moves it forward (L74).
+    ///
+    /// AN INVOICE WITH NO DATE OFFERS NOTHING, because there is nothing to count
+    /// from. Four entries all landing on today would be four guesses presented as
+    /// the recorded answer (L192).
+    ///
+    /// AND A DUE DATE ON NO TERM MARKS NONE OF THEM rather than the nearest: a
+    /// date Dan typed is its own answer, and marking a term beside it would claim
+    /// he had chosen that term (L11).
+    private static func dueChoices(for invoice: Invoice) -> [DueChoice] {
+        guard let issued = invoice.invoiceDate else { return [] }
+        return PaymentTerms.all.compactMap { term in
+            guard let day = term.from(issued),
+                  let lands = BusinessCalendar.shortDate(day) else { return nil }
+            return DueChoice(says: term.says, lands: lands, day: day,
+                             isCurrent: invoice.dueDate?.dayKey == day.dayKey)
+        }
     }
 
     /// One shoot's times and what they produce.

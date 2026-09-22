@@ -174,6 +174,69 @@ struct InvoiceScreenPresenterTests {
         #expect(beneath.hasPrefix("No venue recorded"), "it says \(beneath)")
     }
 
+    // MARK: when it falls due (ovation#473)
+
+    /// THE FOOT SAYS WHEN IT WAS DATED AS WELL AS WHEN IT IS DUE, which the design
+    /// record draws as "Dated 29 Aug 2026, due ...". The app printed only the due
+    /// date, so the one number the other is derived from was on the screen nowhere.
+    @Test("the foot carries the date the invoice was written as well as the day it falls due")
+    func thefootCarriesBothDates() throws {
+        let presenter = Self.present(try Self.invoice(try Self.store()))
+
+        #expect(presenter.issued == "12 Nov 2026")
+        #expect(presenter.due == "26 Nov 2026")
+    }
+
+    /// THE FOUR TERMS, EACH WITH THE DAY IT LANDS ON, which is what the design
+    /// record's list shows beside each label rather than leaving the reader to
+    /// count. Counted from the INVOICE date, so they do not move with the clock.
+    @Test("the due control offers the four terms, each with the day it lands on")
+    func theduecontrolOffersTheTerms() throws {
+        let presenter = Self.present(try Self.invoice(try Self.store()))
+
+        #expect(presenter.dueChoices.map(\.says) == ["On receipt", "7 days", "14 days", "30 days"])
+        #expect(presenter.dueChoices.map(\.lands)
+                    == ["12 Nov 2026", "19 Nov 2026", "26 Nov 2026", "12 Dec 2026"])
+    }
+
+    /// AND AN INVOICE WITH NO DATE OFFERS NO TERMS, because a term is counted from
+    /// the invoice date and there is nothing to count from. An empty list is the
+    /// honest answer; four entries all landing on today would be four guesses
+    /// (L192).
+    @Test("an invoice with no date of its own offers no terms to count from")
+    func anundatedInvoiceOffersNoTerms() throws {
+        let invoice = try Self.invoice(try Self.store())
+        invoice.invoiceDate = nil
+
+        let presenter = Self.present(invoice)
+
+        #expect(presenter.dueChoices.isEmpty)
+        #expect(presenter.issued == "")
+    }
+
+    /// WHICH TERM THE INVOICE IS ON, so the list can mark it rather than leaving
+    /// the reader to compare four dates against the one at the foot (L605).
+    @Test("the term the invoice is already on is the one marked")
+    func thecurrentTermIsMarked() throws {
+        let presenter = Self.present(try Self.invoice(try Self.store()))
+
+        #expect(presenter.dueChoices.filter(\.isCurrent).map(\.says) == ["14 days"])
+    }
+
+    /// AND A DUE DATE ON NO TERM MARKS NOTHING, rather than the nearest one. A
+    /// date Dan typed is its own answer and marking a term beside it would claim
+    /// he had chosen that term (L11).
+    @Test("a due date that is on none of the terms marks none of them")
+    func adatedOnNoTermMarksNothing() throws {
+        let invoice = try Self.invoice(try Self.store())
+        invoice.dueDate = BusinessCalendar.day(forKey: "2026-11-20")
+
+        let presenter = Self.present(invoice)
+
+        #expect(presenter.dueChoices.contains { $0.isCurrent } == false)
+        #expect(presenter.due == "20 Nov 2026")
+    }
+
     // MARK: the lines
 
     /// EACH LINE CARRIES ITS OWN FIGURE, and this is the fault the design record's

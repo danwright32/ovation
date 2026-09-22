@@ -45,6 +45,9 @@ struct RootView: View {
 
     /// ovation#457. Writing a time Dan typed, passed through for the same reason.
     var writeTime: ((PersistentIdentifier, InvoiceScreenView.Edge, ClockTime?) async -> String?)?
+    /// ovation#473. What saving a due date does, or nil where this launch has no
+    /// store to write to.
+    var writeDueDate: ((PersistentIdentifier, BusinessDate) async -> String?)?
 
     /// ovation#246. What the launch is doing, while it is doing it. Nil in every
     /// hosted test written before there was one, and in that case the window is
@@ -76,7 +79,8 @@ struct RootView: View {
         } else if shellOwnsTheWindow, let shell, let roster {
             ShellView(shell: shell, roster: roster, problems: store,
                       invoices: invoices, heldMoney: heldMoney,
-                      openInvoice: openInvoice, writeTime: writeTime)
+                      openInvoice: openInvoice, writeTime: writeTime,
+                      writeDueDate: writeDueDate)
         } else {
             problemsWindow
         }
