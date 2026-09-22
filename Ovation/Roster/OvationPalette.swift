@@ -58,3 +58,26 @@ extension Color {
             opacity: 1)
     }
 }
+
+// MARK: the appearance the palette assumes
+
+extension View {
+
+    /// PRD 43, ovation#474. Ovation does not follow the system appearance, and
+    /// this is what makes that true rather than merely recorded.
+    ///
+    /// EVERY COLOUR IN THIS PRODUCT COMES FROM `OvationPalette`, which has no dark
+    /// half by decision, so a screen was the same in both appearances for as long
+    /// as nothing on it painted its OWN background. A native control does: the
+    /// `DatePicker` added for the shoot's times renders black with white text in
+    /// dark while the page around it stays cream, and on the Mac Dan actually uses
+    /// that is the one control he has to type into (L231, L607).
+    ///
+    /// SO IT IS SET, NOT ASSUMED, and it is set on the SCREEN rather than on the
+    /// control, because the next native control will be somewhere else and the
+    /// rule is about the surface. `AppearanceParityTests` renders every screen
+    /// that has a picture in both appearances and refuses a difference.
+    func ovationAppearance() -> some View {
+        environment(\.colorScheme, .light)
+    }
+}

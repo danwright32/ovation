@@ -68,6 +68,7 @@ struct InvoiceListView: View {
             }
         }
         .background(OvationPalette.background)
+        .ovationAppearance()
     }
 
     // MARK: the heads

@@ -56,6 +56,7 @@ struct ReviewSheet: View {
             }
         }
         .frame(width: 800, height: 560)
+        .ovationAppearance()
         .onAppear(perform: showPage)
     }
 

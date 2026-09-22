@@ -79,6 +79,7 @@ struct ShellView: View {
             content
         }
         .frame(minWidth: 900, minHeight: 620, alignment: .topLeading)
+        .ovationAppearance()
     }
 
     // MARK: the rail
