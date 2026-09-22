@@ -459,6 +459,147 @@ struct InvoiceScreenPresenterTests {
         #expect(tax.label == "Sales tax, exempt")
     }
 
+    // MARK: the status that was never recorded (ovation#457, PRD 5.5)
+
+    /// NEVER RECORDED IS NOT THE SAME AS NOT EXEMPT, which PRD 5.5 states outright
+    /// and `docs/design/invoice.html` draws: the tax line is not drawn at all and
+    /// neither is the total, because a figure taken off a price nobody has
+    /// established asserts something the screen cannot support.
+    ///
+    /// THIS WAS THE DEFECT (ovation#457, found 2026-09-22). `TaxStatus.isTaxed`
+    /// answers true for a status nobody recorded, deliberately, so a return never
+    /// under collects. The screen read that as a decision and printed
+    /// "Sales tax, 8.875%" with a real figure and a total under it, which is a tax
+    /// decision the app does not have, rendered as the recorded one (L192).
+    @Test("a tax status nobody recorded draws no tax row and no total")
+    func aneverRecordedStatusDrawsNeitherTaxNorTotal() throws {
+        let invoice = try Self.invoice(try Self.store(), taxStatus: .neverRecorded)
+
+        let labels = Self.present(invoice).money.map(\.label)
+
+        #expect(labels.contains { $0.hasPrefix("Sales tax") } == false)
+        #expect(labels.contains("Total") == false)
+        // The subtotal IS known, and stays, so the screen is not left blank.
+        #expect(labels.contains("Subtotal"))
+    }
+
+    /// AND IT IS ANSWERABLE WHERE IT IS SAID, which is the design record's own
+    /// rule for this question: the two answers sit in the block that states the
+    /// fact. Until this existed the foot named the one thing stopping the invoice
+    /// and the screen offered no way to do it (L80, L111).
+    @Test("the screen asks the question, in the design record's own sentence")
+    func aneverRecordedStatusAsksTheQuestion() throws {
+        let invoice = try Self.invoice(try Self.store(), taxStatus: .neverRecorded)
+
+        let question = try #require(Self.present(invoice).taxQuestion)
+
+        #expect(question.says == "Tax status never recorded for this client.")
+    }
+
+    /// A VOCABULARY IN CODE IS A PICKER, NEVER A TEXT BOX (L611), and the answers
+    /// come from the one list the roster pass offers rather than a second copy
+    /// written here. `neverRecorded` is the ABSENCE of an answer and can never be
+    /// chosen, so offering it would let the question be answered with itself.
+    @Test("its answers are the enum's own, and recording nothing is not one of them")
+    func thetwoAnswersComeFromTheEnum() throws {
+        let invoice = try Self.invoice(try Self.store(), taxStatus: .neverRecorded)
+
+        let question = try #require(Self.present(invoice).taxQuestion)
+
+        #expect(question.answers == TaxStatus.answers)
+        #expect(question.answers.contains(.neverRecorded) == false)
+        #expect(question.answers.isEmpty == false)
+    }
+
+    /// AND AN INVOICE WITH NO CLIENT IS THE SAME CASE, found while fixing the one
+    /// above rather than separately (L387). `Invoice.tax` charges a clientless
+    /// invoice, because its guard reads `client?.taxStatus.isTaxed ?? true`, while
+    /// the money block's label read `== true` and so called it exempt: one row
+    /// asserting an exemption over a charged figure.
+    ///
+    /// IT ASKS NOTHING, because the answer is a fact about a client and there is
+    /// no client to record it against (L109).
+    @Test("an invoice with no client draws no tax row and no total, and asks nothing")
+    func aninvoiceWithNoClientDrawsNeitherAndAsksNothing() throws {
+        let context = try Self.store()
+        let invoice = try Self.invoice(context)
+        invoice.client = nil
+
+        let screen = Self.present(invoice)
+
+        #expect(screen.money.map(\.label).contains { $0.hasPrefix("Sales tax") } == false)
+        #expect(screen.money.map(\.label).contains("Total") == false)
+        #expect(screen.taxQuestion == nil)
+    }
+
+    /// EVERY FACT ONCE PER SCREEN (L605). The foot says why Review cannot be
+    /// pressed, and the money block now states the same fact with the two answers
+    /// beside it. Saying it twice, four inches apart, in two different sentences,
+    /// is the composition defect that only shows when the page is read as one
+    /// surface, and it was drawn that way until it was looked at.
+    ///
+    /// THE BODY KEEPS IT, because that is where it can be acted on (L80), and it
+    /// is the design record's own arrangement: the record draws this note
+    /// permanently and puts the foot's sentence on a hover tip.
+    @Test("the foot does not repeat a refusal the money block is already answering")
+    func thefootDoesNotRepeatTheQuestion() throws {
+        let invoice = try Self.invoice(try Self.store(), taxStatus: .neverRecorded)
+
+        let screen = Self.present(invoice)
+
+        #expect(screen.taxQuestion != nil)
+        #expect(screen.refusalAtTheFoot == nil)
+        // The gate's own answer is UNCHANGED, because Review is still refused and
+        // the word still carries the reason to a screen reader (L53).
+        #expect(screen.refusal == ReviewGate.sentence(for: .taxStatusNeverRecorded))
+        #expect(screen.mayReview == false)
+    }
+
+    /// AND IT ONLY STANDS DOWN FOR THE FACT THE BLOCK IS ACTUALLY STATING. A
+    /// missing payment line stops every invoice in the app and is said FIRST by
+    /// the gate's own order, so a rule that went quiet whenever the question was
+    /// on screen would hide it and send Dan to answer a tax status that is not
+    /// what is stopping him (L324, L111).
+    @Test("a different reason still reaches the foot while the question is on screen")
+    func adifferentReasonStillReachesTheFoot() throws {
+        let invoice = try Self.invoice(try Self.store(), taxStatus: .neverRecorded)
+        let noPayment = InvoiceFooter(payment: "  ", note: "", contact: "dan@example.com")
+
+        let screen = InvoiceScreenPresenter(invoice: invoice, footer: noPayment,
+                                            today: Self.today)
+
+        #expect(screen.taxQuestion != nil)
+        #expect(screen.refusalAtTheFoot
+                == ReviewGate.sentence(for: .paymentInstructionsNotSet))
+    }
+
+    /// AND WITH NO QUESTION ON SCREEN THE FOOT SAYS WHAT IT ALWAYS SAID, which is
+    /// the positive control: without it a foot that never speaks would pass both
+    /// cases above (L159).
+    @Test("with nothing being asked in the body the foot still carries the refusal")
+    func thefootStillCarriesAnOrdinaryRefusal() throws {
+        let invoice = try Self.invoice(try Self.store(), until: nil, rate: nil)
+
+        let screen = Self.present(invoice)
+
+        #expect(screen.taxQuestion == nil)
+        #expect(screen.refusalAtTheFoot == screen.refusal)
+        #expect(screen.refusalAtTheFoot == "Waiting on the time the shoot ended.")
+    }
+
+    /// ASKED ONLY WHILE IT IS OUTSTANDING. A question still on the screen after it
+    /// has been answered reads as the answer not having landed (L152).
+    @Test("an answered status asks nothing, on either answer")
+    func anansweredStatusAsksNothing() throws {
+        let context = try Self.store()
+
+        for status in TaxStatus.answers {
+            let invoice = try Self.invoice(context, taxStatus: status)
+
+            #expect(Self.present(invoice).taxQuestion == nil)
+        }
+    }
+
     /// PRD 8 AND ROUND 6: the credit is its own block between the lines and the
     /// subtotal, never a line among the charges, and the lines are totalled as
     /// `Services` above it so the subtotal still explains itself.

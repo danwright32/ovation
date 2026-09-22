@@ -145,6 +145,16 @@ enum TaxStatus: String, CaseIterable, Codable, Hashable, Sendable {
     case notExempt = "not-exempt"
     case neverRecorded = "never-recorded"
 
+    /// The two a person can actually record, in the order every surface offers
+    /// them. ovation#457.
+    ///
+    /// DERIVED FROM `allCases` RATHER THAN LISTED, so a fourth status cannot be
+    /// added and silently left unofferable by two screens that each hold their
+    /// own copy of this list (L41, L611). `neverRecorded` is the ABSENCE of an
+    /// answer, so it is the one thing a person may never choose: offering it
+    /// would let the question be answered with itself.
+    static let answers: [TaxStatus] = allCases.filter { $0 != .neverRecorded }
+
     /// Whether tax is charged. Never recorded is charged, because not charging on
     /// an unknown would under collect on a return.
     var isTaxed: Bool {

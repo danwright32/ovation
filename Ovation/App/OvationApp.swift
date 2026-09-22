@@ -500,6 +500,23 @@ struct OvationApp: App {
                              }
                          }
                      },
+                     // ovation#457, PRD 5.5. The one write on the invoice screen
+                     // that changes a fact about the CLIENT rather than the
+                     // invoice, and the reason the screen can now answer the
+                     // thing its own foot says it is waiting on.
+                     writeTaxStatus: opened.map { container in
+                         { client, status in
+                             let writer = ClientTaxStatusWriter(modelContainer: container)
+                             do {
+                                 try await writer.setTaxStatus(status, on: client)
+                                 return nil
+                             } catch let refusal as ClientTaxStatusRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That tax status could not be saved: \(error)"
+                             }
+                         }
+                     },
                      progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
                 // order inside the launch is unchanged; what changed is that

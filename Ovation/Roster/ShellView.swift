@@ -56,6 +56,10 @@ struct ShellView: View {
     /// ovation#473. What saving a due date does, and what it says when it does
     /// not. Nil where this launch has no store to write to.
     var writeDueDate: ((PersistentIdentifier, BusinessDate) async -> String?)?
+    /// ovation#457, PRD 5.5. Recording the client's sales tax status, which is
+    /// the one question this screen asks about the client rather than the
+    /// invoice. Nil where this launch has no store to write to.
+    var writeTaxStatus: ((PersistentIdentifier, TaxStatus) async -> String?)?
 
     /// Which invoice is selected. It lives here rather than inside the list
     /// because coming back from an invoice has to find the row again (ovation#125).
@@ -73,6 +77,9 @@ struct ShellView: View {
     /// write that silently does nothing leaves typing it again as the only
     /// diagnosis (L109, L148).
     @State private var refusedWrite: String?
+    /// Why the last tax status was not recorded, or nil. Held here for the same
+    /// reason the refused date is: the screen is rebuilt after every write.
+    @State private var refusedTax: String?
 
     /// What a destination with no screen behind it says about itself. A constant
     /// because a test counts them, and because the same words appear once per
@@ -224,6 +231,16 @@ struct ShellView: View {
         openedInvoice = openInvoice?(openedInvoiceID)
     }
 
+    /// The same shape again for the tax status: write, then re-read, so the tax
+    /// row, the total, the question itself and the Review refusal all change
+    /// together or not at all (L14). This is the one write on this screen that
+    /// changes a fact about the CLIENT, so everything derived from it moves at
+    /// once and none of it is edited in place.
+    private func answered(_ client: PersistentIdentifier, _ status: TaxStatus) async {
+        refusedTax = await writeTaxStatus?(client, status)
+        if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
+    }
+
     @ViewBuilder
     private var content: some View {
         switch shell.selected {
@@ -253,7 +270,11 @@ struct ShellView: View {
                         Task { await dated(due) }
                     },
                     refusedDate: refusedDate,
-                    refused: refusedWrite)
+                    refused: refusedWrite,
+                    answerTax: writeTaxStatus == nil ? nil : { client, status in
+                        Task { await answered(client, status) }
+                    },
+                    refusedTax: refusedTax)
             } else if let invoices {
                 InvoiceListView(presenter: invoices, heldMoney: heldMoney,
                                 selected: $selectedInvoice,
