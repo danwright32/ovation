@@ -61,8 +61,23 @@ struct InvoiceScreenPresenterTests {
         return invoice
     }
 
-    private static func present(_ invoice: Invoice) -> InvoiceScreenPresenter {
-        InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today)
+    private static func present(_ invoice: Invoice,
+                                types: [ServiceType] = []) -> InvoiceScreenPresenter {
+        InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today,
+                               serviceTypes: types)
+    }
+
+    /// The three PRD 5.4 seeds, made in the seeder's own order so a test can see
+    /// what the screen does to it.
+    private static func seeded(_ context: ModelContext) -> [ServiceType] {
+        let made = [
+            ServiceType(name: "Photography", role: .hourlyPhotography, defaultUnitAmount: nil),
+            ServiceType(name: "Rush turnaround", role: .ordinary,
+                        defaultUnitAmount: Money(dollars: 150)),
+            ServiceType(name: "Preview images", role: .ordinary, defaultUnitAmount: nil),
+        ]
+        made.forEach { context.insert($0) }
+        return made
     }
 
     // MARK: the head
@@ -457,6 +472,98 @@ struct InvoiceScreenPresenterTests {
         let tax = try #require(Self.present(invoice).money.first { $0.label.hasPrefix("Sales tax") })
 
         #expect(tax.label == "Sales tax, exempt")
+    }
+
+
+    // MARK: adding a line (ovation#457, PRD 5.4)
+
+    /// EVERY ACTIVE TYPE IS OFFERED, which is what the design record's own list
+    /// draws. The hourly photography type is among them: nothing in the record
+    /// takes it out, and removing it would be a change to the list Dan judged.
+    @Test("the screen offers every active service type")
+    func thescreenOffersEveryActiveType() throws {
+        let context = try Self.store()
+        let types = Self.seeded(context)
+        let invoice = try Self.invoice(context)
+
+        let offered = Self.present(invoice, types: types).serviceTypes
+
+        #expect(offered.count == 3)
+        #expect(Set(offered.map(\.name)) == ["Photography", "Rush turnaround", "Preview images"])
+    }
+
+    /// IN A DECLARED ORDER. A collection read from a store carries no order
+    /// unless the read declares one, so a list rendered straight from a query is
+    /// in whatever order came back (L343). The seeder's own order is not
+    /// recoverable, because nothing records it.
+    @Test("the types are offered in one declared order, by name")
+    func thetypesAreInADeclaredOrder() throws {
+        let context = try Self.store()
+        let types = Self.seeded(context)
+        let invoice = try Self.invoice(context)
+
+        let offered = Self.present(invoice, types: types).serviceTypes
+
+        #expect(offered.map(\.name) == ["Photography", "Preview images", "Rush turnaround"])
+    }
+
+    /// RETIRED RATHER THAN DELETED (PRD 5.30), so a retired type is still in the
+    /// store and must be kept out of the list rather than found not to be there.
+    @Test("a retired type is not offered, though it is still in the store")
+    func aretiredTypeIsNotOffered() throws {
+        let context = try Self.store()
+        let types = Self.seeded(context)
+        types[1].retiredOn = Self.today
+        let invoice = try Self.invoice(context)
+
+        let offered = Self.present(invoice, types: types).serviceTypes
+
+        #expect(offered.map(\.name) == ["Photography", "Preview images"])
+    }
+
+    /// WHAT IT USUALLY CHARGES IS CARRIED, because that is what prefills the
+    /// amount and is the whole reason the new type panel asks a second question.
+    ///
+    /// AND A TYPE WITH NO USUAL AMOUNT CARRIES NONE, never a zero: the design
+    /// record says in terms that a type charging nothing and a type with no usual
+    /// amount are different things, and one of them would prefill every line it
+    /// is used on with 0.00 (PRD 5.1b).
+    @Test("a type carries what it usually charges, and none is not a zero")
+    func atypeCarriesItsUsualAmount() throws {
+        let context = try Self.store()
+        let types = Self.seeded(context)
+        let invoice = try Self.invoice(context)
+
+        let offered = Self.present(invoice, types: types).serviceTypes
+
+        #expect(offered.first { $0.name == "Rush turnaround" }?.usually == Money(dollars: 150))
+        #expect(offered.first { $0.name == "Preview images" }?.usually == nil)
+    }
+
+    /// A LINE MAY BE ADDED ONLY TO AN ORDINARY DRAFT, the same states the times
+    /// and the due date may be typed on, and `InvoiceLineWriter` refuses the same
+    /// ones, because a screen gating a write is not the write being guarded
+    /// (L196).
+    @Test("a sent invoice offers no line to add")
+    func asentInvoiceOffersNoLineToAdd() throws {
+        let context = try Self.store()
+        let types = Self.seeded(context)
+        let sent = try Self.invoice(context)
+        sent.number = 1_042
+        sent.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+
+        #expect(Self.present(sent, types: types).mayAddLine == false)
+        #expect(Self.present(try Self.invoice(context), types: types).mayAddLine)
+    }
+
+    /// AND NOR DOES AN INVOICE WITH NOTHING TO CHOOSE FROM. A word that opens a
+    /// list with nothing in it is a control that does nothing, which is the
+    /// defect ovation#450 named (L109).
+    @Test("with no type to choose there is no line to add")
+    func withNoTypesThereIsNoLineToAdd() throws {
+        let invoice = try Self.invoice(try Self.store())
+
+        #expect(Self.present(invoice).mayAddLine == false)
     }
 
     // MARK: the status that was never recorded (ovation#457, PRD 5.5)

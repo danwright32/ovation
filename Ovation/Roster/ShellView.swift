@@ -60,6 +60,11 @@ struct ShellView: View {
     /// the one question this screen asks about the client rather than the
     /// invoice. Nil where this launch has no store to write to.
     var writeTaxStatus: ((PersistentIdentifier, TaxStatus) async -> String?)?
+    /// ovation#457, PRD 5.4. Adding a line of a chosen type at a typed amount,
+    /// and making a service type from inside the invoice. Nil where this launch
+    /// has no store to write to.
+    var writeLine: ((PersistentIdentifier, PersistentIdentifier, Money) async -> String?)?
+    var writeServiceType: ((String, Money?) async -> String?)?
 
     /// Which invoice is selected. It lives here rather than inside the list
     /// because coming back from an invoice has to find the row again (ovation#125).
@@ -80,6 +85,8 @@ struct ShellView: View {
     /// Why the last tax status was not recorded, or nil. Held here for the same
     /// reason the refused date is: the screen is rebuilt after every write.
     @State private var refusedTax: String?
+    /// Why the last line or service type was not written, or nil.
+    @State private var refusedLine: String?
 
     /// What a destination with no screen behind it says about itself. A constant
     /// because a test counts them, and because the same words appear once per
@@ -241,6 +248,22 @@ struct ShellView: View {
         if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
     }
 
+    /// The same shape again for a line: write, then re-read, so the row, the
+    /// money block and the Review refusal all change together or not at all
+    /// (L14).
+    private func lined(_ type: PersistentIdentifier, _ amount: Money) async {
+        guard let openedInvoiceID else { return }
+        refusedLine = await writeLine?(openedInvoiceID, type, amount)
+        openedInvoice = openInvoice?(openedInvoiceID)
+    }
+
+    /// And for a new service type, which changes what the list offers rather
+    /// than the invoice, so the screen is rebuilt for the same reason.
+    private func madeType(_ name: String, _ usual: Money?) async {
+        refusedLine = await writeServiceType?(name, usual)
+        if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
+    }
+
     @ViewBuilder
     private var content: some View {
         switch shell.selected {
@@ -274,7 +297,14 @@ struct ShellView: View {
                     answerTax: writeTaxStatus == nil ? nil : { client, status in
                         Task { await answered(client, status) }
                     },
-                    refusedTax: refusedTax)
+                    refusedTax: refusedTax,
+                    addLine: writeLine == nil ? nil : { type, amount in
+                        Task { await lined(type, amount) }
+                    },
+                    createType: writeServiceType == nil ? nil : { name, usual in
+                        Task { await madeType(name, usual) }
+                    },
+                    refusedLine: refusedLine)
             } else if let invoices {
                 InvoiceListView(presenter: invoices, heldMoney: heldMoney,
                                 selected: $selectedInvoice,

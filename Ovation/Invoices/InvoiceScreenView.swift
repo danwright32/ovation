@@ -70,6 +70,36 @@ struct InvoiceScreenView: View {
     /// Why the last answer was not recorded, said rather than swallowed (L109).
     var refusedTax: String?
 
+    /// ovation#457, PRD 5.4. Adding a line of a chosen type at a typed amount, or
+    /// nil where the caller has nowhere to put it, in which case the word is not
+    /// drawn at all rather than drawn dead (L109, ovation#450).
+    var addLine: ((PersistentIdentifier, Money) -> Void)?
+    /// Making a service type from inside the invoice, or nil where nothing can.
+    /// NIL DROPS THE LIST'S TRAILING ENTRY rather than offering a word that opens
+    /// nothing.
+    var createType: ((String, Money?) -> Void)?
+    /// Why the last line or type was not written, said rather than swallowed.
+    var refusedLine: String?
+
+    /// Which type the row being filled in is for, or nil while it is still being
+    /// chosen. Local to this viewing, like the revealed times above it: a row
+    /// half built is a state of looking at the screen, not of the invoice.
+    @State private var adding: InvoiceScreenPresenter.ServiceChoice?
+    /// Whether a row is being added at all, which is separate from which type it
+    /// is for: the row exists before the type is chosen. TWO PIECES OF STATE
+    /// BECAUSE THEY ARE TWO FACTS, and folding them into one optional would make
+    /// "no row" and "a row with no type yet" the same thing (L544).
+    @State private var addingARow = false
+    @State private var typedAmount = ""
+    @State private var panelIsOpen = false
+    @State private var typedName = ""
+    @State private var typedUsual = ""
+    /// The name of a type just asked for, until it appears in the list. The
+    /// design record settles that a type made from the panel becomes the row's
+    /// type, and the name is what identifies it: `ServiceTypeWriter` refuses a
+    /// duplicate, so a name names exactly one type.
+    @State private var awaitingType: String?
+
     /// Opening the review, or nil where the caller has nowhere for it to go yet.
     /// NIL DRAWS THE WORD QUIET RATHER THAN HIDING IT, so the foot does not change
     /// shape depending on what is wired (L678).
@@ -92,6 +122,9 @@ struct InvoiceScreenView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     columnHeader
                     ForEach(presenter.lines) { line(for: $0) }
+                    if addingARow { addingRow }
+                    if offersALine { addWord }
+                    if let refusedLine { refusal(refusedLine) }
                     money
                     if let question = presenter.taxQuestion { taxQuestion(question) }
                 }
@@ -375,6 +408,217 @@ struct InvoiceScreenView: View {
         if !row.hours.isEmpty { parts.append("\(row.hours) hours at \(row.rate)") }
         parts.append(row.amount)
         return parts.joined(separator: ", ")
+    }
+
+    // MARK: adding a line
+
+    /// A REFUSED LINE IS SAID ON THE PAGE, never only inside the panel that may
+    /// already have closed, because a refusal whose only surface dies with the
+    /// attempt leaves pressing it again as the only diagnosis (L148, L109).
+    private func refusal(_ sentence: String) -> some View {
+        Text(sentence)
+            .font(.system(size: 12))
+            .foregroundStyle(OvationPalette.quiet)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, Column.sideMargin)
+            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Whether the word is drawn at all.
+    ///
+    /// TWO CONDITIONS READ ONCE, so whether the word is there and whether
+    /// pressing it can do anything come from one answer rather than two that can
+    /// disagree (L70). `InvoiceLineWriter` refuses the same states, because a
+    /// screen gating a write is not the write being guarded (L196).
+    private var offersALine: Bool { presenter.mayAddLine && addLine != nil }
+
+    /// THE WORD IS QUIET AND IT IS A BUTTON, which is the design record's own
+    /// `.laddbtn`: a word with padding, no border and no underline. It is not
+    /// `ActionWord`, whose underline is the treatment reserved for the one action
+    /// a surface is for, and `check-one-action-word.sh` refuses a second
+    /// underline anywhere in the app's Swift.
+    private var addWord: some View {
+        Button("Add a line") {
+            addingARow = true
+            adding = nil
+            typedAmount = ""
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 13.5))
+        .foregroundStyle(OvationPalette.quiet)
+        .padding(.horizontal, Column.sideMargin)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The row being filled in, which is its own view so that every state of it
+    /// is a case a test can produce (L442).
+    private var addingRow: some View {
+        AddingLineRow(
+            chosen: adding,
+            types: Self.typeRows(for: presenter.serviceTypes),
+            amount: $typedAmount,
+            askNewType: createType == nil ? nil : {
+                typedName = ""
+                typedUsual = ""
+                panelIsOpen = true
+            },
+            choose: { row in
+                // FOUND BACK BY THE ROW'S OWN IDENTITY rather than by position,
+                // because a list addressed by position writes whatever currently
+                // occupies it (L237).
+                guard let chosen = presenter.serviceTypes
+                    .first(where: { $0.name == row.id }) else { return }
+                adding = chosen
+                typedAmount = Self.prefill(for: chosen)
+            },
+            commit: commitLine,
+            columns: (Column.hours, Column.rate, Column.amount,
+                      Column.gap, Column.sideMargin))
+        .sheet(isPresented: $panelIsOpen) { newTypePanel }
+        // A TYPE MADE FROM THE PANEL BECOMES THIS ROW'S TYPE, which the design
+        // record settles. It is picked up when the list it was written to comes
+        // back, because the write is an actor's and the screen is rebuilt from
+        // the store rather than edited in place (L14).
+        .onChange(of: presenter.serviceTypes) { _, types in
+            guard let awaitingType,
+                  let made = Self.newlyMade(named: awaitingType, in: types) else { return }
+            self.awaitingType = nil
+            adding = made
+            typedAmount = Self.prefill(for: made)
+        }
+    }
+
+    /// The types as the one list draws them.
+    ///
+    /// NAMED AND STATIC SO IT CAN BE TESTED, for the reason `DueDateControl.rows`
+    /// is: the list lives in a popover, which is its own window and beyond any
+    /// view tree test, so this translation is the part a test can hold and it is
+    /// the part that decides which type a press writes (L442).
+    ///
+    /// NOTHING BESIDE THE NAME, which is what the design record's own type list
+    /// draws: its rows carry a label and no second column.
+    static func typeRows(for types: [InvoiceScreenPresenter.ServiceChoice])
+        -> [PopupList.Choice] {
+        types.map { PopupList.Choice(id: $0.name, says: $0.name) }
+    }
+
+    /// What the amount field starts at when a type is chosen.
+    ///
+    /// A TYPE WITH NO USUAL AMOUNT LEAVES IT EMPTY, never a zero: the design
+    /// record says in terms that a type charging nothing and a type with no usual
+    /// amount are different things, and one of them would prefill every line it
+    /// is used on with 0.00 (PRD 5.1b).
+    static func prefill(for type: InvoiceScreenPresenter.ServiceChoice) -> String {
+        type.usually.map(PDFText.amount) ?? ""
+    }
+
+    /// The type a name was just asked for, once it is there.
+    ///
+    /// BY NAME, because that is what was typed and `ServiceTypeWriter` refuses a
+    /// duplicate, so a name names exactly one type. Trimmed on both sides, since
+    /// the writer stores the trimmed form and the panel holds what was typed
+    /// (L185).
+    static func newlyMade(named typed: String,
+                          in types: [InvoiceScreenPresenter.ServiceChoice])
+        -> InvoiceScreenPresenter.ServiceChoice? {
+        let wanted = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        return types.first { $0.name == wanted }
+    }
+
+    /// Whether a name can make a type.
+    ///
+    /// THE CONTROL LOOKS INERT RATHER THAN REFUSING AFTER THE PRESS, which is the
+    /// design record's own reasoning and L109's: a control that does nothing and
+    /// gives no reason leaves pressing it again as the only diagnosis.
+    /// `ServiceTypeWriter` refuses the same thing, because a screen gating a
+    /// write is not the write being guarded (L196).
+    static func canCreate(_ typed: String) -> Bool {
+        !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Writes the row being filled in, or leaves it alone.
+    ///
+    /// AN AMOUNT IT CANNOT READ LEAVES THE ROW WHERE IT IS, rather than adding a
+    /// line worth nothing that would be indistinguishable from a comped one,
+    /// which is the design record's own rule and PRD 5.1b's reason.
+    private func commitLine() {
+        guard let adding, let amount = Money.read(typedAmount) else { return }
+        addLine?(adding.id, amount)
+        addingARow = false
+        self.adding = nil
+        typedAmount = ""
+    }
+
+    /// A NEW SERVICE TYPE. It asks one question beyond the name, what the type
+    /// usually charges, which a `ServiceType` genuinely carries and none of the
+    /// three seeded ones has, and which is what prefills every line it is used on.
+    ///
+    /// IT DOES NOT ASK FOR THE ROLE. That is code's rather than Dan's: exactly one
+    /// type is the hourly photography line and a second would make the invoice's
+    /// own pricing ambiguous, so everything made here is ordinary.
+    private var newTypePanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("A new service type")
+                .font(.system(size: 21, design: .serif))
+                .foregroundStyle(OvationPalette.ink)
+            Text("Name")
+                .font(.system(size: 12))
+                .foregroundStyle(OvationPalette.quiet)
+            TextField("", text: $typedName)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13.5))
+                .frame(width: 280)
+                .accessibilityLabel("Name")
+            Text("What it usually charges, if it has a usual amount")
+                .font(.system(size: 12))
+                .foregroundStyle(OvationPalette.quiet)
+            TextField("", text: $typedUsual)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13.5, design: .monospaced))
+                .frame(width: 280)
+                .accessibilityLabel("What it usually charges")
+                .onSubmit(commitType)
+            if let refusedLine {
+                Text(refusedLine)
+                    .font(.system(size: 12))
+                    .foregroundStyle(OvationPalette.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 280, alignment: .leading)
+            }
+            HStack(spacing: 14) {
+                Spacer(minLength: 0)
+                Button("Cancel") { panelIsOpen = false }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(OvationPalette.quiet)
+                Button("Create", action: commitType)
+                    .buttonStyle(.plain)
+                    .fontWeight(Self.canCreate(typedName) ? .semibold : .regular)
+                    .foregroundStyle(Self.canCreate(typedName)
+                                     ? OvationPalette.accent : OvationPalette.faint)
+                    .disabled(!Self.canCreate(typedName))
+            }
+            .font(.system(size: 13.5))
+        }
+        .padding(20)
+        .frame(minWidth: 344, alignment: .leading)
+        .background(OvationPalette.background)
+        // A sheet is its own window, so it sets its own appearance (PRD 43,
+        // ovation#474).
+        .ovationAppearance()
+    }
+
+    /// Makes the type, or leaves the panel where it is.
+    ///
+    /// AN AMOUNT IT CANNOT READ IS NO AMOUNT, never a zero, which is what keeps a
+    /// type that charges nothing and a type with no usual amount different things.
+    private func commitType() {
+        guard Self.canCreate(typedName) else { return }
+        awaitingType = typedName
+        createType?(typedName, Money.read(typedUsual))
+        panelIsOpen = false
     }
 
     // MARK: the money

@@ -517,6 +517,35 @@ struct OvationApp: App {
                              }
                          }
                      },
+                     // ovation#457, PRD 5.4. Adding a line, and making a
+                     // service type from inside the invoice.
+                     writeLine: opened.map { container in
+                         { invoice, type, amount in
+                             let writer = InvoiceLineWriter(modelContainer: container)
+                             do {
+                                 try await writer.addLine(ofType: type, amount: amount,
+                                                          to: invoice)
+                                 return nil
+                             } catch let refusal as InvoiceLineRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That line could not be added: \(error)"
+                             }
+                         }
+                     },
+                     writeServiceType: opened.map { container in
+                         { name, usual in
+                             let writer = ServiceTypeWriter(modelContainer: container)
+                             do {
+                                 _ = try await writer.create(named: name, usualAmount: usual)
+                                 return nil
+                             } catch let refusal as ServiceTypeRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That service type could not be created: \(error)"
+                             }
+                         }
+                     },
                      progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
                 // order inside the launch is unchanged; what changed is that
