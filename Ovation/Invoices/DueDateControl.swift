@@ -75,50 +75,49 @@ struct DueDateControl: View {
 
     /// THE DAY EACH TERM LANDS ON IS BESIDE IT, which the design record shows
     /// rather than leaving the reader to count fourteen days in their head.
+    ///
+    /// AND IT IS `PopupList`, THE ONE LIST, rather than the copy that used to be
+    /// here. The design record builds this and the service types from one
+    /// `popList` and records why in terms: they were built as two and merged in
+    /// the same change, because the second copy is what makes the first stop
+    /// being the single site (L370, L613). This was that second copy.
     private var termList: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(choices) { choice in
-                Button {
-                    listIsOpen = false
-                    save?(choice.day)
-                } label: {
-                    HStack(spacing: 18) {
-                        Text(choice.says)
-                        Spacer(minLength: 12)
-                        Text(choice.lands)
-                            .foregroundStyle(OvationPalette.faint)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundStyle(OvationPalette.ink)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
-                .accessibilityLabel("\(choice.says), \(choice.lands)")
-                .accessibilityAddTraits(choice.isCurrent ? [.isButton, .isSelected] : [.isButton])
-            }
-            Divider().overlay(OvationPalette.rule).padding(.vertical, 4)
-            Button("Another date...") {
-                listIsOpen = false
-                typed = due
-                badlyTyped = false
-                panelIsOpen = true
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: 13))
-            .foregroundStyle(OvationPalette.ink)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 5)
+        PopupList(choices: Self.rows(for: choices),
+                  asks: "Another date...",
+                  ask: {
+                      listIsOpen = false
+                      typed = due
+                      badlyTyped = false
+                      panelIsOpen = true
+                  },
+                  choose: { choice in
+                      listIsOpen = false
+                      // ADDRESSED BY THE TERM'S OWN DAY, found back through the
+                      // list's identity rather than by position, because a list
+                      // addressed by position measures whatever occupies it
+                      // (L237).
+                      guard let term = choices.first(where: { $0.says == choice.id })
+                      else { return }
+                      save?(term.day)
+                  })
+    }
+
+    /// The terms as the one list draws them.
+    ///
+    /// NAMED AND STATIC SO IT CAN BE TESTED. The list is presented in a popover,
+    /// which is its own window and beyond any view tree test, so this
+    /// translation is the only part of the conversion a test can hold, and it is
+    /// the part that decides which date a press saves (L442).
+    ///
+    /// THE IDENTITY IS THE TERM'S OWN WORDS, which `PaymentTerms` guarantees are
+    /// distinct, and the control looks the term back up by it rather than by
+    /// position, because a row addressed by position saves whatever currently
+    /// occupies it (L237).
+    static func rows(for choices: [InvoiceScreenPresenter.DueChoice]) -> [PopupList.Choice] {
+        choices.map {
+            PopupList.Choice(id: $0.says, says: $0.says, beside: $0.lands,
+                             isCurrent: $0.isCurrent)
         }
-        .padding(.vertical, 5)
-        .frame(minWidth: 186, alignment: .leading)
-        .background(OvationPalette.chrome)
-        // PRD 43, ovation#474. A popover is its OWN window, so it does not
-        // inherit the screen's appearance and `AppearanceParityTests` cannot
-        // capture it: it has to set its own, and this is the one place that
-        // being true is not proved by that suite.
-        .ovationAppearance()
     }
 
     // MARK: another date

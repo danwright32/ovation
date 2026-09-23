@@ -66,7 +66,9 @@ struct InvoiceScreenShotTests {
                 // picture exists to show what Dan will meet.
                 InvoiceScreenView(presenter: presenter, close: {},
                                   setTime: { _, _, _ in },
-                                  answerTax: { _, _ in }, review: {}),
+                                  answerTax: { _, _ in },
+                                  addLine: { _, _ in }, createType: { _, _ in },
+                                  review: {}),
                 size: Self.windowSize, scheme: .light, to: file)
             written.append(file.lastPathComponent)
 
@@ -77,7 +79,9 @@ struct InvoiceScreenShotTests {
             try OffscreenShot.capture(
                 InvoiceScreenView(presenter: presenter, close: {},
                                   setTime: { _, _, _ in },
-                                  answerTax: { _, _ in }, review: {}),
+                                  answerTax: { _, _ in },
+                                  addLine: { _, _ in }, createType: { _, _ in },
+                                  review: {}),
                 size: Self.windowSize, scheme: .dark, to: darkFile)
             let light = try Data(contentsOf: file)
             let dark = try Data(contentsOf: darkFile)
@@ -114,6 +118,15 @@ struct InvoiceScreenShotTests {
 
     private static func presenter(for state: State) throws -> InvoiceScreenPresenter {
         let context = ModelContext(try OvationSchema.container(inMemory: true))
+        // PRD 5.4's three seeded types, so the picture shows the screen a person
+        // meets rather than one with nothing to add a line from.
+        let types = [
+            ServiceType(name: "Photography", role: .hourlyPhotography, defaultUnitAmount: nil),
+            ServiceType(name: "Rush turnaround", role: .ordinary,
+                        defaultUnitAmount: Money(dollars: 150)),
+            ServiceType(name: "Preview images", role: .ordinary, defaultUnitAmount: nil),
+        ]
+        types.forEach { context.insert($0) }
         let client = Client(name: "Cedar Hill Youth Orchestra",
                             taxStatus: state == .waitingOnTheTaxStatus
                                 ? .neverRecorded : .notExempt)
@@ -146,7 +159,8 @@ struct InvoiceScreenShotTests {
                                                     at: invoice.hourlyRate, earnedFrom: nil)
             invoice.discount = Discount(dollars: Money(dollars: 50))
         }
-        return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today)
+        return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today,
+                                      serviceTypes: types)
     }
 
     /// THE WINDOW'S OWN SIZE, from the design record: the invoice screen holds the

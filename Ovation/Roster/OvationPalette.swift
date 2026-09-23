@@ -25,6 +25,20 @@ enum OvationPalette {
     /// row is marked by this ALONE and never a left bar (PRD 47), which is both
     /// the macOS convention and a practical necessity once the sidebar is dark.
     static let selection = Color(hex: 0xE4DCD6)
+    /// A surface you are working on, `--sunk` in `docs/design/shell/palette.css`.
+    /// The invoice's row being filled in and the design record's own fields are
+    /// drawn on it. ovation#457.
+    static let sunk = Color(hex: 0xF1EAE5)
+    /// The accent, `--accent` in the same file, which the design puts on the one
+    /// control a panel is for.
+    ///
+    /// IT IS THE SAME VALUE AS `rail` AND IT IS NOT THE SAME TOKEN. The rail is a
+    /// dark SURFACE and this is an accent drawn ON the page, and they are equal
+    /// today by the design's own choice rather than by anything that must stay
+    /// true. A call site that wants an accent and reaches for `rail` is asserting
+    /// a role the name denies, and the day the two diverge nothing would find it
+    /// (L176, L213).
+    static let accent = Color(hex: 0x3B2B21)
 
     // Ink, in the four weights the design uses.
     static let ink = Color(hex: 0x1F1812)

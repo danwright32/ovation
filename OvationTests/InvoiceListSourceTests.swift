@@ -272,4 +272,55 @@ struct InvoiceListSourceTests {
         }
         return condition()
     }
+
+    // MARK: the screen it builds (ovation#457)
+
+    /// THE TYPES COME FROM THE SAME READ AS THE INVOICE. This is the only place
+    /// that owns the store, so if it does not fetch them the screen offers an
+    /// empty list and draws no way to add a line at all, which is indistinguishable
+    /// from a store with no types in it (L3, L622).
+    @Test("the screen it builds is offered the store's active service types")
+    func thescreenCarriesTheServiceTypes() throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let setUp = ModelContext(container)
+        let client = Self.client(setUp)
+        let invoice = Self.invoice(setUp, for: client)
+        let retired = ServiceType(name: "Contact sheets", role: .ordinary,
+                                  defaultUnitAmount: nil)
+        retired.retiredOn = .stamping(Self.noon)
+        setUp.insert(retired)
+        setUp.insert(ServiceType(name: "Rush turnaround", role: .ordinary,
+                                 defaultUnitAmount: Money(dollars: 150)))
+        try setUp.save()
+        let source = InvoiceListSource(over: container, problems: Self.problems(),
+                                       now: { Self.noon })
+        defer { source.stop() }
+
+        let screen = try #require(source.screen(for: invoice.persistentModelID,
+                                                footer: .fixed))
+
+        #expect(screen.serviceTypes.map(\.name) == ["Rush turnaround"],
+                "the retired type was offered, or the active one was not")
+        #expect(screen.mayAddLine)
+    }
+
+    /// THE POSITIVE CONTROL. Without it a source that never fetched would pass
+    /// the case above whenever the store happened to hold one type (L159).
+    @Test("and a store with no service type offers no line to add")
+    func astoreWithNoTypesOffersNoLine() throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let setUp = ModelContext(container)
+        let client = Self.client(setUp)
+        let invoice = Self.invoice(setUp, for: client)
+        try setUp.save()
+        let source = InvoiceListSource(over: container, problems: Self.problems(),
+                                       now: { Self.noon })
+        defer { source.stop() }
+
+        let screen = try #require(source.screen(for: invoice.persistentModelID,
+                                                footer: .fixed))
+
+        #expect(screen.serviceTypes.isEmpty)
+        #expect(screen.mayAddLine == false)
+    }
 }

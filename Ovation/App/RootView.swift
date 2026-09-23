@@ -51,6 +51,10 @@ struct RootView: View {
     /// ovation#457, PRD 5.5. Recording a client's sales tax status, passed through
     /// for the same reason: this view reaches no store of its own.
     var writeTaxStatus: ((PersistentIdentifier, TaxStatus) async -> String?)?
+    /// ovation#457, PRD 5.4. Adding a line and making a service type, passed
+    /// through for the same reason: this view reaches no store of its own.
+    var writeLine: ((PersistentIdentifier, PersistentIdentifier, Money) async -> String?)?
+    var writeServiceType: ((String, Money?) async -> String?)?
 
     /// ovation#246. What the launch is doing, while it is doing it. Nil in every
     /// hosted test written before there was one, and in that case the window is
@@ -83,7 +87,8 @@ struct RootView: View {
             ShellView(shell: shell, roster: roster, problems: store,
                       invoices: invoices, heldMoney: heldMoney,
                       openInvoice: openInvoice, writeTime: writeTime,
-                      writeDueDate: writeDueDate, writeTaxStatus: writeTaxStatus)
+                      writeDueDate: writeDueDate, writeTaxStatus: writeTaxStatus,
+                      writeLine: writeLine, writeServiceType: writeServiceType)
         } else {
             problemsWindow
         }

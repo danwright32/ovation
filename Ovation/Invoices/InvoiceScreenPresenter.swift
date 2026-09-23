@@ -143,6 +143,41 @@ final class InvoiceScreenPresenter {
         let about: PersistentIdentifier
     }
 
+    /// One service type a line may be added as.
+    ///
+    /// THE IDENTIFIER IS CARRIED so the write is addressed by the same thing the
+    /// choice was made about, rather than looked up again by name when it is
+    /// used (L166).
+    struct ServiceChoice: Identifiable, Equatable {
+        let id: PersistentIdentifier
+        let name: String
+        /// What it usually charges, which prefills the amount, or nil where it
+        /// has none. NIL RATHER THAN ZERO: the design record says in terms that a
+        /// type charging nothing and a type with no usual amount are different
+        /// things, and one of them would prefill every line with 0.00 (PRD 5.1b).
+        let usually: Money?
+    }
+
+    /// The types a line may be added as.
+    ///
+    /// EVERY ACTIVE ONE, including the hourly photography type. Nothing in the
+    /// design record takes it out of this list, and leaving it out would be a
+    /// change to the list Dan judged rather than an implementation detail.
+    ///
+    /// IN A DECLARED ORDER, because a collection read from a store carries none
+    /// unless the read declares one (L343). It is by name: the seeder's own order
+    /// is not recoverable, since nothing records it.
+    let serviceTypes: [ServiceChoice]
+
+    /// Whether a line may be added at all.
+    ///
+    /// AN ORDINARY DRAFT WITH SOMETHING TO CHOOSE FROM. A word that opens a list
+    /// with nothing in it is a control that does nothing, which is the defect
+    /// ovation#450 named (L109), and `InvoiceLineWriter` refuses the same states
+    /// this hides the word for, because a screen gating a write is not the write
+    /// being guarded (L196).
+    var mayAddLine: Bool { mayEdit && !serviceTypes.isEmpty }
+
     /// Whether the times may be typed at all.
     ///
     /// AN ORDINARY DRAFT ONLY. A sent invoice's times priced a document a client
@@ -155,7 +190,15 @@ final class InvoiceScreenPresenter {
 
     var mayReview: Bool { refusal == nil }
 
-    init(invoice: Invoice, footer: InvoiceFooter, today: BusinessDate) {
+    init(invoice: Invoice, footer: InvoiceFooter, today: BusinessDate,
+         serviceTypes: [ServiceType] = []) {
+        // RETIRED RATHER THAN DELETED (PRD 5.30), so a retired type is still in
+        // the store and is kept out here rather than found not to be there.
+        self.serviceTypes = serviceTypes
+            .filter { $0.retiredOn == nil }
+            .map { ServiceChoice(id: $0.persistentModelID, name: $0.name,
+                                 usually: $0.defaultUnitAmount) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         client = invoice.client?.name ?? "No client"
         shoot = Self.shootLine(invoice)
         lines = Self.rows(of: invoice)

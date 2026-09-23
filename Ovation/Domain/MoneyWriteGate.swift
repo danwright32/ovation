@@ -60,6 +60,16 @@ final class MoneyWriteGate: @unchecked Sendable {
 
     private let state = OSAllocatedUnfairLock(initialState: Waiting())
 
+    /// How many callers are queued behind whoever holds it.
+    ///
+    /// OBSERVABILITY, NOT A TEST HOOK. An exclusion that nothing can observe can
+    /// only be asserted by waiting a while and hoping, which measures the
+    /// machine's load rather than the exclusion (L290, L224). A test proving a
+    /// writer WAITS needs to know it is demonstrably queued before it asserts
+    /// that nothing was written, or the absence it checks means only that the
+    /// writer had not started yet (L159).
+    var waiting: Int { state.withLock { $0.queue.count } }
+
     /// Waits until nothing else is writing money, then takes the gate.
     func lock() async {
         let mine = state.withLock { waiting -> Bool in

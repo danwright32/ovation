@@ -193,8 +193,14 @@ final class InvoiceListSource {
         guard let invoice = try? reader.fetch(FetchDescriptor<Invoice>())
             .first(where: { $0.persistentModelID == id })
         else { return nil }
+        // ovation#457. THE TYPES COME FROM THE SAME READ AS THE INVOICE, because
+        // this is the only thing here that owns the store and the screen holds no
+        // context (PRD 51l). A screen given none draws no way to add a line, which
+        // is correct for a store with no types and indistinguishable from this
+        // step being forgotten, so it is covered by a case of its own (L3).
+        let types = (try? reader.fetch(FetchDescriptor<ServiceType>())) ?? []
         return InvoiceScreenPresenter(invoice: invoice, footer: footer,
-                                      today: .stamping(now()))
+                                      today: .stamping(now()), serviceTypes: types)
     }
 
     /// Stops listening for writes. Idempotent.

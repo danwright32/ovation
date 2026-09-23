@@ -103,4 +103,40 @@ struct DueDateControlTests {
         #expect(choices.map(\.lands)
                     == ["12 Nov 2026", "19 Nov 2026", "26 Nov 2026", "12 Dec 2026"])
     }
+
+    // MARK: the terms as the one list draws them (ovation#457)
+
+    /// THE TERMS AND THE SERVICE TYPES ARE ONE LIST, which the design record
+    /// states and which this half of the conversion has to keep true. The
+    /// popover the list is presented in is its own window, so no view tree test
+    /// can reach it, and the translation into that list is therefore the only
+    /// part of this that a test can hold (L442).
+    @Test("each term becomes a row carrying its words and the day it lands on")
+    func eachtermBecomesARow() throws {
+        let choices = try Self.choices()
+
+        let rows = DueDateControl.rows(for: choices)
+
+        #expect(rows.map(\.says) == choices.map(\.says))
+        #expect(rows.map(\.beside) == choices.map(\.lands))
+        #expect(rows.contains { $0.isCurrent })
+    }
+
+    /// AND EVERY ROW FINDS ITS OWN TERM BACK. The row hands back an identity and
+    /// the control looks the term up by it, so a row whose identity does not
+    /// round trip saves a date the person did not pick, and every date on the
+    /// screen still looks right (L15, L237).
+    @Test("every row finds its way back to exactly one term")
+    func everyrowFindsItsTermBack() throws {
+        let choices = try Self.choices()
+
+        let rows = DueDateControl.rows(for: choices)
+
+        #expect(Set(rows.map(\.id)).count == choices.count, "two rows share an identity")
+        for (row, term) in zip(rows, choices) {
+            let found = choices.filter { $0.says == row.id }
+            #expect(found.count == 1)
+            #expect(found.first?.day.dayKey == term.day.dayKey)
+        }
+    }
 }

@@ -113,6 +113,68 @@ struct MoneyTests {
         #expect(Rounding.halfAwayFromZero(-100, over: 10) == -10)
         #expect(Rounding.halfAwayFromZero(0, over: 10) == 0)
     }
+
+    // MARK: reading a typed amount (ovation#457)
+
+    /// ONE READER FOR EVERY TYPED AMOUNT. The line's amount field and the new
+    /// service type panel's both take one, and a second parser beside this one is
+    /// how two fields come to accept different things (L370, L613).
+    @Test("a plain figure is read",
+          arguments: zip(["150", "150.50", "0.05"],
+                         [Money(dollars: 150), Money(cents: 15_050), Money(cents: 5)]))
+    func aplainFigureIsRead(typed: String, expected: Money) {
+        #expect(Money.read(typed) == expected)
+    }
+
+    /// WHAT A PERSON ACTUALLY TYPES, which is what the figure beside the field
+    /// already looks like: the design record's own control strips a dollar sign
+    /// and commas before reading.
+    @Test("the dollar sign, the commas and the surrounding space are read through",
+          arguments: ["$1,250.00", " 1250 ", "1,250.00", "$1250"])
+    func whatapersonTypesIsRead(typed: String) {
+        #expect(Money.read(typed) == Money(dollars: 1_250))
+    }
+
+    /// A ZERO IS A FIGURE AND AN EMPTY FIELD IS NOT ONE. A zero total is a
+    /// legitimate comped invoice (PRD 5.1b), so the two can never be folded into
+    /// one answer: the difference between them is the whole reason this returns an
+    /// optional rather than defaulting (L544, L706).
+    @Test("a zero is read as a figure, and nothing typed is not a figure")
+    func azeroIsAFigureAndEmptyIsNot() {
+        #expect(Money.read("0") == Money.zero)
+        #expect(Money.read("0.00") == Money.zero)
+        #expect(Money.read("") == nil)
+        #expect(Money.read("   ") == nil)
+    }
+
+    /// AN AMOUNT IT CANNOT READ IS NO AMOUNT, never a zero, which is what lets
+    /// the control leave the row where it is rather than adding a line worth
+    /// nothing that is indistinguishable from a comped one.
+    @Test("anything that is not a figure is refused", arguments: [
+        "abc", "1.2.3", "$", "-", "12 dollars", "1e5",
+    ])
+    func anythingElseIsRefused(typed: String) {
+        #expect(Money.read(typed) == nil, "\(typed) was read as a figure")
+    }
+
+    /// A NEGATIVE IS READ, because `LineItem.flat` records that a flat line may
+    /// be one. What a negative means is the control's question and not the
+    /// reader's (L542).
+    @Test("a negative figure is read as one")
+    func anegativeIsRead() {
+        #expect(Money.read("-50") == Money(cents: -5_000))
+        #expect(Money.read("-0.01") == Money(cents: -1))
+    }
+
+    /// MORE PRECISION THAN MONEY HAS IS ROUNDED HALF AWAY FROM ZERO, the same
+    /// rule `Money` already rounds every other derived figure by, rather than a
+    /// second rounding written here (L370).
+    @Test("a third decimal is rounded the way every other figure is")
+    func athirdDecimalIsRounded() {
+        #expect(Money.read("1.005") == Money(cents: 101))
+        #expect(Money.read("1.004") == Money(cents: 100))
+        #expect(Money.read("-1.005") == Money(cents: -101))
+    }
 }
 
 /// Sales tax, whose rate and base are the reason this type exists rather than a
@@ -234,6 +296,7 @@ struct HoursTests {
         #expect(Money.charge(for: Hours(tenths: 1), at: Money(cents: 24_995))
                 == Money(cents: 2_500))
     }
+
 }
 
 /// Deterministic, so a property failure is reproducible and two runs measure the

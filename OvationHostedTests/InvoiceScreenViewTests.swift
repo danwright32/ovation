@@ -18,9 +18,23 @@ struct InvoiceScreenViewTests {
 
     /// A draft: a shoot with a start and no end, and its line with no hours, which
     /// is the ordinary state of every invoice (PRD 3c).
+    /// The three PRD 5.4 seeds, so a case about adding a line has something to
+    /// choose from.
+    private static func types(_ context: ModelContext) -> [ServiceType] {
+        let made = [
+            ServiceType(name: "Photography", role: .hourlyPhotography, defaultUnitAmount: nil),
+            ServiceType(name: "Rush turnaround", role: .ordinary,
+                        defaultUnitAmount: Money(dollars: 150)),
+            ServiceType(name: "Preview images", role: .ordinary, defaultUnitAmount: nil),
+        ]
+        made.forEach { context.insert($0) }
+        return made
+    }
+
     private static func draft(sent: Bool = false, end: String? = nil,
                               number: Int64? = nil,
-                              taxStatus: TaxStatus = .notExempt) throws -> InvoiceScreenPresenter {
+                              taxStatus: TaxStatus = .notExempt,
+                              offering: Bool = false) throws -> InvoiceScreenPresenter {
         let context = ModelContext(try OvationSchema.container(inMemory: true))
         let client = Client(name: "Cedar Hill Youth Orchestra", taxStatus: taxStatus)
         client.email = "booker@example.com"
@@ -42,7 +56,8 @@ struct InvoiceScreenViewTests {
             invoice.sentStatus = .sent(route: .ovationSentIt, at: noon)
         }
         if let number { invoice.number = number }
-        return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today)
+        return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today,
+                                      serviceTypes: offering ? Self.types(context) : [])
     }
 
     private static func text(in view: some View) throws -> [String] {
@@ -234,5 +249,132 @@ struct InvoiceScreenViewTests {
         #expect(drawn.contains("Tax status never recorded for this client."))
         #expect(!drawn.contains(ReviewGate.sentence(for: .taxStatusNeverRecorded)),
                 "the foot repeated what the money block was already answering")
+    }
+
+    // MARK: adding a line (ovation#457, PRD 5.4)
+
+    /// THE WORD APPENDS A ROW AND THE TYPE IS CHOSEN INSIDE IT, so the line is
+    /// built where it is going to live, which the design record settled on
+    /// 2026-09-08 against three alternatives including putting it in the Edit
+    /// menu. That one was rejected on measurement rather than taste: 26 of 130
+    /// issued invoices carry more than one line, against 5 carrying a discount.
+    @Test("a draft with something to choose from offers a line to add")
+    func adraftOffersALineToAdd() throws {
+        let view = InvoiceScreenView(presenter: try Self.draft(offering: true),
+                                     close: {}, setTime: { _, _, _ in },
+                                     addLine: { _, _ in })
+
+        #expect(try Self.text(in: view).contains("Add a line"))
+    }
+
+    /// AND IT IS NOT OFFERED WHERE IT CANNOT BE DONE, rather than offered and
+    /// then refused: a control that opens onto a refusal is a dead control, and a
+    /// word that looks pressable and is not is the defect this screen must not
+    /// ship (L651, L109, ovation#450).
+    @Test("a sent invoice offers no line to add", arguments: [true, false])
+    func asentInvoiceOffersNoLineToAdd(sent: Bool) throws {
+        let view = InvoiceScreenView(presenter: try Self.draft(sent: sent, end: "20:30",
+                                                               offering: true),
+                                     close: {}, setTime: { _, _, _ in },
+                                     addLine: { _, _ in })
+
+        #expect(try Self.text(in: view).contains("Add a line") == !sent)
+    }
+
+    /// NOR WHERE THERE IS NOTHING TO WRITE WITH. Nil means this launch has no
+    /// store, and a word with nothing behind it is the same dead control (L3).
+    @Test("with nowhere to put a line the word is not drawn")
+    func nowritePathDrawsNoWord() throws {
+        let view = InvoiceScreenView(presenter: try Self.draft(offering: true),
+                                     close: {}, setTime: { _, _, _ in })
+
+        #expect(try !Self.text(in: view).contains("Add a line"))
+    }
+
+    // MARK: what the list and the panel decide
+
+    /// THE TYPES BECOME ROWS OF THE ONE LIST. The list is presented in a popover,
+    /// which is its own window and beyond any view tree test, so this translation
+    /// is the part a test can hold, and it is the part that decides which type a
+    /// press writes (L442, L237).
+    @Test("every offered type becomes a row that finds its own type back")
+    func everytypeBecomesARow() throws {
+        let presenter = try Self.draft(offering: true)
+
+        let rows = InvoiceScreenView.typeRows(for: presenter.serviceTypes)
+
+        #expect(rows.map(\.says) == presenter.serviceTypes.map(\.name))
+        // NOTHING BESIDE THE NAME, which is what the design record's own type
+        // list draws: its rows carry a label and no second column.
+        #expect(rows.allSatisfy { $0.beside.isEmpty })
+        #expect(Set(rows.map(\.id)).count == rows.count, "two rows share an identity")
+    }
+
+    /// THE TYPE'S USUAL AMOUNT PREFILLS THE FIELD, which the design record says
+    /// is what makes the new type panel's second question worth asking.
+    ///
+    /// AND A TYPE WITH NONE LEAVES IT EMPTY, never a zero: a figure the screen
+    /// has not been given is never drawn as one, which is the rule the hours
+    /// column already keeps (PRD 5.1b).
+    @Test("choosing a type prefills its usual amount, and none leaves it empty")
+    func choosingatypePrefillsItsAmount() throws {
+        let presenter = try Self.draft(offering: true)
+        let rush = try #require(presenter.serviceTypes.first { $0.name == "Rush turnaround" })
+        let preview = try #require(presenter.serviceTypes.first { $0.name == "Preview images" })
+
+        #expect(InvoiceScreenView.prefill(for: rush) == "150.00")
+        #expect(InvoiceScreenView.prefill(for: preview) == "")
+    }
+
+    /// A TYPE WITH NO NAME CANNOT BE CREATED, and the control says so by looking
+    /// inert rather than by refusing after the press, which is the design
+    /// record's own reasoning: a control that does nothing and gives no reason
+    /// leaves pressing it again as the only diagnosis (L109).
+    @Test("a name of nothing cannot create a type", arguments: ["", "   ", "\t"])
+    func anemptyNameCannotCreate(typed: String) {
+        #expect(InvoiceScreenView.canCreate(typed) == false)
+    }
+
+    @Test("and a real name can")
+    func arealNameCanCreate() {
+        #expect(InvoiceScreenView.canCreate("Travel"))
+        #expect(InvoiceScreenView.canCreate("  Travel  "))
+    }
+
+    /// A REFUSED LINE IS SAID, never swallowed, the same as every other write on
+    /// this screen (L109, L148).
+    @Test("a refused line reaches the window, in the writer's own words")
+    func arefusedLineIsDrawn() throws {
+        let view = InvoiceScreenView(presenter: try Self.draft(offering: true),
+                                     close: {}, setTime: { _, _, _ in },
+                                     addLine: { _, _ in },
+                                     refusedLine: InvoiceLineRefusal.serviceTypeIsRetired.sentence)
+
+        #expect(try Self.text(in: view)
+            .contains(InvoiceLineRefusal.serviceTypeIsRetired.sentence))
+    }
+
+    /// A TYPE MADE FROM THE PANEL BECOMES THE ROW'S TYPE, which the design record
+    /// settles. The list comes back from the store after the write, so the row
+    /// finds it by the name that was typed, trimmed the way the writer stores it
+    /// (L185).
+    @Test("a type just made is found by the name that was typed")
+    func atypeJustMadeIsFound() throws {
+        let presenter = try Self.draft(offering: true)
+
+        let found = InvoiceScreenView.newlyMade(named: "  Rush turnaround ",
+                                                in: presenter.serviceTypes)
+
+        #expect(found?.name == "Rush turnaround")
+    }
+
+    /// AND A NAME THAT IS NOT THERE YET FINDS NOTHING, which is what makes the
+    /// row wait rather than select whatever is nearest (L75).
+    @Test("a name that is not in the list yet finds nothing")
+    func anameNotThereFindsNothing() throws {
+        let presenter = try Self.draft(offering: true)
+
+        #expect(InvoiceScreenView.newlyMade(named: "Travel",
+                                            in: presenter.serviceTypes) == nil)
     }
 }
