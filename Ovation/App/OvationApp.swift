@@ -45,6 +45,14 @@ struct OvationApp: App {
     /// only. Real invoices reach the sheet with ovation#42.
     @State private var samples = ReviewSamplesCommand()
     #endif
+    /// ovation#457. What the Edit menu may offer about the invoice on screen.
+    /// The shell publishes into it and the menu below reads it.
+    ///
+    /// OUTSIDE THE DEBUG BLOCK, which is where it first landed: the Edit menu
+    /// ships, so a declaration only the Debug build has compiles on this Mac and
+    /// fails the Release build. `scripts/build-products.sh` builds both for
+    /// exactly this reason.
+    @State private var edits = InvoiceEditCommand()
     /// ovation#246. What the window shows while the launch runs behind it.
     @State private var progress = LaunchProgress()
     /// Whether the second copy check said this one may run, carried from init so
@@ -546,6 +554,22 @@ struct OvationApp: App {
                              }
                          }
                      },
+                     // ovation#457, PRD 5.4a. Changing the discount, and the
+                     // object the Edit menu reads to know what is open.
+                     writeDiscount: opened.map { container in
+                         { invoice, discount in
+                             let writer = InvoiceDiscountWriter(modelContainer: container)
+                             do {
+                                 try await writer.setDiscount(discount, on: invoice)
+                                 return nil
+                             } catch let refusal as InvoiceDiscountRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That discount could not be saved: \(error)"
+                             }
+                         }
+                     },
+                     edits: edits,
                      progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
                 // order inside the launch is unchanged; what changed is that
@@ -596,6 +620,27 @@ struct OvationApp: App {
                     Text(why).font(.footnote)
                 }
             }
+            // ovation#457, PRD 5.4a. The rare actions on an invoice live in the
+            // Edit menu, which is round 5 of the design record: space on the
+            // screen is earned by frequency and 5 of 130 issued invoices carry a
+            // discount.
+            //
+            // IT ADDS ONE AND NEVER REMOVES ONE. Once there is a discount the
+            // row carries its own controls, so a Remove here would be the same
+            // action offered twice on one screen, and this is the copy further
+            // from the thing it acts on (L605).
+            //
+            // NEVER HIDDEN, ONLY DISABLED WITH ITS REASON, which is this menu's
+            // own rule above and differs from the record, where the entry
+            // disappears. Both concerns are kept and the difference is filed as
+            // ovation#495.
+            CommandGroup(after: .pasteboard) {
+                Button(InvoiceEditCommand.addDiscountTitle) { addADiscount() }
+                    .disabled(InvoiceEditCommand.whyADiscountCannotBeAdded(edits.open) != nil)
+                if let why = InvoiceEditCommand.whyADiscountCannotBeAdded(edits.open) {
+                    Text(why).font(.footnote)
+                }
+            }
             #if DEBUG
             CommandMenu(ReviewSamplesCommand.title) {
                 ForEach(ReviewSample.allCases) { sample in
@@ -604,6 +649,15 @@ struct OvationApp: App {
             }
             #endif
         }
+    }
+
+    /// Adds the discount the menu offers, which is a tenth off: round 5's own
+    /// measurement, the commonest of the five in the whole history.
+    private func addADiscount() {
+        guard let open = edits.open,
+              InvoiceEditCommand.whyADiscountCannotBeAdded(open) == nil,
+              let add = edits.addDiscount else { return }
+        add(open.id, InvoiceEditCommand.whatItAdds)
     }
 
     /// Why the menu item would do nothing, in Dan's words rather than the code's

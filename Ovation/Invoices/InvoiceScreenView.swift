@@ -81,6 +81,21 @@ struct InvoiceScreenView: View {
     /// Why the last line or type was not written, said rather than swallowed.
     var refusedLine: String?
 
+    /// ovation#457, PRD 5.4a. Changing this invoice's discount, or taking it off
+    /// when given nothing. Nil where the caller has nowhere to put it, in which
+    /// case the figure is still drawn and the controls are not (L651).
+    var setDiscount: ((Discount?) -> Void)?
+
+    /// What is in the discount's value field, and which unit it is in.
+    ///
+    /// THE TYPING IS THIS SCREEN'S AND THE VALUE IS THE STORE'S. The field holds
+    /// what is being typed, and every time the store's answer changes it is
+    /// seeded again from that answer, so a committed value comes back in its
+    /// canonical form and nothing typed is silently kept over what was saved
+    /// (L646, L14).
+    @State private var discountTyped = ""
+    @State private var discountIsPercent = true
+
     /// Which type the row being filled in is for, or nil while it is still being
     /// chosen. Local to this viewing, like the revealed times above it: a row
     /// half built is a state of looking at the screen, not of the invoice.
@@ -645,10 +660,72 @@ struct InvoiceScreenView: View {
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(row.label), \(row.value)")
+                // BENEATH THE ROW IT BELONGS TO, above the tax and the total,
+                // which is where the design record puts it. It was beneath the
+                // whole block until the picture was looked at, which put it
+                // four rows from the figure it changes.
+                if row.isDiscount, let editing = presenter.discountBeingEdited,
+                   setDiscount != nil {
+                    discountControls(editing)
+                }
             }
         }
         .padding(.horizontal, Column.sideMargin)
         .padding(.top, 10)
+    }
+
+    // MARK: the discount
+
+    /// The discount's own line, seeded from the store and handing back what was
+    /// typed.
+    ///
+    /// AN UNREADABLE VALUE LEAVES THE DISCOUNT ALONE, and that is a deliberate
+    /// difference from the design record, filed as ovation#495. The record's own
+    /// field turns anything it cannot read into a ZERO, and a zero discount is a
+    /// legitimate recorded decision rather than an absence (PRD 5.1b), so that
+    /// would write a decision nobody made and leave an invoice indistinguishable
+    /// from one discounted to nothing on purpose (L340). It is also what the
+    /// line's amount field already does, for the reason the record gives there.
+    private func discountControls(_ editing: InvoiceScreenPresenter.DiscountEdit) -> some View {
+        DiscountLine(isPercent: discountIsPercent,
+                     value: $discountTyped,
+                     width: 318,
+                     setUnit: { wantsPercent in
+                         discountIsPercent = wantsPercent
+                         commitDiscount()
+                     },
+                     commit: commitDiscount,
+                     remove: { setDiscount?(nil) })
+            // NO SIDE MARGIN OF ITS OWN: it is inside the money block, which
+            // already carries it, and a second one would put this line's right
+            // edge off the one every figure above it shares (L553).
+            // SEEDED FROM THE STORE, INCLUDING THE FIRST TIME. `initial: true` is
+            // what makes an invoice opened with a discount already on it show
+            // that discount rather than an empty field, which no later change
+            // would ever fix.
+            .onChange(of: presenter.discountBeingEdited, initial: true) { _, _ in
+                discountTyped = editing.typed
+                discountIsPercent = editing.isPercent
+            }
+    }
+
+    /// Reads what was typed and saves it, or leaves the discount as it is.
+    ///
+    /// THE TWO UNITS READ THROUGH ONE PARSER, each stripping only its own sign,
+    /// so a figure typed into one cannot be read as the other's (L118).
+    private func commitDiscount() {
+        guard let read = Hundredths.read(discountTyped,
+                                         stripping: discountIsPercent ? "%" : "$")
+        else { return }
+        let wanted = discountIsPercent
+            ? Discount(percentBasisPoints: read)
+            : Discount(dollars: Money(cents: read))
+        // REFUSED BY THE TYPE, NOT BY A SECOND RULE HERE. A share outside
+        // nothing to everything and a negative amount are what `Discount`'s own
+        // initialisers refuse, and a control that refused them again would be a
+        // second place for that rule to live (L370).
+        guard let wanted else { return }
+        setDiscount?(wanted)
     }
 
     // MARK: the tax status question

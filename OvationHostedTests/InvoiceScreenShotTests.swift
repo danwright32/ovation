@@ -68,7 +68,7 @@ struct InvoiceScreenShotTests {
                                   setTime: { _, _, _ in },
                                   answerTax: { _, _ in },
                                   addLine: { _, _ in }, createType: { _, _ in },
-                                  review: {}),
+                                  setDiscount: { _ in }, review: {}),
                 size: Self.windowSize, scheme: .light, to: file)
             written.append(file.lastPathComponent)
 
@@ -81,7 +81,7 @@ struct InvoiceScreenShotTests {
                                   setTime: { _, _, _ in },
                                   answerTax: { _, _ in },
                                   addLine: { _, _ in }, createType: { _, _ in },
-                                  review: {}),
+                                  setDiscount: { _ in }, review: {}),
                 size: Self.windowSize, scheme: .dark, to: darkFile)
             let light = try Data(contentsOf: file)
             let dark = try Data(contentsOf: darkFile)
@@ -114,6 +114,10 @@ struct InvoiceScreenShotTests {
         /// block asks the question instead of drawing a tax figure and a total
         /// nobody has decided, and the two answers are in it.
         case waitingOnTheTaxStatus
+        /// A discount, which 5 of 130 issued invoices carry. It is the state
+        /// that puts a second control line into the money block, where the
+        /// figures have the most to keep lined up against one right edge.
+        case discounted
     }
 
     private static func presenter(for state: State) throws -> InvoiceScreenPresenter {
@@ -151,6 +155,9 @@ struct InvoiceScreenShotTests {
             invoice.add(LineItem.hourly(hours: shoot.billedHours ?? Hours(whole: 1),
                                         at: Money(dollars: 250),
                                         describedAs: "Photography", for: shoot))
+        }
+        if state == .discounted {
+            invoice.discount = Discount(percentBasisPoints: 1_000)
         }
         if state == .theBusiestItGets {
             invoice.add(LineItem.flat(Money(dollars: 150), describedAs: "Rush turnaround"))

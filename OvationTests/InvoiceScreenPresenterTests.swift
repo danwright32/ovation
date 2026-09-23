@@ -566,6 +566,70 @@ struct InvoiceScreenPresenterTests {
         #expect(Self.present(invoice).mayAddLine == false)
     }
 
+    // MARK: the discount, as a control (ovation#457, PRD 5.4a)
+
+    /// THE FIELD SHOWS THE SHARE, not the figure it comes to, because the share
+    /// is what Dan typed and what he would change (PRD 5.4a).
+    @Test("a share is offered as the share, with its unit in force")
+    func ashareIsOfferedAsAShare() throws {
+        let invoice = try Self.invoice(try Self.store())
+        invoice.discount = Discount(percentBasisPoints: 1_000)
+
+        let edit = try #require(Self.present(invoice).discountBeingEdited)
+
+        #expect(edit.isPercent)
+        #expect(edit.typed == "10")
+    }
+
+    /// A FRACTION SURVIVES THE TRIP, which is what basis points are for: 33.33%
+    /// is 3,333 and must come back as it went in rather than as 33.
+    @Test("a share with a fraction comes back whole")
+    func ashareWithAFractionComesBack() throws {
+        let invoice = try Self.invoice(try Self.store())
+        invoice.discount = Discount(percentBasisPoints: 3_333)
+
+        #expect(Self.present(invoice).discountBeingEdited?.typed == "33.33")
+    }
+
+    @Test("an amount is offered as an amount, in the unit money is written in")
+    func anamountIsOfferedAsAnAmount() throws {
+        let invoice = try Self.invoice(try Self.store())
+        invoice.discount = Discount(dollars: Money(dollars: 50))
+
+        let edit = try #require(Self.present(invoice).discountBeingEdited)
+
+        #expect(edit.isPercent == false)
+        #expect(edit.typed == "50.00")
+    }
+
+    /// NO DISCOUNT IS NO LINE. The design record puts it plainly: it "is not on
+    /// the screen at all until there is one", because space is earned by
+    /// frequency and 96% of issued invoices carry none.
+    @Test("an invoice with no discount offers no line to edit")
+    func noDiscountOffersNoLine() throws {
+        let invoice = try Self.invoice(try Self.store())
+
+        #expect(Self.present(invoice).discountBeingEdited == nil)
+    }
+
+    /// AND A SENT INVOICE OFFERS NO CONTROL EITHER, rather than one that opens
+    /// onto a refusal (L651). `InvoiceDiscountWriter` refuses the same state,
+    /// because a screen gating a write is not the write being guarded (L196).
+    @Test("a sent invoice draws its discount without offering to change it")
+    func asentInvoiceOffersNoDiscountControl() throws {
+        let context = try Self.store()
+        let sent = try Self.invoice(context)
+        sent.discount = Discount(percentBasisPoints: 1_000)
+        sent.number = 1_042
+        sent.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+
+        let screen = Self.present(sent)
+
+        #expect(screen.discountBeingEdited == nil)
+        // The FIGURE is still drawn: what a client was told is still on the page.
+        #expect(screen.money.contains { $0.label.hasPrefix("Discount") })
+    }
+
     // MARK: the status that was never recorded (ovation#457, PRD 5.5)
 
     /// NEVER RECORDED IS NOT THE SAME AS NOT EXEMPT, which PRD 5.5 states outright

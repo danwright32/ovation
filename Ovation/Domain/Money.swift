@@ -96,55 +96,20 @@ struct Money: Equatable, Hashable, Comparable, Codable, Sendable {
     /// caller does with nil is the caller's question: the control leaves the row
     /// where it is.
     ///
-    /// NO FLOATING POINT AND NO `Decimal`, which `check-forbidden-constructs.sh`
-    /// refuses in money code and which this was written with until that check
-    /// caught it. The digits either side of the point are read as integers and
-    /// combined, so there is no conversion to round through at all: `Money` is
-    /// Int64 minor units for the same reason (plan 1.4, ovation#127).
+    /// Reads an amount a person typed, or answers that it is not one.
     ///
-    /// A NEGATIVE IS READ, because `LineItem.flat` records that a flat line may
-    /// be one. What a negative MEANS is the control's question, not this one's.
+    /// ONE READER FOR EVERY TYPED FIGURE (ovation#457). Cents and basis points
+    /// are both HUNDREDTHS of the unit typed, so a dollar amount and a discount
+    /// percentage are the same parse with a different sigil and a different
+    /// wrapper. `Hundredths` is that parse, and a second one beside it is how two
+    /// fields come to accept different things (L370, L613).
+    ///
+    /// AN OPTIONAL RATHER THAN A DEFAULT, and that is the whole point of it. A
+    /// zero is a legitimate comped line (PRD 5.1b) and an empty field is not a
+    /// figure at all, so folding the two into one answer would make a line worth
+    /// nothing indistinguishable from one nobody has priced (L544, L706).
     static func read(_ typed: String) -> Money? {
-        var cleaned = ""
-        for character in typed where !character.isWhitespace {
-            // The dollar sign and the thousands commas are what the figure beside
-            // the field already looks like, so they are read through rather than
-            // refused (the design record's own control strips both).
-            if character == "$" || character == "," { continue }
-            cleaned.append(character)
-        }
-        var negative = false
-        if cleaned.hasPrefix("-") { negative = true; cleaned.removeFirst() }
-        guard !cleaned.isEmpty else { return nil }
-
-        // EVERY CHARACTER MUST BE PART OF A FIGURE, because a reader that takes a
-        // leading number and stops would read "12 dollars" as 12 and "1.2.3" as
-        // 1.2 rather than refusing either (L108).
-        var whole = "", fraction = "", seenPoint = false
-        for character in cleaned {
-            if character.isNumber {
-                if seenPoint { fraction.append(character) } else { whole.append(character) }
-                continue
-            }
-            guard character == ".", !seenPoint else { return nil }
-            seenPoint = true
-        }
-        guard !whole.isEmpty || !fraction.isEmpty else { return nil }
-
-        guard let dollars = whole.isEmpty ? 0 : Int64(whole) else { return nil }
-        let (scaled, overflowed) = dollars.multipliedReportingOverflow(by: 100)
-        guard !overflowed else { return nil }
-
-        // THE FIRST TWO DIGITS ARE THE CENTS AND THE THIRD DECIDES THE ROUNDING,
-        // half away from zero, which is the rule every other figure here is
-        // rounded by rather than a second one written beside it (L370).
-        let digits = Array(fraction)
-        func digit(_ index: Int) -> Int64 {
-            index < digits.count ? Int64(String(digits[index])) ?? 0 : 0
-        }
-        var cents = scaled + digit(0) * 10 + digit(1)
-        if digit(2) >= 5 { cents += 1 }
-        return Money(cents: negative ? -cents : cents)
+        Hundredths.read(typed, stripping: "$").map(Money.init(cents:))
     }
 
     static func sum(of amounts: [Money]) -> Money {

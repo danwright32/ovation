@@ -65,6 +65,13 @@ struct ShellView: View {
     /// has no store to write to.
     var writeLine: ((PersistentIdentifier, PersistentIdentifier, Money) async -> String?)?
     var writeServiceType: ((String, Money?) async -> String?)?
+    /// ovation#457, PRD 5.4a. Changing this invoice's discount, or taking it off
+    /// when given nothing. Nil where this launch has no store to write to.
+    var writeDiscount: ((PersistentIdentifier, Discount?) async -> String?)?
+    /// What the Edit menu is allowed to offer about the invoice on screen. The
+    /// menu is declared on the app, outside every view, so this is how what is
+    /// open reaches it (ovation#457).
+    var edits: InvoiceEditCommand?
 
     /// Which invoice is selected. It lives here rather than inside the list
     /// because coming back from an invoice has to find the row again (ovation#125).
@@ -228,6 +235,7 @@ struct ShellView: View {
                        _ time: ClockTime?) async {
         refusedWrite = await writeTime?(shoot, edge, time)
         if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
+        publishWhatIsOpen()
     }
 
     /// The same shape for the due date: write, then re-read, so the foot and
@@ -236,6 +244,7 @@ struct ShellView: View {
         guard let openedInvoiceID else { return }
         refusedDate = await writeDueDate?(openedInvoiceID, due)
         openedInvoice = openInvoice?(openedInvoiceID)
+        publishWhatIsOpen()
     }
 
     /// The same shape again for the tax status: write, then re-read, so the tax
@@ -246,6 +255,7 @@ struct ShellView: View {
     private func answered(_ client: PersistentIdentifier, _ status: TaxStatus) async {
         refusedTax = await writeTaxStatus?(client, status)
         if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
+        publishWhatIsOpen()
     }
 
     /// The same shape again for a line: write, then re-read, so the row, the
@@ -255,6 +265,7 @@ struct ShellView: View {
         guard let openedInvoiceID else { return }
         refusedLine = await writeLine?(openedInvoiceID, type, amount)
         openedInvoice = openInvoice?(openedInvoiceID)
+        publishWhatIsOpen()
     }
 
     /// And for a new service type, which changes what the list offers rather
@@ -262,6 +273,37 @@ struct ShellView: View {
     private func madeType(_ name: String, _ usual: Money?) async {
         refusedLine = await writeServiceType?(name, usual)
         if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
+        publishWhatIsOpen()
+    }
+
+    /// The same shape again for the discount: write, then re-read, so the line,
+    /// the taxable figure, the total and the Review refusal all change together
+    /// or not at all (L14).
+    /// ADDRESSED BY THE INVOICE THE DECISION WAS MADE ABOUT, never by whatever
+    /// is open when the write lands. The menu presses on the invoice it was
+    /// describing, and using the screen's own id instead would act on a
+    /// different one if it had changed in between (L166).
+    private func discounted(_ invoice: PersistentIdentifier, _ discount: Discount?) async {
+        refusedLine = await writeDiscount?(invoice, discount)
+        guard let openedInvoiceID, openedInvoiceID == invoice else { return }
+        openedInvoice = openInvoice?(openedInvoiceID)
+        publishWhatIsOpen()
+    }
+
+    /// Tells the Edit menu what it is looking at.
+    ///
+    /// PUBLISHED FROM THE ONE PLACE THE SCREEN IS BUILT, so the menu can never
+    /// describe an invoice that is no longer on screen: every path that changes
+    /// what is open goes through `openedInvoice` and then through here (L14).
+    private func publishWhatIsOpen() {
+        edits?.open = openedInvoice?.editMenuFacts
+        // WHAT THE MENU DOES IS GIVEN HERE, because writing and then re-reading
+        // the screen is the shell's job: a menu that only wrote would change the
+        // store and leave the invoice on screen describing what it used to be
+        // (L14).
+        edits?.addDiscount = writeDiscount == nil ? nil : { invoice, discount in
+            Task { await discounted(invoice, discount) }
+        }
     }
 
     @ViewBuilder
@@ -285,7 +327,11 @@ struct ShellView: View {
             if let open = openedInvoice {
                 InvoiceScreenView(
                     presenter: open,
-                    close: { openedInvoice = nil; openedInvoiceID = nil },
+                    close: {
+                        openedInvoice = nil
+                        openedInvoiceID = nil
+                        publishWhatIsOpen()
+                    },
                     setTime: writeTime == nil ? nil : { shoot, edge, time in
                         Task { await typed(shoot, edge, time) }
                     },
@@ -304,13 +350,18 @@ struct ShellView: View {
                     createType: writeServiceType == nil ? nil : { name, usual in
                         Task { await madeType(name, usual) }
                     },
-                    refusedLine: refusedLine)
+                    refusedLine: refusedLine,
+                    setDiscount: writeDiscount == nil ? nil : { discount in
+                        guard let openedInvoiceID else { return }
+                        Task { await discounted(openedInvoiceID, discount) }
+                    })
             } else if let invoices {
                 InvoiceListView(presenter: invoices, heldMoney: heldMoney,
                                 selected: $selectedInvoice,
                                 open: openInvoice == nil ? nil : { id in
                                     openedInvoiceID = id
                                     openedInvoice = openInvoice?(id)
+                                    publishWhatIsOpen()
                                 })
             } else {
                 couldNotBeRead

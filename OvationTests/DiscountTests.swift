@@ -77,4 +77,42 @@ struct DiscountTests {
         #expect(dollars != percent)
         #expect(dollars.amount(on: Money(dollars: 250)) != percent.amount(on: Money(dollars: 250)))
     }
+
+    // MARK: reading a discount back (ovation#457)
+
+    /// A DISCOUNT IS READ BACK BY THE TWO ACCESSORS, one per form, so a control
+    /// that has to show what was typed asks for it by name. Recovering a fixed
+    /// amount by pricing the discount against a subtotal of nothing gives the
+    /// right answer and asks the wrong question, and it would go on giving it
+    /// until somebody decided a discount should clamp (L176, L263).
+    @Test("a fixed amount is read back as the amount it is")
+    func afixedAmountIsReadBack() throws {
+        let fifty = try #require(Discount(dollars: Money(dollars: 50)))
+
+        #expect(fifty.dollarsOff == Money(dollars: 50))
+        #expect(fifty.percentBasisPoints == nil)
+    }
+
+    @Test("and a share has no amount of its own, because it has no meaning without one")
+    func ashareHasNoAmountOfItsOwn() throws {
+        let tenth = try #require(Discount(percentBasisPoints: 1_000))
+
+        #expect(tenth.dollarsOff == nil)
+        #expect(tenth.percentBasisPoints == 1_000)
+    }
+
+    /// EVERY DISCOUNT IS ONE FORM OR THE OTHER, never both and never neither,
+    /// which is what the private form guarantees and what a reader of the two
+    /// accessors is entitled to rely on (L517).
+    @Test("every discount answers exactly one of the two")
+    func everydiscountIsOneFormOrTheOther() throws {
+        for discount in [try #require(Discount(dollars: Money(dollars: 50))),
+                         try #require(Discount(dollars: .zero)),
+                         try #require(Discount(percentBasisPoints: 0)),
+                         try #require(Discount(percentBasisPoints: 10_000))] {
+            let answers = [discount.dollarsOff != nil, discount.percentBasisPoints != nil]
+            #expect(answers.filter { $0 }.count == 1)
+        }
+    }
+
 }
