@@ -26,11 +26,25 @@
 // That belief was load bearing and wrong, and it is corrected where it was stated
 // rather than annotated (L244).
 //
-// THE VALUE TYPES ARE NOT FROZEN WITH IT, and that is a stated limitation rather
-// than an oversight. `Money`, `BusinessDate`, `ShootWhen`, `Discount` and the
-// vocabularies are global Codable types shared by both versions, so a change to
-// one of THEM changes what this file describes. The day a stored value type
-// changes shape, it needs the same treatment as these classes.
+// THE VALUE TYPES ARE MOSTLY NOT FROZEN WITH IT, and this paragraph used to call
+// that a stated limitation and predict what would happen. It happened (ovation#502).
+//
+// `SentStatus` GAINED A CASE WITH AN ASSOCIATED VALUE on 2026-09-21 (ovation#464),
+// and because this file named the LIVE type, what version 1 claimed to have held
+// changed two days after the fact with nobody editing this file at all. That
+// commit recorded the opposite in as many words, "adding a CASE changes no
+// attribute SwiftData can see", and it is measurably false: the four fields of
+// `SendAttempt` are flattened into `ZINVOICE` as `ZDESTINATION`, `ZWASREDIRECTED`,
+// `ZRENDERSHA256` and `ZSTARTEDAT`. Both stores on Dan's Mac then matched no
+// declared version and the app could not open the store it had written.
+//
+// SO THE ONE TYPE THAT MOVED IS FROZEN HERE, below, and the rest are still shared.
+// That is a deliberate choice rather than laziness: `SchemaFingerprintTests` now
+// fails the moment ANY frozen version's fingerprint moves, so a shared type that
+// changes is caught on the next test run instead of at somebody's install. Nine
+// speculative hand copies would each be a fresh chance to transcribe one wrongly,
+// which is exactly how `clearedOn` went missing below. Freeze a type when the
+// guard says it moved, and not before.
 //
 // NOTHING HERE HAS BEHAVIOUR. No computed properties, no methods, no
 // documentation of what a field means: all of that belongs with the CURRENT
@@ -38,6 +52,30 @@
 // implementations of one rule (L370).
 import Foundation
 import SwiftData
+
+/// ovation#502. `SentStatus` AS VERSIONS 1 AND 2 STORED IT, before ovation#464
+/// added `attempting(SendAttempt)` on 2026-09-21.
+///
+/// IT IS A SEPARATE TYPE SO THE LIVE ONE CAN MOVE AGAIN. Naming the live type
+/// here is what let version 1 change underneath itself; a frozen version has to
+/// describe what was on disk whatever the app does next.
+///
+/// ONE COPY SERVES BOTH FROZEN VERSIONS, unlike the ten model CLASSES above,
+/// which each need their own because SwiftData keys an entity by its class name.
+/// A `Codable` value type is keyed by nothing: its stored shape comes from its
+/// case names and associated values, so versions 1 and 2, which held the identical
+/// shape, can share one description of it without the reuse failure measured on
+/// 2026-09-19.
+///
+/// THE CASES AND THEIR LABELS ARE THE STORED FORM and may not be tidied. The
+/// synthesized `Codable` keys off these names, so renaming a case or a label
+/// rewrites what every stored row must say to decode.
+enum SentStatusBeforeAttempting: Equatable, Hashable, Codable, Sendable {
+    case notSent
+    case sent(route: SentRoute, at: Date)
+    case couldNotDetermine(checkedAt: Date)
+}
+
 
 extension OvationSchemaV1 {
 
@@ -73,7 +111,7 @@ extension OvationSchemaV1 {
         var taxRate: TaxRate = TaxRate.newYorkCity
         var discount: Discount?
         var referralCredit: ReferralCredit?
-        var sentStatus: SentStatus = SentStatus.notSent
+        var sentStatus: SentStatusBeforeAttempting = SentStatusBeforeAttempting.notSent
         var closure: InvoiceClosure?
         /// REMOVED IN VERSION 2 (ovation#382). Stored, never read or written by
         /// anything in the app, and it collided by name with the standing note
@@ -137,6 +175,12 @@ extension OvationSchemaV1 {
         var amount: Money = Money.zero
         var receivedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
         var method: PaymentMethod = PaymentMethod.zelle
+        /// ovation#502. OMITTED WHEN THIS FILE WAS WRITTEN BY HAND on 2026-09-19,
+        /// and version 1 did hold it: the stores written on 2026-09-12 carry its
+        /// two columns. Restored rather than left out, because a frozen version
+        /// that drops a field the store has makes the stage between versions carry
+        /// nothing for it, and a later version re-adding it would arrive empty.
+        var clearedOn: BusinessDate?
         var reference: String?
 
         @Relationship(deleteRule: .cascade, inverse: \PaymentAllocation.payment)
