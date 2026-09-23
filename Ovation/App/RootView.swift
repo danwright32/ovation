@@ -55,6 +55,11 @@ struct RootView: View {
     /// through for the same reason: this view reaches no store of its own.
     var writeLine: ((PersistentIdentifier, PersistentIdentifier, Money) async -> String?)?
     var writeServiceType: ((String, Money?) async -> String?)?
+    /// ovation#457, PRD 5.4a. Changing an invoice's discount, and what the Edit
+    /// menu is allowed to offer about the invoice on screen. Passed through for
+    /// the same reason as the rest: this view reaches no store of its own.
+    var writeDiscount: ((PersistentIdentifier, Discount?) async -> String?)?
+    var edits: InvoiceEditCommand?
 
     /// ovation#246. What the launch is doing, while it is doing it. Nil in every
     /// hosted test written before there was one, and in that case the window is
@@ -88,7 +93,8 @@ struct RootView: View {
                       invoices: invoices, heldMoney: heldMoney,
                       openInvoice: openInvoice, writeTime: writeTime,
                       writeDueDate: writeDueDate, writeTaxStatus: writeTaxStatus,
-                      writeLine: writeLine, writeServiceType: writeServiceType)
+                      writeLine: writeLine, writeServiceType: writeServiceType,
+                      writeDiscount: writeDiscount, edits: edits)
         } else {
             problemsWindow
         }

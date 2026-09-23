@@ -52,6 +52,15 @@ final class InvoiceScreenPresenter {
         let value: String
         /// Whether it is drawn as the closing figure rather than a step toward it.
         let isTotal: Bool
+        /// Whether this is the discount's row, so the screen can put its
+        /// controls directly beneath it.
+        ///
+        /// A FLAG RATHER THAN THE LABEL. The design record puts that line
+        /// "beneath it", meaning beneath the discount row and above the tax and
+        /// the total, and a view finding the row by matching its words would
+        /// break on the first refinement of them, which already differ between
+        /// a share and an amount (L103).
+        var isDiscount = false
     }
 
     /// One shoot in the head, with the times Dan types and what they produce
@@ -178,6 +187,29 @@ final class InvoiceScreenPresenter {
     /// being guarded (L196).
     var mayAddLine: Bool { mayEdit && !serviceTypes.isEmpty }
 
+    /// The discount as its own controls need it, or nil where there is none to
+    /// edit or no editing it. ovation#457, PRD 5.4a.
+    ///
+    /// NO DISCOUNT IS NO LINE. The design record puts it plainly: it "is not on
+    /// the screen at all until there is one", because space is earned by
+    /// frequency and 96% of issued invoices carry none.
+    struct DiscountEdit: Equatable {
+        /// A share of the pre tax subtotal, or an amount off it.
+        let isPercent: Bool
+        /// The value as a person would type it, which is what the field shows.
+        let typed: String
+    }
+
+    let discountBeingEdited: DiscountEdit?
+
+    /// What the Edit menu needs to know about this invoice. ovation#457.
+    ///
+    /// BUILT HERE BECAUSE THIS IS WHERE THE INVOICE IS. The menu is declared on
+    /// the app, outside every view, and the shell holds only this presenter, so
+    /// turning the invoice into the values the menu reads is this type's own job
+    /// and is done in the one place that already does it (PRD 51l).
+    let editMenuFacts: InvoiceEditCommand.Open
+
     /// Whether the times may be typed at all.
     ///
     /// AN ORDINARY DRAFT ONLY. A sent invoice's times priced a document a client
@@ -215,6 +247,13 @@ final class InvoiceScreenPresenter {
         refusal = ReviewGate.refusal(for: invoice, footer: footer)
         // ONE READING, used by the question itself and by the foot's decision
         // about whether to repeat it, so the two cannot disagree (L16).
+        // THE FIGURE IS DRAWN ON A SENT INVOICE AND THE CONTROLS ARE NOT, which
+        // is the rule the times and the due date already keep: what a client was
+        // told stays on the page, and a control that opens onto a refusal is a
+        // dead control (L651).
+        discountBeingEdited = invoice.sentStatus == .notSent
+            ? Self.discountEdit(invoice.discount) : nil
+        editMenuFacts = InvoiceEditCommand.Open(invoice)
         let asking = Self.taxQuestion(for: invoice)
         taxQuestion = asking
         refusalAtTheFoot = asking != nil
@@ -470,7 +509,7 @@ final class InvoiceScreenPresenter {
             let share = discount.percentBasisPoints.map { ", \(percent($0))" } ?? ""
             rows.append(MoneyRow(label: "Discount" + share,
                                  value: pending ? "" : "-" + PDFText.amount(invoice.discountAmount),
-                                 isTotal: false))
+                                 isTotal: false, isDiscount: true))
             rows.append(MoneyRow(label: "Taxable", value: figure(invoice.taxableAmount),
                                  isTotal: false))
         }
@@ -509,6 +548,21 @@ final class InvoiceScreenPresenter {
                              isTotal: false))
         rows.append(MoneyRow(label: "Total", value: figure(invoice.total), isTotal: true))
         return rows
+    }
+
+    /// The discount as the field shows it.
+    ///
+    /// THE SHARE, NOT THE FIGURE IT COMES TO, because the share is what Dan
+    /// typed and what he would change (PRD 5.4a). It goes out through the same
+    /// `Hundredths` that reads it back, so editing a discount cannot change it
+    /// by looking at it (L317).
+    private static func discountEdit(_ discount: Discount?) -> DiscountEdit? {
+        guard let discount else { return nil }
+        if let points = discount.percentBasisPoints {
+            return DiscountEdit(isPercent: true, typed: Hundredths.text(points))
+        }
+        guard let dollars = discount.dollarsOff else { return nil }
+        return DiscountEdit(isPercent: false, typed: PDFText.amount(dollars))
     }
 
     /// The tax status question, asked only while it is outstanding.

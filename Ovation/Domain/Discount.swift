@@ -60,6 +60,20 @@ struct Discount: Equatable, Hashable, Codable, Sendable {
         return nil
     }
 
+    /// The amount, where this discount is a fixed one. Nil for a share, which
+    /// has no amount of its own until it meets a subtotal. Read only: the two
+    /// initialisers above stay the only ways a discount is made.
+    ///
+    /// NAMED RATHER THAN DERIVED (ovation#457). A control showing what was typed
+    /// used to recover this by asking `amount(on: .zero)`, which gives the right
+    /// answer because a fixed discount deliberately does not clamp, and asks the
+    /// wrong question: it would go on giving it right up until somebody decided
+    /// a discount should clamp, and then quietly stop (L176, L263).
+    var dollarsOff: Money? {
+        if case .dollars(let fixed) = form { return fixed }
+        return nil
+    }
+
     /// What comes off a subtotal of this size.
     ///
     /// A percentage goes through `Rounding`, the one implementation both the tax

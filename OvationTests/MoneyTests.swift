@@ -175,6 +175,41 @@ struct MoneyTests {
         #expect(Money.read("1.004") == Money(cents: 100))
         #expect(Money.read("-1.005") == Money(cents: -101))
     }
+
+    // MARK: reading a percentage (ovation#457)
+
+    /// BASIS POINTS ARE HUNDREDTHS AND SO ARE CENTS, so the discount's
+    /// percentage field and every amount field read through ONE parser with one
+    /// rounding rule. A second parser beside this one is how two fields come to
+    /// accept different things (L370, L613).
+    @Test("a percentage is read into basis points",
+          arguments: zip(["10", "10.5", "33.33", "0", "100"],
+                         [Int64(1_000), 1_050, 3_333, 0, 10_000]))
+    func apercentageIsRead(typed: String, expected: Int64) {
+        #expect(Hundredths.read(typed) == expected)
+    }
+
+    /// THE SIGIL EACH FIELD SHOWS IS READ THROUGH, and only that one: a dollar
+    /// sign typed into a percentage is a mistake rather than a unit, and reading
+    /// it would let the two fields accept each other's values.
+    @Test("each field reads through its own sign and not the other's")
+    func eachfieldReadsItsOwnSign() {
+        #expect(Hundredths.read("10%", stripping: "%") == 1_000)
+        #expect(Hundredths.read("10%") == nil)
+        #expect(Money.read("$10") == Money(dollars: 10))
+        #expect(Hundredths.read("$10", stripping: "%") == nil)
+    }
+
+    /// AND NOTHING TYPED IS NOT A ZERO, the same distinction every amount field
+    /// keeps: a discount of nothing is a real discount and an empty field is not
+    /// a figure (PRD 5.1b, L544).
+    @Test("a zero percentage is a figure and an empty field is not")
+    func azeroPercentageIsAFigure() {
+        #expect(Hundredths.read("0") == 0)
+        #expect(Hundredths.read("") == nil)
+        #expect(Hundredths.read("  ") == nil)
+    }
+
 }
 
 /// Sales tax, whose rate and base are the reason this type exists rather than a
