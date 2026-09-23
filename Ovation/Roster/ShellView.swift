@@ -68,6 +68,10 @@ struct ShellView: View {
     /// ovation#457, PRD 5.4a. Changing this invoice's discount, or taking it off
     /// when given nothing. Nil where this launch has no store to write to.
     var writeDiscount: ((PersistentIdentifier, Discount?) async -> String?)?
+    /// ovation#457, PRD 5.8 and 5.51e. Putting the client's referral credit on
+    /// this invoice or taking it back off. Nil where this launch has no store to
+    /// write to.
+    var writeReferralCredit: ((PersistentIdentifier, ReferralCreditChange) async -> String?)?
     /// What the Edit menu is allowed to offer about the invoice on screen. The
     /// menu is declared on the app, outside every view, so this is how what is
     /// open reaches it (ovation#457).
@@ -290,6 +294,17 @@ struct ShellView: View {
         publishWhatIsOpen()
     }
 
+    /// The same shape again for the referral credit, which moves the client's
+    /// balance as well as the invoice, so BOTH surfaces showing either have to be
+    /// rebuilt from the store rather than from what this thought it wrote (L14).
+    private func creditChanged(_ invoice: PersistentIdentifier,
+                               _ change: ReferralCreditChange) async {
+        refusedLine = await writeReferralCredit?(invoice, change)
+        guard let openedInvoiceID, openedInvoiceID == invoice else { return }
+        openedInvoice = openInvoice?(openedInvoiceID)
+        publishWhatIsOpen()
+    }
+
     /// Tells the Edit menu what it is looking at.
     ///
     /// PUBLISHED FROM THE ONE PLACE THE SCREEN IS BUILT, so the menu can never
@@ -303,6 +318,16 @@ struct ShellView: View {
         // (L14).
         edits?.addDiscount = writeDiscount == nil ? nil : { invoice, discount in
             Task { await discounted(invoice, discount) }
+        }
+        // PUBLISHED IN THE SAME BREATH AS THE REST, which is what stops the menu
+        // describing an invoice it cannot act on: this function is the only place
+        // that says what is open, so an entry whose action was set anywhere else
+        // would go stale the first time the screen changed (L14).
+        edits?.applyReferralCredit = writeReferralCredit == nil ? nil : { invoice in
+            Task { await creditChanged(invoice, .apply) }
+        }
+        edits?.removeReferralCredit = writeReferralCredit == nil ? nil : { invoice in
+            Task { await creditChanged(invoice, .remove) }
         }
     }
 

@@ -42,6 +42,28 @@ struct ReferralCredit: Equatable, Hashable, Codable, Sendable {
     let earnedFromClientID: UUID?
     let earnedFromClientName: String?
 
+    /// The largest credit that fits inside `charges` at this invoice's rate.
+    ///
+    /// ovation#457. The design record's own rule says a credit "may never take an
+    /// invoice below nothing" (`docs/design/rules/money.js`), and Dan settled it
+    /// again on 2026-09-23. This is the half of that cap the arithmetic decides;
+    /// the other half, the client's balance, is a fact about the ledger and is
+    /// applied by `InvoiceReferralCreditWriter`.
+    ///
+    /// IT IS SOLVED RATHER THAN DIVIDED AND CORRECTED. `Money.charge` rounds half
+    /// away from zero, so the hours a plain division gives can come to a penny
+    /// MORE than the charges, which is the one outcome this exists to prevent.
+    /// The condition is `round(rate * h / 100) <= charges`, and half away from
+    /// zero makes that exactly `rate * h * 2 < charges * 200 + 100`, so the
+    /// largest whole hundredth is the floor of `(charges * 200 + 99) / (rate * 2)`.
+    ///
+    /// NOTHING FITS IN NOTHING, and a rate of nothing takes no hours to reach any
+    /// amount, so both are answered with zero rather than an unbounded one.
+    static func mostThatFits(in charges: Money, at hourlyRate: Money) -> Hours {
+        guard charges > .zero, hourlyRate > .zero else { return .zero }
+        return Hours(hundredths: (charges.cents * 200 + 99) / (hourlyRate.cents * 2))
+    }
+
     /// Refuses a credit worth nothing or less. Zero records no decision, and a
     /// negative one is a CHARGE written the wrong way round: it would read on the
     /// invoice as a credit while increasing what is owed.

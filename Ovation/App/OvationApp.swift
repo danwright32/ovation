@@ -569,6 +569,32 @@ struct OvationApp: App {
                              }
                          }
                      },
+                     // ovation#457, PRD 5.8. Spending the client's referral
+                     // credit on this invoice, or giving it back.
+                     //
+                     // THE DAY IS READ HERE AND NOWHERE DEEPER. The writer takes
+                     // it, so the one place that asks the clock is the app's own
+                     // edge and every layer beneath it can be tested across a
+                     // date (L524).
+                     writeReferralCredit: opened.map { container in
+                         { invoice, change in
+                             let writer = InvoiceReferralCreditWriter(modelContainer: container)
+                             let today = BusinessDate.stamping(Date())
+                             do {
+                                 switch change {
+                                 case .apply:
+                                     try await writer.applyReferralCredit(on: invoice, on: today)
+                                 case .remove:
+                                     try await writer.removeReferralCredit(on: invoice, on: today)
+                                 }
+                                 return nil
+                             } catch let refusal as InvoiceReferralCreditRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That referral credit could not be saved: \(error)"
+                             }
+                         }
+                     },
                      edits: edits,
                      progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
@@ -640,6 +666,18 @@ struct OvationApp: App {
                 if let why = InvoiceEditCommand.whyADiscountCannotBeAdded(edits.open) {
                     Text(why).font(.footnote)
                 }
+                // ovation#457, PRD 5.8 and 5.51e. ONE ENTRY WHOSE WORD CHANGES,
+                // which is the design record's round 5 and is the whole of this
+                // credit's interface: unlike the discount it has no controls of
+                // its own anywhere on the invoice, so if it is not here it cannot
+                // be done at all.
+                Button(InvoiceEditCommand.referralCreditTitle(edits.open)) {
+                    changeTheReferralCredit()
+                }
+                .disabled(InvoiceEditCommand.whyTheReferralCreditCannotChange(edits.open) != nil)
+                if let why = InvoiceEditCommand.whyTheReferralCreditCannotChange(edits.open) {
+                    Text(why).font(.footnote)
+                }
             }
             #if DEBUG
             CommandMenu(ReviewSamplesCommand.title) {
@@ -658,6 +696,21 @@ struct OvationApp: App {
               InvoiceEditCommand.whyADiscountCannotBeAdded(open) == nil,
               let add = edits.addDiscount else { return }
         add(open.id, InvoiceEditCommand.whatItAdds)
+    }
+
+    /// Presses the one credit entry the way its word is currently pointing.
+    ///
+    /// THE STATE DECIDES, NEVER THE CALLER. The title and this both read
+    /// `hasReferralCredit` off the same published facts, so the entry cannot say
+    /// Remove and apply one (L70).
+    private func changeTheReferralCredit() {
+        guard let open = edits.open,
+              InvoiceEditCommand.whyTheReferralCreditCannotChange(open) == nil else { return }
+        if open.hasReferralCredit {
+            edits.removeReferralCredit?(open.id)
+        } else {
+            edits.applyReferralCredit?(open.id)
+        }
     }
 
     /// Why the menu item would do nothing, in Dan's words rather than the code's

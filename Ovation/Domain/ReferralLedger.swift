@@ -54,6 +54,9 @@ enum ReferralRefusal: Error, Equatable {
     /// be told from a client that simply is not there.
     case alreadyEarnedForBooking(key: String)
     case alreadySpentOnInvoice(id: UUID)
+    /// Nothing stands spent on that invoice, so there is nothing to give back:
+    /// either it never had a credit or one has already been returned.
+    case noSpendOnInvoice(id: UUID)
     case noEarningForBooking(key: String)
     case hoursAreNotPositive(asked: Hours)
     /// A key that may be empty is not a key: the credit would be granted again on
@@ -93,13 +96,54 @@ actor ReferralLedger {
         guard hours > .zero else { throw ReferralRefusal.hoursAreNotPositive(asked: hours) }
         guard let client = try find(clientID) else { throw ReferralRefusal.noSuchClient }
 
-        let alreadySpent = try allEntries().contains { $0.spentOnInvoiceID == invoiceID }
-        guard !alreadySpent else { throw ReferralRefusal.alreadySpentOnInvoice(id: invoiceID) }
+        // THE KEY IS WHAT STANDS SPENT ON THAT INVOICE, NET, and not whether an
+        // entry mentioning it exists (ovation#457). Both readings refuse the
+        // repeat this guard was written for, because after one spend the net is
+        // the spend. They differ only once a spend has been GIVEN BACK, and there
+        // the existence reading strands the balance for ever: the invoice screen
+        // offers Remove beside Apply, and an invoice whose credit was taken off
+        // could never be given one again.
+        guard try netSpent(onInvoice: invoiceID) == .zero else {
+            throw ReferralRefusal.alreadySpentOnInvoice(id: invoiceID)
+        }
 
         modelContext.insert(ReferralLedgerEntry(
             client: client, hours: Hours(hundredths: -hours.hundredths), occurredOn: day,
             earnedFromBookingKey: nil, spentOnInvoiceID: invoiceID, note: nil))
         try modelContext.save()
+    }
+
+    /// Gives back what was spent on one invoice, and says how much that was.
+    ///
+    /// ovation#457. Taking a referral credit off an invoice has to put the hours
+    /// back, and this is how: another entry, never a deletion, so the history
+    /// goes on saying that the credit was spent and then returned.
+    ///
+    /// IT CARRIES THE INVOICE TOO. The returning entry is keyed on the same
+    /// invoice as the spend it reverses, which is what lets `spend` ask what
+    /// stands spent NET rather than whether an entry exists, and so lets the same
+    /// invoice take a credit again afterwards. An entry with no key here would
+    /// reconcile against nothing and leave the invoice permanently spent.
+    ///
+    /// IT REFUSES AN INVOICE WITH NOTHING STANDING ON IT, which covers both a
+    /// spend that was never made and one already given back, rather than
+    /// appending nothing and reporting success (L100). A second press would
+    /// otherwise invent hours the client never earned.
+    @discardableResult
+    func returnSpend(onInvoice invoiceID: UUID, on day: BusinessDate) throws -> Hours {
+        let standing = try netSpent(onInvoice: invoiceID)
+        guard standing < .zero else { throw ReferralRefusal.noSpendOnInvoice(id: invoiceID) }
+        guard let client = try entries(onInvoice: invoiceID).first?.client else {
+            throw ReferralRefusal.noSuchClient
+        }
+
+        let giving = Hours(hundredths: -standing.hundredths)
+        modelContext.insert(ReferralLedgerEntry(
+            client: client, hours: giving, occurredOn: day,
+            earnedFromBookingKey: nil, spentOnInvoiceID: invoiceID,
+            note: "Returned: the credit was taken off the invoice"))
+        try modelContext.save()
+        return giving
     }
 
     /// Reverses an earning by appending its opposite, with the reason.
@@ -125,6 +169,29 @@ actor ReferralLedger {
             earnedFromBookingKey: nil,
             note: "Withdrawn: \(reason.trimmingCharacters(in: .whitespacesAndNewlines))"))
         try modelContext.save()
+    }
+
+    /// What stands spent on one invoice, as a NEGATIVE number of hours, or zero
+    /// where nothing does.
+    ///
+    /// ovation#457. `InvoiceReferralCreditWriter` asks this to tell a fresh
+    /// invoice from one whose spend was recorded before a crash took the write to
+    /// the invoice with it, which are the same thing to every other reader.
+    func spendStanding(onInvoice invoiceID: UUID) throws -> Hours {
+        try netSpent(onInvoice: invoiceID)
+    }
+
+    /// Every entry keyed on one invoice, the spend and anything returning it.
+    private func entries(onInvoice invoiceID: UUID) throws -> [ReferralLedgerEntry] {
+        try allEntries().filter { $0.spentOnInvoiceID == invoiceID }
+    }
+
+    /// What stands spent on one invoice, as a NEGATIVE number of hours, or zero
+    /// where nothing does. Summed rather than read off one entry, for the reason
+    /// the balance itself is summed: the log is the record and a single entry is
+    /// only part of it.
+    private func netSpent(onInvoice invoiceID: UUID) throws -> Hours {
+        try entries(onInvoice: invoiceID).reduce(Hours.zero) { $0 + $1.hours }
     }
 
     private func allEntries() throws -> [ReferralLedgerEntry] {
