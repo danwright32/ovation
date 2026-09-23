@@ -69,7 +69,13 @@ if [ -z "$SUITE_FLOCK" ]; then
     SUITE_FLOCK="${SUITE_FLOCK:-/opt/homebrew/bin/flock}"
 fi
 
-harness_begin "test runner lock tests" 236
+# ovation#433. Describing the file lock's holder lives in lib/file-lock.sh, so
+# the rule that one holder is one holder however many descriptors its children
+# inherit is measured directly rather than only through a whole runner wait.
+# shellcheck source=lib/file-lock.sh
+. "$PWD/scripts/lib/file-lock.sh"
+
+harness_begin "test runner lock tests" 239
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -1164,6 +1170,57 @@ rm -rf "$DIR_LOCK"
     check "and one holder whose children come and go is counted once" \
         "$(gave_up_part "$OUT236B" | grep -cE '(1 different holder|no holder this run could see) went ahead')" "1"
     rm -f "$HOLD_SENTINEL4"; wait "$HOLDER4" 2>/dev/null || true
+
+# 236b-i. A HOLDER IS ONE HOLDER HOWEVER MANY DESCRIPTORS ITS CHILDREN HOLD
+#         (ovation#433). `flock` takes a lock on a plain file descriptor, and a
+#         descriptor is INHERITED by every process started while it is held
+#         (L441), so `lsof -t` answers with the holder AND its children.
+#
+#         MEASURED ON THIS MAC, 2026-09-22: a holder running `sleep 0.05` in a
+#         loop answered with THREE pids, the flock, its bash, and a sleep that
+#         had already exited by the next call a moment later. So the words
+#         describing one holder were different on almost every poll, and the
+#         runner counted a change of words as a change of holder, which is what
+#         made 236b below go red on CI and green on a re-run of the same commit.
+#
+#         THIS CASE HOLDS A CHILD OPEN rather than racing the short lived ones,
+#         so the set genuinely has more than one pid in it at the moment the
+#         description is taken, on every run and every machine.
+    : > "$FILE_LOCK"
+    HOLD_SENTINEL4I="$WORK/hold-4i"; : > "$HOLD_SENTINEL4I"
+    # THE CHILD ENDS ON THE SAME SENTINEL AND THE HOLDER WAITS FOR IT. A child
+    # that outlives its parent keeps the descriptor, and the descriptor is the
+    # lock, so a fixture whose child runs on would hold this lock after its
+    # holder had gone and every case below it would measure that instead. Found
+    # by writing it the other way first: five later cases failed.
+    ( "$SUITE_FLOCK" "$FILE_LOCK" bash -c \
+        '( while [ -e "$1" ]; do sleep 0.05; done ) & \
+         while [ -e "$1" ]; do sleep 0.02; done; wait' _ "$HOLD_SENTINEL4I" ) &
+    HOLDER4I=$!
+    lock_has_more_than_one_pid() {
+        [ "$(/usr/sbin/lsof -t "$FILE_LOCK" 2>/dev/null | grep -c .)" -gt 1 ]
+    }
+    if [ -x /usr/sbin/lsof ]; then
+        harness_wait_for "the lock to be held through more than one descriptor (236b-i)" \
+            200 0.05 lock_has_more_than_one_pid
+        DESC4I="$(file_lock_describe "$FILE_LOCK")"
+        check "a holder whose children hold the descriptor is named once" \
+            "$(printf '%s' "$DESC4I" | grep -oE '[0-9]+ \(' | grep -c .)" "1"
+        check "and the one named is the process that took the lock" \
+            "$(printf '%s' "$DESC4I" | grep -c 'flock)')" "1"
+    else
+        # No lsof is an honest answer rather than a skipped case: the Linux job
+        # has none, and the describer says so in its own words (L98).
+        harness_wait_for "the holder to take the lock (236b-i, no lsof)" \
+            200 0.05 staged_file_lock_held
+        check "a holder whose children hold the descriptor is named once" \
+            "$(file_lock_describe "$FILE_LOCK")" \
+            "free, or held by a process this run cannot see"
+        check "and the one named is the process that took the lock" \
+            "$(file_lock_describe "$FILE_LOCK")" \
+            "free, or held by a process this run cannot see"
+    fi
+    rm -f "$HOLD_SENTINEL4I"; wait "$HOLDER4I" 2>/dev/null || true
 
 # 236c. How many DIFFERENT holders went ahead, which is what tells a queue of busy
 #       sibling runs from one stuck lock. The holder changes during the wait, and

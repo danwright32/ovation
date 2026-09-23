@@ -712,20 +712,14 @@ else
   # shellcheck source=lib/dir-lock.sh
   . "${REPO_ROOT}/scripts/lib/dir-lock.sh"
   describe_dir_holder() { dir_lock_describe "${DIR_LOCK}"; }
-  describe_file_holder() {
-    local pid pids="" desc=""
-    if [ -x /usr/sbin/lsof ]; then
-      pids="$(/usr/sbin/lsof -t "${FILE_LOCK}" 2>/dev/null)"
-    fi
-    if [ -z "${pids}" ]; then
-      printf 'free, or held by a process this run cannot see'
-      return
-    fi
-    for pid in ${pids}; do
-      desc="${desc}${pid} ($(ps -o comm= -p "${pid}" 2>/dev/null | sed 's|.*/||')) "
-    done
-    printf 'held by pid %s' "${desc% }"
-  }
+  # ovation#433. ONE HOLDER IS ONE HOLDER HOWEVER MANY DESCRIPTORS ITS CHILDREN
+  # INHERIT, which lives in lib/file-lock.sh with the measurement behind it. It
+  # was four lines here and `lsof -t` answered with the holder and every child it
+  # had started, so the words changed on almost every poll and the count below
+  # read one holder as several (L441).
+  # shellcheck source=lib/file-lock.sh
+  . "${REPO_ROOT}/scripts/lib/file-lock.sh"
+  describe_file_holder() { file_lock_describe "${FILE_LOCK}"; }
 
   # ---------------------------------------------------------------------------
   # BRACKET THE RUN AGAINST LIVE DATA (ovation#58, plan 1.9).
