@@ -319,6 +319,24 @@ extension OvationSchemaV3 {
 
         // MARK: what it comes to
 
+        /// Whether this invoice's client has any referral credit banked to spend.
+        ///
+        /// ovation#457. ASKED OF THE INVOICE RATHER THAN READ THROUGH IT, because
+        /// `InvoiceEditCommand.Open` is the menu's projection of this invoice and
+        /// the menu has to know whether applying a credit could do anything.
+        ///
+        /// IT ALSO HAS TO LIVE IN THIS FILE. Reading `client?.referralBalance`
+        /// from `Ovation/Invoices/InvoiceEditCommand.swift` makes the compiler
+        /// lose `Client`'s own `Hashable` conformance and fail three unrelated
+        /// lines of `InvoiceListPresenter`, reproducibly, from a clean build, at
+        /// every `-driver-batch-count` tried (measured 2026-09-23, Xcode 27.0).
+        /// Asking the question here compiles and is the better shape anyway, so
+        /// the workaround and the design agree; it is filed as ovation#497 so the
+        /// constraint is not rediscovered by the next reader.
+        var clientHasReferralCreditBanked: Bool {
+            (client?.referralBalance ?? .zero) > .zero
+        }
+
         /// What the referral credit takes off. Zero where there is none.
         var referralCreditAmount: Money { referralCredit?.amount ?? .zero }
 

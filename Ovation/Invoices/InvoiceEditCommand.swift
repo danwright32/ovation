@@ -38,10 +38,26 @@ final class InvoiceEditCommand {
         let hasDiscount: Bool
         let sentStatus: SentStatus
 
+        /// Whether a referral credit is already on it, which is what turns the
+        /// one credit entry from Apply into Remove (the design record's round 5
+        /// draws it as one entry whose word changes, not as two).
+        let hasReferralCredit: Bool
+
+        /// Whether the client has anything banked to spend, and whether the
+        /// invoice is charging anything to spend it on. BOOLEANS RATHER THAN THE
+        /// FIGURES, because the menu never shows either number: it decides only
+        /// whether the entry can be pressed, and carrying the amounts here would
+        /// be state with no reader (L46).
+        let clientHasCreditBanked: Bool
+        let isChargingSomething: Bool
+
         init(_ invoice: Invoice) {
             id = invoice.persistentModelID
             hasDiscount = invoice.discount != nil
             sentStatus = invoice.sentStatus
+            hasReferralCredit = invoice.referralCredit != nil
+            clientHasCreditBanked = invoice.clientHasReferralCreditBanked
+            isChargingSomething = Money.sum(of: invoice.lineItems.map(\.amount)) > .zero
         }
     }
 
@@ -51,6 +67,15 @@ final class InvoiceEditCommand {
     /// What adding a discount does, given by the app, or nil where this launch
     /// has no store to write to.
     var addDiscount: ((PersistentIdentifier, Discount) -> Void)?
+
+    /// What applying and removing a referral credit do, given by the app, or nil
+    /// where this launch has no store to write to.
+    ///
+    /// TWO CLOSURES RATHER THAN ONE TAKING A FLAG, because a boolean at the call
+    /// site says nothing about which way round it means, and these two do
+    /// opposite things to a client's balance.
+    var applyReferralCredit: ((PersistentIdentifier) -> Void)?
+    var removeReferralCredit: ((PersistentIdentifier) -> Void)?
 
     /// The entry's words, the design record's own.
     static let addDiscountTitle = "Add a discount"
@@ -87,6 +112,62 @@ final class InvoiceEditCommand {
         }
         if open.hasDiscount {
             return "This invoice already has a discount, which is changed on the invoice."
+        }
+        return nil
+    }
+
+    // MARK: the referral credit, PRD 5.8 and 5.51e
+
+    /// What the credit entry says, which is the whole of its interface.
+    ///
+    /// ONE ENTRY WHOSE WORD CHANGES, never two. The design record's round 5 draws
+    /// it that way (`Apply a referral credit` against `Remove the referral
+    /// credit`), and PRD 5.51e says why the menu is the only place it can be
+    /// done: the credit "keeps its menu entry, having no controls of its own
+    /// anywhere", unlike the discount, which has a line of its own on the
+    /// invoice.
+    ///
+    /// WITH NO INVOICE OPEN IT OFFERS TO APPLY, because that is what the entry
+    /// will do the moment there is one, and a menu that renames itself as you
+    /// open a screen is harder to learn than one that does not.
+    static func referralCreditTitle(_ open: Open?) -> String {
+        open?.hasReferralCredit == true ? removeReferralCreditTitle : applyReferralCreditTitle
+    }
+
+    /// The entry's two words, the design record's own.
+    static let applyReferralCreditTitle = "Apply a referral credit"
+    static let removeReferralCreditTitle = "Remove the referral credit"
+
+    /// Why the credit entry would do nothing, in Dan's words rather than the
+    /// code's (L399), or nil when it can be pressed.
+    ///
+    /// ONE ANSWER GOVERNS BOTH whether it is disabled and what it says, because
+    /// two conditions about one thing are two things that can disagree (L70).
+    ///
+    /// A CREDIT ALREADY ON THE INVOICE CAN ALWAYS COME OFF. The balance and the
+    /// charges decide whether one can be SPENT and a removal spends nothing, so
+    /// asking them of a removal would strand the credit on the invoice the moment
+    /// its last line was deleted.
+    ///
+    /// THE ORDER IS WRITTEN AND IT MATCHES THE WRITER'S. The invoice's state comes
+    /// first, then the balance, then the charges;
+    /// `InvoiceReferralCreditWriter.applyReferralCredit` refuses in that same
+    /// order, and both say it in the refusal's own sentence, because a screen
+    /// gating a write is not the write being guarded (L196, L118).
+    static func whyTheReferralCreditCannotChange(_ open: Open?) -> String? {
+        guard let open else { return "No invoice is open." }
+        switch open.sentStatus {
+        case .notSent: break
+        case .sent: return InvoiceReferralCreditRefusal.invoiceWasSent.sentence
+        case .attempting, .couldNotDetermine:
+            return InvoiceReferralCreditRefusal.sendIsUnsettled.sentence
+        }
+        if open.hasReferralCredit { return nil }
+        if !open.clientHasCreditBanked {
+            return InvoiceReferralCreditRefusal.noCreditToSpend.sentence
+        }
+        if !open.isChargingSomething {
+            return InvoiceReferralCreditRefusal.nothingIsBeingCharged.sentence
         }
         return nil
     }

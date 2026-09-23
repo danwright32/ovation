@@ -23,14 +23,29 @@ struct InvoiceEditCommandTests {
 
     private static let noon = Date(timeIntervalSince1970: 1_794_531_600)
 
-    private static func invoice(sent: Bool = false, discounted: Bool = false) throws -> Invoice {
+    private static func invoice(sent: Bool = false, discounted: Bool = false,
+                                credited: Bool = false, banked: Hours = .zero,
+                                charging: Money = Money(dollars: 400)) throws -> Invoice {
         let context = ModelContext(try OvationSchema.container(inMemory: true))
         let client = Client(name: "Cedar Hill Youth Orchestra", taxStatus: .notExempt)
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography,
                               invoiceDate: BusinessCalendar.day(forKey: "2026-11-12"),
                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
-        invoice.add(LineItem.flat(Money(dollars: 400), describedAs: "Photography"))
+        if charging > .zero {
+            invoice.add(LineItem.flat(charging, describedAs: "Photography"))
+        }
+        if banked > .zero {
+            let entry = ReferralLedgerEntry(
+                client: client, hours: banked,
+                occurredOn: try #require(BusinessCalendar.day(forKey: "2026-10-01")),
+                earnedFromBookingKey: "cedar-hill-2026-10-01", note: nil)
+            context.insert(entry)
+        }
+        if credited {
+            invoice.referralCredit = ReferralCredit(
+                hours: Hours(whole: 1), at: Money(dollars: 250), earnedFrom: nil)
+        }
         if discounted { invoice.discount = Discount(percentBasisPoints: 1_000) }
         if sent {
             invoice.number = 1_123
@@ -110,5 +125,83 @@ struct InvoiceEditCommandTests {
     @Test("and the entry is called what the design record calls it")
     func theentryIsCalledWhatTheRecordCallsIt() {
         #expect(InvoiceEditCommand.addDiscountTitle == "Add a discount")
+    }
+
+    // MARK: the referral credit, which has no controls of its own anywhere
+
+    /// PRD 5.51e: the credit "keeps its menu entry, having no controls of its own
+    /// anywhere", which is what makes this entry the whole of its interface and
+    /// why its word changes with the state instead of a second entry appearing.
+    @Test("the entry offers to apply a credit while the invoice has none")
+    func theentryOffersToApply() throws {
+        let open = InvoiceEditCommand.Open(try Self.invoice(banked: Hours(whole: 2)))
+
+        #expect(InvoiceEditCommand.referralCreditTitle(open) == "Apply a referral credit")
+        #expect(InvoiceEditCommand.whyTheReferralCreditCannotChange(open) == nil)
+    }
+
+    @Test("and offers to remove the one that is there")
+    func andoffersToRemove() throws {
+        let open = InvoiceEditCommand.Open(try Self.invoice(credited: true))
+
+        #expect(InvoiceEditCommand.referralCreditTitle(open) == "Remove the referral credit")
+        #expect(InvoiceEditCommand.whyTheReferralCreditCannotChange(open) == nil)
+    }
+
+    /// A CREDIT THAT IS ON THE INVOICE CAN ALWAYS COME OFF, whatever the balance
+    /// or the charges now say. Those two decide whether one can be SPENT, and a
+    /// removal spends nothing: refusing it would strand the credit on the invoice
+    /// the moment its last line was deleted.
+    @Test("removing is offered even when nothing could be spent now")
+    func removingIsOfferedAnyway() throws {
+        let open = InvoiceEditCommand.Open(
+            try Self.invoice(credited: true, banked: .zero, charging: .zero))
+
+        #expect(InvoiceEditCommand.referralCreditTitle(open) == "Remove the referral credit")
+        #expect(InvoiceEditCommand.whyTheReferralCreditCannotChange(open) == nil)
+    }
+
+    @Test("with no invoice open the credit entry says so rather than going away")
+    func withnoinvoiceOpenTheCreditEntrySaysSo() {
+        #expect(InvoiceEditCommand.referralCreditTitle(nil) == "Apply a referral credit")
+        #expect(InvoiceEditCommand.whyTheReferralCreditCannotChange(nil) == "No invoice is open.")
+    }
+
+    /// SAID IN THE WRITER'S OWN WORDS, never a second wording of one fact (L118).
+    @Test("a client with nothing banked is said in the writer's words")
+    func aclientWithNothingBankedIsSaidInTheWritersWords() throws {
+        let open = InvoiceEditCommand.Open(try Self.invoice(banked: .zero))
+
+        #expect(InvoiceEditCommand.whyTheReferralCreditCannotChange(open)
+                == InvoiceReferralCreditRefusal.noCreditToSpend.sentence)
+    }
+
+    @Test("an invoice charging nothing is said in the writer's words too")
+    func aninvoiceChargingNothingIsSaidInTheWritersWords() throws {
+        let open = InvoiceEditCommand.Open(
+            try Self.invoice(banked: Hours(whole: 2), charging: .zero))
+
+        #expect(InvoiceEditCommand.whyTheReferralCreditCannotChange(open)
+                == InvoiceReferralCreditRefusal.nothingIsBeingCharged.sentence)
+    }
+
+    /// THE ORDER IS WRITTEN, AND THE BALANCE COMES FIRST. With neither a balance
+    /// nor a charge, naming the charge would send Dan to add a line and leave him
+    /// exactly as stuck, because the client still has nothing to spend (L111).
+    @Test("with neither a balance nor a charge, the balance is what it names")
+    func withneitherTheBalanceIsNamed() throws {
+        let open = InvoiceEditCommand.Open(try Self.invoice(banked: .zero, charging: .zero))
+
+        #expect(InvoiceEditCommand.whyTheReferralCreditCannotChange(open)
+                == InvoiceReferralCreditRefusal.noCreditToSpend.sentence)
+    }
+
+    @Test("a sent invoice says what the credit writer would say")
+    func asentInvoiceSaysWhatTheCreditWriterSays() throws {
+        let open = InvoiceEditCommand.Open(
+            try Self.invoice(sent: true, credited: true, banked: Hours(whole: 2)))
+
+        #expect(InvoiceEditCommand.whyTheReferralCreditCannotChange(open)
+                == InvoiceReferralCreditRefusal.invoiceWasSent.sentence)
     }
 }

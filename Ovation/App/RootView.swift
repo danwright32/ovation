@@ -59,6 +59,10 @@ struct RootView: View {
     /// menu is allowed to offer about the invoice on screen. Passed through for
     /// the same reason as the rest: this view reaches no store of its own.
     var writeDiscount: ((PersistentIdentifier, Discount?) async -> String?)?
+    /// ovation#457, PRD 5.8. Putting the client's referral credit on this invoice
+    /// or taking it back off. Passed through for the same reason as the rest:
+    /// this view reaches no store of its own.
+    var writeReferralCredit: ((PersistentIdentifier, ReferralCreditChange) async -> String?)?
     var edits: InvoiceEditCommand?
 
     /// ovation#246. What the launch is doing, while it is doing it. Nil in every
@@ -94,7 +98,8 @@ struct RootView: View {
                       openInvoice: openInvoice, writeTime: writeTime,
                       writeDueDate: writeDueDate, writeTaxStatus: writeTaxStatus,
                       writeLine: writeLine, writeServiceType: writeServiceType,
-                      writeDiscount: writeDiscount, edits: edits)
+                      writeDiscount: writeDiscount,
+                      writeReferralCredit: writeReferralCredit, edits: edits)
         } else {
             problemsWindow
         }

@@ -361,4 +361,112 @@ struct ReferralLedgerWriterTests {
         #expect(refusals == [.alreadyEarnedForBooking(key: "booking-a")])
         #expect(try Self.balance(container, client.id) == Hours(whole: 2))
     }
+
+    // MARK: giving a spend back, which is what taking a credit off an invoice does
+
+    /// ovation#457. `InvoiceReferralCreditWriter` offers Remove beside Apply, so
+    /// the ledger needs a way back that is an APPEND like every other correction
+    /// here, never a deletion: the history has to go on saying that the credit
+    /// was spent and then returned.
+    @Test("a spend is given back by appending its reverse, and the balance comes back")
+    func aspendIsGivenBack() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context, "Northmoor Ensemble")
+        let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        context.insert(invoice)
+        try context.save()
+
+        let ledger = ReferralLedger(modelContainer: container)
+        try await ledger.earn(Hours(whole: 5), for: client.persistentModelID,
+                              fromBooking: "booking-a", on: Self.day)
+        try await ledger.spend(Hours(whole: 2), for: client.persistentModelID,
+                               onInvoice: invoice.id, on: Self.day)
+
+        let returned = try await ledger.returnSpend(onInvoice: invoice.id, on: Self.later)
+
+        #expect(returned == Hours(whole: 2))
+        #expect(try Self.balance(container, client.id) == Hours(whole: 5))
+        let entries = try ModelContext(container).fetch(FetchDescriptor<ReferralLedgerEntry>())
+        #expect(entries.count == 3, "three appends, never a deletion")
+    }
+
+    /// THE INVOICE CAN TAKE A CREDIT AGAIN AFTERWARDS, which is the whole point:
+    /// the key is what has been spent NET on that invoice, so a spend that has
+    /// been given back leaves the invoice as free as one that never had one. A
+    /// key asking only whether an entry EXISTS would strand the balance the first
+    /// time Dan changed his mind.
+    @Test("an invoice whose spend was given back can be charged a credit again")
+    func areturnedSpendFreesTheInvoice() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context, "Northmoor Ensemble")
+        let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        context.insert(invoice)
+        try context.save()
+
+        let ledger = ReferralLedger(modelContainer: container)
+        try await ledger.earn(Hours(whole: 5), for: client.persistentModelID,
+                              fromBooking: "booking-a", on: Self.day)
+        try await ledger.spend(Hours(whole: 2), for: client.persistentModelID,
+                               onInvoice: invoice.id, on: Self.day)
+        _ = try await ledger.returnSpend(onInvoice: invoice.id, on: Self.later)
+
+        try await ledger.spend(Hours(whole: 1), for: client.persistentModelID,
+                               onInvoice: invoice.id, on: Self.later)
+
+        #expect(try Self.balance(container, client.id) == Hours(whole: 4))
+    }
+
+    /// IT REFUSES RATHER THAN APPENDING NOTHING AND REPORTING SUCCESS, the same
+    /// rule `withdrawEarning` keeps: an operation that finds its target by
+    /// matching and matches nothing leaves the next step acting on a state nobody
+    /// created (L100).
+    @Test("giving back a spend the ledger never recorded is refused")
+    func givingBackNothingIsRefused() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context, "Northmoor Ensemble")
+        let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        context.insert(invoice)
+        try context.save()
+        try await ReferralLedger(modelContainer: container)
+            .earn(Hours(whole: 5), for: client.persistentModelID,
+                  fromBooking: "booking-a", on: Self.day)
+
+        await #expect(throws: ReferralRefusal.noSpendOnInvoice(id: invoice.id)) {
+            _ = try await ReferralLedger(modelContainer: container)
+                .returnSpend(onInvoice: invoice.id, on: Self.day)
+        }
+        #expect(try Self.balance(container, client.id) == Hours(whole: 5))
+    }
+
+    /// A SECOND RETURN IS REFUSED TOO, because by then the net on that invoice is
+    /// nothing and there is no spend standing to give back. Without this, a
+    /// double press invents hours the client never earned.
+    @Test("a spend already given back cannot be given back twice")
+    func asecondReturnIsRefused() async throws {
+        let container = try Self.store()
+        let context = ModelContext(container)
+        let client = Self.client(context, "Northmoor Ensemble")
+        let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        context.insert(invoice)
+        try context.save()
+
+        let ledger = ReferralLedger(modelContainer: container)
+        try await ledger.earn(Hours(whole: 5), for: client.persistentModelID,
+                              fromBooking: "booking-a", on: Self.day)
+        try await ledger.spend(Hours(whole: 2), for: client.persistentModelID,
+                               onInvoice: invoice.id, on: Self.day)
+        _ = try await ledger.returnSpend(onInvoice: invoice.id, on: Self.later)
+
+        await #expect(throws: ReferralRefusal.noSpendOnInvoice(id: invoice.id)) {
+            _ = try await ledger.returnSpend(onInvoice: invoice.id, on: Self.later)
+        }
+        #expect(try Self.balance(container, client.id) == Hours(whole: 5))
+    }
 }
