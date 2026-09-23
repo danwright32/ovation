@@ -253,6 +253,75 @@ struct SchemaMigrationTests {
         #expect(clients.first?.invoices.count == 1, "and the inverse resolves too")
     }
 
+    /// ovation#502. THE TWO FIELDS THE REPAIR ACTUALLY CHANGED, carried the whole
+    /// way, because nothing else in this file touches either of them.
+    ///
+    /// WHY THEY NEEDED THEIR OWN CASE. The fix for ovation#502 changed exactly two
+    /// things about versions 1 and 2: the invoice's `sentStatus` now names a
+    /// FROZEN copy of the type rather than the live one, and `Payment.clearedOn`
+    /// was restored after being omitted by hand. Every other case here writes an
+    /// invoice with a default status, no payment at all, and no cleared date, so
+    /// the two fields most able to be wrong were the two nothing drove (L447).
+    ///
+    /// WHAT WOULD BREAK WITHOUT IT. A frozen `SentStatusBeforeAttempting` whose
+    /// case names or associated labels differ from the original decodes stored
+    /// rows into a DIFFERENT state, or fails and leaves the default, and the
+    /// fingerprint suite would still pass: that one asks what shape the store has,
+    /// never what the rows say (L400). Seen to fail on 2026-09-23 by renaming the
+    /// `at:` label, which turned a sent invoice into `notSent`.
+    ///
+    /// THE STATUS IS `sent` RATHER THAN THE DEFAULT for the same reason a fixture
+    /// asserting an absence must first prove the positive fires (L159): `notSent`
+    /// is what a failed decode produces, so asserting it would pass either way.
+    @Test("a sent invoice and a cleared payment survive the whole chain")
+    func thesentStatusAndTheClearedDateSurvive() throws {
+        let directory = URL.temporaryDirectory
+            .appending(path: "ovation-real-migration-3-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "Ovation.store")
+
+        let sentAt = Date(timeIntervalSinceReferenceDate: 790_000_000)
+        let clearedOn = BusinessDate(storedInstant: sentAt, storedDayKey: "2026-01-14")
+
+        do {
+            let schema = Schema(versionedSchema: OvationSchemaV1.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            let client = OvationSchemaV1.Client()
+            client.name = "Ashgrove Chamber Players"
+            client.taxStatus = .notExempt
+            let invoice = OvationSchemaV1.Invoice()
+            invoice.number = 1_123
+            invoice.hourlyRate = Money(dollars: 250)
+            invoice.sentStatus = .sent(route: .ovationSentIt, at: sentAt)
+            invoice.client = client
+            let payment = OvationSchemaV1.Payment()
+            payment.amount = Money(dollars: 500)
+            payment.method = .check
+            payment.clearedOn = clearedOn
+            payment.client = client
+            context.insert(client)
+            context.insert(invoice)
+            context.insert(payment)
+            try context.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+        }
+
+        let container = try OvationSchema.container(at: url)
+        let context = ModelContext(container)
+        let migrated = try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
+        let carried = try #require(try context.fetch(FetchDescriptor<Payment>()).first)
+
+        #expect(migrated.sentStatus == .sent(route: .ovationSentIt, at: sentAt),
+                "the route and the instant both, because a partial decode keeps neither")
+        #expect(carried.clearedOn == clearedOn)
+        #expect(carried.amount == Money(dollars: 500),
+                "and the payment's own figure, so an empty row cannot satisfy the case")
+    }
+
     /// ovation#43. The same drive for the step Dan's own installed store will
     /// actually take, because version 2 is the shape that shipped before this one
     /// and the chain above only proves the FIRST step when it starts at version 1.

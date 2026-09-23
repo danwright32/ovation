@@ -88,19 +88,37 @@ struct SentStatusTests {
         #expect(attempt.wasRedirected)
     }
 
-    // MARK: what adding a case did NOT change
+    // MARK: what adding a case did and did not change
 
-    /// THE MEASUREMENT THAT DECIDES WHETHER THIS NEEDED A SCHEMA VERSION, taken
-    /// rather than reasoned (L82). `sentStatus` is a plain stored property of this
-    /// type, declared identically in every frozen shape, so adding a CASE changes
-    /// no attribute SwiftData can see. What it could change is the stored
-    /// ENCODING, and these are the three encodings already on disk in Dan's store.
+    /// WHAT THIS MEASURES IS THE ENCODING, AND ONLY THE ENCODING. These are the
+    /// three encodings already on disk in Dan's store, and they still decode.
     ///
     /// EACH IS A LITERAL CAPTURED BEFORE THE CASE WAS ADDED, not a round trip
     /// through the encoder, because a round trip agrees with whatever the encoder
     /// does today and would go on agreeing after a change that broke every stored
     /// row (L84, L638).
-    @Test("every encoding already on disk still decodes, so no version was needed",
+    ///
+    /// WHAT IT USED TO CLAIM WAS WRONG, and it is corrected here rather than
+    /// annotated, because a recorded reason reads as a considered decision and
+    /// this one was cited as why ovation#464 needed no schema version (L346,
+    /// L244). It said `sentStatus` is "a plain stored property of this type,
+    /// declared identically in every frozen shape, so adding a CASE changes no
+    /// attribute SwiftData can see".
+    ///
+    /// MEASURED FALSE on 2026-09-23 (ovation#502). SwiftData FLATTENS a case's
+    /// associated value into columns of its own, so `SendAttempt` added
+    /// `ZDESTINATION`, `ZWASREDIRECTED`, `ZRENDERSHA256` and `ZSTARTEDAT` to
+    /// `ZINVOICE`. Because every frozen shape named the LIVE type, all three
+    /// versions changed shape at once, both stores on Dan's Mac then matched no
+    /// declared version, and the app could not open the store it had written.
+    /// Versions 1 and 2 now carry `SentStatusBeforeAttempting` and
+    /// `SchemaFingerprintTests` holds each version to the fingerprint it wrote, so
+    /// the next such change fails there instead of at an install.
+    ///
+    /// A PASSING ENCODING CASE NEVER SAID ANYTHING ABOUT THE SCHEMA. It asks
+    /// whether stored BYTES still decode; the schema question is which COLUMNS the
+    /// store has, which nothing here reads (L400).
+    @Test("every encoding already on disk still decodes",
           arguments: [
             (#"{"notSent":{}}"#, SentStatus.notSent),
             (#"{"sent":{"route":"ovation-sent-it","at":790000000}}"#,

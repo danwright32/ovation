@@ -62,7 +62,7 @@ extension OvationSchemaV2 {
         var taxRate: TaxRate = TaxRate.newYorkCity
         var discount: Discount?
         var referralCredit: ReferralCredit?
-        var sentStatus: SentStatus = SentStatus.notSent
+        var sentStatus: SentStatusBeforeAttempting = SentStatusBeforeAttempting.notSent
         var closure: InvoiceClosure?
         var bookingKey: String?
         var importKey: String?
@@ -120,6 +120,12 @@ extension OvationSchemaV2 {
         var amount: Money = Money.zero
         var receivedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
         var method: PaymentMethod = PaymentMethod.zelle
+        /// ovation#502, the same correction as version 1's: the field was omitted
+        /// when this file was written by hand and version 2 did hold it. Leaving it
+        /// out here would make the stage from version 1 DROP the column and the
+        /// stage to version 3 re-add it empty, which is the shape that loses data
+        /// silently.
+        var clearedOn: BusinessDate?
         var reference: String?
 
         @Relationship(deleteRule: .cascade, inverse: \PaymentAllocation.payment)
