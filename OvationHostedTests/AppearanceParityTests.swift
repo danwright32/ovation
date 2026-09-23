@@ -29,21 +29,35 @@ import Testing
 @MainActor
 struct AppearanceParityTests {
 
+    /// HELD FOR THE WHOLE CASE, not made inside the builder: releasing it deletes
+    /// its folder, and the window reads the footer from it while it draws.
+    private let throwaway: ThrowawayDefaults
+
+    init() throws {
+        throwaway = try ThrowawayDefaults()
+    }
+
     private static let noon = Date(timeIntervalSince1970: 1_794_531_600)
     private static let today = BusinessDate.stamping(noon)
 
     /// The screens this covers.
     ///
-    /// THE SETTINGS PANE IS NOT ONE, and that is a finding rather than an
-    /// omission: measured 2026-09-21, it draws its headings in a near black on a
-    /// black page when the Mac is dark, which is a worse fault than the one this
-    /// suite was written for and a different fix. It sits inside macOS's own
-    /// Settings window and takes its colours from the system rather than from
-    /// `OvationPalette`, so the environment override every screen here uses does
-    /// not reach it. ovation#475 owns it, with the picture.
+    /// THE SETTINGS WINDOW IS TWO OF THEM (ovation#475). Measured 2026-09-21, its
+    /// invoices pane drew its headings in a near black on a black page when the
+    /// Mac was dark: the window is made by macOS, so its background and every
+    /// standard colour on it came from the WINDOW's appearance, which the SwiftUI
+    /// environment override did not reach. It is captured here both as the pane
+    /// alone and as the whole window with its tabs, because the tab control is
+    /// chrome the pane does not draw.
+    ///
+    /// THE BACKUPS TAB IS NOT CAPTURED ON ITS OWN. The appearance is pinned on the
+    /// window, which both tabs share, so the whole window case covers what paints
+    /// it; what that case cannot see is a colour the backups pane sets for itself.
     enum Screen: String, CaseIterable {
         case theInvoice
         case theInvoiceList
+        case theInvoiceSettings
+        case theSettingsWindow
     }
 
     @Test("every screen draws the same in dark as in light", arguments: Screen.allCases)
@@ -78,6 +92,10 @@ struct AppearanceParityTests {
         case .theInvoiceList:
             InvoiceListView(presenter: try Self.list(), heldMoney: "500.00",
                             selected: .constant(nil), open: { _ in })
+        case .theInvoiceSettings:
+            InvoiceSettingsView(footer: .constant(.fixed))
+        case .theSettingsWindow:
+            settings()
         }
     }
 
@@ -103,6 +121,21 @@ struct AppearanceParityTests {
         invoice.add(LineItem.hourly(hours: Hours(whole: 1), at: Money(dollars: 250),
                                     describedAs: "Photography", for: shoot))
         return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today)
+    }
+
+    /// THE WINDOW AS SETTINGS BUILDS IT, over a throwaway defaults suite, because
+    /// the invoices pane WRITES and a capture must not reach Dan's real footer
+    /// (L201). A disposable launch, so the backups half never looks for a folder.
+    private func settings() -> SettingsView {
+        SettingsView(
+            backups: BackupSettingsPresenter(
+                setting: BackupFolderSetting(defaults: throwaway.defaults,
+                                             isDisposableLaunch: { true }),
+                dataDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
+                problems: ProblemsStore(journal: InMemoryProblemsJournal()),
+                now: Date.init,
+                askForAFolder: { nil }),
+            invoiceFooter: InvoiceFooterSetting(defaults: throwaway.defaults))
     }
 
     private static func list() throws -> InvoiceListPresenter {

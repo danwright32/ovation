@@ -13,6 +13,7 @@
 // than an oversight: Dan's Mac is set to dark and he accepted a bright window in
 // exchange for not carrying a second palette and a second set of contrast guards
 // through every screen. Reversing it is a design round plus a second token set.
+import AppKit
 import SwiftUI
 
 enum OvationPalette {
@@ -91,7 +92,41 @@ extension View {
     /// control, because the next native control will be somewhere else and the
     /// rule is about the surface. `AppearanceParityTests` renders every screen
     /// that has a picture in both appearances and refuses a difference.
+    ///
+    /// THE ENVIRONMENT IS HALF OF IT, AND THE WINDOW IS THE OTHER (ovation#475).
+    /// The environment reaches what SwiftUI colours. It does not reach the window's
+    /// own background or any standard system colour, which AppKit resolves from the
+    /// WINDOW's appearance. The Settings window is made by macOS, so with only the
+    /// environment set it painted a black page under text the environment had made
+    /// near black. So the window a screen lands in is pinned to light as well, from
+    /// the screen, which means a window added later needs nothing of its own.
     func ovationAppearance() -> some View {
         environment(\.colorScheme, .light)
+            .background(LightWindowPin())
+    }
+}
+
+/// Pins the window it is placed in to the light appearance, the moment it lands.
+///
+/// IT DRAWS NOTHING and takes no room: it exists only to learn which window the
+/// screen is in, which SwiftUI does not say and an AppKit view is told.
+private struct LightWindowPin: NSViewRepresentable {
+
+    func makeNSView(context: Context) -> PinningView { PinningView() }
+    func updateNSView(_ nsView: PinningView, context: Context) { nsView.pin() }
+
+    final class PinningView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            pin()
+        }
+
+        func pin() {
+            let light = NSAppearance(named: .aqua)
+            // COMPARED BY NAME before it is set, because setting a window's
+            // appearance redraws the whole window, and this runs on every update.
+            guard let window, window.appearance?.name != light?.name else { return }
+            window.appearance = light
+        }
     }
 }

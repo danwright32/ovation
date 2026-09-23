@@ -6,10 +6,12 @@
 // BACK far off every display rather than left unordered, because a window that was
 // never ordered in does not draw its layer backed subviews at all.
 //
-// BOTH THEMES, EVERY TIME. A pane looked at in one theme is a pane half seen
-// (L69, L606), and the theme has to be set on the WINDOW and not only in the
-// SwiftUI environment, or the standard control colours come from the Mac's own
-// setting and light chrome is drawn under dark text.
+// LIGHT ONLY, SINCE ovation#475. This suite used to file a dark picture beside
+// each light one, as separate deliverables, so the two being different was what
+// it expected and nothing compared them: that is how the pane shipped near
+// unreadable on a dark Mac. The pane is now pinned to light like every other
+// screen, and `AppearanceParityTests` refuses any difference between the two, so
+// a dark picture here would be a second copy of one already required to match.
 //
 // OPT IN, AND IT SAYS WHEN IT DID NOTHING (L98): with no directory named it writes
 // nothing and prints that, because a run that quietly produced no pictures cannot
@@ -91,12 +93,8 @@ struct InvoiceSettingsShotTests {
             return [
                 Shot(scheme: .light, size: CGSize(width: 640, height: 560),
                      footer: asItShipsToday, fileName: "01-as-it-ships-light.png"),
-                Shot(scheme: .dark, size: CGSize(width: 640, height: 560),
-                     footer: asItShipsToday, fileName: "02-as-it-ships-dark.png"),
                 Shot(scheme: .light, size: CGSize(width: 640, height: 560),
                      footer: asItWillBeUsed, fileName: "03-real-bank-details-light.png"),
-                Shot(scheme: .dark, size: CGSize(width: 640, height: 560),
-                     footer: asItWillBeUsed, fileName: "04-real-bank-details-dark.png"),
                 // AT THE WINDOW'S OWN MINIMUM, because a pane is shipped unseen when
                 // it has only been looked at roomy (L606). Measured at the narrowest
                 // width, since that is where the text wraps most and the pane is at
