@@ -31,7 +31,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "runner Xcode watch tests" 35
+harness_begin "runner Xcode watch tests" 38
 
 TARGET="scripts/check-runner-xcode.sh"
 require_target "$TARGET"
@@ -330,5 +330,32 @@ manifest_offering macos-26-arm64-Readme.md 27.0 26.6
 BEFORE_PIN="$(cat "$PIN")"
 run_watch >/dev/null
 check "a run that found a newer Xcode did not edit the pin" "$(cat "$PIN")" "$BEFORE_PIN"
+
+# ---------------------------------------------------------------------------
+# THE WIRING THE REPORTING PATH RUNS THROUGH (ovation#379). The workflow chooses
+# which finding to file by matching the check's exit code, and the steps that
+# report run only when the image changes, possibly months from now. A condition
+# that stopped matching an outcome would file nothing and say nothing (L98, L3).
+# So every outcome the check DOCUMENTS must be handled by exactly one step, and
+# every step's condition must name an outcome that exists (L151).
+# ---------------------------------------------------------------------------
+documented_codes() { grep -oE '^#   [0-9]  ' "$TARGET" | tr -dc '0-9\n' | sort -u; }
+handled_codes() { grep -oE "outputs\.status == '[0-9]'" "$1" | tr -dc '0-9\n' | sort; }
+wiring_gaps() {  # prints each documented code not handled exactly once, and each handled code not documented
+    local wf="$1" code
+    for code in $(documented_codes); do
+        [ "$(handled_codes "$wf" | grep -cx "$code")" -eq 1 ] || echo "outcome $code handled $(handled_codes "$wf" | grep -cx "$code") time(s)"
+    done
+    for code in $(handled_codes "$wf" | sort -u); do
+        documented_codes | grep -qx "$code" || echo "condition on $code, which the check never exits with"
+    done
+}
+check "every outcome the check documents is handled by exactly one step of its workflow" \
+    "$(wiring_gaps .github/workflows/runner-xcode.yml)" ""
+sed "s/outputs.status == '3'/outputs.status == '9'/" .github/workflows/runner-xcode.yml > "$WORK/broken-wiring.yml"
+check "and a workflow whose condition stopped matching an outcome is caught" \
+    "$(wiring_gaps "$WORK/broken-wiring.yml" | grep -c .)" "2"
+check "and the check documents five outcomes, so the comparison has something to compare" \
+    "$(documented_codes | grep -c .)" "5"
 
 harness_end
