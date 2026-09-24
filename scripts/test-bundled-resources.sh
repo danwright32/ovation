@@ -1,4 +1,7 @@
 #!/bin/bash
+# ovation-runs-on: macos
+# It reads a built product or xcodebuild's settings, so it cannot measure on Linux
+# and the macOS build job runs it (ovation#161, scripts/run-tests.sh).
 # The fonts, their licences and Dan's mark INSIDE the built apps are the files the
 # manifest pins (ovation#167, plan A1).
 #

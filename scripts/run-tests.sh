@@ -323,6 +323,35 @@ SUITE_DIR="${OVATION_SHELL_SUITE_DIR:-${REPO_ROOT}/scripts}"
 SUITE_FLOOR="${OVATION_SHELL_SUITE_FLOOR:-}"
 SHELL_UNMEASURED=""
 
+# WHICH SHELL SUITES, and it is CI's question, never Dan's (ovation#161, Dan's
+# decision 2026-09-23). The shell suites ran three times per push: the macOS
+# shell job, the Linux one, and again inside the macOS build job. They now run
+# ONCE on Linux, and the macOS build job runs only the suites that cannot measure
+# anywhere else, which today are the four that read a built product or
+# xcodebuild's settings.
+#
+# A SUITE DECLARES THAT ITSELF, with the line `# ovation-runs-on: macos`, so the
+# set is derived from the suites rather than listed in the workflow or here, where
+# a new one would be missing until somebody remembered (L41, L96). And the Linux
+# run REFUSES a suite that could not measure and carries no marker: without that,
+# a new suite that needs a Mac would answer CANNOT MEASURE on Linux, be skipped by
+# the macOS job, and be measured by CI nowhere, with every run still green (L98).
+#
+#     (unset)       every suite: the push gate on Dan's Mac, unchanged
+#     macos-only    only suites carrying the marker, for the macOS build job
+#     must-measure  every suite, and an unmarked CANNOT MEASURE fails the run
+SHELL_SUITES_MODE="${OVATION_SHELL_SUITES:-}"
+SHELL_SUITE_MARKER='# ovation-runs-on: macos'
+case "${SHELL_SUITES_MODE}" in
+  ""|macos-only|must-measure) ;;
+  *)
+    echo "Error: OVATION_SHELL_SUITES is '${SHELL_SUITES_MODE}', which is not a mode this runner has." >&2
+    echo "       It takes macos-only or must-measure, or nothing for every suite." >&2
+    exit 64
+    ;;
+esac
+suite_needs_a_mac() { grep -qxF -- "${SHELL_SUITE_MARKER}" "$1" 2>/dev/null; }
+
 if [ -n "${ONLY_TESTING}" ]; then
   # A NARROWED RUN IS ABOUT ONE SWIFT SUITE, and the shell suites take minutes and
   # answer a different question. Said in one line rather than simply not happening,
@@ -337,8 +366,14 @@ else
   failed_status=0
   failed_names=""
   unmeasured_names=""
+  unmarked_unmeasured=""
+  left_to_linux=0
   for s in "${SUITE_DIR}"/test-*.sh; do
     [ -x "$s" ] || continue
+    if [ "${SHELL_SUITES_MODE}" = "macos-only" ] && ! suite_needs_a_mac "$s"; then
+      left_to_linux=$((left_to_linux+1))
+      continue
+    fi
     suites_ran=$((suites_ran+1))
     # NAMED BEFORE IT RUNS, NEVER AFTER (ovation#337). A suite says nothing until
     # it finishes, so a job killed part way through ends after the last suite that
@@ -355,6 +390,9 @@ else
       suites_passed=$((suites_passed+1))
     elif [ "${suite_status}" -eq 2 ]; then
       unmeasured_names="${unmeasured_names}${suite_name} "
+      if [ "${SHELL_SUITES_MODE}" = "must-measure" ] && ! suite_needs_a_mac "$s"; then
+        unmarked_unmeasured="${unmarked_unmeasured}${suite_name} "
+      fi
     else
       failed_names="${failed_names}${suite_name} "
       failed_status="${suite_status}"
@@ -368,6 +406,21 @@ else
   echo "==> Shell suites: ${suites_ran} ran, ${suites_passed} passed, verdicts below"
   [ -n "${failed_names}" ] && echo "    failed: ${failed_names% }"
   [ -n "${unmeasured_names}" ] && echo "    could not measure: ${unmeasured_names% }"
+  if [ "${SHELL_SUITES_MODE}" = "macos-only" ]; then
+    echo "    ${left_to_linux} suite(s) carrying no '${SHELL_SUITE_MARKER}' line were left to the Linux job (ovation#161)."
+    if [ "${suites_ran}" -eq 0 ]; then
+      echo "Error: no suite carries '${SHELL_SUITE_MARKER}', so the macOS run measured nothing at all." >&2
+      exit 7
+    fi
+  fi
+  if [ -n "${unmarked_unmeasured}" ]; then
+    for name in ${unmarked_unmeasured}; do
+      echo "Error: ${name} could not measure here and carries no '${SHELL_SUITE_MARKER}' line," >&2
+      echo "       so no CI job would ever measure it. Make it measure on Linux, or mark it as" >&2
+      echo "       needing a Mac so the macOS build job runs it (ovation#161)." >&2
+    done
+    failed_status=1
+  fi
 
   if [ "${failed_status}" -ne 0 ]; then
     echo "    the run stops here: a failing suite means nothing after it is worth" >&2
@@ -378,7 +431,12 @@ else
   # The floor is checked only when nothing FAILED, because a failure breaks out
   # of the loop and the short count is then a consequence of the failure rather
   # than a fact about the tree. Reporting both would name the wrong cause (L11).
-  if [ -n "${OVATION_SHELL_SUITE_DIR:-}" ] && [ -z "${SUITE_FLOOR}" ]; then
+  if [ "${SHELL_SUITES_MODE}" = "macos-only" ]; then
+    # THE FLOOR COUNTS EVERY SUITE, and this run is deliberately a subset of them.
+    # The Linux job runs them all and holds the count; said rather than skipped
+    # silently, for the reason the injected directory case below gives (L98).
+    echo "==> Shell suite count check left to the Linux job: this run is the macOS subset (ovation#161)."
+  elif [ -n "${OVATION_SHELL_SUITE_DIR:-}" ] && [ -z "${SUITE_FLOOR}" ]; then
     # Said out loud rather than skipped silently, the same way the pure count
     # skip is: a run driven with throwaway suites cannot be judged against the
     # real floor, and a skip nobody is told about is indistinguishable from a
@@ -789,6 +847,22 @@ else
     STATUS="${PIPESTATUS[0]}"
   fi
 
+  # THE RULE BESIDE THE SYMPTOM (ovation#373). OvationTests compiles the app's
+  # sources in and has no host (ovation#164), so `@testable import Ovation` in one
+  # of its files names a module nothing builds, and the compiler says only
+  # "Unable to resolve module dependency: 'Ovation'", which names the symptom and
+  # not the step. Twenty minutes and a full rebuild went on the wrong cause. The
+  # rule is still enforced at push time by test-project-configuration.sh; this
+  # says it at the moment the error appears, with the remedy rather than a
+  # description of the fault (L399).
+  if [ "${STATUS}" -ne 0 ] && grep -qF "Unable to resolve module dependency: 'Ovation'" "${PURE_OUTPUT}"; then
+    echo "Error: an OvationTests file imports the app module, which OvationTests never builds:" >&2
+    grep -oE "[^ :]*OvationTests/[^ :]+\.swift" "${PURE_OUTPUT}" | sort -u | sed 's/^/           /' >&2
+    echo "       The app's code is already compiled into OvationTests," >&2
+    echo "       so delete the line @testable import Ovation from that file." >&2
+    echo "       OvationHostedTests is the target that imports the app." >&2
+  fi
+
   # THE PURE SUITE HAS STOPPED READING THE PROJECT, so a regeneration may go ahead
   # (ovation#299). The hosted suite reads it under the directory build lock, which
   # a regeneration also takes, so the registration is not needed past here.
@@ -1055,9 +1129,12 @@ else
           echo "       Downbeat's lock ${DIR_LOCK}: ${last_dir_holder}" >&2
           echo "       Overture's lock ${FILE_LOCK}: ${last_file_holder}" >&2
           echo "       $(holders_sentence) went ahead of this run while it waited." >&2
-          echo "       Several holders is a busy sibling. ONE holder the whole time with" >&2
-          echo "       nothing running is a run that died holding it: remove ${DIR_LOCK}" >&2
-          echo "       and try again." >&2
+          echo "       Several holders is a busy sibling. ONE holder the whole time is either" >&2
+          echo "       a long run or one that died holding it, and the remedy depends on which" >&2
+          echo "       lock (ovation#492): Downbeat's is a folder, so remove ${DIR_LOCK} if its" >&2
+          echo "       named run has ended; Overture's is held by a live process, so removing a" >&2
+          echo "       file frees nothing, and the fix is to stop the pid named above once you" >&2
+          echo "       have checked its run has ended." >&2
           STATUS=3
           WAIT_OUTCOME=gave-up
           break
@@ -1120,18 +1197,49 @@ else
       echo "    reports is worth less than usual."
     fi
 
+    # THE SCREENSHOT SUITES RUN ON EVERY RUN (ovation#383). They capture only when a
+    # folder is named for them, and nothing named one, so every run and every CI run
+    # executed nothing while reporting a pass: a capture that crashed the test process
+    # shipped unseen, and a pane could render wrongly with no run saying so (L98, L606).
+    # So a folder is always named: the caller's, or a fresh temporary one, and the
+    # suites' own count assertions then hold every run. TEST_RUNNER_ is the prefix
+    # xcodebuild passes into the test process; the bare name does not arrive.
+    if [ -n "${OVATION_SHOT_DIR:-}" ]; then
+      SHOT_DIR="${OVATION_SHOT_DIR}"
+      SHOT_DIR_IS_TEMPORARY=""
+      mkdir -p "${SHOT_DIR}" 2>/dev/null || true
+    else
+      SHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ovation-shots.XXXXXX")"
+      SHOT_DIR_IS_TEMPORARY=1
+    fi
+    export TEST_RUNNER_OVATION_SHOT_DIR="${SHOT_DIR}"
+
+    # THE HOSTED SUITE IS STARTED WITH THE LOCK'S DESCRIPTOR CLOSED (ovation#492).
+    # The lock IS descriptor 9, and a numbered descriptor opened by `exec` is
+    # inherited by every process started while it is held (L441). xcodebuild
+    # starts many processes of its own, and one that outlived this run kept
+    # Overture's lock held after the run that took it had gone: every later run on
+    # this Mac, in all three apps, then waited out its timeout. `9>&-` closes it in
+    # the child only, so this run still holds the lock and nothing it starts can.
     if [ -n "${HOSTED_TEST_COMMAND}" ]; then
-      HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1)"
+      HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1 9>&-)"
     else
       # NARROWED IN PLACE OF THE WHOLE HOSTED TARGET, never beside it: two
       # -only-testing arguments are a union, so a filter added beside the target
       # would run the whole hosted suite while reading as one test (ovation#321).
       HOSTED_OUTPUT="$(xcodebuild -project "${XCODE_PROJECT}" -scheme Ovation \
         -destination 'platform=macOS' \
-        "-only-testing:${ONLY_TESTING:-OvationHostedTests}" test 2>&1)"
+        "-only-testing:${ONLY_TESTING:-OvationHostedTests}" test 2>&1 9>&-)"
     fi
     HOSTED_STATUS=$?
     printf '%s\n' "${HOSTED_OUTPUT}"
+    SHOT_COUNT="$(find "${SHOT_DIR}" -name '*.png' -type f 2>/dev/null | wc -l | tr -d ' ')"
+    if [ -n "${SHOT_DIR_IS_TEMPORARY}" ]; then
+      echo "==> ${SHOT_COUNT} screenshots captured, in a temporary folder removed now; set OVATION_SHOT_DIR to keep them."
+      rm -rf "${SHOT_DIR}"
+    else
+      echo "==> ${SHOT_COUNT} screenshots captured into ${SHOT_DIR}."
+    fi
 
     if [ "${HOSTED_STATUS}" -ne 0 ]; then
       STATUS="${HOSTED_STATUS}"

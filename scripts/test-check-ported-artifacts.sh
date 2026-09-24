@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ported artifact check tests" 35
+harness_begin "ported artifact check tests" 38
 
 TARGET="scripts/check-ported-artifacts.sh"
 require_target "$TARGET"
@@ -77,6 +77,29 @@ OUT1="$(run_check "$T1")"; ST1=$?
 check "a port from a commit on the sibling's main passes" "$ST1" "0"
 check "and it says how many artifacts it actually examined" \
     "$(printf '%s' "$OUT1" | grep -c "1 ported artifact")" "1"
+
+# 1b. ovation#401. A SIBLING WHOSE LOCAL main LAGS ITS REMOTE. A checkout standing
+#     on a feature branch, the ordinary state of one another session works in,
+#     has a local main that pulls to that branch never move. A port taken from the
+#     sibling's real main was then refused as "a branch that never merged", the
+#     opposite of what happened, and was re-recorded against an older commit to
+#     get past it (measured in backstage 2026-09-19). So the remote tracking main
+#     counts as main too, and the check says which one answered (L454).
+(
+    cd "$SIB" || exit 1
+    git checkout -qb landed-upstream main
+    echo three > g.txt; git add g.txt; git commit -qm three
+    git update-ref refs/remotes/origin/main HEAD
+    git checkout -q main
+) >/dev/null 2>&1
+ON_ORIGIN_ONLY="$(cd "$SIB" && git rev-parse refs/remotes/origin/main)"
+T1B="$(new_tree 1b)"
+port_header "danwright32/downbeat" "scripts/install-git-hooks.sh" "$ON_ORIGIN_ONLY" > "$T1B/ported.sh"
+OUT1B="$(run_check "$T1B")"; ST1B=$?
+check "a port on the sibling's origin/main passes although its local main lags" "$ST1B" "0"
+check "and it says origin/main is what answered" "$(grep -c 'on origin/main' <<< "$OUT1B")" "1"
+check "and the lagging local main was not moved to get there" \
+    "$( [ "$(cd "$SIB" && git rev-parse main)" = "$ON_MAIN" ] && echo unmoved || echo moved)" "unmoved"
 
 # 2. A port whose recorded commit is on a branch that was never merged. This is
 #    the defect the check exists to find.

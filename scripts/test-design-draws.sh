@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 68
+harness_begin "design rendering checks" 71
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -441,14 +441,38 @@ REAL_BROWSER="$(python3 -c 'import sys; sys.path.insert(0, "scripts/lib"); impor
 COUNTING="$WORK/counting-browser.sh"
 printf '#!/bin/sh\necho started >> "$BROWSER_STARTS"\nexec %q "$@"\n' "$REAL_BROWSER" > "$COUNTING"
 chmod +x "$COUNTING"
+# A RESTART IS NOT A SECOND BROWSER PER PAGE (ovation#410). The regression this
+# count exists to catch is a check starting a browser for every render, which
+# ovation#183 removed. A browser that stops answering and is replaced is a
+# different event, expected and said out loud by the library ("the browser stopped
+# answering ... started a fresh browser"), and counting it here turned a check that
+# PASSED into a red build (PR ovation#409, green on a re-run of the same commit).
+# So what is asserted is the starts BEYOND the restarts the run itself reported:
+# one start plus N reported restarts is healthy, N starts with none reported is
+# the regression. $1 the number of starts, $2 the check's own output.
+browsers_beyond_restarts() {
+    local restarts
+    restarts="$(grep -c 'the browser stopped answering' "$2" 2>/dev/null || true)"
+    printf '%s' "$(( $1 - ${restarts:-0} ))"
+}
+printf '==> the browser stopped answering its Page.navigate request, so this started a fresh browser and rendered the page again.\n' \
+    > "$WORK/one-restart.out"
+: > "$WORK/no-restart.out"
+check "one start and no restart is one browser" "$(browsers_beyond_restarts 1 "$WORK/no-restart.out")" "1"
+check "two starts with one reported restart is still one browser" \
+    "$(browsers_beyond_restarts 2 "$WORK/one-restart.out")" "1"
+check "two starts with no restart reported is the regression, a browser per page" \
+    "$(browsers_beyond_restarts 2 "$WORK/no-restart.out")" "2"
+
 starts_for() {
     # $1 a check, then any arguments. Prints its exit status and how many
-    # browsers it started.
-    local log="$WORK/starts-$(basename "$1" .sh)"
+    # browsers it started beyond the restarts it reported (ovation#410).
+    local log="$WORK/starts-$(basename "$1" .sh)" status
     : > "$log"
     BROWSER_STARTS="$log" OVATION_HEADLESS_BROWSER="$COUNTING" OVATION_DESIGN_ROOT= \
         python3 "$@" > "$log.out" 2>&1
-    printf '%s:%s' "$?" "$(grep -c started "$log")"
+    status=$?
+    printf '%s:%s' "$status" "$(browsers_beyond_restarts "$(grep -c started "$log")" "$log.out")"
 }
 # THIS CHECK IS COUNTED ON ONE FILE, at both widths, which is two renders of the
 # page and one more per control it presses (ovation#184): fourteen pages, and

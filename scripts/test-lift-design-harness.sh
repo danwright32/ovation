@@ -22,7 +22,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design harness lift tests" 58
+harness_begin "design harness lift tests" 59
 
 TARGET="scripts/lift-design-harness.sh"
 require_target "$TARGET"
@@ -419,5 +419,16 @@ check "a harness page in quirks mode is caught, which is ovation#194" \
 
 check "and every one of those runs left the committed design files untouched" \
     "$(shasum -a 256 docs/design/invoice-pdf.html docs/design/invoice-list.html)" "$BEFORE"
+
+# ovation#414. EVERY COMMITTED DESIGN FILE CAN BE LIFTED, said now rather than in the
+# middle of wanting a round. The lift appends a `buildScreen(variant)` and refuses a
+# file that already defines one, correctly, and nothing said so until somebody tried:
+# invoice.html was found that way during ovation#322, and clients.html and
+# review-send.html carried the same name (ovation#341). The reserved name is the one
+# refusal a scan can see; this asks it of every file rather than the one being lifted.
+RESERVED="$(grep -lE '\bfunction[[:space:]]+buildScreen\b' docs/design/*.html 2>/dev/null || true)"
+[ -z "$RESERVED" ] || printf '    defines buildScreen: %s\n' $RESERVED >&2
+check "no committed design file defines the name the lift appends, so every one can have a round" \
+    "$(grep -c . <<< "$RESERVED" || true)" "0"
 
 harness_end

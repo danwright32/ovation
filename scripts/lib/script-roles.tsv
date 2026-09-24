@@ -62,6 +62,8 @@
 #                  was running them, for as long as the comparison went one way
 #                  only (ovation#155, ovation#214).
 #
+report-branches.sh	tool	Run by a person, or a session tidying up, to see which branches belong to a merged pull request (ovation#359, ovation#396). It reads and deletes nothing. test-report-branches.sh covers it.
+check-installed-build.sh	tool	Run after every merge as this repository's post-merge step (CLAUDE.md), by the session that merged, so the person told the install is behind is Dan at the moment it becomes true (ovation#389). test-installed-build.sh covers it.
 build-app-icon.sh	tool	Regenerates the committed icon catalog from icon/ovation-app-icon.png. Run by hand when the artwork changes, and never by the build, so a machine without Pillow can still build the app. test-app-icon-current.sh drives it against throwaway artwork, and check-app-icon-current.sh holds the committed catalog to it (ovation#102).
 build-install.sh	tool	Builds and installs the app. Dan runs the installs himself (2026-08-28), so nothing automated may call it. test-build-install.sh drives it against stubs.
 build-products.sh	tool	Takes minutes to build both configurations, so no push may wait on it. It is the command CI will call when CI exists, and until then it is run by a person. test-build-products.sh covers it.
@@ -76,6 +78,7 @@ check-ci-liveness.sh	workflow	Run by .github/workflows/ci-liveness.yml on a sche
 check-clients-screen-draws.sh	workflow	Renders docs/design/clients.html in a headless browser, PRESSES the name rows and reads back what moved, which is the only way to see the rule ovation#98 settled: the held money figure is drawn on every row that has one except the row whose box is open beside it, so what is drawn depends on the selection and no reading of the source can check it. Since ovation#186 and ovation#209 it also presses the payment terms, the rail and the day switch, and claims the two balances' faces, the arrivals, the terms control, the roster pass's sections and count, and that a quantity of nothing is not drawn, as claims in this one check rather than another browser start (ovation#183). Run by .github/workflows/ci.yml's Linux job, and by its sibling test-clients-screen-draws.sh against the committed file on every test run, which is what makes a push judge it; that suite answers CANNOT MEASURE rather than passing when there is no browser. Not gated, for the reason written once under `workflow` above.
 check-custody-files.sh	gated	A repo wide guard.
 check-custody-not-staged.sh	gated	A repo wide guard.
+check-writers-wired.sh	gated	A repo wide guard over the app's @ModelActor writers (ovation#441).
 check-hooks-path.sh	gated	A machine guard: reads this checkout's git config, so only the push gate on the machine can ask it.
 check-design-shared-components.sh	gated	A repo wide guard.
 check-design-dead-rules.sh	gated	A repo wide guard.
@@ -87,6 +90,8 @@ write-design-shell.sh	tool	The remedy check-design-shell-inline.sh names. It wri
 check-design-collisions.py	tool	Takes a settled stylesheet and one design round's stylesheet and refuses a class name collision the round did not declare. It is a DESIGN ROUND tool taking two file arguments, not a repo wide guard, so nothing can run it on a schedule; test-design-collisions.sh drives every one of its outcomes, including the stale reuse entry and the missing stylesheet it used to have no answer for (ovation#132).
 check-design-draws.sh	workflow	Renders every design file at more than one window width and asserts what is true of EVERY one: the console is silent at rest and after every control on the page has been pressed, each from the page at rest in a page of its own (ovation#184), the page drew something, nothing is cut off with no way to reach it, the page does not scroll sideways, and every figure in a block that says its figures line up does. Run by .github/workflows/ci.yml's Linux job, and by its sibling test-design-draws.sh, which runs it against the committed record and plants one defect per claim, so a push judges it; that suite answers CANNOT MEASURE rather than passing when there is no browser (ovation#141). Not gated, for the reason written once under `workflow` above.
 check-design-window-top.sh	workflow	Renders every design file in an 800px laptop window and refuses one whose app window starts more than 460px down the page. The number cannot be read from any stylesheet: it is the sum of whatever masthead, prose and switches sit above the window, at that width. Run by .github/workflows/ci.yml's Linux job beside the other rendering checks, and by its sibling test-design-window-top.sh, which runs it against the committed files and plants a page per outcome, so a push judges it; that suite answers CANNOT MEASURE rather than passing when there is no browser (ovation#192). Not gated, for the reason written once under `workflow` above.
+check-scheduled-runs.sh	workflow	Run by .github/workflows/ci-liveness.yml daily, and by the post-merge step in CLAUDE.md from outside GitHub, because GitHub switching off every schedule for inactivity switches off anything inside it that would notice (ovation#387). It asks GitHub, so no push gate names it (L376, L571).
+check-pr-mergeable.sh	workflow	Run by .github/workflows/pr-mergeable.yml on pull_request_target and on every push to main, and by nothing else. It asks GitHub, so a push gate naming it would refuse on every machine without a network (L376, L571), and the question it answers only exists on GitHub (ovation#350).
 check-design-record-open.sh	workflow	Run by .github/workflows/design-record.yml, on a schedule and after CI on main, and by nothing else. It is the one check that asks GitHub, so a push gate needing a network refuses on every machine without one (L376, L571), and its verdict changes when an ISSUE CLOSES with no commit in between, so in ci.yml it arrived as a red build on whichever unrelated push came next (ovation#218, L538). It reports by opening one issue.
 report-browser-restarts.sh	workflow	Run by .github/workflows/browser-restarts.yml after every CI run. It reads the restart record CI kept as an artifact and adds each occurrence to the issue that counts them, keeping a run that could not be read apart from a run that recorded nothing (ovation#352). It lived in a step of that workflow, which only ever runs from the default branch, so nothing could judge it before it shipped; test-browser-restart-report.sh drives every outcome against a stub gh and a stub reporter.
 check-design-measurements-marked.sh	gated	A repo wide guard, and an unusual one: it REFUSES a measurement marking in docs/design/README.md that points at nothing, a check that is not there or is in no row of this file, or a day that is not a date, and it only REPORTS the numbers nothing marks at all. The reporting half is the design rather than a shortfall, and it is said in the script's own header: a sweep refusing until all of them were marked would be unlandable and would be answered by marking numbers to silence it (ovation#201). test-design-measurements-marked.sh drives every outcome against an injected record and an injected inventory.
@@ -171,6 +176,11 @@ test-custody-not-staged.sh	suite
 test-gitignore.sh	suite	
 test-hooks-path.sh	suite	
 test-require-lib.sh	suite	
+test-pr-mergeable.sh	suite	
+test-installed-build.sh	suite	
+test-scheduled-runs.sh	suite	
+test-report-branches.sh	suite	
+test-writers-wired.sh	suite	
 test-design-draws.sh	suite	
 test-design-record-open.sh	suite	
 test-design-measurements-marked.sh	suite	

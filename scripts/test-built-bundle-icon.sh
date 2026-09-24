@@ -1,4 +1,7 @@
 #!/bin/bash
+# ovation-runs-on: macos
+# It reads a built product or xcodebuild's settings, so it cannot measure on Linux
+# and the macOS build job runs it (ovation#161, scripts/run-tests.sh).
 # Assert that the BUILT PRODUCTS actually carry Ovation's app icon, for EVERY
 # configuration Ovation ships.
 #

@@ -234,6 +234,10 @@ gate_check check-schema-registered.sh "a model type is not in the store's schema
 # and raised in none, so the notice a first launch showed never cleared. Its
 # subjects are the problem kinds declared in the sources, and tests are not
 # scanned, because a test raising a kind by hand is how that went unseen.
+# A writer the app declares and never uses, unless listed with the issue that
+# wires it (ovation#441). Built is not wired, and a writer with its own tests
+# reads as done from every angle but the one that counts (L3).
+gate_check check-writers-wired.sh "a writer the app declares is used by nothing and listed nowhere."
 gate_check check-problem-kinds-raised.sh "a problem kind is resolved in the app and raised nowhere."
 
 # ovation#124. Ovation has one slide and one fade, and one file that knows whether
@@ -315,7 +319,7 @@ gate_check check-design-terms-agree.sh "the two design files offer different pay
 # reader follows it, finds a number, and comes away believing the requirement
 # says something. The first run found four, all of the same shape, a section
 # qualifier naming the section the requirements are NOT in.
-gate_check check-prd-citations.sh "a PRD citation names a requirement that is not there."
+gate_check check-prd-citations.sh "a PRD citation names a requirement that is not there, or a requirement number is declared twice."
 
 # ovation#181. check-plan-claims.sh re-checks every claim the implementation plan
 # makes about the two sibling repositories, and until now NOTHING ran it: it was
@@ -602,8 +606,12 @@ if [ -z "${SKIP_XCODE}" ] && [ -z "${TEST_COMMAND}" ]; then
     fi
     # shellcheck source=../lib/built-product.sh
     require_lib "${PRODUCT_LIB}"
+    # ASKED AS A FUNCTION, because it is asked twice: before, and again after the
+    # gate has built them (ovation#381), through the same predicate both times.
+    products_missing_now() {
     PRODUCTS_MISSING=""
     PRODUCT_REMEDIES=""
+    ONLY_BUILDING_FIXES_IT=1
     for config in ${BUILT_PRODUCT_CONFIGURATIONS}; do
         # From the top of the pushed tree, which is where the location query
         # expects to find the project. The project it asked is passed on, so a
@@ -612,6 +620,9 @@ if [ -z "${SKIP_XCODE}" ] && [ -z "${TEST_COMMAND}" ]; then
         reason="$(built_product_absence "${config}" "${app}" "${REPO_ROOT}/Ovation.xcodeproj")"
         code=$?
         [ "${code}" -eq 0 ] && continue
+        # 1 no bundle, 2 no executable, 3 no project yet: building fixes each.
+        # 4, a project that did not say where it builds, needs regenerating first.
+        case "${code}" in 1|2|3) ;; *) ONLY_BUILDING_FIXES_IT="" ;; esac
         PRODUCTS_MISSING="${PRODUCTS_MISSING}pre-push:     ${reason}
 "
         # EACH REMEDY ONCE, from the lib, so both configurations missing for one
@@ -623,6 +634,61 @@ if [ -z "${SKIP_XCODE}" ] && [ -z "${TEST_COMMAND}" ]; then
 " ;;
         esac
     done
+    }
+    products_missing_now
+
+    # THE GATE BUILDS THEM ITSELF when building is the whole remedy (ovation#381).
+    # It used to hand the 30 second build back, one refused push per fresh
+    # worktree, for two recorded reasons that have both since been answered: a
+    # build needs no sibling lock (ovation#302), and the keychain no longer
+    # prompts for the signing key (ovation#24). It runs UNDER A DEADLINE, so a
+    # build that hangs refuses the push rather than holding it with nothing said
+    # (L110), in its own process group so the whole build stops at the deadline
+    # (L321), and the products are then asked for again through the same
+    # predicate, never assumed built because the command exited 0.
+    if [ -n "${PRODUCTS_MISSING}" ] && [ -n "${ONLY_BUILDING_FIXES_IT}" ]; then
+        BUILD_DEADLINE="${OVATION_GATE_BUILD_DEADLINE:-900}"
+        BUILD_LOG="$(mktemp)"
+        echo "pre-push: the products this push needs are not built, so the gate builds them now" >&2
+        echo "pre-push: (bash scripts/build-products.sh, about 30 seconds cold, at most ${BUILD_DEADLINE}s):" >&2
+        printf '%s' "${PRODUCTS_MISSING}" >&2
+        set -m
+        ( cd "${REPO_ROOT}" && exec bash scripts/build-products.sh ) > "${BUILD_LOG}" 2>&1 &
+        build_pid=$!
+        set +m
+        # ELAPSED IS READ FROM THE CLOCK, never counted in sleeps: a count of sleeps is a
+        # count of iterations, which is only seconds while the interval happens to be one
+        # (L226). The interval is a seam, so the deadline case costs a test a moment
+        # rather than a real second per poll (L524).
+        build_started="$(date +%s)"
+        waited=0
+        while kill -0 "${build_pid}" 2>/dev/null && [ "${waited}" -lt "${BUILD_DEADLINE}" ]; do
+            sleep "${OVATION_GATE_BUILD_POLL:-1}"
+            waited=$(( $(date +%s) - build_started ))
+        done
+        if kill -0 "${build_pid}" 2>/dev/null; then
+            kill -TERM -- "-${build_pid}" 2>/dev/null || kill -TERM "${build_pid}" 2>/dev/null
+            wait "${build_pid}" 2>/dev/null
+            echo "pre-push: the build did not finish within ${BUILD_DEADLINE}s, so it was stopped. Last lines:" >&2
+            tail -n 15 "${BUILD_LOG}" | sed 's/^/pre-push:     /' >&2
+            echo "pre-push: Push refused before running anything." >&2
+            rm -f "${BUILD_LOG}"
+            exit 1
+        fi
+        wait "${build_pid}"
+        build_status=$?
+        if [ "${build_status}" -ne 0 ]; then
+            echo "pre-push: the build failed (exit ${build_status}). Last lines:" >&2
+            tail -n 15 "${BUILD_LOG}" | sed 's/^/pre-push:     /' >&2
+            echo "pre-push: Push refused before running anything." >&2
+            rm -f "${BUILD_LOG}"
+            exit 1
+        fi
+        rm -f "${BUILD_LOG}"
+        echo "pre-push: built them in about ${waited}s; asking again whether they are there." >&2
+        products_missing_now
+    fi
+
     if [ -n "${PRODUCTS_MISSING}" ]; then
         echo "pre-push: this push contains something the built bundle suites judge, and" >&2
         echo "pre-push: they cannot measure a product that is not there:" >&2

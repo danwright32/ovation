@@ -14,9 +14,10 @@ name: CI
 #
 #     gh repo view --json visibility
 #
-# The day that answers private, this file is the thing to look at: the shell
-# suites need no Xcode and would run on Linux for nothing, and moving them is
-# untested rather than impossible.
+# The day that answers private, this file is the thing to look at. The shell
+# suites were already moved (ovation#161, 2026-09-23): they run once, on Linux,
+# and the one macOS job builds, runs the Swift suites, and runs only the shell
+# suites marked as needing a Mac.
 #
 # THE ONE MACHINE PROBLEM THIS SOLVES. scripts/build-products.sh exists because
 # Dan decided on 2026-09-06 that CI BUILDS BOTH configurations: skipping the
@@ -51,92 +52,21 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# THREE JOB NAMES ARE LOAD BEARING (ovation#378). The ruleset "main requires CI"
+# requires `Build both configurations and run everything` and `Shell suites on
+# Linux` from this file, and `Closing keywords GitHub reads` from
+# pr-description.yml, to pass before anything merges into main. A rename here
+# leaves the ruleset waiting for a check that never arrives and blocks every merge,
+# and a ruleset cannot be found by searching the repository, so rename one only in
+# the same change as the ruleset (L305). It is free only while the repository is
+# public; ovation#15 making it private ends it on the free plan.
 jobs:
-  # The cheap half, on its own, because it answers in a couple of minutes and it
-  # can fail alone. A job whose isolation does no work is not worth its own
-  # minute; this one gates nothing the other job does not, and it tells you which
-  # half is broken without waiting for a build (L310).
+  # NO macOS SHELL SUITES JOB (ovation#161, Dan's decision 2026-09-23). The same
+  # suites ran three times per push: here, on Linux, and again inside the build
+  # job. They now run ONCE, on Linux, and the build job runs only the suites that
+  # need a Mac. The named image and the pinned Xcode that this job's comment used
+  # to explain now live with the build job below, which still selects them.
   #
-  # A NAMED IMAGE AND A NAMED XCODE, in both Mac jobs (ovation#270). Both used to
-  # run `macos-latest` with the image's default Xcode and nothing named a
-  # version, so an image update could move the compiler with no change here and
-  # the push gate on Dan's Mac would stop predicting CI without anybody being told
-  # (L25, L376). `macos-latest` is itself moved between macOS versions by GitHub,
-  # gradually, over one to two months. `macos-26` is the same runner class, so
-  # nothing about minutes changes.
-  #
-  # The version is recorded once, in .xcode-version, and scripts/select-xcode.sh
-  # selects it and reads back what xcodebuild then reports. When the image does
-  # not carry that version the job STOPS AT THAT STEP BY NAME, listing what the
-  # image has, and never builds with the default instead. Images keep only the
-  # newest patch of each Xcode, so that stop is expected the day a patch release
-  # replaces the pinned one, and the fix is one line in .xcode-version.
-  shell-suites:
-    name: Shell suites
-    runs-on: macos-26
-    # FORTY, AND THE NUMBER IS MEASURED (ovation#337). This was 20 while the job
-    # itself took 16.7 to 20.3 minutes, so it crossed its own cap intermittently
-    # and the run was CANCELLED: the last twelve runs on 2026-09-15 read 19.3,
-    # 17.9, 20.3 cancelled, 19.0, 16.7, 19.0, 17.6, 17.2 and 13.3 minutes. A
-    # cancelled job is a required check that never answers, so a pull request that
-    # changed nothing related cannot be merged and looks broken.
-    #
-    # It is raised rather than tuned to the current figure because the work grows
-    # deliberately: three suites were added on 2026-09-15 alone. A cap this close
-    # to the work measures the runner's mood rather than the tests (L224).
-    #
-    # WHAT IS GIVEN UP, said rather than discovered later: a suite that genuinely
-    # hangs now costs 40 minutes of a runner before anything says so. That is the
-    # trade, and the reason it is acceptable is that the job now NAMES each suite
-    # before running it, so a cancelled job says where it was instead of leaving
-    # the reader to guess from a glob.
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-      - name: Select the Xcode this repository builds with
-        run: bash scripts/select-xcode.sh
-
-      # Ovation.xcodeproj is GENERATED from project.yml and is gitignored, so a
-      # fresh checkout has no project at all. The suites that read it answer
-      # CANNOT MEASURE without this, which is honest but measures nothing.
-      #
-      # flock is here for the same reason and it is the sharper one: the runner
-      # takes Overture's lock with it and REFUSES to run without it, so its own
-      # suite could measure nothing at all. This job does not take any lock, since
-      # it skips the phase the locks protect, but the suite that TESTS the locking
-      # still needs the tool.
-      - name: Install xcodegen and flock
-        run: brew install xcodegen flock
-
-      # BOTH macOS JOBS NEED THIS, and the shell one is the easy miss
-      # (ovation#424, ovation#427). It sets OVATION_SKIP_XCODE_PHASE=1, which
-      # skips the SWIFT phase only, so test-project-configuration.sh still runs
-      # `xcodebuild -showBuildSettings` and still resolves packages. backstage is
-      # PRIVATE, so without a credential that resolve fails and the suite fails
-      # with it. The script refuses BY NAME when the secret is absent rather than
-      # letting it surface later as an error about a missing module (L11).
-      - name: Let SwiftPM resolve the private backstage package
-        env:
-          BACKSTAGE_READ_TOKEN: ${{ secrets.BACKSTAGE_READ_TOKEN }}
-        run: bash scripts/configure-private-package-access.sh
-
-      - name: Run every shell suite
-        run: |
-          set +e
-          OVATION_SKIP_XCODE_PHASE=1 bash scripts/run-tests.sh
-          status=$?
-          set -e
-          case "$status" in
-            0) ;;
-            # CANNOT MEASURE. A runner has no built product, no sibling
-            # checkouts and no custody data, so some suites can prove nothing
-            # either way here and never could. That is the same policy the push
-            # gate applies (ovation#135): allowed, and NAMED, never called green.
-            2) echo "::warning::Some shell suites could not measure on this runner. See the log for which." ;;
-            *) exit $status ;;
-          esac
-
   # THE SAME SUITES ON LINUX, MEASURED RATHER THAN ASSUMED (ovation#152).
   #
   # The premise of every other job here is that this repository is PUBLIC, where
@@ -209,15 +139,19 @@ jobs:
           python3 scripts/check-design-sidebar-card.sh
           python3 scripts/check-design-window-top.sh
 
+      # MUST MEASURE (ovation#161). A suite that cannot measure here is allowed only
+      # when it carries `# ovation-runs-on: macos`, because the build job runs
+      # exactly those. An unmarked one fails this job by name: otherwise it would
+      # answer CANNOT MEASURE here, be skipped there, and be measured nowhere.
       - name: Run every shell suite
         run: |
           set +e
-          OVATION_SKIP_XCODE_PHASE=1 bash scripts/run-tests.sh
+          OVATION_SHELL_SUITES=must-measure OVATION_SKIP_XCODE_PHASE=1 bash scripts/run-tests.sh
           status=$?
           set -e
           case "$status" in
             0) ;;
-            2) echo "::warning::Some shell suites could not measure on Linux. See the log for which." ;;
+            2) echo "::warning::The suites marked as needing a Mac could not measure on Linux, as expected. The build job runs them." ;;
             *) exit $status ;;
           esac
 
@@ -245,7 +179,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       # FIRST, before anything is installed or built, so a pin the image does not
-      # carry costs seconds rather than a build (ovation#270, see shell-suites).
+      # carry costs seconds rather than a build (ovation#270). A NAMED IMAGE AND A NAMED
+      # XCODE: `macos-latest` moves between macOS versions on its own, so the image
+      # is named, and .xcode-version names the compiler, which select-xcode.sh
+      # selects and reads back, stopping by name when the image lacks it.
       - name: Select the Xcode this repository builds with
         run: bash scripts/select-xcode.sh
 
@@ -303,7 +240,19 @@ jobs:
 
       # The command from scripts/build-products.sh's own header, unchanged. A
       # workflow that rewrote it would be a second definition of the decision.
+      # THE SWIFT SUITES AND ONLY THE MAC SHELL SUITES (ovation#161). Every other
+      # shell suite already ran on Linux; the ones marked `# ovation-runs-on: macos`
+      # read a built product or xcodebuild's settings, which exist only here.
+      #
+      # SET IN THE STEP'S ENVIRONMENT, never inline, so the command below stays
+      # the documented one word for word, which check-ci-workflow.sh holds.
       - name: Build both, then run everything
+        env:
+          OVATION_SHELL_SUITES: macos-only
+          # THE SCREENSHOTS ARE KEPT (ovation#383), in a folder the next step uploads,
+          # so a pull request carries pictures of what it changed rather than relying
+          # on somebody remembering to look (L606).
+          OVATION_SHOT_DIR: ${{ runner.temp }}/shots
         run: |
           set +e
           bash scripts/build-products.sh && bash scripts/run-tests.sh
@@ -314,3 +263,15 @@ jobs:
             2) echo "::warning::Something could not be measured on this runner. See the log for which." ;;
             *) exit $status ;;
           esac
+
+      # WHATEVER THE VERDICT, because a failing run is when the pictures matter most
+      # (L514). `if-no-files-found: warn` rather than ignore: the suites always capture
+      # now, so an empty folder is itself worth seeing.
+      - name: Keep the screenshots this run captured
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: warn
+          retention-days: 14

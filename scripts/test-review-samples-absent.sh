@@ -73,7 +73,7 @@ REPO_ROOT="$PWD"
 # ---------------------------------------------------------------------------
 # THE GOOD CASE: Debug carries the samples, Release does not.
 R1="$(stage clean)"
-write_binary "$R1/products/Debug/Ovation.app/Contents/MacOS/Ovation" "${DEBUG_TERMS[@]}"
+write_binary "$R1/products/Debug/Ovation.app/Contents/MacOS/Ovation" "${DEBUG_TERMS[@]}"  # never empty: DEBUG_TERMS is a literal of four
 write_binary "$R1/products/Release/Ovation.app/Contents/MacOS/Ovation" "nothing to see"
 OUT1="$(run "$R1")"; ST1=$?
 check "a Release product with none of the samples passes" "$ST1" "0"
@@ -83,7 +83,7 @@ check "and it says how many terms it looked for, so a scan of nothing is visible
 # ---------------------------------------------------------------------------
 # THE FAULT: a sample reached the Release product.
 R2="$(stage leaked)"
-write_binary "$R2/products/Debug/Ovation.app/Contents/MacOS/Ovation" "${DEBUG_TERMS[@]}"
+write_binary "$R2/products/Debug/Ovation.app/Contents/MacOS/Ovation" "${DEBUG_TERMS[@]}"  # never empty: DEBUG_TERMS is a literal of four
 write_binary "$R2/products/Release/Ovation.app/Contents/MacOS/Ovation" "Autumn Concert"
 OUT2="$(run "$R2")"; ST2=$?
 check "a sample in the Release product refuses the run" \
@@ -119,7 +119,7 @@ check "and it says what would make it measurable" \
     "$(printf '%s' "$OUT4" | grep -c 'build-products.sh')" "1"
 
 R5="$(stage no-release)"
-write_binary "$R5/products/Debug/Ovation.app/Contents/MacOS/Ovation" "${DEBUG_TERMS[@]}"
+write_binary "$R5/products/Debug/Ovation.app/Contents/MacOS/Ovation" "${DEBUG_TERMS[@]}"  # never empty: DEBUG_TERMS is a literal of four
 rm -rf "$R5/products/Release"
 OUT5="$(run "$R5")"; ST5=$?
 check "with no Release product it answers cannot measure, not clean" "$ST5" "2"
@@ -133,7 +133,7 @@ cat >> "$R6/Ovation/Document/ReviewSamples.swift" <<'SOURCE'
 let extra = "Brand new sample state"
 SOURCE
 write_binary "$R6/products/Debug/Ovation.app/Contents/MacOS/Ovation" \
-    "${DEBUG_TERMS[@]}" "Brand new sample state"
+    "${DEBUG_TERMS[@]}" "Brand new sample state"  # never empty: DEBUG_TERMS is a literal of four
 write_binary "$R6/products/Release/Ovation.app/Contents/MacOS/Ovation" "Brand new sample state"
 OUT6="$(run "$R6")"; ST6=$?
 check "a term added to the sources is scanned for without being listed anywhere" \

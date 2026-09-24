@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 90
+harness_begin "git hooks tests" 97
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -638,6 +638,35 @@ check "and it names the configuration that is missing" \
     "$(printf '%s' "$OUT273A" | grep -c 'no Release product')" "1"
 check "and it gives the command that builds both" \
     "$(printf '%s' "$OUT273A" | grep -c 'bash scripts/build-products.sh')" "1"
+
+# ovation#381. THE GATE BUILDS THEM ITSELF, when building is the whole remedy. The
+# round trip was one refusal per fresh worktree for a 30 second build, and both
+# reasons it was handed back have since been answered: a build needs no sibling
+# lock (ovation#302) and the keychain no longer prompts (ovation#24). It still
+# refuses when the build fails, or runs past its deadline, and never starts the
+# suite on a tree whose products are missing.
+P381="$(stage_tree gate381 0)"
+B381="$(commit_file "$P381" "docs/one.md")"
+S381="$(commit_file "$P381" "Ovation/Domain/Thing.swift")"
+rm -rf "$P381/products/Release"
+printf '#!/bin/bash\necho "BUILD-RAN"\nmkdir -p "%s/products/Release/Ovation.app/Contents/MacOS"\n: > "%s/products/Release/Ovation.app/Contents/MacOS/Ovation"\n' \
+    "$P381" "$P381" > "$P381/scripts/build-products.sh"
+OUT381A="$(hook_with_range "$P381" "refs/heads/main $S381 refs/heads/main $B381")"; ST381A=$?
+check "with a product missing the gate builds it itself" \
+    "$([ -f "$P381/products/Release/Ovation.app/Contents/MacOS/Ovation" ] && echo built || echo "not built"):$(grep -c 'built them' <<< "$OUT381A")" "built:1"
+check "and says it is doing so" "$(grep -c 'builds them now' <<< "$OUT381A")" "1"
+check "and then runs the suite and allows the push" "$ST381A:$(grep -c 'SUITE-FROM-gate381' <<< "$OUT381A")" "0:1"
+rm -rf "$P381/products/Release"
+printf '#!/bin/bash\necho "BUILD-FAILED-HERE"\nexit 65\n' > "$P381/scripts/build-products.sh"
+OUT381B="$(hook_with_range "$P381" "refs/heads/main $S381 refs/heads/main $B381")"; ST381B=$?
+check "a build that fails refuses the push before the suite" \
+    "$([ "$ST381B" -ne 0 ] && echo refused || echo allowed):$(grep -c 'SUITE-FROM-' <<< "$OUT381B")" "refused:0"
+check "and shows what the build said" "$(grep -c 'BUILD-FAILED-HERE' <<< "$OUT381B")" "1"
+printf '#!/bin/bash\nsleep 30\n' > "$P381/scripts/build-products.sh"
+OUT381C="$(OVATION_GATE_BUILD_DEADLINE=1 OVATION_GATE_BUILD_POLL=0.1 hook_with_range "$P381" "refs/heads/main $S381 refs/heads/main $B381")"; ST381C=$?
+check "a build that runs past its deadline refuses rather than holding the push" \
+    "$([ "$ST381C" -ne 0 ] && echo refused || echo allowed)" "refused"
+check "and says it stopped waiting" "$(grep -c 'did not finish within 1s' <<< "$OUT381C")" "1"
 
 # THE SECOND HALF OF THE SAME PREDICATE: a bundle with no executable inside is
 # not built either, which is what the bundle suites say and so what this says.

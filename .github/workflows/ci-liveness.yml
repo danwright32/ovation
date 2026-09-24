@@ -247,3 +247,15 @@ jobs:
         run: |
           echo "::error::The CI liveness check could not measure. See the log above."
           exit 1
+
+      # EVERY SCHEDULE STILL RUNS (ovation#387). A schedule that stopped is silent,
+      # and the watchers exist to speak on the days nobody looks. Judged on whether
+      # each one RAN rather than passed (L71). It fails this job by name, which
+      # GitHub reports to the repository owner; the post-merge step in CLAUDE.md
+      # asks the same question from outside GitHub, for the day GitHub switches
+      # every schedule off at once, this one included.
+      - name: Every scheduled workflow is still running
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/check-scheduled-runs.sh

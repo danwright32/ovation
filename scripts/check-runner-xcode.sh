@@ -48,6 +48,8 @@
 #   OVATION_RUNNER_MANIFEST_COMMAND  a command given a manifest file name, which
 #                                    prints that manifest. Defaults to fetching
 #                                    it from the runner-images repository
+#   OVATION_RUNNER_FETCH_SLEEP       what waits between fetch attempts, given
+#                                    the seconds. Defaults to sleep (ovation#380)
 set -uo pipefail
 # ovation#399: every library is loaded through require_lib, which refuses by name
 # rather than carrying on without it. See scripts/lib/require.sh.
@@ -141,21 +143,37 @@ label="$labels"
 # plain one as a FALLBACK rather than an alternative: reaching the wrong one
 # silently would compare against an image nothing runs on. Both names are tried
 # before giving up, and the failure names both (L173).
+#
+# AND A FEW ATTEMPTS, NOT ONE (ovation#380). This runs daily against a third
+# party, and a single dropped request turned a healthy day into a red run that
+# read exactly like the manifest being gone. So both names are tried up to three
+# times, with a wait between attempts through an injectable sleep (L524), and a
+# refusal names how many attempts it made so a hiccup and an outage stay apart.
+FETCH_TRIES=3
+FETCH_SLEEP="${OVATION_RUNNER_FETCH_SLEEP:-sleep}"
 manifest=""
 tried=""
-for name in "${label}-arm64-Readme.md" "${label}-Readme.md"; do
-    tried="${tried}${name} "
-    if [ -n "$FETCH_COMMAND" ]; then
-        manifest="$("$FETCH_COMMAND" "$name" 2>/dev/null)"
-    else
-        manifest="$(curl -sS --fail --max-time 30 "${MANIFEST_BASE}/${name}" 2>/dev/null)"
+attempt=1
+while [ -z "$manifest" ] && [ "$attempt" -le "$FETCH_TRIES" ]; do
+    tried=""
+    for name in "${label}-arm64-Readme.md" "${label}-Readme.md"; do
+        tried="${tried}${name} "
+        if [ -n "$FETCH_COMMAND" ]; then
+            manifest="$("$FETCH_COMMAND" "$name" 2>/dev/null)"
+        else
+            manifest="$(curl -sS --fail --max-time 30 "${MANIFEST_BASE}/${name}" 2>/dev/null)"
+        fi
+        [ -n "$manifest" ] && break
+        manifest=""
+    done
+    if [ -z "$manifest" ] && [ "$attempt" -lt "$FETCH_TRIES" ]; then
+        "$FETCH_SLEEP" $((attempt * 10))
     fi
-    [ -n "$manifest" ] && break
-    manifest=""
+    attempt=$((attempt + 1))
 done
 
 if [ -z "$manifest" ]; then
-    echo "CANNOT MEASURE: could not read what the ${label} image contains."
+    echo "CANNOT MEASURE: could not read what the ${label} image contains, after ${FETCH_TRIES} attempts."
     echo "    Tried: ${tried% }"
     echo "    from ${MANIFEST_BASE}."
     echo "    Nothing was compared. A fetch that failed is not an image with no"

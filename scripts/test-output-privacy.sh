@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 120
+harness_begin "output privacy tests" 123
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -203,6 +203,29 @@ check "the custody check prints no identity" \
 check "the hooks path check prints no identity" \
     "$(leaks_in "$( cd "$CUSTODY_REPO" && git config core.hooksPath "$CUSTODY_REPO/scripts/git-hooks" \
         && "$OLDPWD/scripts/check-hooks-path.sh" 2>&1)")" "clean"
+
+# 4c. The writers check (ovation#441), which prints type names and issue numbers.
+check "the writers check prints no identity" \
+    "$(leaks_in "$(./scripts/check-writers-wired.sh 2>&1)")" "clean"
+
+# 4d. The two GitHub checks (ovation#350, ovation#387), driven by a stand in for gh
+#     that answers the way GitHub does, so they print what they would in CI.
+PRIV_GH="$WORK/priv-gh"
+cat > "$PRIV_GH" <<'SH'
+#!/bin/bash
+case "$1 $2" in
+  "pr view") echo CONFLICTING ;;
+  "pr list") echo 7 ;;
+  "run list") echo 2026-09-23T11:50:19Z ;;
+  "pr comment") echo commented ;;
+  *) echo active ;;
+esac
+SH
+chmod +x "$PRIV_GH"
+check "the mergeable check prints no identity" \
+    "$(leaks_in "$(OVATION_GH="$PRIV_GH" OVATION_SLEEP=true ./scripts/check-pr-mergeable.sh 7 2>&1)")" "clean"
+check "the scheduled runs check prints no identity" \
+    "$(leaks_in "$(OVATION_GH="$PRIV_GH" OVATION_NOW=1790000000 ./scripts/check-scheduled-runs.sh 2>&1)")" "clean"
 
 # 5. The ported artifact check, which reads source files rather than data.
 check "the ported artifact check prints no identity" \

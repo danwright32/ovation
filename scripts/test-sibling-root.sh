@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "sibling root tests" 14
+harness_begin "sibling root tests" 16
 
 LIB="scripts/lib/repo-git.sh"
 for target in scripts/check-plan-claims.sh scripts/check-ported-artifacts.sh \
@@ -116,12 +116,26 @@ git init -q -b main "$ESTATE/Overture" >/dev/null 2>&1
 check "and with one there it looks inside it, even from a worktree" \
     "$(installs_from_wt | grep -c 'is not in that checkout')" "1"
 
+# 2b. ovation#417. WHICH CHECKOUT A SIBLING IS, asked in the library too. The
+#     lookup by origin lived in check-ported-artifacts.sh alone, so the duplication
+#     this library was made to end was still there for the one question it was made
+#     around, and backstage's second guard copied it. It is found by what its origin
+#     IS, never by its folder name: Overture's checkout is not called overture.
+LOOKUP="$WORK/lookup"; mkdir -p "$LOOKUP/Not-Named-After-It"
+git -C "$LOOKUP/Not-Named-After-It" init -q -b main >/dev/null 2>&1
+git -C "$LOOKUP/Not-Named-After-It" remote add origin https://github.com/danwright32/overture.git
+check "resolve_sibling finds a checkout by its origin, whatever its folder is called" \
+    "$(bash -c '. "$1"; resolve_sibling danwright32/overture "$2"' _ "$PWD/scripts/lib/repo-git.sh" "$LOOKUP")" \
+    "$LOOKUP/Not-Named-After-It"
+check "and refuses a repository that is not there, rather than naming a nearby one" \
+    "$(bash -c '. "$1"; resolve_sibling danwright32/downbeat "$2" >/dev/null; echo $?' _ "$PWD/scripts/lib/repo-git.sh" "$LOOKUP")" "1"
+
 # 3. THE GUARD. Locating a sibling by a typed folder name or by the parent of the
 # running checkout, or clearing git's inherited environment by hand, belongs in
 # the library and nowhere else. Suites are exempt, because they name all three to
 # build fixtures and to write this very scan.
 scan() {
-    grep -rnE 'Non-icloudDocuments|dirname\(REPO\)|env -u GIT_DIR' "$1" \
+    grep -rnE 'Non-icloudDocuments|dirname\(REPO\)|env -u GIT_DIR|remote get-url origin' "$1" \
         --include='*.sh' --include='*.py' 2>/dev/null \
         | grep -vE '/lib/repo-git\.sh:|/test-[^/]*\.sh:'
 }
@@ -131,6 +145,7 @@ mkdir -p "$WORK/scan"
 printf 'ROOT="$HOME/%s/Apps"\n' "Non-icloudDocuments" > "$WORK/scan/a.sh"
 printf 'x = os.path.%s(REPO)\n' "dirname" > "$WORK/scan/b.py"
 printf 'env -u %s git "$@"\n' "GIT_DIR" > "$WORK/scan/c.sh"
-check "and the scan catches each of the three shapes" "$(scan "$WORK/scan" | wc -l | tr -d ' ')" "3"
+printf 'url="$(git -C "$d" remote get-url %s)"\n' "origin" > "$WORK/scan/d.sh"
+check "and the scan catches each of the four shapes" "$(scan "$WORK/scan" | wc -l | tr -d ' ')" "4"
 
 harness_end

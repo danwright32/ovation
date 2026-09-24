@@ -33,7 +33,7 @@ cd "${REPO_ROOT}" || exit 1
 SOURCES=("Ovation/Document/ReviewSamples.swift" "Ovation/Document/ReviewSampleWorld.swift")
 
 missing=""
-for source in "${SOURCES[@]}"; do
+for source in "${SOURCES[@]}"; do  # never empty: SOURCES is a literal of two files
     [ -f "${source}" ] || missing="${missing}${source} "
 done
 if [ -n "${missing}" ]; then
@@ -51,7 +51,7 @@ fi
 # invented, and a check that ECHOES them publishes whatever somebody actually put
 # there; naming the file and line identifies the term to whoever has to fix it and
 # carries nothing (L222, docs/PRIVACY-FLOOR.md).
-located="$(grep -noE '"[^"]{8,}"' "${SOURCES[@]}" \
+located="$(grep -noE '"[^"]{8,}"' ${SOURCES[@]+"${SOURCES[@]}"} \
     | sed 's/"$//' \
     | sed 's/:\([0-9][0-9]*\):"/\t\1\t/' \
     | awk -F'\t' 'NF == 3 && $3 ~ /[A-Za-z]/ && $3 ~ /[ @]/ { print }' \

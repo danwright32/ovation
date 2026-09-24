@@ -21,6 +21,30 @@ One command, and it is the same one CI runs:
 the ones that caught a real security defect and they must run somewhere other than one Mac.
 `run-tests.sh` runs everything.
 
+## Merging from a worktree
+
+Remove the worktree before merging, then merge (ovation#396). `gh pr merge
+--delete-branch` cannot delete a branch a worktree has checked out, and then
+leaves the remote branch as well. If a branch survives anyway, delete it on GitHub
+with `gh api -X DELETE repos/danwright32/ovation/git/refs/heads/<branch>`.
+`bash scripts/report-branches.sh` lists every branch beside its pull request's
+state and deletes nothing, because this repository squash merges and no local git
+question can tell a shipped branch from an unshipped one.
+
+## After a merge
+
+Run `bash scripts/check-installed-build.sh`. It compares the Ovation installed in
+/Applications with main and says how far behind it is (ovation#389). When it says
+BEHIND, tell Dan the installed app is missing that work and that
+`bash scripts/build-install.sh` reinstalls it; installing is his to run. Exit 2
+means there is no install record, which is its own answer, not a current install.
+
+Then run `bash scripts/check-scheduled-runs.sh`, which asks GitHub whether each
+scheduled workflow is still running (ovation#387). It is asked here as well as in
+CI because GitHub switching schedules off for inactivity switches off whatever in
+CI would notice. STOPPED names the workflow and, where GitHub disabled it, the
+command that re-enables it.
+
 ## What to know before editing
 
 - Needs xcodegen and flock (`brew install xcodegen flock`) and the Xcode named in `.xcode-version`,

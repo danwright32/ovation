@@ -1,0 +1,65 @@
+name: Pull request mergeable
+
+# ovation#350. GitHub schedules no `pull_request` run for a pull request whose
+# merge commit it cannot compute, so a CONFLICTING pull request shows "no checks
+# reported", which reads exactly like CI never starting, and forty minutes went
+# into the wrong diagnosis before `mergeable` was read (L476).
+#
+# `pull_request_target`, NOT `pull_request`, and that is the whole point: it runs
+# the BASE branch's workflow, so GitHub schedules it for a conflicting pull request
+# where `pull_request` schedules nothing. It is also the event that runs with
+# write access, so this job NEVER checks out or runs the pull request's code: the
+# checkout below is the base branch, which is what `pull_request_target` checks out
+# by default, and the only input from the pull request is its number.
+#
+# AND ON EVERY PUSH TO MAIN, because main moving is what makes an OPEN pull request
+# start to conflict, with no event on the pull request itself.
+#
+# A LINUX JOB OF SECONDS. Standard runners are free while this repository is
+# public; after ovation#15 it bills at the Linux rate (L276, L310).
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+# One question per pull request, or per push to main. It posts at most one comment
+# per pull request, found again by a marker, so cancelling a superseded run loses
+# nothing it could not post on the next (L671).
+concurrency:
+  group: pr-mergeable-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mergeable:
+    name: Whether the pull request merges with main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # THE NUMBER ARRIVES THROUGH AN ENVIRONMENT VARIABLE, never interpolated into
+      # the script, and it is empty on a push to main, which asks about every open
+      # pull request. A conflict is REPORTED on the pull request rather than failing
+      # this job, because the job's own red would sit on the one pull request whose
+      # checks GitHub is not showing.
+      - name: Ask GitHub whether it merges, and say so on the pull request if not
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set +e
+          bash scripts/check-pr-mergeable.sh --comment ${PR_NUMBER}
+          status=$?
+          set -e
+          # 1 is a conflict, already said on the pull request. 2 is could not tell,
+          # which fails the job so it is seen, because silence would read as clean.
+          [ "${status}" -eq 2 ] && exit 1
+          exit 0

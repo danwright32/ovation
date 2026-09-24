@@ -125,7 +125,7 @@ project_lists() {
         printf '/* End PBXFileReference section */\n'
         if [ ${#PROJECT_PACKAGE_URLS[@]} -gt 0 ]; then
             printf '/* Begin XCRemoteSwiftPackageReference section */\n'
-            for name in "${PROJECT_PACKAGE_URLS[@]}"; do
+            for name in "${PROJECT_PACKAGE_URLS[@]}"; do  # never empty: inside the count check just above
                 id=$((id+1))
                 printf '\t\t%024d /* XCRemoteSwiftPackageReference */ = {\n' "$id"
                 printf '\t\t\tisa = XCRemoteSwiftPackageReference;\n'
@@ -136,7 +136,7 @@ project_lists() {
         fi
         if [ ${#PROJECT_TARGET_PACKAGES[@]} -gt 0 ]; then
             printf '/* Begin PBXNativeTarget section */\n'
-            for name in "${PROJECT_TARGET_PACKAGES[@]}"; do
+            for name in "${PROJECT_TARGET_PACKAGES[@]}"; do  # never empty: inside the count check just above
                 id=$((id+1))
                 printf '\t\t%024d /* %s */ = {\n' "$id" "${name%%=*}"
                 printf '\t\t\tisa = PBXNativeTarget;\n'

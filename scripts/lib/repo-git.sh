@@ -58,3 +58,45 @@ sibling_root() {
     esac
     dirname "$(dirname "$common")"
 }
+
+# WHICH CHECKOUT ON THIS MACHINE IS <owner>/<repo> (ovation#417).
+#
+#     resolve_sibling <owner/repo> <roots>    prints the checkout, or returns 1
+#
+# <roots> is colon separated, the way sibling_search_roots prints it. Each
+# candidate is asked what its origin actually IS rather than matched on its
+# folder name: Overture's checkout is not called "overture", and a folder that
+# merely shares a name is not the same repository (L15). Nested checkouts under
+# `.claude` are skipped, because a worktree holds a full second copy (L234).
+#
+# IT LIVES HERE because check-ported-artifacts.sh carried the only copy, and the
+# second caller, backstage's edit guard, copied it: the duplication this library
+# was made to end, arriving for the one question it was made around (L613).
+resolve_sibling() {
+    local slug="$1" roots="$2" root candidate url
+    local IFS=:
+    for root in $roots; do
+        [ -d "$root" ] || continue
+        while IFS= read -r candidate; do
+            url="$(clean_git -C "$candidate" remote get-url origin 2>/dev/null)" || continue
+            case "$url" in
+                *"$slug".git|*"$slug"|*"$slug"/) printf '%s\n' "$candidate"; return 0 ;;
+            esac
+        done < <(find "$root" -maxdepth 3 -type d -name .git -not -path '*/.claude/*' 2>/dev/null | sed 's|/\.git$||')
+    done
+    return 1
+}
+
+# WHERE TO LOOK FOR THE SIBLINGS, for a caller about to resolve one.
+#
+#     sibling_search_roots <dir>    prints the roots, or refuses as sibling_root does
+#
+# OVATION_SIBLING_SEARCH_ROOTS wins when set, which is how a suite points a check
+# at throwaway repositories; otherwise it is the folder beside the primary checkout.
+sibling_search_roots() {
+    if [ -n "${OVATION_SIBLING_SEARCH_ROOTS:-}" ]; then
+        printf '%s\n' "$OVATION_SIBLING_SEARCH_ROOTS"
+        return 0
+    fi
+    sibling_root "$1"
+}

@@ -38,7 +38,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_DEFAULTS_DOMAINS_COMMAND \
       OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
       OVATION_REPO_ROOT \
-      OVATION_ONLY_TESTING OVATION_PROJECT_CURRENT_COMMAND OVATION_REGENERATE_COMMAND
+      OVATION_ONLY_TESTING OVATION_PROJECT_CURRENT_COMMAND OVATION_REGENERATE_COMMAND \
+      OVATION_SHELL_SUITES OVATION_SHOT_DIR TEST_RUNNER_OVATION_SHOT_DIR
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -75,7 +76,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 239
+harness_begin "test runner lock tests" 254
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -166,6 +167,51 @@ OUT1="$(run_runner "echo THE-COMMAND-RAN; $HOSTED_PASSES")"; ST1=$?
 check "with neither lock held the runner succeeds" "$ST1" "0"
 check "and it actually ran the command" \
     "$(printf '%s' "$OUT1" | grep -c "THE-COMMAND-RAN")" "1"
+
+# 1a. ovation#373. THE COMPILER'S SYMPTOM GETS THE RULE BESIDE IT. OvationTests
+#     compiles the app's sources in and has no host, so `@testable import Ovation`
+#     in one of its files names a module nothing builds, and the error names the
+#     symptom rather than the missing step: twenty minutes went on a full rebuild
+#     chasing the wrong cause. The rule is enforced at push time by
+#     test-project-configuration.sh; this says it the moment the error appears.
+OUT1A="$(PURE_OVERRIDE="echo \"/x/OvationTests/NewThingTests.swift:3:8: error: Unable to resolve module dependency: 'Ovation'\"; exit 65" run_runner)"; ST1A=$?
+check "a pure run failing on the app module import still fails" \
+    "$([ "$ST1A" -ne 0 ] && echo failed || echo passed)" "failed"
+check "and it names the fix, deleting the import, beside the error" \
+    "$(printf '%s' "$OUT1A" | grep -c 'delete the line @testable import Ovation')" "1"
+OUT1A2="$(PURE_OVERRIDE='echo "error: cannot find Foo in scope"; exit 65' run_runner)"
+check "and an unrelated compile error gets no such advice" \
+    "$(printf '%s' "$OUT1A2" | grep -c 'delete the line @testable import Ovation')" "0"
+
+# 1c. ovation#383. THE SCREENSHOT SUITES RUN ON EVERY RUN. They did nothing unless a
+#     folder was named for them and nothing named one, so every run and every CI run
+#     executed nothing while reporting a pass, and a capture that crashed the test
+#     process shipped unseen (L98, L606). The runner now names a folder every time:
+#     a fresh temporary one, unless the caller names its own.
+OUT1C="$(run_runner 'echo "SHOT-DIR=[${TEST_RUNNER_OVATION_SHOT_DIR:-}]"; echo "Test run with 5 tests in 1 suite passed"')"
+SHOT_SEEN="$(grep -oE 'SHOT-DIR=\[[^]]*\]' <<< "$OUT1C" | head -1)"
+check "the hosted suite is always given a folder to capture into" \
+    "$([ "$SHOT_SEEN" != "SHOT-DIR=[]" ] && [ -n "$SHOT_SEEN" ] && echo given || echo "not given")" "given"
+OUT1C2="$(OVATION_SHOT_DIR="$WORK/named-shots" run_runner 'echo "SHOT-DIR=[${TEST_RUNNER_OVATION_SHOT_DIR:-}]"; echo "Test run with 5 tests in 1 suite passed"')"
+check "and a folder the caller names is the one used" \
+    "$(grep -c "SHOT-DIR=\[$WORK/named-shots\]" <<< "$OUT1C2")" "1"
+check "and it says where the pictures went" "$(grep -c 'screenshots' <<< "$OUT1C2")" "1"
+
+# 1b. ovation#492. A CHILD THAT OUTLIVES THE RUNNER DOES NOT KEEP THE LOCK. The
+#     lock is a DESCRIPTOR, and a numbered descriptor opened by `exec` is inherited
+#     by every process started while it is held (L441), so a survivor of the hosted
+#     suite held Overture's lock for ever after the run that took it had gone, and
+#     wedged all three apps' testing. The child records its own pid and is stopped
+#     by that pid, never by matching its command text (L1011).
+CHILD_PID_FILE="$WORK/outliving-child.pid"
+rm -f "$CHILD_PID_FILE"
+OUT1B="$(run_runner "sleep 30 >/dev/null 2>&1 & echo \$! > '$CHILD_PID_FILE'; $HOSTED_PASSES")"; ST1B=$?
+CHILD_PID="$(cat "$CHILD_PID_FILE" 2>/dev/null)"
+check "a run whose hosted suite leaves a child running still succeeds" "$ST1B" "0"
+check "and once it has exited the file lock is free, although the child is still alive" \
+    "$( if [ -n "$CHILD_PID" ] && kill -0 "$CHILD_PID" 2>/dev/null; then \
+          staged_file_lock_held && echo held || echo free; else echo "no child"; fi )" "free"
+[ -n "$CHILD_PID" ] && kill "$CHILD_PID" 2>/dev/null
 
 # 2. AND IT RELEASED BOTH. A runner that leaves a lock planted blocks the next
 #    run of a DIFFERENT app, which is the failure this whole thing exists to stop.
@@ -870,6 +916,41 @@ check "a suite that cannot measure does not stop the ones after it" \
 check "and the run's own verdict is CANNOT MEASURE, not a pass" "$ST11" "2"
 check "and the summary names the suite that could not measure" \
     "$(printf '%s' "$OUT11" | grep '^    could not measure:' | grep -c 'test-a-cannot.sh')" "1"
+
+# 11a1. ovation#161, Dan's decision 2026-09-23: the shell suites run ONCE, on
+#       Linux, and the macOS build job runs only the suites that need a Mac. Which
+#       ones those are is DECLARED by the suite, one marker line, never listed
+#       here or in the workflow (L41, L96), and the Linux job refuses a suite that
+#       cannot measure there and carries no marker, so a new Mac only suite cannot
+#       quietly go unmeasured by CI.
+stage_marked_suite() {
+    printf '#!/bin/bash\n# ovation-runs-on: macos\necho "RAN-%s"\nexit %s\n' "$1" "$2" > "$SUITES/test-$1.sh"
+    chmod +x "$SUITES/test-$1.sh"
+}
+clear_suites
+stage_marked_suite "a-needs-a-mac" 2
+stage_suite "b-anywhere" 0
+stage_suite "c-cannot-and-unmarked" 2
+OUT161A="$(OVATION_SHELL_SUITES=macos-only shell_run)"; ST161A=$?
+check "the macos only run runs the suite marked as needing a Mac" \
+    "$(printf '%s' "$OUT161A" | grep -c '^RAN-a-needs-a-mac$')" "1"
+check "and none of the others" \
+    "$(printf '%s' "$OUT161A" | grep -cE '^RAN-(b-anywhere|c-cannot-and-unmarked)$')" "0"
+check "and it says the others were left to the Linux job" \
+    "$(printf '%s' "$OUT161A" | grep -c 'were left to the Linux job')" "1"
+OUT161B="$(OVATION_SHELL_SUITES=must-measure shell_run)"; ST161B=$?
+check "on Linux, an unmarked suite that cannot measure fails the run" \
+    "$([ "$ST161B" -ne 0 ] && [ "$ST161B" -ne 2 ] && echo failed || echo "exit $ST161B")" "failed"
+check "and it names that suite and says to mark it or make it measure" \
+    "$(printf '%s' "$OUT161B" | grep -c 'test-c-cannot-and-unmarked.sh.*ovation-runs-on: macos')" "1"
+clear_suites
+stage_marked_suite "a-needs-a-mac" 2
+stage_suite "b-anywhere" 0
+OUT161C="$(OVATION_SHELL_SUITES=must-measure shell_run)"; ST161C=$?
+check "and a MARKED suite that cannot measure there is allowed, as it always was" "$ST161C" "2"
+OUT161D="$(shell_run)"; ST161D=$?
+check "with no mode, every suite runs, which is the push gate on Dan's Mac" \
+    "$(printf '%s' "$OUT161D" | grep -cE '^RAN-(a-needs-a-mac|b-anywhere)$')" "2"
 
 # 11a2. EACH SUITE IS NAMED BEFORE IT RUNS (ovation#337). The macOS shell suites
 #       job is cancelled at its cap intermittently, and the log then ends after

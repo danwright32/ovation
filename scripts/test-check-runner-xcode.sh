@@ -31,7 +31,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "runner Xcode watch tests" 30
+harness_begin "runner Xcode watch tests" 38
 
 TARGET="scripts/check-runner-xcode.sh"
 require_target "$TARGET"
@@ -129,8 +129,21 @@ run_watch() {
     OVATION_XCODE_VERSION_FILE="${PIN_OVERRIDE:-$PIN}" \
     OVATION_CI_WORKFLOW="${WORKFLOW_OVERRIDE:-$WF_ONE}" \
     OVATION_RUNNER_MANIFEST_COMMAND="${FETCH_OVERRIDE:-$WORK/fetch}" \
+    OVATION_RUNNER_FETCH_SLEEP="$WORK/sleep" \
         "./$TARGET" 2>&1
 }
+# THE SLEEP BETWEEN ATTEMPTS IS A STUB THAT RECORDS ITSELF (ovation#380, L524), so
+# a retry costs these cases nothing and a case can count how many waits happened.
+SLEPT="$WORK/slept"
+# A QUOTED HEREDOC, so the stub's own argument is never written on a line of this
+# suite: scripts/test-run-tests.sh refuses a suite reading a positional argument
+# (L245), and a printf carrying one reads as exactly that.
+cat > "$WORK/sleep" <<'SH'
+#!/bin/bash
+echo "$1" >> "$OVATION_TEST_SLEPT"
+SH
+chmod +x "$WORK/sleep"
+export OVATION_TEST_SLEPT="$SLEPT"
 says() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 asked_for() { if grep -qxF -- "$1" "$ASKED" 2>/dev/null; then echo yes; else echo no; fi; }
 
@@ -256,7 +269,32 @@ check "a manifest that cannot be fetched cannot be measured" "$ST_NOFETCH" "2"
 check "and it names the manifest it could not read" \
     "$(says "$OUT_NOFETCH" "macos-26")" "yes"
 
+# 8b. A FETCH THAT FAILS ONCE OR TWICE IS RETRIED (ovation#380). The job runs daily
+#     against a third party, and a single dropped request made a red run when
+#     nothing was wrong, which reads exactly like the manifest being gone for a
+#     day. So a fetch is tried a few times before it is called unmeasurable, and
+#     the refusal names how many attempts it made, so the two stay apart.
+check "a fetch that failed every attempt says how many it made" \
+    "$(says "$OUT_NOFETCH" "after 3 attempts")" "yes"
 manifest_offering macos-26-arm64-Readme.md 26.6
+FLAKY_COUNT="$WORK/flaky-count"; : > "$FLAKY_COUNT"
+cat > "$WORK/flaky-fetch" <<SH
+#!/bin/bash
+echo x >> "$FLAKY_COUNT"
+# Two names per attempt, so the fifth call is the first name of the third attempt.
+[ "\$(wc -l < "$FLAKY_COUNT")" -ge 5 ] || exit 1
+cat "$MANIFESTS/\$1"
+SH
+chmod +x "$WORK/flaky-fetch"
+: > "$SLEPT"
+OUT_FLAKY="$(FETCH_OVERRIDE="$WORK/flaky-fetch" run_watch)"; ST_FLAKY=$?
+check "a fetch that fails twice and then answers is measured, not refused" "$ST_FLAKY" "0"
+check "and it waited between the attempts" "$(grep -c . "$SLEPT")" "2"
+: > "$FLAKY_COUNT"; : > "$SLEPT"
+printf '#!/bin/bash\nexit 1\n' > "$WORK/dead-fetch"; chmod +x "$WORK/dead-fetch"
+OUT_DEAD="$(FETCH_OVERRIDE="$WORK/dead-fetch" run_watch)"; ST_DEAD=$?
+check "a fetch that never answers is still CANNOT MEASURE" "$ST_DEAD" "2"
+check "and it did not wait after the last attempt" "$(grep -c . "$SLEPT")" "2"
 PIN_OVERRIDE="$WORK/no-such-pin"
 OUT_NOPIN="$(run_watch)"; ST_NOPIN=$?
 check "a pin that cannot be read cannot be measured" "$ST_NOPIN" "2"
@@ -292,5 +330,32 @@ manifest_offering macos-26-arm64-Readme.md 27.0 26.6
 BEFORE_PIN="$(cat "$PIN")"
 run_watch >/dev/null
 check "a run that found a newer Xcode did not edit the pin" "$(cat "$PIN")" "$BEFORE_PIN"
+
+# ---------------------------------------------------------------------------
+# THE WIRING THE REPORTING PATH RUNS THROUGH (ovation#379). The workflow chooses
+# which finding to file by matching the check's exit code, and the steps that
+# report run only when the image changes, possibly months from now. A condition
+# that stopped matching an outcome would file nothing and say nothing (L98, L3).
+# So every outcome the check DOCUMENTS must be handled by exactly one step, and
+# every step's condition must name an outcome that exists (L151).
+# ---------------------------------------------------------------------------
+documented_codes() { grep -oE '^#   [0-9]  ' "$TARGET" | tr -dc '0-9\n' | sort -u; }
+handled_codes() { grep -oE "outputs\.status == '[0-9]'" "$1" | tr -dc '0-9\n' | sort; }
+wiring_gaps() {  # prints each documented code not handled exactly once, and each handled code not documented
+    local wf="$1" code
+    for code in $(documented_codes); do
+        [ "$(handled_codes "$wf" | grep -cx "$code")" -eq 1 ] || echo "outcome $code handled $(handled_codes "$wf" | grep -cx "$code") time(s)"
+    done
+    for code in $(handled_codes "$wf" | sort -u); do
+        documented_codes | grep -qx "$code" || echo "condition on $code, which the check never exits with"
+    done
+}
+check "every outcome the check documents is handled by exactly one step of its workflow" \
+    "$(wiring_gaps .github/workflows/runner-xcode.yml)" ""
+sed "s/outputs.status == '3'/outputs.status == '9'/" .github/workflows/runner-xcode.yml > "$WORK/broken-wiring.yml"
+check "and a workflow whose condition stopped matching an outcome is caught" \
+    "$(wiring_gaps "$WORK/broken-wiring.yml" | grep -c .)" "2"
+check "and the check documents five outcomes, so the comparison has something to compare" \
+    "$(documented_codes | grep -c .)" "5"
 
 harness_end

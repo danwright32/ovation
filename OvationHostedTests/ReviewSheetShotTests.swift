@@ -12,7 +12,9 @@ import Testing
 /// (L115). So the sheet is hosted in an NSWindow that is never ordered front, laid
 /// out, and captured from its own layer.
 ///
-/// IT IS OPT IN AND IT SAYS WHEN IT DID NOTHING. With no directory named it writes
+/// IT RUNS ON EVERY RUN (ovation#383): scripts/run-tests.sh always names a folder,
+/// and CI keeps the pictures as an artifact. Run some other way, it still SAYS WHEN IT
+/// DID NOTHING. With no directory named it writes
 /// nothing and reports that, because a capture run that quietly produced no files
 /// is indistinguishable from one whose pictures were never looked at (L98). The
 /// variable carries the TEST_RUNNER_ prefix because the shell's environment does
