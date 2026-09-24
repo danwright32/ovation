@@ -49,10 +49,13 @@
 #                                    prints that manifest. Defaults to fetching
 #                                    it from the runner-images repository
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/xcode-pin.sh
-. "$REPO_ROOT/scripts/lib/xcode-pin.sh"
+require_lib "$REPO_ROOT/scripts/lib/xcode-pin.sh"
 
 PIN_FILE="${OVATION_XCODE_VERSION_FILE:-$REPO_ROOT/.xcode-version}"
 WORKFLOW="${OVATION_CI_WORKFLOW:-$REPO_ROOT/.github/workflows/ci.yml}"

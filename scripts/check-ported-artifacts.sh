@@ -53,11 +53,14 @@
 #     OVATION_PORT_SCAN_ROOT         where to look for ported files
 #     OVATION_SIBLING_SEARCH_ROOTS   colon separated roots to resolve siblings in
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCAN_ROOT="${OVATION_PORT_SCAN_ROOT:-$REPO_ROOT}"
 # shellcheck source=lib/repo-git.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/repo-git.sh"
+require_lib "$(dirname "${BASH_SOURCE[0]}")/lib/repo-git.sh"
 
 # THE SIBLINGS ARE LOOKED FOR BESIDE OVATION'S PRIMARY CHECKOUT (ovation#314), as
 # the library works that out, and nowhere else. This used to be folder names
@@ -147,8 +150,8 @@ while IFS= read -r file; do
         slug="${1:-}"; path="${2:-}"; at="${3:-}"; commit="${4:-}"
         rel="${file#$SCAN_ROOT/}"
         if [ "$#" -ne 4 ] || [ "$at" != "@" ] || [ -z "$slug" ] || [ -z "$path" ] \
-           || ! printf '%s' "$slug" | grep -q '^[^/][^/]*/[^/][^/]*$' \
-           || ! printf '%s' "$commit" | grep -qi '^[0-9a-f]\{7,40\}$'; then
+           || ! grep -q '^[^/][^/]*/[^/][^/]*$' <<< "$slug" \
+           || ! grep -qi '^[0-9a-f]\{7,40\}$' <<< "$commit"; then
             echo "UNREADABLE HEADER: $rel"
             echo "    could not read a repository, path and commit out of: ${spec# }"
             unreadable=$((unreadable+1))

@@ -23,6 +23,9 @@
 #   the custody never staged check          ovation#4, added below
 #   the ported artifact ancestry check      added below
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 
 # THE TREE BEING PUSHED, NOT THE TREE THIS FILE LIVES IN (ovation#138).
 #
@@ -60,6 +63,43 @@ if [ -n "${SKIP_TEST_RUN:-}" ]; then
     echo "pre-push: SKIP_TEST_RUN is set, so the suite was NOT run." >&2
     echo "pre-push: this push is going out unverified, deliberately." >&2
     exit 0
+fi
+
+# WHAT IS BEING PUSHED, READ ONCE, FIRST (ovation#395). git hands the hook one
+# line per ref on stdin. It used to be read only by the skip decision far below,
+# after every check had already run, so a push that only DELETED branches ran the
+# whole gate once per deletion: removing three merged branches ran both Swift
+# suites and every shell suite three times, for pushes that carry no commits and
+# no tree for anything to judge.
+#
+# STDIN IS ONLY READ WHEN SOMETHING IS FEEDING IT. git always does; a person
+# running this by hand does not, and an unguarded read there waits for ever (L110).
+PUSH_LINES=""
+if [ ! -t 0 ]; then
+    PUSH_LINES="$(cat)"
+fi
+
+# A DELETE ONLY PUSH STANDS DOWN, and the condition is no broader than the reason
+# (L324): EVERY line must be a deletion, so one real ref beside a deletion runs
+# everything. And it SAYS it stood down, because a gate that silently does nothing
+# reads exactly like one that ran and passed (L98).
+DELETE_ONLY_ZERO="0000000000000000000000000000000000000000"
+if [ -n "${PUSH_LINES}" ]; then
+    DELETIONS=""
+    ONLY_DELETES=1
+    while read -r _ref del_local_sha del_remote_ref _rest; do
+        [ -n "${del_local_sha:-}" ] || continue
+        if [ "${del_local_sha}" = "${DELETE_ONLY_ZERO}" ]; then
+            DELETIONS="${DELETIONS} ${del_remote_ref#refs/heads/}"
+        else
+            ONLY_DELETES=""
+        fi
+    done <<< "${PUSH_LINES}"
+    if [ -n "${ONLY_DELETES}" ] && [ -n "${DELETIONS}" ]; then
+        echo "pre-push: this push only deletes branches (${DELETIONS# }), which carries no commits," >&2
+        echo "pre-push: so there is nothing for the checks or the suite to judge. Nothing was run." >&2
+        exit 0
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -148,6 +188,12 @@ gate_check() {
 # CANNOT MEASURE (exit 2) is not a pass, so it blocks too, and NO PORTED
 # ARTIFACTS (exit 3) is only correct until the first port lands.
 gate_check check-ported-artifacts.sh "the ported artifact check did not pass."
+
+# Which checkout's hooks git runs (ovation#430), seconds and no lock. An absolute
+# hooks path into the primary checkout made every worktree run the primary's copy
+# of this very file against its own tree, and nothing asked a machine whether it
+# still carried that form. Only the running hook can ask, so it asks here.
+gate_check check-hooks-path.sh "git is running another checkout's copy of these hooks."
 
 # Custody next, also seconds and also needing no lock. This is the one that
 # matters most while the repository is public: it asks whether a real receipt or
@@ -412,7 +458,8 @@ SAW_A_REF=""
 # A hang is worse than a failure because it cannot be told from slowness, and
 # this one was staged the moment the loop was written: the suite went from
 # seconds to a timeout (L110).
-if [ -t 0 ]; then
+# The lines were read once, at the top, so this reads the copy rather than stdin.
+if [ -z "${PUSH_LINES}" ]; then
     RANGE_UNKNOWN=1
 fi
 
@@ -447,7 +494,7 @@ while [ -z "${RANGE_UNKNOWN}" ] && read -r _local_ref local_sha _remote_ref remo
     fi
     PUSHED_PATHS="${PUSHED_PATHS}${paths}
 "
-done
+done <<< "${PUSH_LINES}"
 
 [ -n "${SAW_A_REF}" ] || RANGE_UNKNOWN=1
 
@@ -480,7 +527,7 @@ if [ ! -f "${INPUTS_LIB}" ]; then
     exit 1
 fi
 # shellcheck source=../lib/xcode-phase-inputs.sh
-. "${INPUTS_LIB}"
+require_lib "${INPUTS_LIB}"
 
 INPUTS_UNKNOWN=""
 FIRST_RELEVANT=""
@@ -554,7 +601,7 @@ if [ -z "${SKIP_XCODE}" ] && [ -z "${TEST_COMMAND}" ]; then
         exit 1
     fi
     # shellcheck source=../lib/built-product.sh
-    . "${PRODUCT_LIB}"
+    require_lib "${PRODUCT_LIB}"
     PRODUCTS_MISSING=""
     PRODUCT_REMEDIES=""
     for config in ${BUILT_PRODUCT_CONFIGURATIONS}; do

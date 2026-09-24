@@ -75,7 +75,7 @@ run_check() {
         "./$TARGET" 2>&1
 }
 status_of() { run_check "$@" >/dev/null 2>&1; printf '%s' "$?"; }
-says() { if printf '%s' "$1" | grep -qF "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. The healthy case, which is what this machine actually looks like today.

@@ -34,7 +34,7 @@ BEFORE="$(shasum -a 256 docs/design/invoice-pdf.html docs/design/invoice-list.ht
 
 run() { python3 "$TARGET" "$@" 2>&1; }
 status() { python3 "$TARGET" "$@" >/dev/null 2>&1; printf '%s' "$?"; }
-says() { printf '%s\n' "$1" | grep -qF "$2" && echo yes || echo no; }
+says() { grep -qF "$2" <<< "$1" && echo yes || echo no; }
 
 # ---------------------------------------------------------------------------
 # The stand in design file. It is a design file in miniature: a page whose own

@@ -76,3 +76,9 @@ __pycache__/
 # leading slash so it matches only the repo root, never a same named
 # directory anywhere else in the tree.
 /.playwright-mcp/
+
+# A worktree placed inside the checkout (ovation#429). Unignored, it was several
+# hundred untracked files here, one `git add .` from being staged as a second copy
+# of the repository. Only this folder: project settings under .claude/ may be
+# committed on purpose. scripts/test-gitignore.sh holds both halves.
+.claude/worktrees/

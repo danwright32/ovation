@@ -101,6 +101,9 @@
 # last line of that refusal (ovation#321). A red and a green run happen many times
 # in a feature, so the cheap path is the one that has to be the safe one (L378).
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -506,7 +509,7 @@ else
   # it, and a machine that has never run this is indistinguishable from one whose
   # cache was cleared, which is the harmless direction.
   # shellcheck source=lib/xcode-pin.sh
-  . "${REPO_ROOT}/scripts/lib/xcode-pin.sh"
+  require_lib "${REPO_ROOT}/scripts/lib/xcode-pin.sh"
   XCODE_PIN_FILE="${OVATION_XCODE_VERSION_FILE:-${REPO_ROOT}/.xcode-version}"
   XCODEBUILD_FOR_VERSION="${OVATION_XCODEBUILD:-xcodebuild}"
   XCODE_NOTICE_STATE="${OVATION_XCODE_NOTICE_STATE:-${HOME}/Library/Caches/Ovation/xcode-notice-state}"
@@ -658,7 +661,7 @@ else
   fi
 
   # shellcheck source=lib/ensure-xcode-project.sh
-  . "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
+  require_lib "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
   xcode_project_read_begin "${REPO_ROOT}" "${XCODE_PROJECT}" "${XCODEGEN}" \
     "$(basename "${REPO_ROOT}") pure suite" "$$" || exit 2
   PROJECT_READER_PID="$$"
@@ -710,7 +713,7 @@ else
   # because the regenerator now takes the same lock and a second copy of the
   # owner line's format would drift into a refusal naming nobody (L370).
   # shellcheck source=lib/dir-lock.sh
-  . "${REPO_ROOT}/scripts/lib/dir-lock.sh"
+  require_lib "${REPO_ROOT}/scripts/lib/dir-lock.sh"
   describe_dir_holder() { dir_lock_describe "${DIR_LOCK}"; }
   # ovation#433. ONE HOLDER IS ONE HOLDER HOWEVER MANY DESCRIPTORS ITS CHILDREN
   # INHERIT, which lives in lib/file-lock.sh with the measurement behind it. It
@@ -718,7 +721,7 @@ else
   # had started, so the words changed on almost every poll and the count below
   # read one holder as several (L441).
   # shellcheck source=lib/file-lock.sh
-  . "${REPO_ROOT}/scripts/lib/file-lock.sh"
+  require_lib "${REPO_ROOT}/scripts/lib/file-lock.sh"
   describe_file_holder() { file_lock_describe "${FILE_LOCK}"; }
 
   # ---------------------------------------------------------------------------

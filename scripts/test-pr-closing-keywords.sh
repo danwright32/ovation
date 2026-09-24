@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "pull request closing keyword tests" 22
+harness_begin "pull request closing keyword tests" 27
 
 TARGET="scripts/check-pr-closing-keywords.sh"
 require_target "$TARGET"
@@ -24,7 +24,7 @@ n=0
 body() { n=$((n+1)); printf '%s\n' "$1" > "$WORK/body-$n.md"; printf '%s' "$WORK/body-$n.md"; }
 run_on() { OVATION_PR_BODY_FILE="$1" "./$TARGET" 2>&1; }
 status_on() { run_on "$1" >/dev/null 2>&1; printf '%s' "$?"; }
-says() { if printf '%s' "$1" | grep -qF -- "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. THE SPELLING GITHUB READS PASSES, and it is produced first, or every refusal
@@ -84,6 +84,24 @@ check "a keyword that is only part of a longer word does not count" \
     "$(status_on "$(body 'The prefixes ovation#3 and the enclosed ovation#4 are prose.')")" "0"
 check "a keyword far from the reference does not count" \
     "$(status_on "$(body 'This fixes the gate that ovation#5 described.')")" "0"
+# ovation#486. A SENTENCE SAYING AN ISSUE STAYS OPEN IS NOT AN ATTEMPT TO CLOSE IT.
+# PR ovation#484 was refused for "It does not close ovation#457, which still owes
+# ...": a guard matching the phrase anywhere fires on prose that talks about it
+# (L673), and the prose it fired on is the good habit of naming the issue a slice
+# leaves open.
+check "a keyword a negation stands in front of does not count" \
+    "$(status_on "$(body 'It does not close ovation#457, which still owes the line item control.')")" "0"
+check "and neither does never, or a contraction" \
+    "$(status_on "$(body "This never fixes ovation#3, and it won't resolve ovation#4 either.")")" "0"
+check "and it is not counted as a closing reference it read" \
+    "$(says "$(run_on "$(body 'It does not close ovation#457.')")" "0 closing reference")" "yes"
+# THE STAND DOWN IS NO BROADER THAN ITS REASON (L324). GitHub reads a keyword
+# anywhere in the description, mid sentence included, so an affirmative one there
+# is still refused: narrowing to the start of a line would pass exactly this.
+check "an affirmative keyword mid sentence is still refused" \
+    "$(status_on "$(body 'This change closes ovation#12 once it lands.')")" "1"
+check "and a negation elsewhere in the description does not excuse another reference" \
+    "$(status_on "$(body "It does not close ovation#457. Closes ovation#458.")")" "1"
 check "a description with no closing reference at all passes, and says it read none" \
     "$(says "$(run_on "$(body 'A change with nothing to close.')")" "0 closing reference")" "yes"
 

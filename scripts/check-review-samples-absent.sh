@@ -21,6 +21,9 @@
 #   1  a sample reached the Release product, or the scan could not be proved.
 #   2  there is nothing to measure: a product was never built here.
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 # THE TREE IT JUDGES IS A SEAM, the way every other check here has one, so the
 # suite can stage a tree rather than scan the real one (L2, L291). The default is
 # this script's own checkout.
@@ -64,7 +67,7 @@ fi
 PRODUCTS="${OVATION_PRODUCTS_DIR:-}"
 if [ -z "${PRODUCTS}" ]; then
     # shellcheck source=lib/built-product.sh
-    . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/built-product.sh"
+    require_lib "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/built-product.sh"
     debug_app="$(built_product_path Debug)/Ovation.app"
     release_app="$(built_product_path Release)/Ovation.app"
 else

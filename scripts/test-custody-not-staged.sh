@@ -30,7 +30,7 @@ new_repo() {
 run_check() { ( cd "$1" && OVATION_CUSTODY_PATHS="${2-.receipt-samples .quickbooks-samples}" \
     bash "$PWD_ROOT/$TARGET" 2>&1 ); }
 # A path or a word appears on several lines of a refusal, so assert PRESENCE.
-says() { if printf '%s' "$1" | grep -qi "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qi "$2" <<< "$1"; then echo yes; else echo no; fi; }
 PWD_ROOT="$PWD"
 
 # 1. A clean repository with no custody data at all: passes.

@@ -61,7 +61,7 @@ run_build() {
         "./$TARGET" 2>&1
 }
 build_once() { BUILD_OUT="$(run_build)"; BUILD_ST=$?; }
-says() { if printf '%s' "$1" | grep -qF "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. THE HAPPY PATH, and what it is allowed to rest on.

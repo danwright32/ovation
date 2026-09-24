@@ -57,6 +57,9 @@
 # Seams: OVATION_REPO_ROOT, OVATION_XCODE_PROJECT, OVATION_XCODEGEN,
 # OVATION_DIR_LOCK.
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="${OVATION_REPO_ROOT:-$(dirname "${HERE}")}"
@@ -70,9 +73,9 @@ DIR_LOCK="${OVATION_DIR_LOCK-/tmp/xcodebuild-tests.lock}"
 XCODEGEN="${OVATION_XCODEGEN:-$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)}"
 
 # shellcheck source=lib/dir-lock.sh
-. "${HERE}/lib/dir-lock.sh"
+require_lib "${HERE}/lib/dir-lock.sh"
 # shellcheck source=lib/ensure-xcode-project.sh
-. "${HERE}/lib/ensure-xcode-project.sh"
+require_lib "${HERE}/lib/ensure-xcode-project.sh"
 
 # GUARDED BEFORE ANY DELETE. Both of these come from seams, and a recursive
 # delete built from an empty variable is not the place to rely on a caller having

@@ -45,7 +45,7 @@ JSON
 }
 tree() { [ -n "$WORK" ] || exit 1; local d="$WORK/$1"; rm -rf "$d"; mkdir -p "$d"; printf '%s\n' "$d"; }
 # Whether the output said a thing, as yes or no, so a check reads as a sentence.
-says() { if printf '%s' "$1" | grep -qiF "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qiF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 EXPORT="$WORK/export.json"; make_export "$EXPORT"
 # A fingerprint of a number reserved for fiction (555 0100 to 0199), never a real
@@ -216,7 +216,7 @@ Owner: Unknown
 OUT12="$(run_guard "$T12" "$PLACEHOLDER")"; ST12=$?
 check "placeholder values in the data do not become needles" "$ST12" "0"
 check "and the guard SAYS it dropped them, so coverage is not overstated" \
-    "$(if printf '%s' "$OUT12" | grep -qi "placeholder"; then echo yes; else echo no; fi)" "yes"
+    "$(if grep -qi "placeholder" <<< "$OUT12"; then echo yes; else echo no; fi)" "yes"
 
 # 13. But a real name in the SAME export is still caught, so the placeholder
 #     filter cannot have simply emptied the needle set (L159).

@@ -61,7 +61,7 @@ record_file() {
 
 run_check() { OVATION_BOOKING_QUEUE="$1" "./$TARGET" 2>&1; }
 status_of() { run_check "$1" >/dev/null 2>&1; printf '%s' "$?"; }
-says() { if printf '%s' "$1" | grep -qF "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. NOTHING TO READ. Two different causes, two different sentences, and NEITHER

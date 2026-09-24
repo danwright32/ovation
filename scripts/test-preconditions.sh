@@ -49,7 +49,7 @@ stub "$BIN/unmeasurable" 2 "CANNOT MEASURE"
 
 run_pre() { OVATION_PRECONDITION_CHECKS="$1" "./$TARGET" 2>&1; }
 status_of() { run_pre "$1" >/dev/null 2>&1; printf '%s' "$?"; }
-says() { if printf '%s' "$1" | grep -qF "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. All clear.

@@ -38,12 +38,15 @@
 # output reaches terminal scrollback and transcripts by a route that guard never
 # inspects (L222).
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 
 SUPPORT="${HOME}/Library/Application Support"
 RECORD="${OVATION_OVERTURE_BUILD_RECORD:-${SUPPORT}/Overture/installed-build.json}"
 EXPORT_FILE="${OVATION_DOWNBEAT_EXPORT:-${SUPPORT}/Overture/downbeat-export.json}"
 # shellcheck source=lib/repo-git.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/repo-git.sh"
+require_lib "$(dirname "${BASH_SOURCE[0]}")/lib/repo-git.sh"
 # OVERTURE IS LOOKED FOR BESIDE OVATION'S PRIMARY CHECKOUT (ovation#314), as the
 # library works that out. It used to be a folder typed under the home directory,
 # which went dead once already when Overture moved and left this check blind to
@@ -92,7 +95,7 @@ blocked() {
 # JSON that `plutil -extract` reads without complaint, so the tool named for the
 # job was the wrong one even on the platform that has it.
 # shellcheck source=lib/json-field.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/json-field.sh"
+require_lib "$(dirname "${BASH_SOURCE[0]}")/lib/json-field.sh"
 
 readable_json "$RECORD" || cannot_measure \
     "Overture's installed-build.json is not readable as JSON" \

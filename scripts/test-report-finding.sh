@@ -76,7 +76,7 @@ run_report() {
     OUT="$(OVATION_GH="$BIN/gh" "./$TARGET" "$@" 2>&1)"
     STATUS=$?
 }
-says() { if printf '%s' "$1" | grep -qF -- "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 calls() { grep -cx -- "$1" "$STUB_DIR/calls.log"; }
 call_count() { grep -c . "$STUB_DIR/calls.log"; }
 carried() { if grep -qxF -- "$1" "$STUB_DIR/args.log"; then echo yes; else echo no; fi; }

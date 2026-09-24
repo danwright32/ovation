@@ -53,7 +53,19 @@ fi
 # a keyword matching inside a longer word; it is stripped off again below.
 KEYWORD='(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)'
 REFERENCE='([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)?#[0-9]+'
-REFS="$(grep -oiE "(^|[^A-Za-z0-9_])${KEYWORD}:?[[:space:]]+${REFERENCE}" "$BODY_FILE" \
+# A NEGATED KEYWORD IS NOT A CLOSING ONE (ovation#486). "It does not close
+# ovation#457" says the issue stays OPEN, and was refused as though it closed it:
+# a guard matching a phrase anywhere fires on prose that talks about it (L673). A
+# keyword directly after `not`, `never`, `nor` or a `n't` contraction is taken out
+# before reading. Narrowing to the start of a line instead would be wrong, because
+# GitHub reads a keyword anywhere, so an affirmative one mid sentence is still a
+# closing reference and still refused (L324). Perl, because BSD sed has no case
+# insensitive substitution; the apostrophe may be straight or curly.
+READABLE="$(perl -pe 's/(\bnot|\bnever|\bnor|n(?:\x27|\xE2\x80\x99)t)(\s+)(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\b/$1$2NEGATED/gi' "$BODY_FILE")" || {
+    echo "CANNOT MEASURE: perl could not read $BODY_FILE, so nothing was checked."
+    exit 2
+}
+REFS="$(printf '%s\n' "$READABLE" | grep -oiE "(^|[^A-Za-z0-9_])${KEYWORD}:?[[:space:]]+${REFERENCE}" \
     | sed -E 's/^[^A-Za-z]+//')"
 REF_COUNT="$(printf '%s' "$REFS" | grep -c . || true)"
 
@@ -65,7 +77,7 @@ while IFS= read -r ref; do
     # ONLY THE BARE SHORT NAME IS REFUSED. `danwright32/ovation#N` is the
     # owner/repo form GitHub reads, and it never reaches here as `ovation#N`
     # because the whitespace before the reference is required.
-    if printf '%s' "$target" | grep -qiE '^ovation#[0-9]+$'; then
+    if grep -qiE '^ovation#[0-9]+$' <<< "$target"; then
         number="${target##*#}"
         echo "  REFUSED  ${keyword} ovation#${number}: GitHub reads a closing keyword only before #N or owner/repo#N, so this leaves the issue open; write ${keyword} #${number}"
         refused=$((refused+1))

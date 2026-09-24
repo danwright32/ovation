@@ -54,6 +54,9 @@
 # line of work `branch`. Ovation needs all three kinds of fact: which commit,
 # whether the tree was clean, and where it came from.
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 
 OVATION_INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${OVATION_REPO_ROOT:-$(cd "${OVATION_INSTALLER_DIR}/.." && pwd)}"
@@ -101,7 +104,7 @@ ovation_pids_from_table() {
 # wrong to anybody: they are plausible values describing somewhere else, and the
 # record's whole purpose is to be believed later (L416).
 # shellcheck source=lib/repo-git.sh
-. "${OVATION_INSTALLER_DIR}/lib/repo-git.sh"
+require_lib "${OVATION_INSTALLER_DIR}/lib/repo-git.sh"
 
 # How many tracked files differ, or NOTHING when git cannot be asked.
 #
@@ -208,6 +211,50 @@ _ovation_emit_registration() {
   return 0
 }
 
+# ovation#390. A STALE GENERATED PROJECT IS REGENERATED BEFORE THE BUILD.
+#
+# `Ovation.xcodeproj` is generated and gitignored, and this script built whatever
+# project was in the checkout. Straight after a merge that added a file, that was
+# "cannot find type 'InvoiceFooterSetting' in scope" across four files: the code
+# was fine and the project predated it, and the message named the symptom rather
+# than the missing step (the same shape as ovation#373).
+#
+# The question is decided where the push gate decides it, check-xcode-project-
+# current.sh, rather than a second time here (L70), and the remedy is the script
+# that exists for it. Regenerating is not a choice anybody has to make: the
+# project is derived, and it is only ever rewritten here when it is WRONG, which
+# is the one case `ensure_xcode_project` deliberately leaves to somebody else.
+#
+# Both scripts are seams, so the test drives every outcome without xcodegen.
+ovation_ensure_current_project() {
+  local check="${OVATION_PROJECT_CHECK:-${REPO_ROOT}/scripts/check-xcode-project-current.sh}"
+  local regen="${OVATION_REGENERATE:-${REPO_ROOT}/scripts/regenerate-xcode-project.sh}"
+  local status=0
+  bash "${check}" >/dev/null 2>&1 || status=$?
+  case "${status}" in
+    0|2) return 0 ;;   # current, or no project yet, which the build step makes
+    1) ;;
+    *)
+      echo "REFUSED: whether the Xcode project is current could not be judged (check-xcode-project-current.sh answered ${status}), so nothing was built or installed." >&2
+      return 2
+      ;;
+  esac
+  echo "==> The Xcode project is out of date with the Swift files on disk, so it is regenerated first."
+  if ! bash "${regen}"; then
+    echo "REFUSED: the Xcode project is out of date and could not be regenerated, so nothing was built or installed." >&2
+    echo "    Run: bash scripts/regenerate-xcode-project.sh" >&2
+    return 2
+  fi
+  status=0
+  bash "${check}" >/dev/null 2>&1 || status=$?
+  if [ "${status}" -ne 0 ]; then
+    echo "REFUSED: the Xcode project is still out of date after regenerating (check answered ${status}), so nothing was built." >&2
+    echo "    Run: bash scripts/regenerate-xcode-project.sh, then bash scripts/check-xcode-project-current.sh" >&2
+    return 2
+  fi
+  return 0
+}
+
 [ "${1:-}" = "--source-only" ] && return 0 2>/dev/null
 
 # ---------------------------------------------------------------------------
@@ -219,11 +266,12 @@ if [ -z "${OVATION_SKIP_BUILD:-}" ]; then
   # A FRESH CLONE HAS NO PROJECT (ovation#151). The same helper the test runner
   # uses, so there is one rule about when a project is made rather than two.
   # shellcheck source=lib/ensure-xcode-project.sh
-  . "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
+  require_lib "${REPO_ROOT}/scripts/lib/ensure-xcode-project.sh"
   ensure_xcode_project "${REPO_ROOT}" \
       "${OVATION_XCODE_PROJECT:-${REPO_ROOT}/Ovation.xcodeproj}" \
       "${OVATION_XCODEGEN:-$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)}" \
       || exit 2
+  ovation_ensure_current_project || exit 2
 
   xcodebuild -project "${REPO_ROOT}/Ovation.xcodeproj" -scheme Ovation \
     -configuration Release -destination 'platform=macOS' build || exit 1

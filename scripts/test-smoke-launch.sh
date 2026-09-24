@@ -87,7 +87,7 @@ run_smoke() {
 # back doubled and the failure was in this file rather than in the script under
 # test. A scenario that has side effects must be driven once and asked twice.
 smoke() { SMOKE_OUT="$(run_smoke)"; SMOKE_ST=$?; }
-says() { if printf '%s' "$1" | grep -qiF "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qiF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 mkdir -p "$WORK/Fake.app/Contents/MacOS"; : > "$WORK/Fake.app/Contents/MacOS/Ovation"
 
@@ -131,6 +131,7 @@ stage_drift_tree() {
     DRIFT="$WORK/drift"; rm -rf "$DRIFT"; mkdir -p "$DRIFT/scripts/lib"
     cp "$TARGET" "$DRIFT/scripts/smoke-launch.sh"
     cp scripts/lib/built-product.sh "$DRIFT/scripts/lib/built-product.sh"
+    cp scripts/lib/require.sh "$DRIFT/scripts/lib/require.sh"
     printf '\nbuilt_product_absence() { printf "the shared definition refused %%s" "$1"; return 1; }\n' \
         >> "$DRIFT/scripts/lib/built-product.sh"
 }
@@ -157,6 +158,7 @@ stage_projectless_smoke_tree() {
     NOPROJ="$WORK/noproj"; rm -rf "$NOPROJ"; mkdir -p "$NOPROJ/scripts/lib"
     cp "$TARGET" "$NOPROJ/scripts/smoke-launch.sh"
     cp scripts/lib/built-product.sh "$NOPROJ/scripts/lib/built-product.sh"
+    cp scripts/lib/require.sh "$NOPROJ/scripts/lib/require.sh"
 }
 stage_projectless_smoke_tree
 reset_state

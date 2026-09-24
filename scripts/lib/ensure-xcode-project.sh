@@ -67,7 +67,9 @@
 # Sourced, so it can read and be read by the caller's own seams.
 
 # shellcheck source=dir-lock.sh
-. "$(dirname "${BASH_SOURCE[0]}")/dir-lock.sh"
+# ovation#399: libraries are loaded through require_lib, which refuses by name.
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
+require_lib "$(dirname "${BASH_SOURCE[0]}")/dir-lock.sh"
 
 # The key every per project path is derived from, in one place, so the create
 # lock and the registrations beside it can never be derived differently (L70).

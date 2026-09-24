@@ -215,7 +215,7 @@ OUT10="$(OVATION_PORT_SCAN_ROOT="$PWD" "./$TARGET" 2>&1)"; ST10=$?
 # siblings, which is the one these cases were written for, they run at full
 # strength.
 SIBLINGS_HERE=yes
-if printf '%s' "$OUT10" | grep -q "is not on this machine"; then
+if grep -q "is not on this machine" <<< "$OUT10"; then
     SIBLINGS_HERE=no
     echo "UNMEASURABLE HERE: the sibling checkouts are not on this machine, so the"
     echo "    cases that verify the real ports against them are not being run."

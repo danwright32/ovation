@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 119
+harness_begin "output privacy tests" 120
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -99,7 +99,7 @@ leaks_in() {
     local text="$1" n
     while IFS= read -r n; do
         [ -n "$n" ] || continue
-        if printf '%s' "$text" | grep -qiF -- "$n"; then
+        if grep -qiF -- "$n" <<< "$text"; then
             printf '%s' "LEAKED"
             return
         fi
@@ -198,6 +198,11 @@ cp "$EXPORT" "$CUSTODY_REPO/.receipt-samples/export.json"
 check "the custody check prints no identity" \
     "$(leaks_in "$( cd "$CUSTODY_REPO" && OVATION_CUSTODY_PATHS=".receipt-samples" \
         "$OLDPWD/scripts/check-custody-not-staged.sh" 2>&1)")" "clean"
+
+# 4b. The hooks path check (ovation#430), which prints a configured path.
+check "the hooks path check prints no identity" \
+    "$(leaks_in "$( cd "$CUSTODY_REPO" && git config core.hooksPath "$CUSTODY_REPO/scripts/git-hooks" \
+        && "$OLDPWD/scripts/check-hooks-path.sh" 2>&1)")" "clean"
 
 # 5. The ported artifact check, which reads source files rather than data.
 check "the ported artifact check prints no identity" \

@@ -76,7 +76,7 @@ check "clean_git answers about the repository it is pointed at, not an inherited
 mkdir -p "$WT/scripts/lib"
 cp scripts/check-plan-claims.sh scripts/check-ported-artifacts.sh \
    scripts/check-sibling-installs.sh "$WT/scripts/"
-cp scripts/lib/json-field.sh "$WT/scripts/lib/"
+cp scripts/lib/json-field.sh scripts/lib/require.sh "$WT/scripts/lib/"
 [ -f "$LIB" ] && cp "$LIB" "$WT/scripts/lib/"
 
 printf 'nothing cited here\n' > "$WORK/plan.md"

@@ -177,7 +177,7 @@ mkdir -p "$DIR_LOCK"
 OUT3="$(run_runner)"; ST3=$?
 check "Downbeat's directory lock stops Ovation running" \
     "$([ "$ST3" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
-mentions() { if printf '%s' "$1" | grep -q "$2"; then echo yes; else echo no; fi; }
+mentions() { if grep -q "$2" <<< "$1"; then echo yes; else echo no; fi; }
 check "and it names which lock it was waiting on" \
     "$(mentions "$OUT3" "$DIR_LOCK")" "yes"
 check "and it did NOT run the command anyway" \
@@ -718,7 +718,7 @@ check "and it names the line number and the line, so the reader is not sent hunt
 rm -f "$STAGE/test-offender.sh"
 cat > "$STAGE/test-innocent.sh" <<'INNOCENT'
 #!/bin/bash
-mentions() { if printf '%s' "$1" | grep -q "$2"; then echo yes; else echo no; fi; }
+mentions() { if grep -q "$2" <<< "$1"; then echo yes; else echo no; fi; }
 tree() {
     local d="$1"
     printf '%s\n' "$d"
@@ -1017,7 +1017,7 @@ seams_not_cleared() {
     local seam missing="" cleared
     cleared="$(cleared_seams)"
     while read -r seam; do
-        printf '%s' "$cleared" | grep -qE "(^|[[:space:]])${seam}([[:space:]]|$)" \
+        grep -qE "(^|[[:space:]])${seam}([[:space:]]|$)" <<< "$cleared" \
             || missing="${missing}${seam} "
     done < <(seams_honoured)
     printf '%s' "${missing% }"

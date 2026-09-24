@@ -35,6 +35,9 @@
 #   1  it did not open, exited, showed no window, or showed more than one
 #   2  nothing could be learned: no built product, or one was already running
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${OVATION_SMOKE_CONFIGURATION:-Debug}"
@@ -72,7 +75,7 @@ fi
 # shared one changes, and nothing fails (L370). The remedy stays this script's
 # own, because it names the one configuration this launch needs.
 # shellcheck source=lib/built-product.sh
-. "${REPO_ROOT}/scripts/lib/built-product.sh"
+require_lib "${REPO_ROOT}/scripts/lib/built-product.sh"
 #
 # A LOCATION THAT WAS NEVER LEARNED IS NAMED AS THAT (ovation#309). The project
 # this script asked is passed on, so no project reads as no project rather than
