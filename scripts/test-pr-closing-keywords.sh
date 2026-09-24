@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "pull request closing keyword tests" 27
+harness_begin "pull request closing keyword tests" 30
 
 TARGET="scripts/check-pr-closing-keywords.sh"
 require_target "$TARGET"
@@ -102,6 +102,17 @@ check "an affirmative keyword mid sentence is still refused" \
     "$(status_on "$(body 'This change closes ovation#12 once it lands.')")" "1"
 check "and a negation elsewhere in the description does not excuse another reference" \
     "$(status_on "$(body "It does not close ovation#457. Closes ovation#458.")")" "1"
+# AND A NEGATION BESIDE A REFERENCE GITHUB DOES READ IS REFUSED, the other way
+# round. GitHub's parser does no negation handling at all, so "does not close #12"
+# CLOSES #12 on merge: it closed Overture #897 on a pull request that said it did
+# not. The ovation#N spelling above is harmless precisely because GitHub reads
+# none of it; #N and owner/repo#N are read, "not" and all.
+check "a negated keyword before #N is refused, because GitHub closes it anyway" \
+    "$(status_on "$(body 'It does not close #457, which still owes the line item control.')")" "1"
+check "and so is one before owner/repo#N" \
+    "$(status_on "$(body 'This never fixes danwright32/ovation#3.')")" "1"
+check "and the refusal says GitHub ignores the negation and how to write it instead" \
+    "$(says "$(run_on "$(body 'It does not close #457.')")" "stays open")" "yes"
 check "a description with no closing reference at all passes, and says it read none" \
     "$(says "$(run_on "$(body 'A change with nothing to close.')")" "0 closing reference")" "yes"
 

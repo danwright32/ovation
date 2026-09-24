@@ -65,6 +65,19 @@ READABLE="$(perl -pe 's/(\bnot|\bnever|\bnor|n(?:\x27|\xE2\x80\x99)t)(\s+)(close
     echo "CANNOT MEASURE: perl could not read $BODY_FILE, so nothing was checked."
     exit 2
 }
+# AND THE OTHER WAY ROUND: A NEGATION BESIDE A REFERENCE GITHUB READS CLOSES IT.
+# GitHub's parser does no negation handling, so "does not close #12" closes #12 on
+# merge (it closed Overture #897 on a pull request saying it did not). The bare
+# short name is harmless because GitHub reads none of it; #N and owner/repo#N are
+# read, "not" and all, so those are refused here rather than ignored.
+NEGATED_READ="$(perl -ne 'while (/(?:\bnot|\bnever|\bnor|n(?:\x27|\xE2\x80\x99)t)\s+(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\b:?\s+((?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+)/gi) { print "$1 $2\n" }' "$BODY_FILE")" || NEGATED_READ=""
+negated_refused=0
+while IFS= read -r negated; do
+    [ -n "$negated" ] || continue
+    echo "  REFUSED  not ${negated}: GitHub ignores the negation and CLOSES that issue on merge. Keep the keyword away from the number, for example \"${negated##* }, which stays open\""
+    negated_refused=$((negated_refused+1))
+done <<< "$NEGATED_READ"
+
 REFS="$(printf '%s\n' "$READABLE" | grep -oiE "(^|[^A-Za-z0-9_])${KEYWORD}:?[[:space:]]+${REFERENCE}" \
     | sed -E 's/^[^A-Za-z]+//')"
 REF_COUNT="$(printf '%s' "$REFS" | grep -c . || true)"
@@ -85,6 +98,12 @@ while IFS= read -r ref; do
 done <<< "$REFS"
 
 echo "read ${REF_COUNT} closing reference(s) in the description"
+if [ "$negated_refused" -gt 0 ]; then
+    echo "REFUSED: ${negated_refused} negated closing keyword(s) sit next to a reference GitHub reads,"
+    echo "    so the issue it says stays open would be closed by the merge. Edit the"
+    echo "    description; this check runs again when it is edited."
+    exit 1
+fi
 if [ "$refused" -gt 0 ]; then
     echo "REFUSED: ${refused} closing reference(s) name the issue as ovation#N, which"
     echo "    GitHub does not read, so the issue would stay open after the merge with"
