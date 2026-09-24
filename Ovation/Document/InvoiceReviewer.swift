@@ -183,11 +183,9 @@ final class InvoiceReview: Identifiable {
     let invoiceID: PersistentIdentifier
     /// The invoice's number, which the outcome names.
     let number: Int64
-    /// The number this review took, which closing unsent gives back. Nil where the invoice
-    /// already had one.
-    /// The number this review took, which closing hands back while nothing went.
-    /// Cleared once Dan settles an unsettled send here, because a settled send keeps
-    /// its number whatever happens next (ovation#471).
+    /// The number this review took, which closing hands back while nothing went. Nil
+    /// where the invoice already had one, and cleared once Dan settles an unsettled send
+    /// here, because a settled send keeps its number whatever happens next (ovation#471).
     private(set) var numberTakenHere: Int64?
     let presenter: ReviewSheetPresenter
     let subject: String
