@@ -51,6 +51,43 @@ struct LaunchBackupOutcomeTests {
         #expect(!detail.contains("is gone"))
     }
 
+    // MARK: the error the work threw is the error the launch sees (ovation#505)
+
+    /// THROUGH THE REAL HELPER, not a hand built outcome. `BlockingWork` turns
+    /// whatever the work throws into text, so a `noFolderChosen` thrown inside it
+    /// reached the launch as a write failure "to noFolderChosen": a kind nothing
+    /// resolves, under a sentence naming a folder that does not exist, while the
+    /// notice built to clear itself was never raised at all (L11, L199). Every case
+    /// above hands `attempt(from:)` an outcome, which is exactly why none of them
+    /// could see it.
+    @Test("a backup error thrown by the work reaches the launch as itself",
+          arguments: [BackupError.noFolderChosen,
+                      .requiredMemberMissing("Ovation.store.version"),
+                      .verificationFailed([]),
+                      .couldNotWrite("/Volumes/Backups: the disk is full")])
+    func aBackupErrorArrivesIntact(error: BackupError) async {
+        await #expect(throws: error) {
+            try await LaunchBackupOutcome.run { throw error }
+        }
+    }
+
+    @Test("an error from the work that is not a backup error is a write failure carrying its text")
+    func anyOtherErrorIsAWriteFailure() async {
+        struct Unexpected: Error, CustomStringConvertible {
+            var description: String { "the volume went away" }
+        }
+        await #expect(throws: BackupError.couldNotWrite("the volume went away")) {
+            try await LaunchBackupOutcome.run { throw Unexpected() }
+        }
+    }
+
+    @Test("work that answers is the answer, through the real helper")
+    func workThatAnswersPassesThrough() async throws {
+        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"))
+
+        #expect(try await LaunchBackupOutcome.run { taken } == taken)
+    }
+
     @Test("a re-check that answered is the answer")
     func reverificationPassesThrough() {
         let failed = BackupService.Reverification.failed("Ovation-backup-2026-03-02-090000", [])

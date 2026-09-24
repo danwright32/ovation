@@ -136,30 +136,42 @@ struct StoreVersionMarkerTests {
         #expect(sentence.contains("Open the newer Ovation"))
     }
 
-    @Test("the SAME version opens, and so does an older store, which is an ordinary upgrade")
+    @Test("the SAME version opens unchanged, and an older store opens as an upgrade")
     func thesameOrOlderVersionOpens() throws {
         let scratch = try Scratch()
         defer { scratch.cleanUp() }
         try storeCarryingOvationTables(at: scratch.store)
 
         try StoreVersionMarker.write(Schema.Version(1, 0, 0), besideStoreAt: scratch.store)
-        #expect(inspect(scratch.store, running: Schema.Version(1, 0, 0)) == .ovation)
+        #expect(inspect(scratch.store, running: Schema.Version(1, 0, 0))
+                == .ovation(upgrade: .notNeeded))
 
+        // SAID, not only permitted (ovation#505). Opening it rewrites the file in
+        // place, which is the one open a backup has to come before, so the launch
+        // has to be told this is that open rather than an ordinary one.
         try StoreVersionMarker.write(Schema.Version(1, 0, 0), besideStoreAt: scratch.store)
-        #expect(inspect(scratch.store, running: Schema.Version(2, 0, 0)) == .ovation,
+        let upgrade = inspect(scratch.store, running: Schema.Version(2, 0, 0))
+        #expect(upgrade == .ovation(upgrade: .needed),
                 "an older store under a newer build is the upgrade this app exists to do")
+        #expect(StoreSchemaGuard.mayOpenForWriting(upgrade))
     }
 
-    @Test("a store with NO marker opens, because no build that writes them ever opened it")
+    @Test("a store with NO marker opens, and whether it is an upgrade cannot be told")
     func amarkerlessStoreOpens() throws {
         // A detector keyed on a marker can never see what was written before the
         // marker shipped (L223). Measured 2026-09-08: no store exists on this
         // machine, so that population is empty and stays empty.
+        //
+        // CANNOT TELL, never "not needed" (ovation#505). Nothing recorded which
+        // build wrote it, so opening it may rewrite it, and the answer that
+        // demands a backup first is the one that cannot lose data (L648).
         let scratch = try Scratch()
         defer { scratch.cleanUp() }
         try storeCarryingOvationTables(at: scratch.store)
 
-        #expect(inspect(scratch.store, running: Schema.Version(1, 0, 0)) == .ovation)
+        let verdict = inspect(scratch.store, running: Schema.Version(1, 0, 0))
+        #expect(verdict == .ovation(upgrade: .cannotTell))
+        #expect(StoreSchemaGuard.mayOpenForWriting(verdict))
     }
 
     @Test("a DAMAGED marker refuses, because a downgrade cannot be ruled out")

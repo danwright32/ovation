@@ -14,6 +14,44 @@ import Foundation
 
 enum LaunchBackupOutcome {
 
+    /// Runs the launch's backup off the main actor, and hands back what it did or
+    /// THE ERROR IT THREW, unchanged (ovation#505).
+    ///
+    /// `BlockingWork` can only carry a failure as text, because it serves work of
+    /// every kind. So a `BackupError` thrown inside it came out as a string, and
+    /// `attempt(from:)` then called every string a write failure: "no folder
+    /// chosen" reached the launch as a backup that "could not be written to
+    /// noFolderChosen", under a kind nothing resolves, and a backup that did not
+    /// verify read the same as a full disk (L11, L199).
+    ///
+    /// SO A BACKUP ERROR IS CAUGHT INSIDE THE WORK AND RETURNED AS A VALUE, and
+    /// only something that is not a backup error at all travels as text. The
+    /// launch can then say which of them happened, and it has to, because on a
+    /// launch that would upgrade the store each one is the reason it refused.
+    static func run(
+        deadline: Duration = BlockingWork.defaultDeadline,
+        _ work: @escaping @Sendable () throws -> BackupService.Attempt
+    ) async throws -> BackupService.Attempt {
+        let outcome = await BlockingWork.run(deadline: deadline) {
+            () throws -> Result<BackupService.Attempt, BackupError> in
+            do {
+                return .success(try work())
+            } catch let refusal as BackupError {
+                return .failure(refusal)
+            }
+        }
+        switch outcome {
+        case .answered(.success(let attempt)):
+            return attempt
+        case .answered(.failure(let refusal)):
+            throw refusal
+        case .failed(let detail):
+            return try attempt(from: .failed(detail))
+        case .gaveUp(let after):
+            return try attempt(from: .gaveUp(after: after))
+        }
+    }
+
     /// What the sequence's backup step should do with the answer.
     ///
     /// A FAILURE AND AN ABANDONED WAIT BOTH THROW, and they throw DIFFERENT

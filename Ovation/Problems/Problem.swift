@@ -75,6 +75,11 @@ extension ProblemKind {
     /// urgent notice behind it.
     static let backupFolderNotChosen = ProblemKind("backup.no-folder-chosen")
 
+    /// A build that never backs up has upgraded its store without a backup
+    /// (ovation#505). Said only on that launch: on an ordinary open, never backing
+    /// up is what the build is for, and there is nothing to say.
+    static let backupNotTakenByThisBuild = ProblemKind("backup.not-taken-by-this-build")
+
     /// A folder IS chosen and holds no archives at all (ovation#228).
     /// `StoreLaunchSequence` already promises in writing that this is raised from
     /// the backup FOLDER, where it stays true on every later launch, rather than

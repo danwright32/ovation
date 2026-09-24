@@ -90,6 +90,9 @@ enum LiveDataFloor {
               reaches: "the folder Dan chooses for backups, which on this Mac may sync "
                 + "to a Synology",
               resolve: { BackupFolderSetting.liveBackupsDirectory }, issue: nil),
+        .init(name: "liveBackupDestination",
+              reaches: "the same backup folder, with the reason when there is none",
+              resolve: { try? BackupFolderSetting.liveBackupDestination.get() }, issue: nil),
     ]
 
     /// The ones that exist today and can therefore be asked.

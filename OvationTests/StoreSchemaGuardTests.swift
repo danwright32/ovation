@@ -40,7 +40,7 @@ struct StoreSchemaGuardTests {
 
         #expect(StoreSchemaGuard.inspect(storeURL: store,
                                          ownEntityTables: ["ZINVOICE", "ZEXPENSE"],
-                                     runningVersion: Schema.Version(1, 0, 0)) == .ovation)
+                                     runningVersion: Schema.Version(1, 0, 0)) == .ovation(upgrade: .cannotTell))
     }
 
     @Test("a partial overlap counts as ours, because the permissive answer is the one that destroys nothing")
@@ -51,7 +51,7 @@ struct StoreSchemaGuardTests {
 
         #expect(StoreSchemaGuard.inspect(storeURL: store,
                                          ownEntityTables: ["ZINVOICE", "ZEXPENSE"],
-                                     runningVersion: Schema.Version(1, 0, 0)) == .ovation)
+                                     runningVersion: Schema.Version(1, 0, 0)) == .ovation(upgrade: .cannotTell))
     }
 
     @Test("a database whose entity tables are none of ours is somebody else's data")
@@ -121,7 +121,7 @@ struct StoreSchemaGuardTests {
     func theGuardFailsClosed() {
         #expect(StoreSchemaGuard.mayOpenForWriting(.noStoreFile))
         #expect(StoreSchemaGuard.mayOpenForWriting(.empty))
-        #expect(StoreSchemaGuard.mayOpenForWriting(.ovation))
+        #expect(StoreSchemaGuard.mayOpenForWriting(.ovation(upgrade: .notNeeded)))
 
         #expect(!StoreSchemaGuard.mayOpenForWriting(.foreign(entityTables: ["ZPROSPECT"])))
         #expect(!StoreSchemaGuard.mayOpenForWriting(.notADatabase))
@@ -155,7 +155,7 @@ struct StoreSchemaGuardTests {
         let path = "/tmp/Ovation/Ovation.store"
         #expect(StoreSchemaGuard.refusalSentence(for: .noStoreFile, at: path) == nil)
         #expect(StoreSchemaGuard.refusalSentence(for: .empty, at: path) == nil)
-        #expect(StoreSchemaGuard.refusalSentence(for: .ovation, at: path) == nil)
+        #expect(StoreSchemaGuard.refusalSentence(for: .ovation(upgrade: .notNeeded), at: path) == nil)
     }
 
     @Test("the unreadable sentence does not accuse another app, because nothing measured that")
@@ -238,7 +238,7 @@ struct StoreSchemaGuardTests {
 
         #expect(StoreSchemaGuard.inspect(storeURL: copy,
                                          ownEntityTables: ["ZINVOICE"],
-                                     runningVersion: Schema.Version(1, 0, 0)) == .ovation)
+                                     runningVersion: Schema.Version(1, 0, 0)) == .ovation(upgrade: .cannotTell))
     }
 
     // MARK: no side effects

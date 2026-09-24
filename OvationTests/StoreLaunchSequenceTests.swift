@@ -152,9 +152,9 @@ struct StoreLaunchSequenceTests {
         // because a folder on a Synology was unreachable, which is a worse
         // failure than the one being guarded against. So it is reported.
         //
-        // This becomes a REFUSAL once ovation#105 can say whether opening would
-        // run a migration, because that is the case where opening without a
-        // backup can lose data rather than merely leave it unprotected.
+        // THIS IS AN ORDINARY OPEN, the same version, so nothing is rewritten.
+        // An open that would upgrade the store is the case where opening without
+        // a backup can lose data, and that one REFUSES (ovation#505, below).
         let world = try World(backup: { _ in throw BackupError.couldNotWrite("Backups") })
 
         let outcome = await world.sequence.run(now: world.instant)
@@ -388,6 +388,163 @@ struct StoreLaunchSequenceTests {
 
         #expect(condition.kind == .backupFolderNotChosen)
         #expect(condition.sentence.contains("Settings"))
+    }
+
+    // MARK: an upgrade is never opened without a backup (ovation#505)
+
+    /// Every way the backup step can come back without a backup, as the launch
+    /// sees it. The folder that could not be read is an ANSWER rather than a
+    /// throw, so it is in here as its own case rather than folded into the others.
+    enum NoBackup: String, CaseIterable {
+        case noFolderChosen, couldNotWrite, didNotVerify, memberMissing, folderUnreachable, gaveUp
+
+        func attempt() throws -> BackupService.Attempt {
+            switch self {
+            case .noFolderChosen: throw BackupError.noFolderChosen
+            case .couldNotWrite: throw BackupError.couldNotWrite("/Volumes/Backups: the disk is full")
+            case .didNotVerify: throw BackupError.verificationFailed([])
+            case .memberMissing: throw BackupError.requiredMemberMissing("Ovation.store.version")
+            case .folderUnreachable: return .folderUnreachable("/Volumes/Backups: not mounted")
+            case .gaveUp: return try LaunchBackupOutcome.attempt(from: .gaveUp(after: .seconds(5)))
+            }
+        }
+    }
+
+    /// THE OPEN THAT REWRITES THE FILE, with no copy of it anywhere. A migration
+    /// rewrites the store in place, is the operation most able to lose rows, and
+    /// once it has run the previous build cannot open the result (L267), so this
+    /// is the one launch where the backup decides whether data is recoverable.
+    /// Dan's decision, 2026-09-23: refuse, rather than open or copy it aside.
+    @Test("an upgrade whose backup did not happen REFUSES, and the store is never opened",
+          arguments: NoBackup.allCases)
+    func anUpgradeWithoutABackupRefuses(failure: NoBackup) async throws {
+        let world = try World(recordedVersion: Schema.Version(1, 0, 0),
+                              runningVersion: Schema.Version(2, 0, 0),
+                              backup: { _ in try failure.attempt() })
+
+        let outcome = await world.sequence.run(now: world.instant)
+
+        guard case .refused(let step, _) = outcome else {
+            Issue.record("\(failure.rawValue): the launch opened, got \(outcome)")
+            return
+        }
+        #expect(step == .backup)
+        #expect(!world.recorder.steps.contains("open"), "\(failure.rawValue) opened the store")
+        #expect(!world.recorder.steps.contains("version"))
+        #expect(!world.recorder.steps.contains("seed"))
+        // THE MARKER STILL SAYS WHAT WROTE THE STORE, because nothing did.
+        #expect(StoreVersionMarker.read(besideStoreAt: world.storeURL) == .version(Schema.Version(1, 0, 0)))
+    }
+
+    /// WHAT IT SAYS: that nothing was changed, which is true this time, and never
+    /// that nothing is lost, which is the sentence of the launch that opens (L11,
+    /// L680).
+    @Test("the refusal says the upgrade waits for a backup, and never that nothing is lost",
+          arguments: NoBackup.allCases)
+    func theRefusalSaysWhy(failure: NoBackup) async throws {
+        let world = try World(recordedVersion: Schema.Version(1, 0, 0),
+                              runningVersion: Schema.Version(2, 0, 0),
+                              backup: { _ in try failure.attempt() })
+
+        _ = await world.sequence.run(now: world.instant)
+
+        let sentences = world.store.open.map(\.sentence)
+        #expect(!sentences.isEmpty, "\(failure.rawValue) refused and said nothing")
+        #expect(sentences.allSatisfy { !$0.contains("nothing is lost") },
+                "\(failure.rawValue): \(sentences)")
+        #expect(sentences.contains { $0.contains("upgrade") && $0.contains("Nothing has been changed") },
+                "\(failure.rawValue): \(sentences)")
+    }
+
+    /// THE KIND IS THE CAUSE'S, so the notice ends when its cause does. A refusal
+    /// under a kind of its own would be one nothing ever resolves, and the launch
+    /// that finally backs up would leave it standing over a working app (L152).
+    @Test("a refused upgrade's notice clears itself on the launch that backs up and upgrades")
+    func aRefusedUpgradeClearsOnceBackedUp() async throws {
+        let launches = LaunchCounter()
+        let world = try World(recordedVersion: Schema.Version(1, 0, 0),
+                              runningVersion: Schema.Version(2, 0, 0),
+                              backup: { _ in
+            if launches.next() == 1 { throw BackupError.noFolderChosen }
+            return .taken(URL(fileURLWithPath: "/dev/null"))
+        })
+
+        let first = await world.sequence.run(now: world.instant)
+        #expect(first != .opened)
+        #expect(world.store.open.contains { $0.kind == .backupFolderNotChosen })
+
+        let second = await world.sequence.run(now: world.instant.addingTimeInterval(86_400))
+        #expect(second == .opened)
+        #expect(!world.store.open.contains { $0.kind == .backupFolderNotChosen })
+        #expect(StoreVersionMarker.read(besideStoreAt: world.storeURL) == .version(Schema.Version(2, 0, 0)))
+    }
+
+    @Test("an upgrade whose backup was taken opens and upgrades")
+    func anUpgradeWithABackupOpens() async throws {
+        let world = try World(recordedVersion: Schema.Version(1, 0, 0),
+                              runningVersion: Schema.Version(2, 0, 0))
+
+        let outcome = await world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        #expect(world.store.open.isEmpty)
+    }
+
+    /// A BUILD THAT NEVER BACKS UP UPGRADES ANYWAY, AND SAYS SO (Dan, 2026-09-23).
+    /// The Debug build's store is throwaway by decision (2026-09-11) and it can
+    /// never take a backup, so refusing would stop it opening after every schema
+    /// change for ever. What it must not do is claim nothing is lost.
+    @Test("a build that never backs up upgrades, and says it did so without a backup")
+    func aBuildThatNeverBacksUpUpgrades() async throws {
+        let world = try World(recordedVersion: Schema.Version(1, 0, 0),
+                              runningVersion: Schema.Version(2, 0, 0),
+                              backup: { _ in throw BackupError.thisBuildDoesNotBackUp })
+
+        let outcome = await world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        let problem = try #require(world.store.open.first { $0.kind == .backupNotTakenByThisBuild })
+        #expect(problem.sentence.contains("upgrade"))
+        #expect(!problem.sentence.contains("nothing is lost"))
+        #expect(!world.store.open.contains { $0.kind == .backupFolderNotChosen },
+                "this build cannot be given a folder, so it must not be told to choose one")
+    }
+
+    /// AND ON AN ORDINARY OPEN IT SAYS NOTHING: never backing up is what the build
+    /// is for, and a notice on every launch is one nobody reads (L36).
+    @Test("a build that never backs up raises nothing on an ordinary open")
+    func aBuildThatNeverBacksUpIsQuiet() async throws {
+        let world = try World(backup: { _ in throw BackupError.thisBuildDoesNotBackUp })
+
+        let outcome = await world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        #expect(world.store.open.isEmpty)
+    }
+
+    /// NOTHING RECORDED WHICH BUILD WROTE IT, so opening may rewrite it, and it is
+    /// treated as the case that can (L648).
+    @Test("a store whose version cannot be told is not opened without a backup")
+    func anUnknownVersionIsTreatedAsAnUpgrade() async throws {
+        let world = try World(recordedVersion: nil,
+                              backup: { _ in throw BackupError.noFolderChosen })
+
+        let outcome = await world.sequence.run(now: world.instant)
+
+        #expect(outcome != .opened)
+        #expect(!world.recorder.steps.contains("open"))
+    }
+
+    /// AND THE ORDINARY OPEN IS UNCHANGED: the same version, nothing rewritten, so
+    /// a folder on a Synology being unreachable must not stop Dan invoicing.
+    @Test("an open that upgrades nothing still opens when the backup did not happen",
+          arguments: NoBackup.allCases)
+    func anOrdinaryOpenStillOpens(failure: NoBackup) async throws {
+        let world = try World(backup: { _ in try failure.attempt() })
+
+        let outcome = await world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened, "\(failure.rawValue)")
     }
 
     /// Counts launches from inside the backup closure, so one fixture can play a
@@ -738,7 +895,14 @@ struct StoreLaunchSequenceTests {
         }
 
         @MainActor
+        /// `recordedVersion` is what the marker beside the store says, and nil
+        /// writes no marker. `runningVersion` is the build doing the launch. The
+        /// defaults AGREE, so a fixture that names neither is an ordinary open that
+        /// rewrites nothing, which is what every test written before ovation#505
+        /// was describing.
         init(withStore: Bool = true,
+             recordedVersion: Schema.Version? = Schema.Version(1, 0, 0),
+             runningVersion: Schema.Version = Schema.Version(1, 0, 0),
              checkpoint: (@Sendable (URL) -> StoreCheckpoint.Outcome)? = nil,
              backup: (@Sendable (Date) throws -> BackupService.Attempt)? = nil,
              prepareDataDirectory: (@Sendable () throws -> Void)? = nil,
@@ -779,6 +943,9 @@ struct StoreLaunchSequenceTests {
                 var attempts = 0
                 while attempts < 200, StoreCheckpoint.run(storeURL: storeURL) != .checkpointed {
                     attempts += 1
+                }
+                if let recordedVersion {
+                    try StoreVersionMarker.write(recordedVersion, besideStoreAt: storeURL)
                 }
             }
 
@@ -823,7 +990,7 @@ struct StoreLaunchSequenceTests {
                         storeURL: url,
                         ownEntityTables: StoreSchemaGuard.entityTableNames(
                             for: Schema([Client.self])),
-                        runningVersion: Schema.Version(1, 0, 0))
+                        runningVersion: runningVersion)
                 },
                 seed: { container in
                     recorder.record("seed")
@@ -833,7 +1000,7 @@ struct StoreLaunchSequenceTests {
                 recordVersion: { url in
                     recorder.record("version")
                     if let recordVersion { return try recordVersion(url) }
-                    try StoreVersionMarker.write(Schema.Version(1, 0, 0), besideStoreAt: url)
+                    try StoreVersionMarker.write(runningVersion, besideStoreAt: url)
                 },
                 exportNotices: { container, now in
                     recorder.record("export-notices")
