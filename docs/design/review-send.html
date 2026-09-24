@@ -834,7 +834,12 @@ function shell(main, extra) {
   return screen;
 }
 
-function buildScreen() {
+/* NAMED FOR THIS SCREEN RATHER THAN `buildScreen` (ovation#341). A design round lifts
+   this file into a harness that appends a `buildScreen(variant)` of its own and refuses
+   a file that already has one, so a builder named `buildScreen` cannot have a round run
+   on it at all. invoice.html was renamed for the same reason (ovation#322), and
+   scripts/test-lift-design-harness.sh now refuses the name in any committed file. */
+function buildReviewScreen() {
   var main = rsEl("main");
   var behind = rsEl("rs-behind");
   behind.append(invoiceScreen());
@@ -975,7 +980,7 @@ function finish(main, scrim, sheet) {
   holder.append(dayRow);
   hold.parentNode.insertBefore(holder, hold);
 
-  window.redrawAll = function () { hold.replaceChildren(buildScreen()); };
+  window.redrawAll = function () { hold.replaceChildren(buildReviewScreen()); };
   redrawAll();
 })();
 </script>

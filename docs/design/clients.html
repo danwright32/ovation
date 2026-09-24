@@ -883,7 +883,12 @@ function clientsScreen() {
 }
 
 // ----------------------------------------------------------------- the window
-function buildScreen() {
+/* NAMED FOR THIS SCREEN RATHER THAN `buildScreen` (ovation#341). A design round lifts
+   this file into a harness that appends a `buildScreen(variant)` of its own and refuses
+   a file that already has one, so a builder named `buildScreen` cannot have a round run
+   on it at all. invoice.html was renamed for the same reason (ovation#322), and
+   scripts/test-lift-design-harness.sh now refuses the name in any committed file. */
+function buildClientsScreen() {
   var screen = el("div", "screen");
 
   var bar = el("div", "menubar");
@@ -975,7 +980,7 @@ function buildScreen() {
 
 var stage = document.getElementById("stage");
 var tabs = document.getElementById("tabs");
-function draw() { stage.replaceChildren(buildScreen()); }
+function draw() { stage.replaceChildren(buildClientsScreen()); }
 
 /* THE DAY SWITCH CHANGES THE DATA, NEVER THE DESIGN, and it has three days.
    The third, the address fixed, is ovation#209: the live export's one broken
