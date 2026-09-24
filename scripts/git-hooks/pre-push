@@ -656,10 +656,15 @@ if [ -z "${SKIP_XCODE}" ] && [ -z "${TEST_COMMAND}" ]; then
         ( cd "${REPO_ROOT}" && exec bash scripts/build-products.sh ) > "${BUILD_LOG}" 2>&1 &
         build_pid=$!
         set +m
+        # ELAPSED IS READ FROM THE CLOCK, never counted in sleeps: a count of sleeps is a
+        # count of iterations, which is only seconds while the interval happens to be one
+        # (L226). The interval is a seam, so the deadline case costs a test a moment
+        # rather than a real second per poll (L524).
+        build_started="$(date +%s)"
         waited=0
         while kill -0 "${build_pid}" 2>/dev/null && [ "${waited}" -lt "${BUILD_DEADLINE}" ]; do
-            sleep 1
-            waited=$((waited + 1))
+            sleep "${OVATION_GATE_BUILD_POLL:-1}"
+            waited=$(( $(date +%s) - build_started ))
         done
         if kill -0 "${build_pid}" 2>/dev/null; then
             kill -TERM -- "-${build_pid}" 2>/dev/null || kill -TERM "${build_pid}" 2>/dev/null

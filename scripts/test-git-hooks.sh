@@ -663,10 +663,10 @@ check "a build that fails refuses the push before the suite" \
     "$([ "$ST381B" -ne 0 ] && echo refused || echo allowed):$(grep -c 'SUITE-FROM-' <<< "$OUT381B")" "refused:0"
 check "and shows what the build said" "$(grep -c 'BUILD-FAILED-HERE' <<< "$OUT381B")" "1"
 printf '#!/bin/bash\nsleep 30\n' > "$P381/scripts/build-products.sh"
-OUT381C="$(OVATION_GATE_BUILD_DEADLINE=2 hook_with_range "$P381" "refs/heads/main $S381 refs/heads/main $B381")"; ST381C=$?
+OUT381C="$(OVATION_GATE_BUILD_DEADLINE=1 OVATION_GATE_BUILD_POLL=0.1 hook_with_range "$P381" "refs/heads/main $S381 refs/heads/main $B381")"; ST381C=$?
 check "a build that runs past its deadline refuses rather than holding the push" \
     "$([ "$ST381C" -ne 0 ] && echo refused || echo allowed)" "refused"
-check "and says it stopped waiting" "$(grep -c 'did not finish within 2s' <<< "$OUT381C")" "1"
+check "and says it stopped waiting" "$(grep -c 'did not finish within 1s' <<< "$OUT381C")" "1"
 
 # THE SECOND HALF OF THE SAME PREDICATE: a bundle with no executable inside is
 # not built either, which is what the bundle suites say and so what this says.
