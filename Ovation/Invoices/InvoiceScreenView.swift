@@ -446,7 +446,7 @@ struct InvoiceScreenView: View {
     /// pressing it can do anything come from one answer rather than two that can
     /// disagree (L70). `InvoiceLineWriter` refuses the same states, because a
     /// screen gating a write is not the write being guarded (L196).
-    private var offersALine: Bool { presenter.mayAddLine && addLine != nil }
+    private var offersALine: Bool { presenter.mayAddLine(canMakeAType: createType != nil) && addLine != nil }
 
     /// THE WORD IS QUIET AND IT IS A BUTTON, which is the design record's own
     /// `.laddbtn`: a word with padding, no border and no underline. It is not

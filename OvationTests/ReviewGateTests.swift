@@ -112,12 +112,37 @@ struct ReviewGateTests {
 
     // MARK: an invoice that comes to less than nothing (ovation#136, PRD 5.4c)
 
-    @Test("an invoice whose total is below zero is refused, and the credit is named")
+    /// THE ROUTE THE APP ITSELF OFFERS (Dan, 2026-09-23, ovation#501). The credit is
+    /// capped at what an invoice charges, so it can no longer do this; a line typed
+    /// as a negative amount still can, because a flat line may be negative on
+    /// purpose, and this refusal is the only thing that stops the invoice going out
+    /// asking a client for less than nothing. So it is held through that route.
+    @Test("a line typed as a negative amount that takes the total below zero is refused")
+    func anegativeLineRefuses() throws {
+        let invoice = try Self.invoice(lineDollars: 100)
+        invoice.add(LineItem.flat(Money(dollars: -500), describedAs: "Adjustment"))
+
+        #expect(invoice.total < .zero, "the fixture reaches the state, rather than merely nearing it")
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) == ReviewGate.sentence(for: .totalBelowZero))
+    }
+
+    /// THE SENTENCE NAMES WHERE TO LOOK, and is true of both routes that can get
+    /// here: it used to say only that the credit was larger than the charges, which
+    /// is the one cause the app can no longer produce (L111).
+    @Test("the below zero sentence points at a negative line first, and the credit second")
+    func theBelowZeroSentenceNamesBothCauses() {
+        let sentence = ReviewGate.sentence(for: .totalBelowZero)
+
+        #expect(sentence.contains("less than nothing"))
+        #expect(sentence.contains("negative amount"))
+        #expect(sentence.contains("credit"))
+    }
+
+    @Test("an invoice whose total is below zero through the credit is refused too")
     func anegativeTotalRefuses() throws {
         let invoice = try Self.invoice(creditHours: 1, lineDollars: 100)
 
-        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) ==
-                "The credit is larger than everything charged, so this invoice comes to less than nothing.")
+        #expect(ReviewGate.refusal(for: invoice, footer: .fixed) == ReviewGate.sentence(for: .totalBelowZero))
     }
 
     @Test("and an invoice coming to exactly zero is reviewed like any other")

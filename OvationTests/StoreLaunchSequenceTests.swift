@@ -547,6 +547,56 @@ struct StoreLaunchSequenceTests {
         #expect(outcome == .opened, "\(failure.rawValue)")
     }
 
+    // MARK: what a launch proves, it clears (ovation#503)
+
+    /// A LAUNCH THAT OPENS THE STORE HAS PROVED THE OLD REFUSAL WRONG. A store that
+    /// would not open raised `store.unreadable`; the next launch opened it, and the
+    /// entry stayed on the list word for word behind the working app, because
+    /// nothing a launch does resolves anything (L152, L269).
+    @Test("a store refusal from an earlier launch is resolved by the launch that opens the store")
+    func anOpenResolvesAnEarlierStoreRefusal() async throws {
+        let world = try World()
+        for kind in [ProblemKind.unreadableStore, .unidentifiableStore, .storeVersionUnreadable,
+                     .storeFromANewerVersion, .foreignStore, .storeIsNotADatabase] {
+            _ = world.store.raise(kind: kind, subject: world.storeURL.path,
+                                  sentence: "an earlier launch refused", now: world.instant)
+        }
+
+        let outcome = await world.sequence.run(now: world.instant.addingTimeInterval(60))
+
+        #expect(outcome == .opened)
+        #expect(world.store.open.isEmpty, "\(world.store.open.map(\.kind))")
+    }
+
+    /// THE CONTROL: a launch that refuses leaves them standing, because it proved
+    /// nothing, and the one it raises now is the current answer (L159).
+    @Test("a launch that refuses resolves nothing")
+    func aRefusalResolvesNothing() async throws {
+        let world = try World(checkpoint: { _ in .failed(detail: "database is locked") })
+        _ = world.store.raise(kind: .foreignStore, subject: world.storeURL.path,
+                              sentence: "an earlier launch refused", now: world.instant)
+
+        _ = await world.sequence.run(now: world.instant.addingTimeInterval(60))
+
+        #expect(world.store.open.contains { $0.kind == .foreignStore })
+    }
+
+    /// A BACKUP TAKEN ANSWERS "THE BACKUP COULD NOT BE WRITTEN" the way it already
+    /// answers "no folder chosen": the condition was measured again and is clear.
+    @Test("a backup taken resolves an earlier backup that could not be written or did not verify")
+    func aBackupResolvesEarlierBackupFailures() async throws {
+        let world = try World()
+        _ = world.store.raise(kind: .backupCouldNotBeWritten, subject: world.storeURL.path,
+                              sentence: "the disk was full", now: world.instant)
+        _ = world.store.raise(kind: .backupFailed, subject: world.storeURL.path,
+                              sentence: "did not verify", now: world.instant)
+
+        _ = await world.sequence.run(now: world.instant.addingTimeInterval(86_400))
+
+        #expect(!world.store.open.contains { $0.kind == .backupCouldNotBeWritten })
+        #expect(!world.store.open.contains { $0.kind == .backupFailed })
+    }
+
     /// Counts launches from inside the backup closure, so one fixture can play a
     /// launch with no folder and then a launch that backs up against ONE problems
     /// store.

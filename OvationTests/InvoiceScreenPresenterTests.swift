@@ -552,18 +552,29 @@ struct InvoiceScreenPresenterTests {
         sent.number = 1_042
         sent.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
 
-        #expect(Self.present(sent, types: types).mayAddLine == false)
-        #expect(Self.present(try Self.invoice(context), types: types).mayAddLine)
+        #expect(Self.present(sent, types: types).mayAddLine(canMakeAType: true) == false)
+        #expect(Self.present(try Self.invoice(context), types: types).mayAddLine(canMakeAType: true))
     }
 
-    /// AND NOR DOES AN INVOICE WITH NOTHING TO CHOOSE FROM. A word that opens a
-    /// list with nothing in it is a control that does nothing, which is the
-    /// defect ovation#450 named (L109).
-    @Test("with no type to choose there is no line to add")
-    func withNoTypesThereIsNoLineToAdd() throws {
+    /// AN EMPTY TYPE LIST STILL OPENS ONTO ITS OWN LAST ENTRY (ovation#490). The
+    /// list ends in the word that makes a type, so where the screen can make one
+    /// the list is never empty, and hiding `Add a line` there took the only route
+    /// to creating a type with it. On the day retiring exists, retiring the last
+    /// type would have closed that door with no reason given (L109, L1009).
+    @Test("with no type yet, a line may still be added, because the list offers making one")
+    func withNoTypesALineCanStillBeAdded() throws {
         let invoice = try Self.invoice(try Self.store())
 
-        #expect(Self.present(invoice).mayAddLine == false)
+        #expect(Self.present(invoice).mayAddLine(canMakeAType: true))
+    }
+
+    /// AND WHERE NOTHING CAN BE MADE EITHER, the word stays hidden: then the list
+    /// really would open onto nothing, the defect ovation#450 named (L109).
+    @Test("with no type and no way to make one, there is no line to add")
+    func withNoTypesAndNoMakingThereIsNoLine() throws {
+        let invoice = try Self.invoice(try Self.store())
+
+        #expect(Self.present(invoice).mayAddLine(canMakeAType: false) == false)
     }
 
     // MARK: the discount, as a control (ovation#457, PRD 5.4a)
