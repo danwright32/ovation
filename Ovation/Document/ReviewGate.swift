@@ -166,14 +166,16 @@ enum ReviewGate {
             return "Settings has no payment instructions, so no invoice can be sent."
         case .contactDetailsNotSet:
             return "Settings has no contact details, so no invoice can be sent."
-        // NAMES THE CREDIT, and it can, because of where this sits in the order
-        // above. An oversized DISCOUNT also drives the total below zero, and it is
-        // said first and by its own name, so by the time this sentence is reached
-        // the discount is not the cause and the credit exceeding the charges is the
-        // only way left to get here. A sentence naming a cause that cannot be the
-        // cause sends somebody to change a number that changes nothing (L111).
+        // NAMES WHERE TO LOOK, in the order the causes can happen (ovation#501). An
+        // oversized DISCOUNT is said first and by its own name, so by here it is not
+        // the cause. The credit is capped at what the invoice charges (ovation#457),
+        // so the route the app itself offers is a line typed as a negative amount;
+        // the credit can still do it only in a record written from outside, which is
+        // why it is named second rather than dropped. A sentence naming a cause that
+        // cannot be the cause sends somebody to change a number that changes
+        // nothing (L111).
         case .totalBelowZero:
-            return "The credit is larger than everything charged, so this invoice comes to less than nothing."
+            return "This invoice comes to less than nothing. Look for a line entered as a negative amount, or a credit larger than the charges."
         // THE DESIGN'S OWN SENTENCES, `waiting.js`, word for word, and each names
         // the thing that is actually missing rather than its class (PRD 51b).
         // `scripts/check-waiting-sentences-agree.sh` is what holds them to it.

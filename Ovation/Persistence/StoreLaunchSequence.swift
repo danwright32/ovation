@@ -260,6 +260,16 @@ struct StoreLaunchSequence {
                                              because: "a backup was taken, so a folder exists",
                                              now: now)
                     }
+                    // AND A BACKUP THAT COULD NOT BE WRITTEN OR DID NOT VERIFY is
+                    // answered the same way (ovation#503): the condition was
+                    // measured again on this launch and is clear, so leaving it for
+                    // Dan to dismiss teaches him to dismiss everything (L152).
+                    for standing in problems.open
+                    where Self.clearedByABackup.contains(standing.kind) {
+                        _ = problems.resolve(standing.id,
+                                             because: "a backup was taken on a later launch",
+                                             now: now)
+                    }
                     // Nothing to say. A notice on the commonest case is one Dan
                     // learns to click past (L36).
                     break
@@ -350,6 +360,16 @@ struct StoreLaunchSequence {
             return .refused(step: .identify, detail: sentence)
         }
 
+        // WHAT THIS OPEN PROVED, IT CLEARS (ovation#503). Every refusal an earlier
+        // launch raised about opening the store was a measurement this launch has
+        // just taken again, and it came out the other way. Left standing, the list
+        // says the store would not open while the app is running on it.
+        for standing in problems.open where Self.clearedByAnOpen.contains(standing.kind) {
+            _ = problems.resolve(standing.id,
+                                 because: "a later launch identified and opened the store",
+                                 now: now)
+        }
+
         // 5. RECORD THE VERSION, immediately after the open that established it,
         // because the marker must be written by whatever ESTABLISHES the version
         // rather than by a surface that happens to notice (L319). It goes before
@@ -436,6 +456,18 @@ struct StoreLaunchSequence {
         onOpened(container)
         return .opened
     }
+
+    /// The kinds a launch that OPENS the store has disproved (ovation#503): each
+    /// is raised by a step above that refuses to open, so reaching the open is
+    /// that step measuring again and passing.
+    static let clearedByAnOpen: Set<ProblemKind> = [
+        .foreignStore, .storeIsNotADatabase, .unreadableStore, .unidentifiableStore,
+        .storeFromANewerVersion, .storeVersionUnreadable,
+    ]
+
+    /// The kinds a backup TAKEN has disproved (ovation#503), beside the no folder
+    /// notice, which was already cleared the same way.
+    static let clearedByABackup: Set<ProblemKind> = [.backupCouldNotBeWritten, .backupFailed]
 
     /// What happens without a backup from today, which decides how the notice
     /// ends (ovation#505). The CAUSE is the same sentence either way; what differs

@@ -301,7 +301,7 @@ struct InvoiceListSourceTests {
 
         #expect(screen.serviceTypes.map(\.name) == ["Rush turnaround"],
                 "the retired type was offered, or the active one was not")
-        #expect(screen.mayAddLine)
+        #expect(screen.mayAddLine(canMakeAType: true))
     }
 
     /// THE POSITIVE CONTROL. Without it a source that never fetched would pass
@@ -321,6 +321,7 @@ struct InvoiceListSourceTests {
                                                 footer: .fixed))
 
         #expect(screen.serviceTypes.isEmpty)
-        #expect(screen.mayAddLine == false)
+        #expect(screen.mayAddLine(canMakeAType: false) == false)
+        #expect(screen.mayAddLine(canMakeAType: true), "an empty list still offers making a type (ovation#490)")
     }
 }

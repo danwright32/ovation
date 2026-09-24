@@ -180,12 +180,20 @@ final class InvoiceScreenPresenter {
 
     /// Whether a line may be added at all.
     ///
-    /// AN ORDINARY DRAFT WITH SOMETHING TO CHOOSE FROM. A word that opens a list
-    /// with nothing in it is a control that does nothing, which is the defect
-    /// ovation#450 named (L109), and `InvoiceLineWriter` refuses the same states
-    /// this hides the word for, because a screen gating a write is not the write
-    /// being guarded (L196).
-    var mayAddLine: Bool { mayEdit && !serviceTypes.isEmpty }
+    /// AN ORDINARY DRAFT WITH SOMETHING TO CHOOSE, and making a type counts. A word
+    /// that opens a list with nothing in it is a control that does nothing, which
+    /// is the defect ovation#450 named (L109), and `InvoiceLineWriter` refuses the
+    /// same states this hides the word for, because a screen gating a write is not
+    /// the write being guarded (L196).
+    ///
+    /// TWO CONDITIONS, AND THE SECOND HAS TWO WAYS TO HOLD (ovation#490). The list
+    /// ends in the word that makes a type, so where the screen can make one it is
+    /// never empty; requiring a type to exist hid the only route to creating the
+    /// first one. Whether the screen CAN make one is the view's to say, since it
+    /// holds the control, so it is asked rather than assumed.
+    func mayAddLine(canMakeAType: Bool) -> Bool {
+        mayEdit && (!serviceTypes.isEmpty || canMakeAType)
+    }
 
     /// The discount as its own controls need it, or nil where there is none to
     /// edit or no editing it. ovation#457, PRD 5.4a.
