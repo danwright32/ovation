@@ -1,11 +1,10 @@
 // ovation#425 and ovation#426. THE ONE PLACE OVATION CONSTRUCTS A GMAIL AUTH
 // MANAGER, and the scopes it is allowed to ask Google for.
 //
-// NOTHING CALLS THIS YET, deliberately and on the record. ovation#42 is the issue
-// that activates it, and it is named here so a constructor nothing calls is not
-// mistaken for a wired one (L65, L346, L3). `scripts/check-forbidden-constructs.sh`
-// refuses a second construction anywhere else in the tree, so "one call site"
-// stays true rather than being a sentence in a header.
+// THE APP'S SEND CALLS IT, through `sender(for:connection:)` below (ovation#42).
+// `scripts/check-forbidden-constructs.sh` refuses a second construction anywhere
+// else in the tree, so "one call site" stays true rather than being a sentence in
+// a header.
 //
 // AN ALLOW LIST, NEVER A DENY LIST of Google's restricted scopes. A deny list has
 // to mirror Google's policy by hand, permanently exempts anything they reclassify,
@@ -87,8 +86,44 @@ enum OvationGmail {
     ) throws -> GmailAuthManager? {
         if let refusal = check(scopes) { throw refusal }
         guard let credentialsDirectory else { return nil }
+        // THE PRODUCT NAME IS WHAT GOOGLE'S BROWSER TAB IS SENT BACK TO SAY, and
+        // backstage 0.3.0 requires it rather than defaulting it (backstage#61).
         return try GmailAuthManager(credentialsDirectory: credentialsDirectory,
-                                    scopes: scopes)
+                                    scopes: scopes, productName: "Ovation")
+    }
+
+    /// Gmail for one press of Send, or the sentence saying why there is none.
+    ///
+    /// BUILDING IT CONNECTS NOTHING. Connecting is `ready` on the route, which is the
+    /// moment the browser asks Dan to sign in, and the send calls it only after every
+    /// other refusal, so an ordinary refusal never opens a browser (L667). Every way
+    /// this can end short of sending says which one (L11): a build that may not reach
+    /// Gmail, a connection that could not be set up, and a sign in that did not finish.
+    @MainActor
+    static func sender(for settings: SendingSettings,
+                       connection make: @MainActor () throws -> (any GmailSignIn)?)
+        -> Result<SendingRoute, SenderUnavailable> {
+        let gmail: any GmailSignIn
+        do {
+            guard let made = try make() else {
+                return .failure(SenderUnavailable(sentence: "This build of Ovation does not reach Gmail, so nothing was sent."))
+            }
+            gmail = made
+        } catch {
+            return .failure(SenderUnavailable(sentence: "Gmail could not be set up (\(error.localizedDescription)), so nothing was sent."))
+        }
+        let sender = GmailSender(fromName: settings.fromName, fromEmail: settings.fromEmail,
+                                 token: { try await gmail.validAccessToken() },
+                                 onAuthExpired: { try? await gmail.signalAuthExpired() })
+        return .success(SendingRoute(sender: sender, ready: {
+            guard !gmail.isConnected else { return nil }
+            do {
+                try await gmail.connectNow()
+                return nil
+            } catch {
+                return SenderUnavailable(sentence: "Gmail could not be connected (\(error.localizedDescription)), so nothing was sent.")
+            }
+        }))
     }
 
     /// The one predicate both the sentence and the factory read, so a scope the
@@ -98,4 +133,18 @@ enum OvationGmail {
         let unapproved = scopes.filter { !approvedScopes.contains($0) }
         return unapproved.isEmpty ? nil : .notApproved(unapproved)
     }
+}
+
+/// What sending needs from a Gmail sign in, so the send's own setup can be tested
+/// without a browser. `GmailAuthManager` is the only real one.
+@MainActor
+protocol GmailSignIn: AnyObject, Sendable {
+    var isConnected: Bool { get }
+    func connectNow() async throws
+    func validAccessToken() async throws -> String
+    func signalAuthExpired() throws
+}
+
+extension GmailAuthManager: GmailSignIn {
+    func connectNow() async throws { try await connect() }
 }

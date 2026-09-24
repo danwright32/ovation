@@ -37,9 +37,11 @@ packages:
   #
   # PINNED EXACTLY, for the reason the entry above it now carries: a range plus a
   # lockfile that lives inside the generated project is not a pin at all
-  # (ovation#437, ovation#421, L496). 0.1.0 is the first tagged release, cut by
+  # (ovation#437, ovation#421, L496). Every version is a tagged release cut by
   # backstage's own release step, which reads every check AT the commit it tags
-  # and refuses one nothing has judged (ovation#423).
+  # and refuses one nothing has judged (ovation#423). 0.3.0 since ovation#42: the
+  # first real send needs an attachment (backstage#51) and the size check that
+  # runs before a token is fetched (backstage#59), neither of which 0.1.0 had.
   #
   # IT IS 0.x DELIBERATELY: backstage#12 and backstage#15 are open questions about
   # the package's public surface, so a 1.0 would freeze an API that is mid
@@ -57,7 +59,7 @@ packages:
   # an error about a missing module (L11).
   BackstageGoogle:
     url: https://github.com/danwright32/backstage
-    exactVersion: "0.1.0"
+    exactVersion: "0.3.0"
 options:
   bundleIdPrefix: com.danwright
   deploymentTarget:

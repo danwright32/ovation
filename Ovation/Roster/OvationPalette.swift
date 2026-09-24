@@ -47,6 +47,13 @@ enum OvationPalette {
     static let quiet = Color(hex: 0x766254)
     static let faint = Color(hex: 0x6E5F50)
 
+    // THE REDIRECTED SEND (ovation#42). A send going to Dan's test address instead of
+    // the client is a dangerous mode, and a band built from the ordinary palette reads
+    // as chrome (L623), so it has a treatment found nowhere else: white on a deep red.
+    // White on this red is about 9:1, well clear of text contrast.
+    static let redirectBand = Color(hex: 0x7A1E1E)
+    static let onRedirectBand = Color.white
+
     // The espresso rail (PRD 44).
     static let rail = Color(hex: 0x3B2B21)
     static let railItem = Color(hex: 0xBCB7B4)

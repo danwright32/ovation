@@ -24,8 +24,12 @@ enum ReviewGate {
     /// caller able to ask the invoice-only question would be able to wave through
     /// an invoice whose page cannot say how to pay it. One function taking both
     /// means a caller cannot ask the narrower question by accident (L16, L667).
-    @MainActor
-    static func refusal(for invoice: Invoice, footer: InvoiceFooter) -> String? {
+    ///
+    /// NOT BOUND TO THE MAIN ACTOR (ovation#42). The send asks it again AT THE PRESS,
+    /// from the actor that owns the send's context, rather than trusting what the sheet
+    /// was told when it opened (L567). It reads the invoice and the footer and nothing
+    /// that belongs to a screen.
+    nonisolated static func refusal(for invoice: Invoice, footer: InvoiceFooter) -> String? {
         let refusals = invoice.refusals.union(footer.refusals)
         // ASKED IN A WRITTEN ORDER, not over a Set, whose order is not a fact about
         // anything (L343). The two footer reasons come FIRST because they are not

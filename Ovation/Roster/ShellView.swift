@@ -76,6 +76,10 @@ struct ShellView: View {
     /// menu is declared on the app, outside every view, so this is how what is
     /// open reaches it (ovation#457).
     var edits: InvoiceEditCommand?
+    /// ovation#42. Opening the review of the invoice on screen, sending it, and closing
+    /// it, as ONE value rather than a closure per act, so a layer cannot pass half of it
+    /// (ovation#485). Nil where this launch has no store, and then Review is not offered.
+    var reviewer: InvoiceReviewer?
 
     /// Which invoice is selected. It lives here rather than inside the list
     /// because coming back from an invoice has to find the row again (ovation#125).
@@ -98,6 +102,13 @@ struct ShellView: View {
     @State private var refusedTax: String?
     /// Why the last line or service type was not written, or nil.
     @State private var refusedLine: String?
+    /// The review open over the invoice, or nil (ovation#42).
+    @State private var openReview: InvoiceReview?
+    @State private var reviewOnScreen = ReviewOnScreen<InvoiceReview>()
+    /// Why the last Review could not be opened, or nil. Said, never swallowed: a
+    /// control that silently does nothing leaves pressing it again as the only
+    /// diagnosis (L109, L148).
+    @State private var refusedReview: String?
 
     /// What a destination with no screen behind it says about itself. A constant
     /// because a test counts them, and because the same words appear once per
@@ -111,6 +122,48 @@ struct ShellView: View {
         }
         .frame(minWidth: 900, minHeight: 620, alignment: .topLeading)
         .ovationAppearance()
+        // THE SHEET BELONGS TO THE WINDOW (PRD 52a). Every way it closes, Close, Done
+        // or the Escape key, goes through the reviewer, which gives back a number the
+        // review took and nothing was sent under (Dan, 2026-09-14). Escape clears only
+        // the binding, so the dismissal settles the review too, once (ReviewOnScreen).
+        .sheet(item: $openReview, onDismiss: settleDismissedReview) { review in
+            ReviewSheet(presenter: review.presenter, review: review,
+                        close: { finishReview(review) })
+                .interactiveDismissDisabled(review.state.holdsTheSheetOpen)
+        }
+    }
+
+    // MARK: the review (ovation#42)
+
+    private func startReview() {
+        guard let reviewer, let openedInvoiceID else { return }
+        refusedReview = nil
+        Task {
+            switch await reviewer.open(openedInvoiceID) {
+            case .success(let review):
+                reviewOnScreen.opened(review)
+                openReview = review
+            case .failure(let refusal): refusedReview = refusal.sentence
+            }
+            // THE NUMBER MAY HAVE BEEN TAKEN, so the screen behind the sheet is built
+            // again and shows it.
+            openedInvoice = openInvoice?(openedInvoiceID)
+        }
+    }
+
+    /// The sheet went away by a route no control saw, the Escape key.
+    private func settleDismissedReview() {
+        if let review = reviewOnScreen.settle() { finishReview(review) }
+    }
+
+    private func finishReview(_ review: InvoiceReview) {
+        _ = reviewOnScreen.settle()
+        openReview = nil
+        Task {
+            await reviewer?.close(review)
+            if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
+            publishWhatIsOpen()
+        }
     }
 
     // MARK: the rail
@@ -379,7 +432,9 @@ struct ShellView: View {
                     setDiscount: writeDiscount == nil ? nil : { discount in
                         guard let openedInvoiceID else { return }
                         Task { await discounted(openedInvoiceID, discount) }
-                    })
+                    },
+                    review: reviewer == nil ? nil : { startReview() },
+                    refusedReview: refusedReview)
             } else if let invoices {
                 InvoiceListView(presenter: invoices, heldMoney: heldMoney,
                                 selected: $selectedInvoice,

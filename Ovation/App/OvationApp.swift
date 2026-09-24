@@ -1,3 +1,4 @@
+import BackstageGoogle
 import SwiftData
 import SwiftUI
 
@@ -425,6 +426,16 @@ struct OvationApp: App {
         presenter.refresh()
     }
 
+    /// Gmail for one send, or why it cannot be had (ovation#42).
+    ///
+    /// BUILT AT THE PRESS AND CONNECTED ONLY AFTER EVERY REFUSAL, by the send itself,
+    /// so an ordinary refusal never opens a browser. The first send with no stored grant opens Google's consent page
+    /// once; the grant is kept in the credentials folder for every send after. The one
+    /// construction of the manager stays in `OvationGmail` (ovation#426).
+    static func gmailSender(for settings: SendingSettings) -> Result<SendingRoute, SenderUnavailable> {
+        OvationGmail.sender(for: settings, connection: { try OvationGmail.authManager() })
+    }
+
     /// The restore control, or nil when there is no folder to restore from.
     ///
     /// NIL RATHER THAN AN EMPTY LIST, because "no folder chosen" and "a folder
@@ -592,6 +603,17 @@ struct OvationApp: App {
                          }
                      },
                      edits: edits,
+                     // ovation#42. The review of a real invoice, and its send. The
+                     // sending settings file is nil in a Debug build and a test run,
+                     // which may not reach live Google, so they cannot send whatever
+                     // file is on the Mac.
+                     reviewer: opened.map { container in
+                         InvoiceReviewer(container: container,
+                                         footer: { InvoiceFooterSetting(defaults: .standard).footer },
+                                         settingsFile: StoreLocation.liveSendingSettingsFile(),
+                                         makeSender: { settings in Self.gmailSender(for: settings) },
+                                         clock: { Date() })
+                     },
                      progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
                 // order inside the launch is unchanged; what changed is that
