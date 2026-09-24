@@ -104,6 +104,7 @@ struct ShellView: View {
     @State private var refusedLine: String?
     /// The review open over the invoice, or nil (ovation#42).
     @State private var openReview: InvoiceReview?
+    @State private var reviewOnScreen = ReviewOnScreen<InvoiceReview>()
     /// Why the last Review could not be opened, or nil. Said, never swallowed: a
     /// control that silently does nothing leaves pressing it again as the only
     /// diagnosis (L109, L148).
@@ -123,10 +124,12 @@ struct ShellView: View {
         .ovationAppearance()
         // THE SHEET BELONGS TO THE WINDOW (PRD 52a). Every way it closes, Close, Done
         // or the Escape key, goes through the reviewer, which gives back a number the
-        // review took and nothing was sent under (Dan, 2026-09-14).
-        .sheet(item: $openReview, onDismiss: nil) { review in
+        // review took and nothing was sent under (Dan, 2026-09-14). Escape clears only
+        // the binding, so the dismissal settles the review too, once (ReviewOnScreen).
+        .sheet(item: $openReview, onDismiss: settleDismissedReview) { review in
             ReviewSheet(presenter: review.presenter, review: review,
                         close: { finishReview(review) })
+                .interactiveDismissDisabled(review.state.holdsTheSheetOpen)
         }
     }
 
@@ -137,7 +140,9 @@ struct ShellView: View {
         refusedReview = nil
         Task {
             switch await reviewer.open(openedInvoiceID) {
-            case .success(let review): openReview = review
+            case .success(let review):
+                reviewOnScreen.opened(review)
+                openReview = review
             case .failure(let refusal): refusedReview = refusal.sentence
             }
             // THE NUMBER MAY HAVE BEEN TAKEN, so the screen behind the sheet is built
@@ -146,7 +151,13 @@ struct ShellView: View {
         }
     }
 
+    /// The sheet went away by a route no control saw, the Escape key.
+    private func settleDismissedReview() {
+        if let review = reviewOnScreen.settle() { finishReview(review) }
+    }
+
     private func finishReview(_ review: InvoiceReview) {
+        _ = reviewOnScreen.settle()
         openReview = nil
         Task {
             await reviewer?.close(review)

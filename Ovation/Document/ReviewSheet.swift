@@ -94,6 +94,7 @@ struct ReviewSheet: View {
                 .foregroundStyle(.secondary)
             Spacer()
             Button("Close", action: close)
+                .disabled(review?.state.holdsTheSheetOpen == true)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)

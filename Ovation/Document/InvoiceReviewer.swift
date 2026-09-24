@@ -101,7 +101,18 @@ final class InvoiceReviewer {
         try? await InvoiceNumberAllocator(modelContainer: container).release(taken, from: review.invoiceID)
     }
 
-    private func send(_ review: InvoiceReview, footer: InvoiceFooter) async {
+    /// Said when the invoice settings changed between opening the review and pressing Send.
+    static let footerChanged = "The invoice settings changed after this was opened, so nothing was sent. Close it and review it again."
+
+    private func send(_ review: InvoiceReview, footer opened: InvoiceFooter) async {
+        // THE FOOTER IS ASKED AGAIN AT THE PRESS (L567). The page was drawn with the one
+        // read at the open, so any change since, complete or not, means what would go
+        // out is not what the settings now say; the gate below then judges that footer.
+        let footer = self.footer()
+        guard footer == opened else {
+            review.state = .refused(Self.footerChanged)
+            return
+        }
         // THE SETTINGS ARE READ AGAIN AT THE PRESS, never trusted from the open (L567).
         guard let settingsFile else {
             review.state = .refused("This build of Ovation does not send, so nothing was sent.")

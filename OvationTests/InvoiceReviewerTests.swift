@@ -47,9 +47,10 @@ struct InvoiceReviewerTests {
 
     private static func reviewer(_ container: ModelContainer, settings: URL?,
                                  gmail: InvoiceSenderTests.FakeGmail = .init(),
-                                 senderCalls: SenderCalls = .init()) -> InvoiceReviewer {
+                                 senderCalls: SenderCalls = .init(),
+                                 footer: @escaping () -> InvoiceFooter = { .fixed }) -> InvoiceReviewer {
         let noon = Self.noon
-        return InvoiceReviewer(container: container, footer: { .fixed }, settingsFile: settings,
+        return InvoiceReviewer(container: container, footer: footer, settingsFile: settings,
                                makeSender: { _ in senderCalls.count += 1; return .success(gmail) },
                                clock: { noon })
     }
@@ -159,6 +160,35 @@ struct InvoiceReviewerTests {
 
         #expect(review.state == .sent(at: Self.noon, to: ["booker@client.example"]))
     }
+
+    /// THE FOOTER IS ASKED AGAIN AT THE PRESS (L567). A footer changed after the sheet
+    /// opened is refused whether or not the new one is complete: an incomplete one must
+    /// not go out, and a complete one is not what the page Dan approved carries.
+    @Test("a footer changed after the sheet opened stops the send before Gmail", arguments: [
+        "payment cleared", "payment reworded",
+    ])
+    func achangedFooterStopsTheSend(change: String) async throws {
+        let (container, id) = try Self.draft()
+        let gmail = InvoiceSenderTests.FakeGmail()
+        let calls = SenderCalls()
+        let current = FooterBox()
+        let review = try await Self.reviewer(container, settings: try Self.settingsFile(Self.clients),
+                                             gmail: gmail, senderCalls: calls,
+                                             footer: { current.footer }).open(id).get()
+        let fixed = InvoiceFooter.fixed
+        current.footer = InvoiceFooter(payment: change == "payment cleared" ? "" : "Pay by bank transfer.",
+                                       note: fixed.note, contact: fixed.contact)
+
+        await review.send()
+
+        guard case .refused(let sentence) = review.state else { Issue.record("\(change): \(review.state)"); return }
+        #expect(sentence == InvoiceReviewer.footerChanged)
+        #expect(calls.count == 0, "\(change) asked for Gmail")
+        #expect(gmail.sent.isEmpty)
+        #expect(try Self.invoice(id, in: container).sentStatus == .notSent)
+    }
+
+    final class FooterBox { var footer = InvoiceFooter.fixed }
 
     /// THE PREVIEW IS THE ATTACHMENT (PRD 10c): the bytes sent are the bytes the
     /// session rendered for the page, and the session rendered once.
