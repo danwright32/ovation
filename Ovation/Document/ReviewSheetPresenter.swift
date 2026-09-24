@@ -70,6 +70,14 @@ final class ReviewSheetPresenter {
     /// render however many times the page is shown (PRD 10c).
     var renderCount: Int { session.renderCount }
 
+    /// THE render, the one the page shows, for the send to attach (PRD 10c, ovation#42).
+    /// Through the session, which renders at most once, so the attachment cannot be a
+    /// second rendering of the same invoice.
+    func rendered() throws -> RenderedInvoice { try session.rendered() }
+
+    /// Its bytes, which is what a test compares the attachment against.
+    func renderedBytes() throws -> Data { try session.rendered().bytes }
+
     func show(on page: InvoicePageSink) throws {
         try session.show(on: page)
     }

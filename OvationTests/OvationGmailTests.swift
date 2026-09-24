@@ -66,7 +66,8 @@ struct OvationGmailTests {
     @Test("constructing with no scopes throws, in Ovation's own process")
     func anemptyScopeListThrows() {
         #expect(throws: GmailAuthManager.AuthError.noScopes) {
-            _ = try GmailAuthManager(credentialsDirectory: Self.throwawayDirectory, scopes: [])
+            _ = try GmailAuthManager(credentialsDirectory: Self.throwawayDirectory, scopes: [],
+                                     productName: "Ovation")
         }
     }
 

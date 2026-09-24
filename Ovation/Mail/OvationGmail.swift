@@ -87,8 +87,10 @@ enum OvationGmail {
     ) throws -> GmailAuthManager? {
         if let refusal = check(scopes) { throw refusal }
         guard let credentialsDirectory else { return nil }
+        // THE PRODUCT NAME IS WHAT GOOGLE'S BROWSER TAB IS SENT BACK TO SAY, and
+        // backstage 0.3.0 requires it rather than defaulting it (backstage#61).
         return try GmailAuthManager(credentialsDirectory: credentialsDirectory,
-                                    scopes: scopes)
+                                    scopes: scopes, productName: "Ovation")
     }
 
     /// The one predicate both the sentence and the factory read, so a scope the
