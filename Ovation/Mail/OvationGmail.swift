@@ -1,11 +1,10 @@
 // ovation#425 and ovation#426. THE ONE PLACE OVATION CONSTRUCTS A GMAIL AUTH
 // MANAGER, and the scopes it is allowed to ask Google for.
 //
-// NOTHING CALLS THIS YET, deliberately and on the record. ovation#42 is the issue
-// that activates it, and it is named here so a constructor nothing calls is not
-// mistaken for a wired one (L65, L346, L3). `scripts/check-forbidden-constructs.sh`
-// refuses a second construction anywhere else in the tree, so "one call site"
-// stays true rather than being a sentence in a header.
+// THE APP'S SEND CALLS IT, through `sender(for:connection:)` below (ovation#42).
+// `scripts/check-forbidden-constructs.sh` refuses a second construction anywhere
+// else in the tree, so "one call site" stays true rather than being a sentence in
+// a header.
 //
 // AN ALLOW LIST, NEVER A DENY LIST of Google's restricted scopes. A deny list has
 // to mirror Google's policy by hand, permanently exempts anything they reclassify,
@@ -93,6 +92,38 @@ enum OvationGmail {
                                     scopes: scopes, productName: "Ovation")
     }
 
+    /// A Gmail sender for one press of Send, or the sentence saying why there is none.
+    ///
+    /// Connects first when Gmail is not connected, which is the moment the browser
+    /// asks Dan to sign in; the first send is where that happens, never at launch.
+    /// Every way this can end short of a sender stops the send and says which one
+    /// (L11): a build that may not reach Gmail, a connection that could not be made
+    /// ready, and a sign in that did not finish.
+    @MainActor
+    static func sender(for settings: SendingSettings,
+                       connection make: @MainActor () throws -> (any GmailSignIn)?) async
+        -> Result<any MailSender, SenderUnavailable> {
+        let gmail: any GmailSignIn
+        do {
+            guard let made = try make() else {
+                return .failure(SenderUnavailable(sentence: "This build of Ovation does not reach Gmail, so nothing was sent."))
+            }
+            gmail = made
+        } catch {
+            return .failure(SenderUnavailable(sentence: "Gmail could not be set up (\(error.localizedDescription)), so nothing was sent."))
+        }
+        if !gmail.isConnected {
+            do {
+                try await gmail.connectNow()
+            } catch {
+                return .failure(SenderUnavailable(sentence: "Gmail could not be connected (\(error.localizedDescription)), so nothing was sent."))
+            }
+        }
+        return .success(GmailSender(fromName: settings.fromName, fromEmail: settings.fromEmail,
+                                    token: { try await gmail.validAccessToken() },
+                                    onAuthExpired: { try? await gmail.signalAuthExpired() }))
+    }
+
     /// The one predicate both the sentence and the factory read, so a scope the
     /// message calls unapproved cannot be one the factory passes on (L16, L70).
     private static func check(_ scopes: [String]) -> Refusal? {
@@ -100,4 +131,18 @@ enum OvationGmail {
         let unapproved = scopes.filter { !approvedScopes.contains($0) }
         return unapproved.isEmpty ? nil : .notApproved(unapproved)
     }
+}
+
+/// What sending needs from a Gmail sign in, so the send's own setup can be tested
+/// without a browser. `GmailAuthManager` is the only real one.
+@MainActor
+protocol GmailSignIn: AnyObject, Sendable {
+    var isConnected: Bool { get }
+    func connectNow() async throws
+    func validAccessToken() async throws -> String
+    func signalAuthExpired() throws
+}
+
+extension GmailAuthManager: GmailSignIn {
+    func connectNow() async throws { try await connect() }
 }

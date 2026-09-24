@@ -1,4 +1,3 @@
-import BackstageGoogle
 import SwiftData
 import SwiftUI
 
@@ -426,11 +425,6 @@ struct OvationApp: App {
         presenter.refresh()
     }
 
-    /// The restore control, or nil when there is no folder to restore from.
-    ///
-    /// NIL RATHER THAN AN EMPTY LIST, because "no folder chosen" and "a folder
-    /// with nothing in it" are different things to say (L10).
-    @MainActor
     /// Gmail for one send, or why it cannot be had (ovation#42).
     ///
     /// ASKED ONLY AT THE PRESS, after every other refusal, so an ordinary refusal never
@@ -438,27 +432,14 @@ struct OvationApp: App {
     /// once; the grant is kept in the credentials folder for every send after. The one
     /// construction of the manager stays in `OvationGmail` (ovation#426).
     static func gmailSender(for settings: SendingSettings) async -> Result<any MailSender, SenderUnavailable> {
-        let manager: GmailAuthManager
-        do {
-            guard let made = try OvationGmail.authManager() else {
-                return .failure(SenderUnavailable(sentence: "This build of Ovation does not reach Gmail, so nothing was sent."))
-            }
-            manager = made
-        } catch {
-            return .failure(SenderUnavailable(sentence: "Gmail could not be set up (\(error.localizedDescription)), so nothing was sent."))
-        }
-        if !manager.isConnected {
-            do {
-                try await manager.connect()
-            } catch {
-                return .failure(SenderUnavailable(sentence: "Gmail could not be connected (\(error.localizedDescription)), so nothing was sent."))
-            }
-        }
-        return .success(GmailSender(fromName: settings.fromName, fromEmail: settings.fromEmail,
-                                    token: { try await manager.validAccessToken() },
-                                    onAuthExpired: { try? await manager.signalAuthExpired() }))
+        await OvationGmail.sender(for: settings, connection: { try OvationGmail.authManager() })
     }
 
+    /// The restore control, or nil when there is no folder to restore from.
+    ///
+    /// NIL RATHER THAN AN EMPTY LIST, because "no folder chosen" and "a folder
+    /// with nothing in it" are different things to say (L10).
+    @MainActor
     private static func restorePresenter(for store: ProblemsStore) -> RestorePresenter? {
         guard let storeURL = StoreLocation.liveStoreURL(),
               let folder = BackupFolderSetting.liveBackupsDirectory else { return nil }
