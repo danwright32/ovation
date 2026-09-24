@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode project regeneration tests" 41
+harness_begin "xcode project regeneration tests" 47
 
 TARGET="scripts/regenerate-xcode-project.sh"
 require_target "$TARGET"
@@ -359,5 +359,38 @@ check "and the project that was there is put back" \
     "$(cat "$TREE_PROJECT/marker.txt" 2>/dev/null)" "the project before"
 check "and it left neither of its locks behind" \
     "$({ [ -e "$WORK/lock" ] || [ -e "$(create_lock_of "$TREE_PROJECT")" ]; } && echo held || echo free)" "free"
+
+# ---------------------------------------------------------------------------
+# 10. IT TAKES ITS TURN IN THE ARRIVAL QUEUE (downbeat#524).
+#
+# Waiters on the build lock are served in the order they arrived, through a
+# queue beside it, "<lock>.queue". A FREE lock with a live earlier waiter queued
+# is that waiter's, so this refuses rather than taking it, the same way it refuses
+# a held one. The queue here is beside $WORK/lock, never the real one.
+# ---------------------------------------------------------------------------
+QUEUE="$WORK/lock.queue"
+sleep 60 & EARLIER=$!; disown "$EARLIER" 2>/dev/null
+harness_on_exit "kill $EARLIER 2>/dev/null"
+fresh_tree; stub_generator 0; rm -rf "$QUEUE"; mkdir -p "$QUEUE"
+printf '%s %s\n' "$EARLIER" "$(ps -o lstart= -p "$EARLIER" | sed 's/^ *//; s/ *$//')" \
+    > "$QUEUE/00000000001.000000.$EARLIER"
+OUT="$(run_it)"; RC=$?
+check "a free lock with a live earlier waiter queued is refused" "$RC" "1"
+case "$OUT" in
+    *"1 earlier run"*) check "and it says an earlier run is queued for it" "yes" "yes" ;;
+    *) check "and it says an earlier run is queued for it" "$OUT" "should say 1 earlier run" ;;
+esac
+check "and it did NOT generate, or take the lock" \
+    "$([ -f "$WORK/generated.txt" ] && echo generated || echo no):$([ -e "$WORK/lock" ] && echo held || echo free)" "no:free"
+check "and it left the queue, and the earlier waiter's ticket stands" \
+    "$(ls "$QUEUE" | tr '\n' ' ')" "00000000001.000000.$EARLIER "
+
+# A waiter that died queued does not hold the turn, or one crash would refuse
+# every regeneration until somebody emptied the queue by hand.
+kill "$EARLIER" 2>/dev/null; wait "$EARLIER" 2>/dev/null
+fresh_tree; stub_generator 0
+check "a dead earlier waiter does not stop it regenerating" "$(status_of)" "0"
+check "and the queue is empty afterwards, its ticket and the dead one both gone" \
+    "$(ls "$QUEUE" | wc -l | tr -d ' ')" "0"
 
 harness_end

@@ -55,7 +55,8 @@
 #     3  there is no project.yml to generate from
 #
 # Seams: OVATION_REPO_ROOT, OVATION_XCODE_PROJECT, OVATION_XCODEGEN,
-# OVATION_DIR_LOCK.
+# OVATION_DIR_LOCK. The arrival queue is "<OVATION_DIR_LOCK>.queue", derived from
+# it, so a throwaway lock brings a throwaway queue (downbeat#524).
 set -uo pipefail
 # ovation#399: every library is loaded through require_lib, which refuses by name
 # rather than carrying on without it. See scripts/lib/require.sh.
@@ -100,15 +101,43 @@ if [ ! -x "${XCODEGEN}" ]; then
     exit 2
 fi
 
+# AND IT TAKES ITS TURN (downbeat#524). Waiters on this lock are served in the
+# order they arrived, through a queue beside it that Downbeat, Overture and the
+# runner all read (lib/lock-queue.sh). This does not wait, so it joins, looks
+# once, and leaves: a FREE lock with a live earlier waiter queued is that
+# waiter's, and taking it anyway is the barging the queue exists to stop. A queue
+# that cannot be written is no reason to refuse, since mkdir below is still the
+# only exclusion; this then competes the old way.
+#
+# NEVER CALLED BY A RUN THAT IS ITSELF QUEUED. run-tests.sh regenerates before it
+# joins, because its own ticket would be a live earlier waiter here and it would
+# wait on this refusal until its deadline (test-run-tests.sh case 524c).
+# shellcheck source=lib/lock-queue.sh
+require_lib "${HERE}/lib/lock-queue.sh"
+QUEUED_AHEAD=0
+if lock_queue_join "${DIR_LOCK}" "$$"; then
+    lock_queue_ahead
+    QUEUED_AHEAD="${LOCK_QUEUE_AHEAD}"
+fi
+if [ "${QUEUED_AHEAD}" -gt 0 ]; then
+    lock_queue_leave
+    echo "REFUSED: ${DIR_LOCK} is $(dir_lock_describe "${DIR_LOCK}"), and ${QUEUED_AHEAD} earlier run(s)" >&2
+    echo "         are queued for it in ${DIR_LOCK}.queue, so it is theirs first." >&2
+    echo "         Nothing was touched. Try again when they are done." >&2
+    exit 1
+fi
+
 # NON BLOCKING, ON PURPOSE. See the header: a refusal naming the holder beats a
 # silent ten minute wait.
 if ! dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}") regenerate" "$$"; then
+    lock_queue_leave
     echo "REFUSED: ${DIR_LOCK} is $(dir_lock_describe "${DIR_LOCK}")." >&2
     echo "         Rewriting ${PROJECT} while a build is reading it is the hazard this" >&2
     echo "         refusal exists for. Nothing was touched. Try again when that run is" >&2
     echo "         done, or find out what is holding the lock." >&2
     exit 1
 fi
+lock_queue_leave
 DIR_LOCK_HELD=1
 
 # RELEASED ON EVERY EXIT PATH, including a generator that failed. A mkdir lock is

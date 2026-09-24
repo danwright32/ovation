@@ -44,6 +44,13 @@
 # Overture without bringing that across would trade a crash safe lock for one
 # that parks a stuck lock for half an hour (L409).
 #
+# WAITERS ON THE DIRECTORY LOCK ARE SERVED IN ARRIVAL ORDER (downbeat#524),
+# through a queue beside it, "<lock>.queue", that all three apps read. Before it,
+# whoever looked first after a release won, and on 2026-09-24 a Downbeat push
+# failed on its deadline behind newer runs having run nothing. mkdir is still the
+# only exclusion; the queue only orders who may try. The protocol is written in
+# lib/lock-queue.sh, and where this joins and leaves it is beside the wait below.
+#
 # Because the directory lock does not self clear, THE TRAP IS THE WHOLE OF
 # OVATION'S CRASH SAFETY on that half, and it runs on every exit path rather than
 # only the tidy one (L515, L514).
@@ -250,6 +257,13 @@ release_locks() {
   [ -n "${DIR_LOCK_HELD}" ] && rm -rf "${DIR_LOCK}" 2>/dev/null || true
   DIR_LOCK_HELD=""
   FLOCK_FD=""
+  # AND A PLACE IN THE QUEUE FOR THAT LOCK (downbeat#524). A ticket left standing
+  # by a run that gave up or was stopped would hold every later waiter back until
+  # somebody judged this pid dead. Set only once lib/lock-queue.sh is loaded, so
+  # an exit before then has nothing to leave.
+  if [ -n "${LOCK_QUEUE_TICKET:-}" ]; then
+    lock_queue_leave
+  fi
   # A registration left standing would refuse every regeneration of this tree
   # until a later one noticed this pid was gone (ovation#299).
   if [ -n "${PROJECT_READER_PID}" ]; then
@@ -773,6 +787,11 @@ else
   # shellcheck source=lib/dir-lock.sh
   require_lib "${REPO_ROOT}/scripts/lib/dir-lock.sh"
   describe_dir_holder() { dir_lock_describe "${DIR_LOCK}"; }
+  # downbeat#524. The order waiters on that lock are served in, which all three
+  # apps share, so it lives in one library beside Downbeat's and Overture's copies
+  # of the same protocol.
+  # shellcheck source=lib/lock-queue.sh
+  require_lib "${REPO_ROOT}/scripts/lib/lock-queue.sh"
   # ovation#433. ONE HOLDER IS ONE HOLDER HOWEVER MANY DESCRIPTORS ITS CHILDREN
   # INHERIT, which lives in lib/file-lock.sh with the measurement behind it. It
   # was four lines here and `lsof -t` answered with the holder and every child it
@@ -1095,8 +1114,35 @@ else
       # interval silently rescaled the deadline (L226).
       wait_started="$(date +%s)"
       announced=0
+      # IN ARRIVAL ORDER (downbeat#524). Every waiter on Downbeat's lock used to
+      # retry on its own timer and whoever looked first after a release won, so a
+      # run could wait out its whole deadline while newer ones kept taking it: on
+      # 2026-09-24 a Downbeat push failed that way having run nothing. The queue
+      # beside the lock says whose turn it is, and the protocol is written in
+      # lib/lock-queue.sh. mkdir is still the only thing that keeps two suites
+      # apart, which is why a join that fails just waits the old way, and says so.
+      #
+      # JOINED HERE AND NOT EARLIER, deliberately. A narrowed run regenerates the
+      # project above, through regenerate-xcode-project.sh, which takes this same
+      # lock through this same queue; a ticket held by this run by then would be a
+      # live earlier waiter the regeneration refuses behind, and this run would
+      # wait on its own child until its deadline (test-run-tests.sh case 524c).
+      if ! lock_queue_join "${DIR_LOCK}" "$$"; then
+        echo "    could not join the queue at ${DIR_LOCK}.queue, so this run waits unordered, as every run did before downbeat#524"
+      fi
+      queue_said=""
       while :; do
-        if dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}")" "$$"; then
+        lock_queue_ahead
+        if [ "${LOCK_QUEUE_AHEAD}" -gt 0 ]; then
+          # Somebody earlier is still queued. Their turn comes first whether or not
+          # the lock is free this moment, so mkdir is not even tried.
+          if [ "${queue_said}" != "${LOCK_QUEUE_AHEAD}" ]; then
+            echo "    queued behind ${LOCK_QUEUE_AHEAD} earlier run(s) waiting for ${DIR_LOCK}, which are served first"
+            queue_said="${LOCK_QUEUE_AHEAD}"
+          fi
+        elif dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}")" "$$"; then
+          # Holding it is the end of this run's place in the queue.
+          lock_queue_leave
           DIR_LOCK_HELD=1
           # Non blocking. If Overture has it, we do not queue holding Downbeat's.
           exec 9>"${FILE_LOCK}" || { echo "Error: cannot open ${FILE_LOCK}" >&2; exit 3; }
@@ -1111,6 +1157,15 @@ else
           # Closing a descriptor needs no silencing; it never errors here.
           exec 9>&-
           release_locks
+          # BACK OF THE QUEUE, NOT THE FRONT. Keeping the front ticket while waiting
+          # on Overture's lock would hold every Downbeat run behind an Overture
+          # build, through Ovation, which is the coupling the release above exists
+          # to prevent. The protocol says a waiter leaves once it holds the lock,
+          # and it did; this is a new arrival.
+          if ! lock_queue_join "${DIR_LOCK}" "$$"; then
+            echo "    could not rejoin the queue at ${DIR_LOCK}.queue, so this run waits unordered"
+          fi
+          queue_said=""
         fi
         note_holders
         elapsed=$(( $(date +%s) - wait_started ))
@@ -1135,12 +1190,19 @@ else
           echo "       named run has ended; Overture's is held by a live process, so removing a" >&2
           echo "       file frees nothing, and the fix is to stop the pid named above once you" >&2
           echo "       have checked its run has ended." >&2
+          if [ "${LOCK_QUEUE_AHEAD}" -gt 0 ]; then
+            echo "       It was still queued behind ${LOCK_QUEUE_AHEAD} earlier run(s) for Downbeat's lock," >&2
+            echo "       served in the order they arrived; the queue is ${DIR_LOCK}.queue." >&2
+          fi
           STATUS=3
           WAIT_OUTCOME=gave-up
           break
         fi
         sleep "${POLL}"
       done
+      # A run that gave up goes on to the live data compare, and its ticket must
+      # not hold the queue for that long. One that got the lock has already left.
+      lock_queue_leave
       waited_for=$(( $(date +%s) - wait_started ))
       WAIT_OUTCOME="${WAIT_OUTCOME:-acquired}"
       if [ "${WAIT_OUTCOME}" = acquired ] && { [ "${waited_for}" -gt 0 ] || [ "${holders_seen}" -gt 0 ]; }; then
