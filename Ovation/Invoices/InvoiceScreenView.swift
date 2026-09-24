@@ -119,6 +119,9 @@ struct InvoiceScreenView: View {
     /// NIL DRAWS THE WORD QUIET RATHER THAN HIDING IT, so the foot does not change
     /// shape depending on what is wired (L678).
     var review: (() -> Void)?
+    /// Why the last Review could not be opened, or nil (ovation#42). Said at the foot,
+    /// beside the word it answers, so a press that opened nothing is never silent.
+    var refusedReview: String?
 
     /// The design record's own column widths, named once so the header and every
     /// row are laid out by one declaration and cannot drift apart (L553).
@@ -822,6 +825,12 @@ struct InvoiceScreenView: View {
                 Text(refusal)
                     .font(.system(size: 13))
                     .foregroundStyle(OvationPalette.quiet)
+                    .multilineTextAlignment(.trailing)
+            }
+            if let refusedReview {
+                Text(refusedReview)
+                    .font(.system(size: 13))
+                    .foregroundStyle(OvationPalette.soft)
                     .multilineTextAlignment(.trailing)
             }
             reviewWord

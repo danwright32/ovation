@@ -204,4 +204,18 @@ struct InvoiceReviewerTests {
         #expect(review.destinationWarning?.contains("second@elsewhere.example") == true)
         #expect(review.subject.hasPrefix("Invoice "))
     }
+
+    /// WHO IT GOES TO IS PART OF WHAT IS APPROVED (L64). With sends redirected, the sheet
+    /// lists the test address the message will reach, never the client it will not.
+    @Test("the sheet lists where the message actually goes, the test address when redirected")
+    func thesheetListsTheRealDestination() async throws {
+        let (container, id) = try Self.draft()
+
+        let redirected = try await Self.reviewer(container, settings: try Self.settingsFile(Self.test)).open(id).get()
+        #expect(redirected.goingTo == ["second@elsewhere.example"])
+
+        let (container2, id2) = try Self.draft()
+        let ordinary = try await Self.reviewer(container2, settings: try Self.settingsFile(Self.clients)).open(id2).get()
+        #expect(ordinary.goingTo == ["booker@client.example"])
+    }
 }

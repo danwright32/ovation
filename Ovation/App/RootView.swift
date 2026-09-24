@@ -64,6 +64,9 @@ struct RootView: View {
     /// this view reaches no store of its own.
     var writeReferralCredit: ((PersistentIdentifier, ReferralCreditChange) async -> String?)?
     var edits: InvoiceEditCommand?
+    /// ovation#42. The review of a real invoice, as one value. Nil where this launch
+    /// has no store, and then the invoice screen offers no Review to press.
+    var reviewer: InvoiceReviewer?
 
     /// ovation#246. What the launch is doing, while it is doing it. Nil in every
     /// hosted test written before there was one, and in that case the window is
@@ -99,7 +102,8 @@ struct RootView: View {
                       writeDueDate: writeDueDate, writeTaxStatus: writeTaxStatus,
                       writeLine: writeLine, writeServiceType: writeServiceType,
                       writeDiscount: writeDiscount,
-                      writeReferralCredit: writeReferralCredit, edits: edits)
+                      writeReferralCredit: writeReferralCredit, edits: edits,
+                      reviewer: reviewer)
         } else {
             problemsWindow
         }

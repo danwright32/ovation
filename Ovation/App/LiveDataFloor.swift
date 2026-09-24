@@ -70,6 +70,11 @@ enum LiveDataFloor {
               reaches: "the folder holding the Gmail client configuration and the "
                 + "refresh token, which is the key to Dan's real mailbox",
               resolve: { StoreLocation.liveCredentialsDirectory() }, issue: nil),
+        // BUILT BY ovation#42, behind the same gate as the credentials.
+        .init(name: "liveSendingSettingsFile",
+              reaches: "the file saying who invoices are sent from and whether they go "
+                + "to clients or to Dan's test address",
+              resolve: { StoreLocation.liveSendingSettingsFile() }, issue: nil),
 
         // NOT BUILT. Named now so the floor is extended by this list rather than
         // by whoever notices, and so a later milestone inherits the requirement

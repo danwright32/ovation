@@ -1,3 +1,4 @@
+import BackstageGoogle
 import SwiftData
 import SwiftUI
 
@@ -430,6 +431,35 @@ struct OvationApp: App {
     /// NIL RATHER THAN AN EMPTY LIST, because "no folder chosen" and "a folder
     /// with nothing in it" are different things to say (L10).
     @MainActor
+    /// Gmail for one send, or why it cannot be had (ovation#42).
+    ///
+    /// ASKED ONLY AT THE PRESS, after every other refusal, so an ordinary refusal never
+    /// opens a browser. The first send with no stored grant opens Google's consent page
+    /// once; the grant is kept in the credentials folder for every send after. The one
+    /// construction of the manager stays in `OvationGmail` (ovation#426).
+    @MainActor
+    static func gmailSender(for settings: SendingSettings) async -> Result<any MailSender, SenderUnavailable> {
+        let manager: GmailAuthManager
+        do {
+            guard let made = try OvationGmail.authManager() else {
+                return .failure(SenderUnavailable(sentence: "This build of Ovation does not reach Gmail, so nothing was sent."))
+            }
+            manager = made
+        } catch {
+            return .failure(SenderUnavailable(sentence: "Gmail could not be set up (\(error.localizedDescription)), so nothing was sent."))
+        }
+        if !manager.isConnected {
+            do {
+                try await manager.connect()
+            } catch {
+                return .failure(SenderUnavailable(sentence: "Gmail could not be connected (\(error.localizedDescription)), so nothing was sent."))
+            }
+        }
+        return .success(GmailSender(fromName: settings.fromName, fromEmail: settings.fromEmail,
+                                    token: { try await manager.validAccessToken() },
+                                    onAuthExpired: { try? await manager.signalAuthExpired() }))
+    }
+
     private static func restorePresenter(for store: ProblemsStore) -> RestorePresenter? {
         guard let storeURL = StoreLocation.liveStoreURL(),
               let folder = BackupFolderSetting.liveBackupsDirectory else { return nil }
@@ -592,6 +622,17 @@ struct OvationApp: App {
                          }
                      },
                      edits: edits,
+                     // ovation#42. The review of a real invoice, and its send. The
+                     // sending settings file is nil in a Debug build and a test run,
+                     // which may not reach live Google, so they cannot send whatever
+                     // file is on the Mac.
+                     reviewer: opened.map { container in
+                         InvoiceReviewer(container: container,
+                                         footer: { InvoiceFooterSetting(defaults: .standard).footer },
+                                         settingsFile: StoreLocation.liveSendingSettingsFile(),
+                                         makeSender: { settings in await Self.gmailSender(for: settings) },
+                                         clock: { Date() })
+                     },
                      progress: progress)
                 // THE WINDOW IS UP BEFORE ANY OF THIS RUNS (ovation#246). The
                 // order inside the launch is unchanged; what changed is that

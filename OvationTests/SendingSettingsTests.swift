@@ -105,6 +105,26 @@ struct SendingSettingsTests {
         }
     }
 
+    // MARK: where the file lives
+
+    /// THE SAME GATE AS THE GOOGLE CREDENTIALS (ovation#425): a test run and a Debug
+    /// build are given NO sending settings path, so neither can send whatever file is
+    /// on the Mac, and a real Release run is given one beside the store.
+    @Test("there is no live sending settings file inside a test run")
+    func nolivefileUnderATestRun() {
+        #expect(StoreLocation.liveSendingSettingsFile() == nil)
+    }
+
+    @Test("a run that may reach live Google is given the file beside the store, and one that may not is given nothing")
+    func therealRunIsGivenTheFile() throws {
+        let file = try #require(StoreLocation.liveSendingSettingsFile(mayReachLiveGoogle: true))
+
+        #expect(file.lastPathComponent == "sending.json")
+        #expect(file.path.contains("/Ovation/"))
+        #expect(!file.path.contains("Ovation-Debug"))
+        #expect(StoreLocation.liveSendingSettingsFile(mayReachLiveGoogle: false) == nil)
+    }
+
     /// WHAT THE SHEET SAYS about a redirected send is derived from the destination
     /// itself, so the sheet and the sender cannot disagree about where it is going
     /// (L64, L455).

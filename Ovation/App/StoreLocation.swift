@@ -181,4 +181,20 @@ enum StoreLocation {
         return dataDirectory(appSupport: appSupport, isDebugBuild: false)
             .appendingPathComponent("Google", isDirectory: true)
     }
+
+    /// Where Dan writes who sends are from and where they go (ovation#42), or nil where
+    /// this run may not send at all.
+    ///
+    /// THE SAME QUESTION AS THE CREDENTIALS ABOVE, deliberately: a run that may not reach
+    /// live Google may not send, so a Debug build and a test run are given no path, and a
+    /// file sitting on the Mac can never turn one of them into a sender. It creates
+    /// nothing; Dan writes the file.
+    nonisolated static func liveSendingSettingsFile(
+        appSupport: URL = StoreLocation.appSupport,
+        mayReachLiveGoogle: Bool = AppEnvironment.mayReachLiveGoogle()
+    ) -> URL? {
+        guard mayReachLiveGoogle else { return nil }
+        return dataDirectory(appSupport: appSupport, isDebugBuild: false)
+            .appendingPathComponent("sending.json", isDirectory: false)
+    }
 }

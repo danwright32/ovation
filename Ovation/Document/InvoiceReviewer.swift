@@ -73,12 +73,17 @@ final class InvoiceReviewer {
             let settings = settingsFile.map { SendingSettings.read(from: $0) }
             let number = numbered.number ?? 0
             return .success(InvoiceReview(
-                invoiceID: invoiceID, numberTakenHere: taken, presenter: presenter,
+                invoiceID: invoiceID, number: number, numberTakenHere: taken, presenter: presenter,
                 subject: InvoiceMail.subject(number: number, shoots: numbered.shoots.map(\.name)),
                 message: InvoiceMail.message(amountDue: document.amountDue, dueLine: document.dueLine,
                                              shoots: numbered.shoots.map(\.name),
                                              signedBy: (try? settings?.get())?.fromName),
                 destinationWarning: (try? settings?.get())?.destination.warning,
+                // WHO IT GOES TO, from the same settings the send reads (L64, L455): the
+                // test address when redirected, the client's recipients otherwise, and the
+                // client's where no settings can be read, since Send refuses then anyway.
+                goingTo: (try? settings?.get())?.destination.recipients(forClient: presenter.recipients)
+                    ?? presenter.recipients,
                 // HELD STRONGLY, deliberately: the reviewer never holds a review, so this
                 // makes no cycle, and a weak reference let a review outlive the reviewer
                 // that made it and turned Send into a silent no-op.
@@ -144,6 +149,8 @@ final class InvoiceReviewer {
 @Observable
 final class InvoiceReview: Identifiable {
     let invoiceID: PersistentIdentifier
+    /// The invoice's number, which the outcome names.
+    let number: Int64
     /// The number this review took, which closing unsent gives back. Nil where the invoice
     /// already had one.
     let numberTakenHere: Int64?
@@ -152,20 +159,24 @@ final class InvoiceReview: Identifiable {
     var message: String
     /// What the sheet says when the send will not reach the client, or nil.
     let destinationWarning: String?
+    /// Where the message will actually go, which the sheet lists (L64).
+    let goingTo: [String]
     var state: ReviewSendState = .ready
     private let performSend: @MainActor (InvoiceReview) async -> Void
 
     nonisolated var id: ObjectIdentifier { ObjectIdentifier(self) }
 
-    init(invoiceID: PersistentIdentifier, numberTakenHere: Int64?, presenter: ReviewSheetPresenter,
-         subject: String, message: String, destinationWarning: String?,
+    init(invoiceID: PersistentIdentifier, number: Int64, numberTakenHere: Int64?, presenter: ReviewSheetPresenter,
+         subject: String, message: String, destinationWarning: String?, goingTo: [String],
          send: @escaping @MainActor (InvoiceReview) async -> Void) {
         self.invoiceID = invoiceID
+        self.number = number
         self.numberTakenHere = numberTakenHere
         self.presenter = presenter
         self.subject = subject
         self.message = message
         self.destinationWarning = destinationWarning
+        self.goingTo = goingTo
         self.performSend = send
     }
 
@@ -177,6 +188,13 @@ final class InvoiceReview: Identifiable {
     func send() async {
         if case .working = state { return }
         await performSend(self)
+    }
+
+    /// Back to the sheet after a refusal, for another try. Only a refusal: an accepted or
+    /// unsettled send is never offered again from here, because sending it again is how a
+    /// client gets the invoice twice.
+    func tryAgain() {
+        if case .refused = state { state = .ready }
     }
 }
 
