@@ -21,6 +21,14 @@ One command, and it is the same one CI runs:
 the ones that caught a real security defect and they must run somewhere other than one Mac.
 `run-tests.sh` runs everything.
 
+## After a merge
+
+Run `bash scripts/check-installed-build.sh`. It compares the Ovation installed in
+/Applications with main and says how far behind it is (ovation#389). When it says
+BEHIND, tell Dan the installed app is missing that work and that
+`bash scripts/build-install.sh` reinstalls it; installing is his to run. Exit 2
+means there is no install record, which is its own answer, not a current install.
+
 ## What to know before editing
 
 - Needs xcodegen and flock (`brew install xcodegen flock`) and the Xcode named in `.xcode-version`,

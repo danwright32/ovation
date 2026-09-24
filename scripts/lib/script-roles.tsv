@@ -62,6 +62,7 @@
 #                  was running them, for as long as the comparison went one way
 #                  only (ovation#155, ovation#214).
 #
+check-installed-build.sh	tool	Run after every merge as this repository's post-merge step (CLAUDE.md), by the session that merged, so the person told the install is behind is Dan at the moment it becomes true (ovation#389). test-installed-build.sh covers it.
 build-app-icon.sh	tool	Regenerates the committed icon catalog from icon/ovation-app-icon.png. Run by hand when the artwork changes, and never by the build, so a machine without Pillow can still build the app. test-app-icon-current.sh drives it against throwaway artwork, and check-app-icon-current.sh holds the committed catalog to it (ovation#102).
 build-install.sh	tool	Builds and installs the app. Dan runs the installs himself (2026-08-28), so nothing automated may call it. test-build-install.sh drives it against stubs.
 build-products.sh	tool	Takes minutes to build both configurations, so no push may wait on it. It is the command CI will call when CI exists, and until then it is run by a person. test-build-products.sh covers it.
@@ -173,6 +174,7 @@ test-gitignore.sh	suite
 test-hooks-path.sh	suite	
 test-require-lib.sh	suite	
 test-pr-mergeable.sh	suite	
+test-installed-build.sh	suite	
 test-design-draws.sh	suite	
 test-design-record-open.sh	suite	
 test-design-measurements-marked.sh	suite	
