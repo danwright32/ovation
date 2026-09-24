@@ -40,6 +40,18 @@ struct ReviewSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
+            // A SEND THAT WILL NOT REACH THE CLIENT is said first and loudest, in the one
+            // treatment used for nothing else (L623), before anything can be pressed.
+            if let redirected = review?.destinationWarning {
+                Text(redirected)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(OvationPalette.onRedirectBand)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(OvationPalette.redirectBand)
+                    .accessibilityAddTraits(.isStaticText)
+            }
             // A WARNING IS A BAND ACROSS THE SHEET, UNDER THE TITLE (PRD 52e), and
             // this one carries no control: nothing can answer it except changing the
             // date, which is not done from here.
@@ -52,18 +64,6 @@ struct ReviewSheet: View {
                     .background(Color.orange.opacity(0.14))
                     .accessibilityAddTraits(.isStaticText)
                 Divider()
-            }
-            // A SEND THAT WILL NOT REACH THE CLIENT is said first and loudest, in the one
-            // treatment used for nothing else (L623), before anything can be pressed.
-            if let redirected = review?.destinationWarning {
-                Text(redirected)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(OvationPalette.onRedirectBand)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(OvationPalette.redirectBand)
-                    .accessibilityAddTraits(.isStaticText)
             }
             // ON SEND THE SHEET BECOMES THE OUTCOME (the design record's sending
             // states): the document and the recipients are replaced, so nothing is

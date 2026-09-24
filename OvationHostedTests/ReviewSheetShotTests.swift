@@ -97,7 +97,7 @@ struct ReviewSheetShotTests {
         let day = Date(timeIntervalSince1970: 1_790_000_000)
         var written = 0
         for state in SendShot.all {
-            let review = try await Self.review(redirected: state.redirected, day: day)
+            let review = try await Self.review(redirected: state.redirected, dueToday: state.dueToday, day: day)
             review.state = state.state(day)
             let presenter = review.presenter
             let page = InvoicePage()
@@ -114,6 +114,7 @@ struct ReviewSheetShotTests {
     private struct SendShot {
         let fileName: String
         let redirected: Bool
+        var dueToday = false
         let state: (Date) -> ReviewSendState
 
         /// COMPUTED, not stored: each carries a closure, which a shared constant may not.
@@ -128,11 +129,15 @@ struct ReviewSheetShotTests {
                      state: { _ in .refused("Gmail refused it: invalid recipient. Nothing was sent, and this is still a draft.") }),
             SendShot(fileName: "14-could-not-tell-light.png", redirected: false,
                      state: { _ in .couldNotTell("Gmail did not answer (the request timed out), so Ovation cannot tell whether it went. It will not be sent again until that is settled.") }),
+            // BOTH BANDS AT ONCE, so the order is judged by being seen: the send that
+            // will not reach the client is said first, above the due date.
+            SendShot(fileName: "15-test-address-and-due-today-light.png", redirected: true,
+                     dueToday: true, state: { _ in .ready }),
         ] }
     }
 
     /// A review of a real invoice over an in-memory store, as the app opens one.
-    private static func review(redirected: Bool, day: Date) async throws -> InvoiceReview {
+    private static func review(redirected: Bool, dueToday: Bool, day: Date) async throws -> InvoiceReview {
         let container = try OvationSchema.container(inMemory: true)
         let context = container.mainContext
         let client = Client(name: "A Client", taxStatus: .notExempt)
@@ -142,7 +147,8 @@ struct ReviewSheetShotTests {
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: issued,
                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
         context.insert(invoice)
-        invoice.dueDate = BusinessDate.stamping(day.addingTimeInterval(14 * 86_400))
+        // DUE TODAY is judged against the real clock, which is what the warning reads.
+        invoice.dueDate = BusinessDate.stamping(dueToday ? Date() : day.addingTimeInterval(14 * 86_400))
         let shoot = Shoot(name: "Autumn Concert", when: .dayOnly(issued), venue: "Calder Street Theatre")
         shoot.shotFrom = ClockTime("19:00")
         shoot.shotUntil = ClockTime("21:30")
