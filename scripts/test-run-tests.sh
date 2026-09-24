@@ -76,7 +76,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 248
+harness_begin "test runner lock tests" 251
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -167,6 +167,21 @@ OUT1="$(run_runner "echo THE-COMMAND-RAN; $HOSTED_PASSES")"; ST1=$?
 check "with neither lock held the runner succeeds" "$ST1" "0"
 check "and it actually ran the command" \
     "$(printf '%s' "$OUT1" | grep -c "THE-COMMAND-RAN")" "1"
+
+# 1a. ovation#373. THE COMPILER'S SYMPTOM GETS THE RULE BESIDE IT. OvationTests
+#     compiles the app's sources in and has no host, so `@testable import Ovation`
+#     in one of its files names a module nothing builds, and the error names the
+#     symptom rather than the missing step: twenty minutes went on a full rebuild
+#     chasing the wrong cause. The rule is enforced at push time by
+#     test-project-configuration.sh; this says it the moment the error appears.
+OUT1A="$(PURE_OVERRIDE="echo \"/x/OvationTests/NewThingTests.swift:3:8: error: Unable to resolve module dependency: 'Ovation'\"; exit 65" run_runner)"; ST1A=$?
+check "a pure run failing on the app module import still fails" \
+    "$([ "$ST1A" -ne 0 ] && echo failed || echo passed)" "failed"
+check "and it names the fix, deleting the import, beside the error" \
+    "$(printf '%s' "$OUT1A" | grep -c 'delete the line @testable import Ovation')" "1"
+OUT1A2="$(PURE_OVERRIDE='echo "error: cannot find Foo in scope"; exit 65' run_runner)"
+check "and an unrelated compile error gets no such advice" \
+    "$(printf '%s' "$OUT1A2" | grep -c 'delete the line @testable import Ovation')" "0"
 
 # 1b. ovation#492. A CHILD THAT OUTLIVES THE RUNNER DOES NOT KEEP THE LOCK. The
 #     lock is a DESCRIPTOR, and a numbered descriptor opened by `exec` is inherited

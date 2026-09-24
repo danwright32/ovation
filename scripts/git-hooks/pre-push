@@ -315,7 +315,7 @@ gate_check check-design-terms-agree.sh "the two design files offer different pay
 # reader follows it, finds a number, and comes away believing the requirement
 # says something. The first run found four, all of the same shape, a section
 # qualifier naming the section the requirements are NOT in.
-gate_check check-prd-citations.sh "a PRD citation names a requirement that is not there."
+gate_check check-prd-citations.sh "a PRD citation names a requirement that is not there, or a requirement number is declared twice."
 
 # ovation#181. check-plan-claims.sh re-checks every claim the implementation plan
 # makes about the two sibling repositories, and until now NOTHING ran it: it was

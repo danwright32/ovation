@@ -57,6 +57,7 @@ Exit codes, one per outcome:
 
     0  every citation found resolves to a requirement that exists
     1  at least one does not, and it says which, in which file, on which line
+    3  a requirement number is declared twice in one section (ovation#415)
     2  it could not measure: no PRD, no requirements in it, no citations found,
        a root it cannot enumerate, or a tracked file it could not open, whose
        citations therefore went unchecked
@@ -104,19 +105,33 @@ def requirements(path):
         return None, "cannot read %s: %s" % (path, why.strerror or why)
 
     found = {}
+    first_line = {}
     section = None
-    for line in text.split("\n"):
+    for number, line in enumerate(text.split("\n"), 1):
         heading = SECTION.match(line)
         if heading:
             section = heading.group(1)
             continue
         label = LABEL.match(line)
         if label and section is not None:
+            key = (section, label.group(1))
+            if key in first_line:
+                DUPLICATES.append((section, label.group(1), first_line[key], number))
+            else:
+                first_line[key] = number
             found.setdefault(section, set()).add(label.group(1))
 
     if not found:
         return None, "%s declares no numbered requirements this can resolve against" % path
     return found, None
+
+
+# ONE NUMBER, ONE REQUIREMENT (ovation#415). A second `46e.` and a second `51h.`
+# were written on 2026-09-19 and this passed both times, because a citation of
+# either resolved to something. With two requirements under one number a reader
+# follows a citation and reads whichever comes first, so each (section, number)
+# declared more than once is kept here with both lines, for its own refusal.
+DUPLICATES = []
 
 
 def tracked_files(root):
@@ -155,6 +170,19 @@ def main(argv):
     if declared is None:
         print("CANNOT MEASURE: %s" % why)
         return 2
+
+    # A DUPLICATE IS ITS OWN OUTCOME, exit 3, and it is decided before any file is
+    # read, because it is a fault in the PRD itself rather than in a citation, and
+    # a citation check that passed over it would resolve every citation of that
+    # number to two different requirements (L11).
+    if DUPLICATES:
+        print("REFUSED: %d requirement number(s) are declared twice in one section of PRD.md."
+              % len(DUPLICATES))
+        for section, item, first, second in DUPLICATES:
+            print("  %s.%s is declared twice, on lines %d and %d" % (section, item, first, second))
+        print("  A citation of that number now means two requirements, and a reader follows")
+        print("  it to whichever comes first. Renumber one of them.")
+        return 3
 
     names, why = tracked_files(root)
     if names is None:

@@ -68,9 +68,7 @@ require_lib "$(dirname "${BASH_SOURCE[0]}")/lib/repo-git.sh"
 # and it cost nothing while it stood, which is exactly why an entry in a list like
 # that survives unnoticed; none of them said anything about where Ovation itself
 # is (L153).
-if [ -n "${OVATION_SIBLING_SEARCH_ROOTS:-}" ]; then
-    SEARCH_ROOTS="$OVATION_SIBLING_SEARCH_ROOTS"
-elif ! SEARCH_ROOTS="$(sibling_root "$REPO_ROOT")"; then
+if ! SEARCH_ROOTS="$(sibling_search_roots "$REPO_ROOT")"; then
     echo "CANNOT MEASURE: where the sibling checkouts live could not be worked out (see above)."
     echo "    Set OVATION_SIBLING_SEARCH_ROOTS to the folder holding them."
     exit 2
@@ -95,35 +93,25 @@ fi
 # refused for nine unmeasurable ports on 2026-09-08 with all nine present (L70,
 # L621).
 
-# Resolve <owner>/<repo> to a local checkout by asking each candidate what its
-# origin actually is, rather than matching on directory name. Overture's checkout
-# is not called "overture", so a name match would miss it, and a directory that
-# merely shares a name is not the same repository (L15).
-resolve_sibling() {
-    local slug="$1" root candidate url
-    local IFS=:
-    for root in $SEARCH_ROOTS; do
-        [ -d "$root" ] || continue
-        while IFS= read -r candidate; do
-            url="$(clean_git -C "$candidate" remote get-url origin 2>/dev/null)" || continue
-            case "$url" in
-                *"$slug".git|*"$slug"|*"$slug"/) printf '%s\n' "$candidate"; return 0 ;;
-            esac
-        done < <(find "$root" -maxdepth 3 -type d -name .git -not -path '*/.claude/*' 2>/dev/null | sed 's|/\.git$||')
-    done
-    return 1
-}
+# Which checkout a sibling is comes from the library's resolve_sibling (ovation#417).
 
-# The branch the port has to be on. Prefer the local main, fall back to the
-# remote tracking one, and refuse rather than guess if neither is there.
-main_ref() {
-    local repo="$1"
-    for ref in main origin/main; do
+# THE REFS THAT MEAN MAIN, every one the sibling has, REMOTE TRACKING FIRST
+# (ovation#401). A checkout another session works in stands on a feature branch,
+# and its local main is not moved by pulls to that branch, so it lags. A port taken
+# from the real main was refused as "a branch that never merged", the opposite of
+# what happened. A local copy is named after what it mirrors (L454), so the remote
+# tracking main is asked first and the local one second, and whichever answers is
+# named. Nothing here fetches or moves either: that checkout is another session's.
+# Refused rather than guessed if the sibling has neither.
+main_refs() {
+    local repo="$1" ref found=""
+    for ref in origin/main main; do
         if clean_git -C "$repo" rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
-            printf '%s\n' "$ref"; return 0
+            found="${found}${ref} "
         fi
     done
-    return 1
+    [ -n "$found" ] || return 1
+    printf '%s\n' "${found% }"
 }
 
 found=0
@@ -157,14 +145,14 @@ while IFS= read -r file; do
             unreadable=$((unreadable+1))
             continue
         fi
-        if ! sibling="$(resolve_sibling "$slug")"; then
+        if ! sibling="$(resolve_sibling "$slug" "$SEARCH_ROOTS")"; then
             echo "CANNOT MEASURE: $rel"
             echo "    the sibling repository $slug is not on this machine"
             echo "    roots searched: $SEARCH_ROOTS"
             sibling_absent=$((sibling_absent+1))
             continue
         fi
-        if ! ref="$(main_ref "$sibling")"; then
+        if ! refs="$(main_refs "$sibling")"; then
             echo "CANNOT MEASURE: $rel"
             echo "    $slug has neither a main nor an origin/main to compare against"
             cannot_measure=$((cannot_measure+1))
@@ -176,11 +164,17 @@ while IFS= read -r file; do
             cannot_measure=$((cannot_measure+1))
             continue
         fi
-        if clean_git -C "$sibling" merge-base --is-ancestor "$commit" "$ref" 2>/dev/null; then
-            echo "OK: $rel  ($slug $path @ ${commit:0:8})"
+        answered=""
+        for ref in $refs; do
+            if clean_git -C "$sibling" merge-base --is-ancestor "$commit" "$ref" 2>/dev/null; then
+                answered="$ref"; break
+            fi
+        done
+        if [ -n "$answered" ]; then
+            echo "OK: $rel  ($slug $path @ ${commit:0:8}, on $answered)"
         else
             echo "NOT ON MAIN: $rel"
-            echo "    $slug $path @ ${commit:0:8} is not an ancestor of $ref"
+            echo "    $slug $path @ ${commit:0:8} is not an ancestor of ${refs// / or }"
             echo "    it was ported from a branch or a checkout that never merged"
             not_on_main=$((not_on_main+1))
         fi

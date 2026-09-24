@@ -24,7 +24,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "every PRD citation names a requirement that exists" 23
+harness_begin "every PRD citation names a requirement that exists" 27
 
 TARGET="scripts/check-prd-citations.sh"
 require_target "$TARGET"
@@ -176,5 +176,25 @@ case "$OUT" in
     *citation*) check "it says no citations were found" "yes" "yes" ;;
     *) check "it says no citations were found" "$OUT" "should name the empty scan" ;;
 esac
+
+# ovation#415. ONE NUMBER, ONE REQUIREMENT. A second `46e.` and a second `51h.`
+# were written into PRD.md on 2026-09-19 and this check passed both times, because
+# a citation of either resolved to something. With two requirements under one
+# number a reader follows a citation and reads whichever comes first, so a number
+# declared twice in one section is its own refusal, with its own exit code.
+DUP_PRD="$WORK/dup-prd.md"
+cp "$REAL_PRD" "$DUP_PRD"
+printf '\n## 5. What Ovation must do\n\n14a. A second requirement claiming a number the first already holds.\n' >> "$DUP_PRD"
+DUP_DIR="$(fixture duplicate "Cited: ${C} 14a." "$DUP_PRD")"
+OUT="$(run_on "$DUP_DIR")"; RC=$?
+check "a requirement number declared twice in one section is refused" "$RC" "3"
+check "and it names the number and both lines" \
+    "$(grep -cE '5\.14a is declared twice, on lines [0-9]+ and [0-9]+' <<< "$OUT")" "1"
+SAME_NUMBER_PRD="$WORK/other-section-prd.md"
+cp "$REAL_PRD" "$SAME_NUMBER_PRD"
+printf '\n## 99. An appendix\n\n14a. The same number in a DIFFERENT section, which is legitimate.\n' >> "$SAME_NUMBER_PRD"
+OUT="$(run_on "$(fixture other-section "Cited: ${C} 14a." "$SAME_NUMBER_PRD")")"; RC=$?
+check "the same number in a different section is not a duplicate" "$RC" "0"
+check "and the committed PRD declares every number once" "$("$CHECK" >/dev/null 2>&1; echo $?)" "0"
 
 harness_end

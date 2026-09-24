@@ -847,6 +847,22 @@ else
     STATUS="${PIPESTATUS[0]}"
   fi
 
+  # THE RULE BESIDE THE SYMPTOM (ovation#373). OvationTests compiles the app's
+  # sources in and has no host (ovation#164), so `@testable import Ovation` in one
+  # of its files names a module nothing builds, and the compiler says only
+  # "Unable to resolve module dependency: 'Ovation'", which names the symptom and
+  # not the step. Twenty minutes and a full rebuild went on the wrong cause. The
+  # rule is still enforced at push time by test-project-configuration.sh; this
+  # says it at the moment the error appears, with the remedy rather than a
+  # description of the fault (L399).
+  if [ "${STATUS}" -ne 0 ] && grep -qF "Unable to resolve module dependency: 'Ovation'" "${PURE_OUTPUT}"; then
+    echo "Error: an OvationTests file imports the app module, which OvationTests never builds:" >&2
+    grep -oE "[^ :]*OvationTests/[^ :]+\.swift" "${PURE_OUTPUT}" | sort -u | sed 's/^/           /' >&2
+    echo "       The app's code is already compiled into OvationTests," >&2
+    echo "       so delete the line @testable import Ovation from that file." >&2
+    echo "       OvationHostedTests is the target that imports the app." >&2
+  fi
+
   # THE PURE SUITE HAS STOPPED READING THE PROJECT, so a regeneration may go ahead
   # (ovation#299). The hosted suite reads it under the directory build lock, which
   # a regeneration also takes, so the registration is not needed past here.
