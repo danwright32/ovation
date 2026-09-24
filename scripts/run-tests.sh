@@ -1055,9 +1055,12 @@ else
           echo "       Downbeat's lock ${DIR_LOCK}: ${last_dir_holder}" >&2
           echo "       Overture's lock ${FILE_LOCK}: ${last_file_holder}" >&2
           echo "       $(holders_sentence) went ahead of this run while it waited." >&2
-          echo "       Several holders is a busy sibling. ONE holder the whole time with" >&2
-          echo "       nothing running is a run that died holding it: remove ${DIR_LOCK}" >&2
-          echo "       and try again." >&2
+          echo "       Several holders is a busy sibling. ONE holder the whole time is either" >&2
+          echo "       a long run or one that died holding it, and the remedy depends on which" >&2
+          echo "       lock (ovation#492): Downbeat's is a folder, so remove ${DIR_LOCK} if its" >&2
+          echo "       named run has ended; Overture's is held by a live process, so removing a" >&2
+          echo "       file frees nothing, and the fix is to stop the pid named above once you" >&2
+          echo "       have checked its run has ended." >&2
           STATUS=3
           WAIT_OUTCOME=gave-up
           break
@@ -1120,15 +1123,22 @@ else
       echo "    reports is worth less than usual."
     fi
 
+    # THE HOSTED SUITE IS STARTED WITH THE LOCK'S DESCRIPTOR CLOSED (ovation#492).
+    # The lock IS descriptor 9, and a numbered descriptor opened by `exec` is
+    # inherited by every process started while it is held (L441). xcodebuild
+    # starts many processes of its own, and one that outlived this run kept
+    # Overture's lock held after the run that took it had gone: every later run on
+    # this Mac, in all three apps, then waited out its timeout. `9>&-` closes it in
+    # the child only, so this run still holds the lock and nothing it starts can.
     if [ -n "${HOSTED_TEST_COMMAND}" ]; then
-      HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1)"
+      HOSTED_OUTPUT="$(bash -c "${HOSTED_TEST_COMMAND}" 2>&1 9>&-)"
     else
       # NARROWED IN PLACE OF THE WHOLE HOSTED TARGET, never beside it: two
       # -only-testing arguments are a union, so a filter added beside the target
       # would run the whole hosted suite while reading as one test (ovation#321).
       HOSTED_OUTPUT="$(xcodebuild -project "${XCODE_PROJECT}" -scheme Ovation \
         -destination 'platform=macOS' \
-        "-only-testing:${ONLY_TESTING:-OvationHostedTests}" test 2>&1)"
+        "-only-testing:${ONLY_TESTING:-OvationHostedTests}" test 2>&1 9>&-)"
     fi
     HOSTED_STATUS=$?
     printf '%s\n' "${HOSTED_OUTPUT}"

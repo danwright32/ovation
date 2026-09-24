@@ -75,7 +75,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 239
+harness_begin "test runner lock tests" 241
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -166,6 +166,22 @@ OUT1="$(run_runner "echo THE-COMMAND-RAN; $HOSTED_PASSES")"; ST1=$?
 check "with neither lock held the runner succeeds" "$ST1" "0"
 check "and it actually ran the command" \
     "$(printf '%s' "$OUT1" | grep -c "THE-COMMAND-RAN")" "1"
+
+# 1b. ovation#492. A CHILD THAT OUTLIVES THE RUNNER DOES NOT KEEP THE LOCK. The
+#     lock is a DESCRIPTOR, and a numbered descriptor opened by `exec` is inherited
+#     by every process started while it is held (L441), so a survivor of the hosted
+#     suite held Overture's lock for ever after the run that took it had gone, and
+#     wedged all three apps' testing. The child records its own pid and is stopped
+#     by that pid, never by matching its command text (L1011).
+CHILD_PID_FILE="$WORK/outliving-child.pid"
+rm -f "$CHILD_PID_FILE"
+OUT1B="$(run_runner "sleep 30 >/dev/null 2>&1 & echo \$! > '$CHILD_PID_FILE'; $HOSTED_PASSES")"; ST1B=$?
+CHILD_PID="$(cat "$CHILD_PID_FILE" 2>/dev/null)"
+check "a run whose hosted suite leaves a child running still succeeds" "$ST1B" "0"
+check "and once it has exited the file lock is free, although the child is still alive" \
+    "$( if [ -n "$CHILD_PID" ] && kill -0 "$CHILD_PID" 2>/dev/null; then \
+          staged_file_lock_held && echo held || echo free; else echo "no child"; fi )" "free"
+[ -n "$CHILD_PID" ] && kill "$CHILD_PID" 2>/dev/null
 
 # 2. AND IT RELEASED BOTH. A runner that leaves a lock planted blocks the next
 #    run of a DIFFERENT app, which is the failure this whole thing exists to stop.
