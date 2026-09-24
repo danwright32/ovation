@@ -21,6 +21,16 @@ One command, and it is the same one CI runs:
 the ones that caught a real security defect and they must run somewhere other than one Mac.
 `run-tests.sh` runs everything.
 
+## Merging from a worktree
+
+Remove the worktree before merging, then merge (ovation#396). `gh pr merge
+--delete-branch` cannot delete a branch a worktree has checked out, and then
+leaves the remote branch as well. If a branch survives anyway, delete it on GitHub
+with `gh api -X DELETE repos/danwright32/ovation/git/refs/heads/<branch>`.
+`bash scripts/report-branches.sh` lists every branch beside its pull request's
+state and deletes nothing, because this repository squash merges and no local git
+question can tell a shipped branch from an unshipped one.
+
 ## After a merge
 
 Run `bash scripts/check-installed-build.sh`. It compares the Ovation installed in
