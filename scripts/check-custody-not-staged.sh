@@ -50,7 +50,7 @@ echo "Checking custody paths: ${PATH_LIST[*]}"
 
 found=0
 
-for p in "${PATH_LIST[@]}"; do
+for p in "${PATH_LIST[@]}"; do  # never empty: an empty PATH_LIST is refused above
   # 1. Staged right now. Still fixable with `git restore --staged`.
   while IFS= read -r f; do
     [ -n "$f" ] || continue

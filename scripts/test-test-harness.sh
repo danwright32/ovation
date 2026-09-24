@@ -382,5 +382,38 @@ PIPED="$(grep -n -E "printf '%s(\\\\n)?' \"[^\"]*\" \| grep -q" scripts/*.sh scr
 check "no script pipes text into grep -q, where a match can read as a miss" \
     "$(printf '%s' "$PIPED" | grep -c . || true)" "0"
 
+# AN EMPTY ARRAY UNDER set -u IS FATAL ON THE MAC'S BASH (ovation#398, L486).
+# macOS ships bash 3.2, where "${arr[@]}" of an EMPTY array is an unbound variable
+# error, so a script dies on exactly the healthy path, the one where nothing
+# failed and a list of failures is empty, and it passes on Linux and on every
+# non-empty case. Whether a given array CAN be empty at a line is not something a
+# pattern can read, so each expansion says so: either the safe form
+# ${arr[@]+"${arr[@]}"}, or a `# never empty:` note on the line giving the reason,
+# which is also the record of the triage this issue asked for (L675: the note must
+# begin with a word, so the reason is written rather than implied).
+unguarded_expansions() {
+    local f
+    for f in "$@"; do
+        grep -qE '^set -[a-z]*u' "$f" 2>/dev/null || continue
+        grep -nE '"\$\{[A-Za-z_][A-Za-z0-9_]*\[@\]\}"' "$f" \
+            | grep -vE '^[0-9]+:[[:space:]]*#' \
+            | grep -vE '\$\{[A-Za-z_][A-Za-z0-9_]*\[@\]\+"' \
+            | grep -vE '# never empty: [A-Za-z]' \
+            | sed "s|^|${f##*/}:|"
+    done
+}
+mkdir -p "$WORK/arrays"
+printf '#!/bin/bash\nset -uo pipefail\nfailed=()\nfor x in "${failed[@]}"; do echo "$x"; done\n' > "$WORK/arrays/bare.sh"  # never empty: fixture text written to a file, not expanded here
+printf '#!/bin/bash\nset -uo pipefail\nfailed=()\nfor x in ${failed[@]+"${failed[@]}"}; do echo "$x"; done\n' > "$WORK/arrays/safe.sh"
+printf '#!/bin/bash\nset -uo pipefail\nlist=(a b)\nfor x in "${list[@]}"; do :; done  # never empty: a literal of two\n' > "$WORK/arrays/noted.sh"
+check "an unguarded array expansion under set -u is caught" \
+    "$(unguarded_expansions "$WORK/arrays/bare.sh" | grep -c .)" "1"
+check "and neither the safe form nor a noted reason is" \
+    "$(unguarded_expansions "$WORK/arrays/safe.sh" "$WORK/arrays/noted.sh" | grep -c .)" "0"
+LIVE_ARRAYS="$(unguarded_expansions scripts/*.sh scripts/lib/*.sh scripts/git-hooks/pre-push)"
+[ -z "$LIVE_ARRAYS" ] || printf '    unguarded:\n%s\n' "$LIVE_ARRAYS" >&2
+check "every array expansion under set -u in this tree is safe or says why it cannot be empty" \
+    "$(grep -c . <<< "$LIVE_ARRAYS" || true)" "0"
+
 echo "test harness tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -55,7 +55,7 @@ fi
 
 is_allowed() {
     local candidate="$1" allowed
-    for allowed in "${ALLOWED[@]}"; do
+    for allowed in "${ALLOWED[@]}"; do  # never empty: ALLOWED is a literal list above
         [ "$candidate" = "$allowed" ] && return 0
     done
     return 1
@@ -97,5 +97,5 @@ if [ -n "$offenders" ]; then
 fi
 
 echo "OK: $scanned Swift file(s) scanned, and the shipped footer text is read only where it may be."
-printf '%s\n' "${ALLOWED[@]}" | sed 's/^/        /'
+printf '%s\n' "${ALLOWED[@]}" | sed 's/^/        /'  # never empty: ALLOWED is a literal list above
 exit 0
