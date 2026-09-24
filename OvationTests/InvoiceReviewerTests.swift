@@ -277,4 +277,60 @@ struct InvoiceReviewerTests {
         let ordinary = try await Self.reviewer(container2, settings: try Self.settingsFile(Self.clients)).open(id2).get()
         #expect(ordinary.goingTo == ["booker@client.example"])
     }
+    // MARK: marking an unsettled send as not sent (ovation#471)
+
+    /// FROM THE SHEET, AFTER GMAIL NEVER ANSWERED: the invoice goes back to a draft
+    /// and the sheet back to ready, and the number the review took STAYS, even when
+    /// the sheet is closed afterwards. Closing hands back a number this review took,
+    /// so settling has to stop that, or a wrong answer would put two invoices on one
+    /// number (Dan, 2026-09-21).
+    @Test("marking as not sent from the sheet makes it a draft that keeps its number, even after closing")
+    func markingFromTheSheetKeepsTheNumber() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = InvoiceSenderTests.FakeGmail()
+        gmail.answer = .neverAnswers(URLError(.timedOut))
+        let reviewer = Self.reviewer(container, settings: try Self.settingsFile(Self.clients), gmail: gmail)
+        let review = try await reviewer.open(id).get()
+        let number = review.number
+        await review.send()
+        guard case .couldNotTell = review.state else { Issue.record("got \(review.state)"); return }
+
+        await review.markNotSent()
+        await reviewer.close(review)
+
+        #expect(review.state == .ready)
+        let after = try Self.invoice(id, in: container)
+        #expect(after.sentStatus == .notSent)
+        #expect(after.number == number)
+    }
+
+    @Test("marking as not sent from the list settles the send and keeps the number")
+    func markingFromTheListSettles() async throws {
+        let (container, id) = try Self.draft(numbered: 1_123)
+        let context = ModelContext(container)
+        try #require(try context.fetch(FetchDescriptor<Invoice>()).first).sentStatus =
+            .couldNotDetermine(checkedAt: Self.noon)
+        try context.save()
+        let reviewer = Self.reviewer(container, settings: nil)
+
+        #expect(reviewer.confirmation(forSettling: id) == SendSettler.confirmation(number: 1_123))
+        let refusal = await reviewer.markNotSent(id)
+
+        #expect(refusal == nil)
+        #expect(try Self.invoice(id, in: container).sentStatus == .notSent)
+        #expect(try Self.invoice(id, in: container).number == 1_123)
+    }
+
+    @Test("marking a sent invoice as not sent is refused, by name")
+    func markingASentInvoiceIsRefused() async throws {
+        let (container, id) = try Self.draft(numbered: 1_123)
+        let context = ModelContext(container)
+        try #require(try context.fetch(FetchDescriptor<Invoice>()).first).sentStatus =
+            .sent(route: .ovationSentIt, at: Self.noon)
+        try context.save()
+
+        let refusal = await Self.reviewer(container, settings: nil).markNotSent(id)
+
+        #expect(refusal == SendSettleRefusal.invoiceWasSent.sentence)
+    }
 }

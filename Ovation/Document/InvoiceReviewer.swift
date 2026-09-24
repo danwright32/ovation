@@ -87,11 +87,31 @@ final class InvoiceReviewer {
                 // HELD STRONGLY, deliberately: the reviewer never holds a review, so this
                 // makes no cycle, and a weak reference let a review outlive the reviewer
                 // that made it and turned Send into a silent no-op.
-                send: { review in await self.send(review, footer: footer) }))
+                send: { review in await self.send(review, footer: footer) },
+                settle: { review in await self.markNotSent(review.invoiceID) }))
         } catch {
             if let taken { try? await InvoiceNumberAllocator(modelContainer: container).release(taken, from: invoiceID) }
             return .failure(.couldNotRender(String(describing: error)))
         }
+    }
+
+    /// Puts an unsettled send back to a draft that keeps its number, or says why not
+    /// (ovation#471). Nil when it was done.
+    func markNotSent(_ invoiceID: PersistentIdentifier) async -> String? {
+        do {
+            try await SendSettler(modelContainer: container).markNotSent(invoiceID)
+            return nil
+        } catch let refusal as SendSettleRefusal {
+            return refusal.sentence
+        } catch {
+            return "The invoice could not be changed, so it is still unsettled: \(error.localizedDescription)"
+        }
+    }
+
+    /// What Dan is asked before marking this invoice as not sent, or nil where it has
+    /// no number to name (L180).
+    func confirmation(forSettling invoiceID: PersistentIdentifier) -> String? {
+        Self.invoice(invoiceID, in: container.mainContext)?.number.map(SendSettler.confirmation(number:))
     }
 
     /// Closes a review. A number taken HERE is handed back only while nothing has been sent
@@ -165,7 +185,10 @@ final class InvoiceReview: Identifiable {
     let number: Int64
     /// The number this review took, which closing unsent gives back. Nil where the invoice
     /// already had one.
-    let numberTakenHere: Int64?
+    /// The number this review took, which closing hands back while nothing went.
+    /// Cleared once Dan settles an unsettled send here, because a settled send keeps
+    /// its number whatever happens next (ovation#471).
+    private(set) var numberTakenHere: Int64?
     let presenter: ReviewSheetPresenter
     let subject: String
     var message: String
@@ -175,12 +198,14 @@ final class InvoiceReview: Identifiable {
     let goingTo: [String]
     var state: ReviewSendState = .ready
     private let performSend: @MainActor (InvoiceReview) async -> Void
+    private let performSettle: @MainActor (InvoiceReview) async -> String?
 
     nonisolated var id: ObjectIdentifier { ObjectIdentifier(self) }
 
     init(invoiceID: PersistentIdentifier, number: Int64, numberTakenHere: Int64?, presenter: ReviewSheetPresenter,
          subject: String, message: String, destinationWarning: String?, goingTo: [String],
-         send: @escaping @MainActor (InvoiceReview) async -> Void) {
+         send: @escaping @MainActor (InvoiceReview) async -> Void,
+         settle: @escaping @MainActor (InvoiceReview) async -> String?) {
         self.invoiceID = invoiceID
         self.number = number
         self.numberTakenHere = numberTakenHere
@@ -190,6 +215,7 @@ final class InvoiceReview: Identifiable {
         self.destinationWarning = destinationWarning
         self.goingTo = goingTo
         self.performSend = send
+        self.performSettle = settle
     }
 
     /// The one thing Send is waiting on, or nil when it may be pressed.
@@ -207,6 +233,20 @@ final class InvoiceReview: Identifiable {
     /// client gets the invoice twice.
     func tryAgain() {
         if case .refused = state { state = .ready }
+    }
+
+    /// Dan saying a send Gmail never answered did not go (ovation#471). Only from
+    /// that state. The invoice goes back to a draft that KEEPS its number, so this
+    /// review stops holding the number as its own to hand back, and the sheet is
+    /// ready again; a refusal is said in place of the outcome.
+    func markNotSent() async {
+        guard case .couldNotTell = state else { return }
+        if let refusal = await performSettle(self) {
+            state = .couldNotTell(refusal)
+            return
+        }
+        numberTakenHere = nil
+        state = .ready
     }
 }
 

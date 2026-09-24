@@ -45,6 +45,10 @@ struct InvoiceListView: View {
     /// ovation#450's question and are still unpressable; this is the row itself.
     var open: ((PersistentIdentifier) -> Void)?
 
+    /// ovation#471. Asking to mark an unsettled send as not sent, which the caller
+    /// confirms before anything changes. Nil where nothing can write.
+    var settle: ((PersistentIdentifier) -> Void)?
+
     /// The column widths, from the design record's own `--cols`. Named here once
     /// so the header and every row are laid out by one declaration and cannot
     /// drift apart (L553).
@@ -294,7 +298,7 @@ struct InvoiceListView: View {
                 // treatment withdraws is the OFFER that the word itself will do
                 // what it says.
                 ActionWord(word: action, size: 12.5,
-                           press: Self.press(action, on: row, open: open),
+                           press: Self.press(action, on: row, open: open, settle: settle),
                            notYet: Self.notYet(action))
             }
         }
@@ -307,11 +311,19 @@ struct InvoiceListView: View {
     /// drawn as a control and what pressing it does are ONE answer rather than
     /// two that can disagree (L70).
     private static func press(_ action: String, on row: InvoiceListPresenter.Row,
-                              open: ((PersistentIdentifier) -> Void)?)
+                              open: ((PersistentIdentifier) -> Void)?,
+                              settle: ((PersistentIdentifier) -> Void)?)
         -> (() -> Void)? {
-        guard let open, InvoiceListPresenter.Action.destination(of: action)
-                == .theInvoiceScreen else { return nil }
-        return { open(row.invoiceID) }
+        switch InvoiceListPresenter.Action.destination(of: action) {
+        case .theInvoiceScreen:
+            guard let open else { return nil }
+            return { open(row.invoiceID) }
+        case .settleTheSend:
+            guard let settle else { return nil }
+            return { settle(row.invoiceID) }
+        case nil:
+            return nil
+        }
     }
 
     /// What a screen reader hears after a word that cannot be pressed. It names

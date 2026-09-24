@@ -148,7 +148,7 @@ final class InvoiceListPresenter {
         switch action {
         case Action.send: return "To send"
         case Action.remind: return "To chase"
-        case Action.markCleared, Action.markSent: return "To confirm"
+        case Action.markCleared, Action.markUnsent: return "To confirm"
         case Action.useItHere: return "To place"
         default: return nil
         }
@@ -220,7 +220,9 @@ final class InvoiceListPresenter {
         static let send = "Send"
         static let remind = "Remind"
         static let markCleared = "Mark cleared"
-        static let markSent = "Mark sent"
+        /// ovation#471. What Dan may do about a send Ovation could not settle: say it
+        /// did not go. Never "Mark sent", which is the one thing he may not assert.
+        static let markUnsent = "Mark unsent"
         static let useItHere = "Use it here"
         static let addDate = "Add date"
         static let addHours = "Add hours"
@@ -228,7 +230,7 @@ final class InvoiceListPresenter {
 
         /// Every word, in one list, so what follows cannot be asked about a word
         /// nobody added to it (L41, L113).
-        static let all = [send, remind, markCleared, markSent, useItHere,
+        static let all = [send, remind, markCleared, markUnsent, useItHere,
                           addDate, addHours, addTaxStatus]
 
         /// Where pressing this word takes you, or nil where nothing does what the
@@ -242,7 +244,7 @@ final class InvoiceListPresenter {
         ///
         /// TOTAL, AND EACH ANSWER IS A DECISION. A word added later has to be
         /// answered here rather than taking a default that reads as considered
-        /// (L113, L129). Today exactly one has somewhere to go, and this is the
+        /// (L113, L129). Today two have somewhere to go, and this is the
         /// measurement rather than an impression:
         ///
         ///   `Add hours`        the invoice screen, which the list already opens
@@ -257,7 +259,8 @@ final class InvoiceListPresenter {
         ///   `Use it here`      applying a client's held money to this invoice,
         ///                      PRD 14, which no screen offers.
         ///   `Mark cleared`     ovation#48.
-        ///   `Mark sent`        ovation#45.
+        ///   `Mark unsent` settles the send in place, after Dan
+        ///                      confirms (ovation#471). LIVE.
         ///   `Remind`           nothing anywhere sends a reminder.
         ///   `Add tax status`   the roster pass, which IS built and IS in the
         ///                      rail, and the list cannot navigate to another
@@ -267,12 +270,17 @@ final class InvoiceListPresenter {
         static func destination(of action: String) -> Destination? {
             switch action {
             case addHours: return .theInvoiceScreen
+            case markUnsent: return .settleTheSend
             default: return nil
             }
         }
 
         /// Somewhere a press can go.
-        enum Destination: Equatable { case theInvoiceScreen }
+        enum Destination: Equatable {
+            case theInvoiceScreen
+            /// Marking the send as not sent, in place, once Dan has confirmed.
+            case settleTheSend
+        }
     }
 
     /// Where the list goes when it comes back, given the row that was open.
@@ -364,7 +372,7 @@ final class InvoiceListPresenter {
         case .toPlace: return Action.useItHere
         case .overdue: return Action.remind
         case .checkNotCleared: return Action.markCleared
-        case .sayWhetherItWasSent: return Action.markSent
+        case .sayWhetherItWasSent: return Action.markUnsent
         case .draftShootToday, .draftNeedsSending:
             return blocker(of: invoice) ?? Action.send
         // NOTHING TO DO YET, and that is the band's whole meaning. An ahead draft

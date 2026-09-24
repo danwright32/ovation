@@ -22,13 +22,24 @@ struct ActionDestinationTests {
                     == .theInvoiceScreen)
     }
 
+    /// ovation#471. THE WORD FOR A SEND OVATION COULD NOT SETTLE is the one thing
+    /// Dan may do about it, clear it, and pressing it settles the send in place
+    /// after he confirms, rather than going to a screen.
+    @Test("Mark unsent settles the send in place, and counts under To confirm")
+    func markunsentSettlesTheSend() {
+        let word = InvoiceListPresenter.Action.markUnsent
+        #expect(word == "Mark unsent")
+        #expect(InvoiceListPresenter.Action.destination(of: word) == .settleTheSend)
+        #expect(InvoiceListPresenter.cardLine(for: word) == "To confirm")
+    }
+
     /// AND EVERY OTHER WORD HAS NOWHERE TO GO TODAY. Enumerated from the same
     /// list the words themselves come from, so a word added later is answered
     /// here rather than taking a default that reads as a considered decision
     /// (L41, L113).
     @Test("every other word has nowhere to go, and is enumerated rather than assumed")
     func everyotherWordHasNowhereToGo() {
-        let live = [InvoiceListPresenter.Action.addHours]
+        let live = [InvoiceListPresenter.Action.addHours, InvoiceListPresenter.Action.markUnsent]
         let expected = Set(InvoiceListPresenter.Action.all).subtracting(live)
 
         let nowhere = Set(InvoiceListPresenter.Action.all
@@ -44,7 +55,7 @@ struct ActionDestinationTests {
     @Test("the eight words are exactly the eight the sidebar card counts by")
     func thewordsAreUnchanged() {
         #expect(InvoiceListPresenter.Action.all == [
-            "Send", "Remind", "Mark cleared", "Mark sent",
+            "Send", "Remind", "Mark cleared", "Mark unsent",
             "Use it here", "Add date", "Add hours", "Add tax status",
         ])
     }

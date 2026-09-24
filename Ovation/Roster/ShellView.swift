@@ -105,6 +105,11 @@ struct ShellView: View {
     /// The review open over the invoice, or nil (ovation#42).
     @State private var openReview: InvoiceReview?
     @State private var reviewOnScreen = ReviewOnScreen<InvoiceReview>()
+    /// ovation#471. The unsettled send Dan asked to mark as not sent, awaiting his
+    /// confirmation, with the sentence naming what it does to that invoice.
+    @State private var settling: Settling?
+    /// Why the last Mark unsent did not happen, said on the list (L109).
+    @State private var refusedSettle: String?
     /// Why the last Review could not be opened, or nil. Said, never swallowed: a
     /// control that silently does nothing leaves pressing it again as the only
     /// diagnosis (L109, L148).
@@ -149,6 +154,32 @@ struct ShellView: View {
             // again and shows it.
             openedInvoice = openInvoice?(openedInvoiceID)
         }
+    }
+
+    /// One invoice Dan asked to mark as not sent, and what doing so means for it.
+    struct Settling: Identifiable {
+        let invoiceID: PersistentIdentifier
+        let consequence: String
+        var id: PersistentIdentifier { invoiceID }
+    }
+
+    private var settlingIsAsked: Binding<Bool> {
+        Binding(get: { settling != nil }, set: { if !$0 { settling = nil } })
+    }
+
+    /// Asks before anything changes, naming the invoice's own number (L180, L608).
+    private func askToSettle(_ invoiceID: PersistentIdentifier) {
+        refusedSettle = nil
+        guard let consequence = reviewer?.confirmation(forSettling: invoiceID) else {
+            refusedSettle = SendSettleRefusal.noSuchInvoice.sentence
+            return
+        }
+        settling = Settling(invoiceID: invoiceID, consequence: consequence)
+    }
+
+    private func settle(_ invoiceID: PersistentIdentifier) {
+        settling = nil
+        Task { refusedSettle = await reviewer?.markNotSent(invoiceID) }
     }
 
     /// The sheet went away by a route no control saw, the Escape key.
@@ -442,7 +473,28 @@ struct ShellView: View {
                                     openedInvoiceID = id
                                     openedInvoice = openInvoice?(id)
                                     publishWhatIsOpen()
-                                })
+                                },
+                                settle: reviewer == nil ? nil : { id in askToSettle(id) })
+                    .confirmationDialog("Mark unsent?", isPresented: settlingIsAsked,
+                                        presenting: settling) { asked in
+                        Button("Mark unsent", role: .destructive) { settle(asked.invoiceID) }
+                        Button("Cancel", role: .cancel) {}
+                    } message: { asked in
+                        Text(asked.consequence)
+                    }
+                    // RESERVED AT THE FOOT, never laid over the rows, so a refusal
+                    // cannot cover the last one at the real count (L189).
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if let refusedSettle {
+                            Text(refusedSettle)
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(OvationPalette.ink)
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityAddTraits(.isStaticText)
+                        }
+                    }
             } else {
                 couldNotBeRead
             }

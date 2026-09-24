@@ -53,7 +53,7 @@ three things in it are web idioms that must be translated rather than copied:
 | A row's first column | The SHOOT carries the weight and the client goes quiet, always, not only where a client has several shoots (Dan, 2026-09-09). |
 | An amount that is not a figure | An unpriced draft says `no price` and a comped invoice says `comped`, both quiet, in the amount column. Before this both drew `0.00` and read as one row while needing opposite actions (ovation#117). |
 | A row | One line at 29px: client and shoot name, shoot date, invoice number or draft, amount, action. Venue and shoot times are deliberately absent and need a home (ovation#95). Where one invoice covers several shoots it names the LAST one, counts the rest, and shows a date span. |
-| Actions | A word, not a button. "Mark cleared" and "Mark sent", never "Cleared" or "It was sent": a control says what it does. |
+| Actions | A word, not a button. "Mark cleared" and "Mark unsent", never "Cleared" or "It did not go": a control says what it does. |
 | Selection | A tint only, no left bar. A bar flush against the espresso sidebar is invisible, and a tint is what macOS uses anyway. |
 | Counts | Five, in the sidebar card, each appearing exactly once, and every one of them a count of INVOICES. Four until `To place` was added on 2026-09-10 (ovation#190, PRD 46d). No inventory counts: a number in the chrome only ever means this many things need you. |
 | Money held | A figure, in dollars, on its own line UNDER the card rather than a fifth count in it, in the colour the rail's status lines use. Settled 2026-09-10 (ovation#187, PRD 46b), and drawn only when there is some. |
