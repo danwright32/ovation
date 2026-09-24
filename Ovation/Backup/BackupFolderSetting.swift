@@ -154,10 +154,33 @@ struct BackupFolderSetting {
     /// real invoices (L8, L369). Refusing outright removes that hazard rather than
     /// managing it.
     static func folderToBackUpInto(isDebugBuild: Bool, resolution: Resolution) -> URL? {
-        guard !isDebugBuild else { return nil }
-        if case .chosen(let folder) = resolution { return folder }
-        return nil
+        try? backupDestination(isDebugBuild: isDebugBuild, resolution: resolution).get()
     }
+
+    /// Where a backup goes, or WHY IT DOES NOT, as the reason (ovation#505).
+    ///
+    /// "Nothing chosen" and "this build never backs up" both used to come back as
+    /// no folder, and the launch turned both into the notice telling Dan to choose
+    /// one in Settings, which the Debug build refuses. They need different things
+    /// from him and, on a launch about to upgrade the store, different outcomes:
+    /// the shipping build refuses to upgrade without a backup, and a build that
+    /// never backs up upgrades its throwaway store and says so (L11).
+    ///
+    /// A folder CHOSEN AND UNREACHABLE is a write failure carrying why, not
+    /// "nothing chosen", because the remedy is reaching the folder Dan already
+    /// chose rather than choosing another.
+    static func backupDestination(isDebugBuild: Bool,
+                                  resolution: Resolution) -> Result<URL, BackupError> {
+        guard !isDebugBuild else { return .failure(.thisBuildDoesNotBackUp) }
+        switch resolution {
+        case .chosen(let folder): return .success(folder)
+        case .notChosen: return .failure(.noFolderChosen)
+        case .refusedUnderADisposableLaunch: return .failure(.thisBuildDoesNotBackUp)
+        case .unresolvable(let detail), .onADifferentVolume(let detail):
+            return .failure(.couldNotWrite(detail))
+        }
+    }
+
 
     /// THE LIVE ONE, and the only place `.standard` is named (plan 1.9,
     /// ovation#58). `LiveDataFloor` reads this, `scripts/check-isolation-floor.sh`
@@ -168,12 +191,20 @@ struct BackupFolderSetting {
     /// Dan chose. The refusal is nil rather than a throw because the floor asks
     /// for a location, and "there is not one for you" is the whole answer.
     static var liveBackupsDirectory: URL? {
-        guard !AppEnvironment.isDisposableLaunch() else { return nil }
+        try? liveBackupDestination.get()
+    }
+
+    /// The same live folder, or WHY THERE IS NONE (ovation#505), for the launch,
+    /// which has to say which reason it was. `liveBackupsDirectory` reads through
+    /// this, so `.standard` is still named once. Registered in the floor beside it,
+    /// because it reaches the same folder.
+    static var liveBackupDestination: Result<URL, BackupError> {
+        guard !AppEnvironment.isDisposableLaunch() else { return .failure(.thisBuildDoesNotBackUp) }
         let setting = BackupFolderSetting(
             defaults: .standard,
             isDisposableLaunch: { AppEnvironment.isDisposableLaunch() })
-        return folderToBackUpInto(isDebugBuild: StoreLocation.isDebugBuild,
-                                  resolution: setting.resolve())
+        return backupDestination(isDebugBuild: StoreLocation.isDebugBuild,
+                                 resolution: setting.resolve())
     }
 
     /// What identifies the volume a folder sits on, or nil when the system does

@@ -205,20 +205,20 @@ struct OvationApp: App {
                     // whole data directory is exactly that shape.
                     // `check-forbidden-constructs.sh` refuses the wrong one, and
                     // it caught this in the writing.
-                    let attempt = await BlockingWork.run {
-                        guard let folder = BackupFolderSetting.liveBackupsDirectory else {
-                            // Saying so through the Problems store is honest,
-                            // where a silent no-op would leave the sequence
-                            // reporting a backup it never took (L98). ovation#231
-                            // is the screen that lets Dan answer it.
-                            //
-                            // ITS OWN ERROR, not a write failure (ovation#262).
-                            // This threw `couldNotWrite`, which raised a kind
-                            // nothing resolves, while both places built to clear
-                            // the no folder notice waited on a kind nothing
-                            // raised, so the notice never cleared.
-                            throw BackupError.noFolderChosen
-                        }
+                    //
+                    // THROUGH LaunchBackupOutcome.run, which is BlockingWork with
+                    // the backup's own error carried out intact (ovation#505).
+                    // Through BlockingWork alone, the throw below arrived as text
+                    // and was read as a write failure.
+                    return try await LaunchBackupOutcome.run {
+                        // WHY THERE IS NO FOLDER IS THROWN AS THE REASON. Saying
+                        // so through the Problems store is honest, where a silent
+                        // no-op would leave the sequence reporting a backup it
+                        // never took (L98). "Nothing chosen" is its own error
+                        // (ovation#262), and so is "this build never backs up"
+                        // (ovation#505), because on a launch about to upgrade the
+                        // store the first refuses and the second does not.
+                        let folder = try BackupFolderSetting.liveBackupDestination.get()
                         let service = BackupService(
                             dataDirectory: storeURL.deletingLastPathComponent(),
                             backupsDirectory: folder,
@@ -228,10 +228,6 @@ struct OvationApp: App {
                             })
                         return try service.takeBackupIfDueToday(now: now)
                     }
-                    // The three outcomes are turned into what the sequence
-                    // expects in LaunchBackupOutcome, where both translations can
-                    // be driven by a test (ovation#246).
-                    return try LaunchBackupOutcome.attempt(from: attempt)
                 },
                 // ovation#230. Whether the archives have kept up with the store,
                 // read from the folder Dan chose. A build that never backs up has

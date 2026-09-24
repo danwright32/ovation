@@ -58,13 +58,40 @@ enum StoreSchemaGuard {
     /// is the wrong thing to do. They also earn different labels on the evidence
     /// snapshot ovation#57 takes, so they are not two names for one outcome
     /// (L260).
+    /// WHETHER OPENING OVATION'S OWN STORE REWRITES IT (ovation#505).
+    ///
+    /// An ordinary open reads the store and leaves it as it was. An open by a newer
+    /// build MIGRATES it: the file is rewritten in place, that is the operation most
+    /// able to lose rows, and afterwards the previous build cannot open the result
+    /// (L267). So it is the one open that must not happen without a backup, and the
+    /// launch can only hold it to that if it is told which open this is.
+    ///
+    /// THREE ANSWERS, NOT TWO. A store with no marker was written by something that
+    /// did not record its version, so whether it will be rewritten is unknown, and
+    /// folding that into either answer would claim a measurement nobody took (L11).
+    /// The launch treats it as `needed`, which is the side that cannot lose data.
+    enum Upgrade: Equatable, Sendable {
+        /// The marker names the running version. Opening changes nothing.
+        case notNeeded
+        /// The marker names an older version. Opening migrates the store.
+        case needed
+        /// There is no marker, so nothing says which build wrote the store.
+        case cannotTell
+
+        /// Whether the open may rewrite the store, which is what a backup has to
+        /// come before. One predicate, so the launch and anything else asking read
+        /// the same answer (L261).
+        var mayRewriteTheStore: Bool { self != .notNeeded }
+    }
+
     enum Verdict: Equatable {
         /// Nothing at the path. A first launch, free to create a store.
         case noStoreFile
         /// A readable database carrying no entity tables. A freshly created store.
         case empty
-        /// Carries at least one of Ovation's own entity tables.
-        case ovation
+        /// Carries at least one of Ovation's own entity tables, and says whether
+        /// opening it will rewrite it (ovation#505).
+        case ovation(upgrade: Upgrade)
         /// Carries entity tables, none of them Ovation's. Somebody else's data.
         case foreign(entityTables: [String])
         /// Read successfully, and it is not a database.
@@ -231,7 +258,11 @@ enum StoreSchemaGuard {
         case .version(let found) where found > runningVersion:
             return .fromANewerVersion(found: Self.describe(found),
                                       running: Self.describe(runningVersion))
-        case .version, .absent:
+        case .version(let found) where found == runningVersion:
+            return .ovation(upgrade: .notNeeded)
+        case .version:
+            return .ovation(upgrade: .needed)
+        case .absent:
             // ABSENT IS NOT A REFUSAL, and the reason is measured rather than
             // assumed. A marker cannot describe a store written before markers
             // existed, which is exactly the population such a detector is blind
@@ -242,7 +273,10 @@ enum StoreSchemaGuard {
             // because every store gets a marker at its first successful open, and
             // that is now a statement about an observed store rather than about
             // there being none.
-            return .ovation
+            //
+            // CANNOT TELL, not "not needed" (ovation#505): nothing recorded which
+            // build wrote it, so opening it may rewrite it.
+            return .ovation(upgrade: .cannotTell)
         case .unreadable(let detail):
             return .versionUnreadable(detail: detail)
         }

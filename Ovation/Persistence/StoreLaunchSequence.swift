@@ -46,6 +46,9 @@ struct StoreLaunchSequence {
         enum Step: String, Equatable {
             case identify
             case checkpoint
+            /// ovation#505. The open would have rewritten the store and there was
+            /// no backup from before it.
+            case backup
         }
     }
 
@@ -156,6 +159,16 @@ struct StoreLaunchSequence {
             return .refused(step: .identify, detail: sentence)
         }
 
+        // WHETHER THIS OPEN REWRITES THE STORE (ovation#505), read from the verdict
+        // the identify step already reached rather than asked a second time: two
+        // readings of one marker can disagree, one cannot (L70).
+        let opensRewriteTheStore: Bool
+        if case .ovation(let upgrade) = verdict {
+            opensRewriteTheStore = upgrade.mayRewriteTheStore
+        } else {
+            opensRewriteTheStore = false
+        }
+
         // 2. CHECKPOINT. `noStoreFile` is the ordinary first launch and is not a
         // failure: raising one here would fire on every fresh install, which is
         // a guard speaking on the commonest case rather than the dangerous one.
@@ -180,17 +193,19 @@ struct StoreLaunchSequence {
             return .refused(step: .checkpoint, detail: detail)
         }
 
-        // 3. BACK UP. A failure here is REPORTED and the launch continues, which
-        // is a deliberate choice against the defensible opposite. Refusing to
-        // open would leave Dan unable to invoice because a folder on a Synology
-        // was unreachable, which is a worse failure than the one being guarded
-        // against.
+        // 3. BACK UP. On an ordinary open a failure here is REPORTED and the
+        // launch continues, which is a deliberate choice against the defensible
+        // opposite. Refusing to open would leave Dan unable to invoice because a
+        // folder on a Synology was unreachable, which is a worse failure than the
+        // one being guarded against: the store is read, not rewritten.
         //
-        // It becomes a refusal once ovation#105 can say whether opening would
-        // run a MIGRATION, because that is the case where opening without a
-        // backup can lose data rather than merely leave it unprotected. Until
-        // then this comment is the record that the coupling is missing, not an
-        // argument that it is unnecessary.
+        // ON AN OPEN THAT REWRITES THE STORE IT IS A REFUSAL (ovation#505). A
+        // migration rewrites the file in place, is the operation most able to lose
+        // rows, and afterwards the previous build cannot open the result (L267),
+        // so it is the one launch where the backup decides whether the data is
+        // recoverable. Dan's decision, 2026-09-23: refuse, over opening anyway or
+        // copying the store aside. The notice is raised under the CAUSE's kind,
+        // so the launch that finally backs up resolves it (L152).
         //
         // A FIRST LAUNCH DOES NOT BACK UP AT ALL (ovation#137). `Ovation.store`
         // and `Ovation.store.version` are required members, so a backup taken
@@ -212,6 +227,9 @@ struct StoreLaunchSequence {
         // stays true on every later launch. Saying it here would say it once, on
         // the launch where it is least informative.
         if thereIsAStoreFile {
+            // WHY THERE IS NO BACKUP FROM TODAY, when there is not one. Said once,
+            // below, in the sentence for whichever kind of open this is.
+            var noBackup: (kind: ProblemKind, cause: String)?
             do {
                 // PREPARE FIRST, INSIDE THE SAME ATTEMPT (ovation#222). The
                 // directories `BackupPlan` requires were created by nothing, so a
@@ -249,16 +267,33 @@ struct StoreLaunchSequence {
                     // The same KIND as a write that could not happen, because the
                     // remedy is the same: make the folder reachable. A different
                     // sentence, because the cause is not (L11).
-                    _ = problems.raise(
-                        kind: .backupCouldNotBeWritten, subject: storeURL.path,
-                        sentence: "The backup folder could not be read: \(detail). "
-                            + "Ovation opened anyway, so nothing is lost, "
-                            + "but there is no backup from today.", now: now)
+                    noBackup = (.backupCouldNotBeWritten,
+                                "The backup folder could not be read: \(detail).")
                 }
             } catch {
-                let condition = Self.backupCondition(for: error)
-                _ = problems.raise(kind: condition.kind, subject: storeURL.path,
-                                   sentence: condition.sentence, now: now)
+                noBackup = Self.backupCause(for: error)
+            }
+
+            if let noBackup, noBackup.kind == .backupNotTakenByThisBuild {
+                // A BUILD THAT NEVER BACKS UP (Dan, 2026-09-23). Its store is
+                // throwaway by decision and it can never take a backup, so it
+                // upgrades anyway rather than refusing for ever, and says it did
+                // so without one. On an ordinary open there is nothing to say.
+                if opensRewriteTheStore {
+                    _ = problems.raise(
+                        kind: noBackup.kind, subject: storeURL.path,
+                        sentence: noBackup.cause + " It has upgraded this build's data without "
+                            + "a backup, so nothing from before the upgrade has been kept.",
+                        now: now)
+                }
+            } else if let noBackup {
+                let then: WithoutABackup = opensRewriteTheStore ? .refusedTheUpgrade : .openedAnyway
+                let sentence = Self.sentence(for: noBackup, then: then)
+                _ = problems.raise(kind: noBackup.kind, subject: storeURL.path,
+                                   sentence: sentence, now: now)
+                if then == .refusedTheUpgrade {
+                    return .refused(step: .backup, detail: sentence)
+                }
             }
 
             // WHETHER THE ARCHIVES HAVE KEPT UP, asked after the backup so that
@@ -402,7 +437,36 @@ struct StoreLaunchSequence {
         return .opened
     }
 
-    /// A KIND AND A SENTENCE, not a sentence alone (ovation#229).
+    /// What happens without a backup from today, which decides how the notice
+    /// ends (ovation#505). The CAUSE is the same sentence either way; what differs
+    /// is whether the store was opened, and a notice may only say nothing is lost
+    /// on the path that knows the store was not rewritten (L11, L680).
+    enum WithoutABackup: Equatable {
+        case openedAnyway
+        case refusedTheUpgrade
+    }
+
+    static func sentence(for noBackup: (kind: ProblemKind, cause: String),
+                         then: WithoutABackup) -> String {
+        switch then {
+        case .openedAnyway:
+            // THE NO FOLDER NOTICE IS WHOLE AS IT STANDS. It is a standing
+            // condition rather than a failure of this launch (ovation#262): it says
+            // what is not happening and where the remedy is, and on an ordinary
+            // open nothing was attempted that could have been lost.
+            if noBackup.kind == .backupFolderNotChosen { return noBackup.cause }
+            return noBackup.cause + " Ovation opened anyway, so nothing is lost, "
+                + "but there is no backup from today."
+        case .refusedTheUpgrade:
+            return noBackup.cause + " This version of Ovation has to upgrade your data before "
+                + "it can open it, and it will not do that without a backup, so it has not "
+                + "opened. Nothing has been changed. Once a backup can be taken, open Ovation "
+                + "again and it will back up and then upgrade."
+        }
+    }
+
+    /// A KIND AND A SENTENCE, not a sentence alone (ovation#229), for the launch
+    /// that opens anyway.
     ///
     /// ovation#87 asked for two labels, not one, and distinct sentences under ONE
     /// kind is not two labels: `ProblemsStore.raise` keys a record on kind plus
@@ -414,8 +478,12 @@ struct StoreLaunchSequence {
     /// is about what landed in it, and a required member missing is about the data
     /// directory rather than the backup folder at all.
     static func backupCondition(for error: Error) -> (kind: ProblemKind, sentence: String) {
-        let tail = "Ovation opened anyway, so nothing is lost, "
-            + "but there is no backup from today."
+        let cause = backupCause(for: error)
+        return (cause.kind, sentence(for: cause, then: .openedAnyway))
+    }
+
+    /// Which kind, and what went wrong, without saying what happened next.
+    static func backupCause(for error: Error) -> (kind: ProblemKind, cause: String) {
         switch error {
         case BackupError.noFolderChosen:
             // A STANDING CONDITION, not a failure of this launch (ovation#262). It
@@ -426,24 +494,23 @@ struct StoreLaunchSequence {
             return (.backupFolderNotChosen,
                     "No backup folder has been chosen yet, so Ovation is not backing up. "
                         + "Choose one in Ovation's Settings, under Backups.")
+        case BackupError.thisBuildDoesNotBackUp:
+            return (.backupNotTakenByThisBuild, "This build of Ovation never backs up.")
         case BackupError.couldNotWrite(let detail):
             // The detail carries the CAUSE where the thrower had one, because a
             // volume that is gone, a disk that is full and a permission macOS
             // withdrew need three different actions and rendered one sentence
             // until now (L11).
-            return (.backupCouldNotBeWritten,
-                    "The backup could not be written to \(detail). " + tail)
+            return (.backupCouldNotBeWritten, "The backup could not be written to \(detail).")
         case BackupError.requiredMemberMissing(let path):
             return (.backupCouldNotBeWritten,
-                    "The backup was refused because \(path) is missing from the data folder. "
-                        + tail)
+                    "The backup was refused because \(path) is missing from the data folder.")
         case BackupError.verificationFailed:
             return (.backupFailed,
                     "The backup was written and did NOT verify, so it is not a backup. "
-                        + "It has been kept as the evidence of what went wrong. " + tail)
+                        + "It has been kept as the evidence of what went wrong.")
         default:
-            return (.backupFailed,
-                    "The backup did not complete: \(error.localizedDescription). " + tail)
+            return (.backupFailed, "The backup did not complete: \(error.localizedDescription).")
         }
     }
 

@@ -104,9 +104,13 @@ struct BackupReport: Equatable, Sendable {
     var isVerified: Bool { failures.isEmpty }
 }
 
-enum BackupError: Error, Equatable {
+enum BackupError: Error, Equatable, Sendable {
     /// No backup folder has been chosen yet (ovation#262).
     case noFolderChosen
+    /// This build never backs up: the Debug build, by decision (2026-09-11), and
+    /// every disposable launch (ovation#505). Not "nothing chosen", because
+    /// nothing can be chosen for it.
+    case thisBuildDoesNotBackUp
     case requiredMemberMissing(String)
     case excludedFilePresent(String)
     case noManifest(String)

@@ -154,6 +154,57 @@ struct BackupFolderSettingTests {
             isDebugBuild: false, resolution: .notChosen) == nil)
     }
 
+    // MARK: why there is no folder, said as the reason (ovation#505)
+
+    /// THREE ANSWERS WHERE THERE WERE TWO. "Nothing chosen" and "this build never
+    /// backs up" both came back as no folder, so the Debug build raised a notice
+    /// telling Dan to choose one in Settings, which it would refuse, and a launch
+    /// about to upgrade could not tell a build that is meant to have no backup
+    /// from one that is missing it (L11).
+    @Test("a development build is told it does not back up, not that nothing is chosen")
+    func aDebugBuildIsToldItDoesNotBackUp() {
+        let folder = URL(fileURLWithPath: "/tmp/somewhere")
+
+        #expect(BackupFolderSetting.backupDestination(
+            isDebugBuild: true, resolution: .chosen(folder)) == .failure(.thisBuildDoesNotBackUp))
+        #expect(BackupFolderSetting.backupDestination(
+            isDebugBuild: true, resolution: .notChosen) == .failure(.thisBuildDoesNotBackUp))
+    }
+
+    @Test("a disposable launch is told it does not back up")
+    func aDisposableLaunchIsToldItDoesNotBackUp() {
+        #expect(BackupFolderSetting.backupDestination(
+            isDebugBuild: false, resolution: .refusedUnderADisposableLaunch)
+            == .failure(.thisBuildDoesNotBackUp))
+    }
+
+    @Test("the shipping build with nothing chosen is told nothing is chosen")
+    func nothingChosenIsSaid() {
+        #expect(BackupFolderSetting.backupDestination(
+            isDebugBuild: false, resolution: .notChosen) == .failure(.noFolderChosen))
+    }
+
+    /// A FOLDER THAT WAS CHOSEN AND CANNOT BE REACHED IS NOT ONE NOBODY CHOSE. It
+    /// came back as "no folder chosen", whose remedy is choosing one, when the
+    /// remedy is reaching the one already chosen.
+    @Test("a chosen folder that cannot be reached says so, carrying why")
+    func anUnreachableChoiceIsAWriteFailure() {
+        #expect(BackupFolderSetting.backupDestination(
+            isDebugBuild: false, resolution: .unresolvable("the bookmark is stale"))
+            == .failure(.couldNotWrite("the bookmark is stale")))
+        #expect(BackupFolderSetting.backupDestination(
+            isDebugBuild: false, resolution: .onADifferentVolume("the share is not mounted"))
+            == .failure(.couldNotWrite("the share is not mounted")))
+    }
+
+    @Test("the shipping build with a folder chosen is given it")
+    func aChosenFolderIsTheDestination() {
+        let folder = URL(fileURLWithPath: "/tmp/somewhere")
+
+        #expect(BackupFolderSetting.backupDestination(
+            isDebugBuild: false, resolution: .chosen(folder)) == .success(folder))
+    }
+
     // MARK: the volume it was chosen on
 
     /// WHEN A SHARE DETACHES, ITS MOUNT POINT OFTEN SURVIVES as an empty local
