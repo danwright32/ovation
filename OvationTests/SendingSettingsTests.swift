@@ -125,6 +125,17 @@ struct SendingSettingsTests {
         #expect(StoreLocation.liveSendingSettingsFile(mayReachLiveGoogle: false) == nil)
     }
 
+    /// THE FLOOR LISTS IT AS BUILT, so the check that no test run reaches live data
+    /// covers this file too, and resolving it inside a test run gives nothing.
+    @Test("the floor names the sending settings file as BUILT, and a test run resolves nothing")
+    func thefloorNamesTheSettingsFile() {
+        let entry = LiveDataFloor.entries.first { $0.name == "liveSendingSettingsFile" }
+        #expect(entry?.issue == nil)
+        let resolve = entry?.resolve
+        #expect(resolve != nil)
+        #expect(resolve?() == nil)
+    }
+
     /// WHAT THE SHEET SAYS about a redirected send is derived from the destination
     /// itself, so the sheet and the sender cannot disagree about where it is going
     /// (L64, L455).
