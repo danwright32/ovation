@@ -34,7 +34,7 @@ stage() {
 run_check() {
     OVATION_REPO_ROOT="$1" "./$TARGET" 2>&1
 }
-says() { if printf '%s' "$1" | grep -qF -- "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. THE TREE AS IT SHOULD BE. Only the three allowed files mention it.

@@ -116,7 +116,7 @@ calls() { cat "$1/calls.log" 2>/dev/null || true; }
 
 # WHETHER IT WAS SAID, not how many lines it took to say it. A count would break
 # on a message that wraps, which is a fact about the wrapping (L103).
-said() { printf '%s' "$1" | grep -qiE "$2" && echo said || echo "not said"; }
+said() { grep -qiE "$2" <<< "$1" && echo said || echo "not said"; }
 
 # ---------------------------------------------------------------------------
 # THE ORDINARY CASE: a run that recorded a restart.

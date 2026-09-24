@@ -85,7 +85,7 @@ note_tail() {
 
 run_check() { OVATION_CUSTODY_NOTE="$1" "./$TARGET" 2>&1; }
 status_of() { run_check "$1" >/dev/null 2>&1; printf '%s' "$?"; }
-says() { if printf '%s' "$1" | grep -qiF "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qiF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. THE HEALTHY CASE.

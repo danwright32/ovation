@@ -131,7 +131,7 @@ run_watch() {
     OVATION_RUNNER_MANIFEST_COMMAND="${FETCH_OVERRIDE:-$WORK/fetch}" \
         "./$TARGET" 2>&1
 }
-says() { if printf '%s' "$1" | grep -qF -- "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 asked_for() { if grep -qxF -- "$1" "$ASKED" 2>/dev/null; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------

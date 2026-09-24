@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 85
+harness_begin "git hooks tests" 90
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -214,6 +214,7 @@ stage_tree() {
     # Both configurations are built by default; a case removes what it needs.
     mkdir -p "$r/scripts/lib"
     cp "$REPO_ROOT/scripts/lib/built-product.sh" "$r/scripts/lib/built-product.sh"
+    cp "$REPO_ROOT/scripts/lib/require.sh" "$r/scripts/lib/require.sh"
     # THE REAL DERIVATION OF WHAT THE XCODE PHASE READS (ovation#358), copied for
     # the same reason: a stub would let these cases pass on a rule the gate does
     # not actually apply. It reads this staged tree, whose runner names nothing.
@@ -357,6 +358,31 @@ add_check() {
     printf '#!/bin/bash\necho "CHECK-%s-RAN"\nexit %s\n' "$2" "$3" > "$1/scripts/$2"
     chmod +x "$1/scripts/$2"
 }
+
+# ovation#395. A PUSH THAT ONLY DELETES STANDS DOWN, and says so. A deletion
+# carries no commits and no tree, so there is nothing for any check or the suite
+# to judge; removing three merged branches ran the whole gate three times. The
+# stand down is no broader than its reason (L324): one real ref alongside the
+# deletion and everything runs.
+G395="$(stage_tree gate395 0)"; add_check "$G395" "check-identity-leaks.sh" 0
+OUT395A="$(hook_with_range "$G395" "(delete) $ZEROS refs/heads/merged-branch 1111111111111111111111111111111111111111")"; ST395A=$?
+check "a push that only deletes a branch is allowed" "$ST395A" "0"
+check "and it says it stood down because nothing was being pushed" \
+    "$(printf '%s' "$OUT395A" | grep -c 'only deletes')" "1"
+check "and neither the checks nor the suite ran" \
+    "$(printf '%s' "$OUT395A" | grep -cE 'CHECK-check-identity-leaks.sh-RAN|SUITE-FROM')" "0"
+HEAD395="$(git -C "$G395" rev-parse HEAD 2>/dev/null || true)"
+if [ -z "$HEAD395" ]; then
+    ( cd "$G395" && git add -A && git commit -qm staged ) >/dev/null 2>&1
+    HEAD395="$(git -C "$G395" rev-parse HEAD)"
+fi
+OUT395B="$(hook_with_range "$G395" "$(printf '%s\n%s' \
+    "(delete) $ZEROS refs/heads/merged-branch 1111111111111111111111111111111111111111" \
+    "refs/heads/main $HEAD395 refs/heads/main $ZEROS")")"; ST395B=$?
+check "a deletion pushed alongside real commits still runs the checks" \
+    "$(printf '%s' "$OUT395B" | grep -c 'CHECK-check-identity-leaks.sh-RAN')" "1"
+check "and does not claim to have stood down" \
+    "$(printf '%s' "$OUT395B" | grep -c 'only deletes')" "0"
 
 G1="$(stage_tree gate1 0)"; add_check "$G1" "check-identity-leaks.sh" 1
 OUT135A="$(hook_from_tree_in "$G1" "$G1")"; ST135A=$?
@@ -520,8 +546,13 @@ check "one relevant path among irrelevant ones still runs the xcode phase" \
 # staged as a test without a timeout, and a test that waits for a fixed period to
 # decide something did NOT happen is a test about this machine's load (L290).
 # Every case above supplies its own stdin, so none of them can reach it.
+#
+# RETARGETED IN ovation#395, NOT DELETED. Stdin is now read ONCE, at the top, so a
+# delete only push can stand down before any check runs, and every later loop
+# reads that copy. The guard moved with the read: exactly one read of stdin, and
+# it sits behind the terminal test (L430).
 check "the ref loop does not read a terminal it was never given" \
-    "$(grep -c 'if \[ -t 0 \]; then' "$REPO_ROOT/$HOOK")" "1"
+    "$(grep -A1 'if \[ ! -t 0 \]; then' "$REPO_ROOT/$HOOK" | grep -c 'PUSH_LINES="$(cat)"'):$(grep -c '$(cat)' "$REPO_ROOT/$HOOK")" "1:1"
 
 # The workflow files are on the skippable list too: nothing in an Xcode build or
 # test reads .github/, and the shell suites, which DO read it now that

@@ -12,7 +12,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "build-install tests" 40
+harness_begin "build-install tests" 47
 
 TARGET="scripts/build-install.sh"
 require_target "$TARGET"
@@ -289,5 +289,41 @@ check "and says it could not check, rather than that no copies were found" \
     "$(printf '%s' "$OUT12" | grep -c 'could not read Launch Services')" "1"
 check "and unregisters nothing it could not see" \
     "$(grep -c '^-u ' "$LS_CALLS" || true)" "0"
+
+# ---------------------------------------------------------------------------
+# ovation#390. A STALE PROJECT IS REGENERATED BEFORE THE BUILD, rather than built
+# into "cannot find type ... in scope" across four files, which is what an install
+# straight after a merge produced: the code was fine, and the generated project
+# predated the file the merge added. The two scripts are seams, so no case here
+# runs xcodegen or xcodebuild (L2).
+# ---------------------------------------------------------------------------
+PROJ_LOG="$WORK/project-calls"
+project_step() {  # $1 the check's exit status before, $2 after, $3 regenerate's status
+    : > "$PROJ_LOG"
+    printf '#!/bin/bash\necho check >> "%s"\nif [ -f "%s.regenerated" ]; then exit %s; fi\nexit %s\n' \
+        "$PROJ_LOG" "$PROJ_LOG" "$2" "$1" > "$WORK/check-project"
+    printf '#!/bin/bash\necho regenerate >> "%s"\n: > "%s.regenerated"\nexit %s\n' \
+        "$PROJ_LOG" "$PROJ_LOG" "$3" > "$WORK/regenerate"
+    rm -f "$PROJ_LOG.regenerated"
+    OVATION_PROJECT_CHECK="$WORK/check-project" OVATION_REGENERATE="$WORK/regenerate" \
+        bash -c '. ./scripts/build-install.sh --source-only 2>/dev/null; ovation_ensure_current_project' 2>&1
+}
+
+OUT="$(project_step 0 0 0)"; ST=$?
+check "a current project is built from as it is" "$ST:$(grep -c regenerate "$PROJ_LOG")" "0:0"
+
+OUT="$(project_step 1 0 0)"; ST=$?
+check "a stale project is regenerated before the build" "$ST:$(grep -c regenerate "$PROJ_LOG")" "0:1"
+check "and it says why it regenerated" "$(printf '%s' "$OUT" | grep -c 'out of date')" "1"
+
+OUT="$(project_step 1 0 1)"; ST=$?
+check "a regeneration that fails refuses, so nothing is built from the stale project" "$ST" "2"
+check "and names the command to run" "$(printf '%s' "$OUT" | grep -c 'regenerate-xcode-project.sh')" "1"
+
+OUT="$(project_step 1 1 0)"; ST=$?
+check "a project still stale after regenerating refuses rather than building it" "$ST" "2"
+
+OUT="$(project_step 3 3 0)"; ST=$?
+check "a project that could not be compared at all refuses rather than guessing" "$ST" "2"
 
 harness_end

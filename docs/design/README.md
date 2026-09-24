@@ -661,17 +661,24 @@ machine without a network is one people learn to skip.
 
 ## What is still open
 
-Where the venue and the real shoot times live, `ovation#95`. The receipts queue, `ovation#100`, is
-the only screen not designed at all. The Clients detail pane scrolls sideways once the window is
-narrowed, `ovation#110`, which needs a decision from Dan about a minimum window width. How the review
-and send sheet arrives and leaves, `ovation#318`, which is the one surface carrying motion that no
-file draws and no number describes, so it cannot be recorded above without inventing a duration.
+The receipts queue, `ovation#100`, is the only screen not designed at all. The Clients detail pane
+scrolls sideways once the window is narrowed, `ovation#110`: Dan decided on 2026-09-23 that the
+window's minimum is measured and must reach half his screen, 860 points, so the pane has to fit at
+that width rather than the window being held wider, and it does not yet.
 
 ## What was open here and is now settled
 
 **Everything below was in the section above and is not any more.** It is kept rather than deleted,
 because what a decision REPLACED is part of the decision, and moved rather than left, because the
 heading above is read as a list of what is outstanding.
+
+**Where the venue and the real shoot times live is settled and shipped** (`ovation#95`, closed
+2026-09-22). The invoice screen carries both, and draws them the same on a dark Mac.
+
+**How the review and send sheet arrives and leaves is settled with the sheet** (`ovation#318`,
+closed 2026-09-16). It was listed here as the one surface carrying motion no file draws; the sheet
+was built with its Debug preview, and the shared address band it had been carrying moved to
+`ovation#362`.
 
 **How money held on a client appears is settled** (`ovation#98`, `ovation#109`, `ovation#96`, five
 rounds on 2026-09-10, recorded under "The Clients screen" and "The invoice screen" below). It was

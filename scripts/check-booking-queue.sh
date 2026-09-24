@@ -29,6 +29,9 @@
 # REPOSITORY cannot see what a tool prints, and printed output reaches terminal
 # scrollback and transcripts by a route that guard never inspects (L222).
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QUEUE="${OVATION_BOOKING_QUEUE:-${HOME}/Library/Application Support/Ovation/booking-queue}"
@@ -83,7 +86,7 @@ fi
 # moved into a library because the sibling install check had the same defect for
 # the same reason, and two copies of one reader drift (L613).
 # shellcheck source=lib/json-field.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/json-field.sh"
+require_lib "$(dirname "${BASH_SOURCE[0]}")/lib/json-field.sh"
 field() { json_field "$1" "$2"; }
 
 if [ ! -d "$QUEUE" ]; then
@@ -112,7 +115,7 @@ for f in "$QUEUE"/*; do
     esac
 
     stem="${name%.json}"
-    if ! printf '%s' "$stem" | grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+    if ! grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' <<< "$stem"; then
         # Named rather than skipped. Ovation drains by the booking id in the
         # filename, so this is either a record whose name is wrong or a file
         # nobody meant to leave here, and a drain that quietly ignores it would
@@ -136,7 +139,7 @@ for f in "$QUEUE"/*; do
         note "$stem does not say which format version it is"
         continue
     fi
-    if ! printf '%s' "$version" | grep -qE '^[0-9]+$'; then
+    if ! grep -qE '^[0-9]+$' <<< "$version"; then
         note "$stem states a format version that is not a number"
         continue
     fi

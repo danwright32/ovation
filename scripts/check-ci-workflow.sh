@@ -25,6 +25,9 @@
 #
 # It prints paths, job names and counts. There is nothing here to redact.
 set -uo pipefail
+# ovation#399: every library is loaded through require_lib, which refuses by name
+# rather than carrying on without it. See scripts/lib/require.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIR="${OVATION_WORKFLOW_DIR:-$REPO_ROOT/.github/workflows}"
@@ -177,7 +180,7 @@ while IFS= read -r file; do
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
     # A two space indented key that is not deeper: a job name.
-    if printf '%s' "$line" | grep -qE '^  [A-Za-z0-9_-]+:[[:space:]]*$'; then
+    if grep -qE '^  [A-Za-z0-9_-]+:[[:space:]]*$' <<< "$line"; then
       finish_job
       current_job="$(printf '%s' "$line" | tr -d ' :')"
       job_count=$((job_count+1))
@@ -207,7 +210,7 @@ while IFS= read -r file; do
          problems=$((problems+1)); continue ;;
     esac
     ref="${used##*@}"
-    if ! printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$'; then
+    if ! grep -qE '^[0-9a-f]{40}$' <<< "$ref"; then
       echo "UNPINNED: $used in $(basename "$file")"
       echo "    a tag or branch is somebody else's choice of what runs here"
       echo "    tomorrow. Pin the commit: gh api repos/<owner>/<repo>/git/ref/tags/<tag>"
@@ -261,7 +264,7 @@ fi
 # one of them, so neither can be claimed to dodge this. Every other role,
 # including one nobody has invented yet, refuses: an allow list fails closed and
 # a refuse list is silent about whatever it does not mention (L96).
-. "$REPO_ROOT/scripts/lib/script-roles.sh"
+require_lib "$REPO_ROOT/scripts/lib/script-roles.sh"
 
 # READ FROM STEPS, NOT FROM THE WHOLE FILE. Both workflow files here explain
 # themselves at length and name scripts while doing it, and a rule reading every
@@ -269,7 +272,7 @@ fi
 # one (L135). What counts as a step's text is decided once, in
 # lib/workflow-text.sh, because scripts/test-preconditions.sh asks the reverse
 # question of the same files and two readers drift (ovation#221, L370).
-. "$REPO_ROOT/scripts/lib/workflow-text.sh"
+require_lib "$REPO_ROOT/scripts/lib/workflow-text.sh"
 NAMED_CHECKS="$(workflow_step_text "$DIR" | grep -oE 'check-[a-z0-9-]+\.(sh|py)' | sort -u)"
 NAMED_COUNT="$(printf '%s' "$NAMED_CHECKS" | grep -c . || true)"
 

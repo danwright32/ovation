@@ -369,5 +369,18 @@ check "a condition wait that is met passes as one assertion" "$ST13B" "0"
 check "and it looked until the condition held, not once" \
     "$(wc -c < "$WORK/looks" 2>/dev/null | tr -d ' ')" "3"
 
+# A MATCH MUST NOT BE ABLE TO READ AS A MISS (L183). `printf "$text" | grep -q`
+# under pipefail: grep stops reading at its first match, the printf writing a long
+# text into the pipe then dies of SIGPIPE, pipefail reports the pipe as failed, and
+# the helper answers "no" on a line that matched. It passes on a quiet machine and
+# failed PR ovation#508 on a CI runner ("printf: write error: Broken pipe"). So text
+# goes to grep as a here-string, which has no writer to die. Enumerated from the
+# tree rather than listed, so tomorrow's helper is covered too (L41).
+PIPED="$(grep -n -E "printf '%s(\\\\n)?' \"[^\"]*\" \| grep -q" scripts/*.sh scripts/git-hooks/pre-push 2>/dev/null \
+    | grep -v -E ':[0-9]+:[[:space:]]*#' || true)"
+[ -z "$PIPED" ] || printf '    piped into grep -q:\n%s\n' "$PIPED" >&2
+check "no script pipes text into grep -q, where a match can read as a miss" \
+    "$(printf '%s' "$PIPED" | grep -c . || true)" "0"
+
 echo "test harness tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

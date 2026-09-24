@@ -183,7 +183,7 @@ run_it() {
         "./$TARGET" 2>&1
 }
 status_of() { run_it >/dev/null 2>&1; printf '%s' "$?"; }
-mentions() { if printf '%s' "$1" | grep -qF -- "$2"; then echo yes; else echo no; fi; }
+mentions() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # 1. A project listing every Swift file on disk is current, and says how many.
 fresh_tree

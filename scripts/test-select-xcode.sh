@@ -50,7 +50,7 @@ run_select() {
         "./$TARGET" 2>&1
 }
 status_select() { run_select >/dev/null 2>&1; printf '%s' "$?"; }
-says() { if printf '%s' "$1" | grep -qF -- "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. THE PINNED XCODE IS PRESENT: it is selected, and the selection is proved.

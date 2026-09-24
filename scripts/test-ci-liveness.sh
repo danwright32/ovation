@@ -32,7 +32,7 @@ judge() {
         "./$TARGET" 2>&1
 }
 status_of() { judge "$@" >/dev/null 2>&1; printf '%s' "$?"; }
-says() { if printf '%s' "$1" | grep -qiF "$2"; then echo yes; else echo no; fi; }
+says() { if grep -qiF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. THE HEALTHY CASE. Everything that landed has been judged.
