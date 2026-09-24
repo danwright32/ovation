@@ -1,4 +1,7 @@
 #!/bin/bash
+# ovation-runs-on: macos
+# It reads a built product or xcodebuild's settings, so it cannot measure on Linux
+# and the macOS build job runs it (ovation#161, scripts/run-tests.sh).
 # The generated Xcode project must give Debug and Release genuinely separate
 # identities, and must target the macOS Ovation actually needs rather than the
 # one its port source happened to target.

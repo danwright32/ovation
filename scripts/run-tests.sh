@@ -323,6 +323,35 @@ SUITE_DIR="${OVATION_SHELL_SUITE_DIR:-${REPO_ROOT}/scripts}"
 SUITE_FLOOR="${OVATION_SHELL_SUITE_FLOOR:-}"
 SHELL_UNMEASURED=""
 
+# WHICH SHELL SUITES, and it is CI's question, never Dan's (ovation#161, Dan's
+# decision 2026-09-23). The shell suites ran three times per push: the macOS
+# shell job, the Linux one, and again inside the macOS build job. They now run
+# ONCE on Linux, and the macOS build job runs only the suites that cannot measure
+# anywhere else, which today are the four that read a built product or
+# xcodebuild's settings.
+#
+# A SUITE DECLARES THAT ITSELF, with the line `# ovation-runs-on: macos`, so the
+# set is derived from the suites rather than listed in the workflow or here, where
+# a new one would be missing until somebody remembered (L41, L96). And the Linux
+# run REFUSES a suite that could not measure and carries no marker: without that,
+# a new suite that needs a Mac would answer CANNOT MEASURE on Linux, be skipped by
+# the macOS job, and be measured by CI nowhere, with every run still green (L98).
+#
+#     (unset)       every suite: the push gate on Dan's Mac, unchanged
+#     macos-only    only suites carrying the marker, for the macOS build job
+#     must-measure  every suite, and an unmarked CANNOT MEASURE fails the run
+SHELL_SUITES_MODE="${OVATION_SHELL_SUITES:-}"
+SHELL_SUITE_MARKER='# ovation-runs-on: macos'
+case "${SHELL_SUITES_MODE}" in
+  ""|macos-only|must-measure) ;;
+  *)
+    echo "Error: OVATION_SHELL_SUITES is '${SHELL_SUITES_MODE}', which is not a mode this runner has." >&2
+    echo "       It takes macos-only or must-measure, or nothing for every suite." >&2
+    exit 64
+    ;;
+esac
+suite_needs_a_mac() { grep -qxF -- "${SHELL_SUITE_MARKER}" "$1" 2>/dev/null; }
+
 if [ -n "${ONLY_TESTING}" ]; then
   # A NARROWED RUN IS ABOUT ONE SWIFT SUITE, and the shell suites take minutes and
   # answer a different question. Said in one line rather than simply not happening,
@@ -337,8 +366,14 @@ else
   failed_status=0
   failed_names=""
   unmeasured_names=""
+  unmarked_unmeasured=""
+  left_to_linux=0
   for s in "${SUITE_DIR}"/test-*.sh; do
     [ -x "$s" ] || continue
+    if [ "${SHELL_SUITES_MODE}" = "macos-only" ] && ! suite_needs_a_mac "$s"; then
+      left_to_linux=$((left_to_linux+1))
+      continue
+    fi
     suites_ran=$((suites_ran+1))
     # NAMED BEFORE IT RUNS, NEVER AFTER (ovation#337). A suite says nothing until
     # it finishes, so a job killed part way through ends after the last suite that
@@ -355,6 +390,9 @@ else
       suites_passed=$((suites_passed+1))
     elif [ "${suite_status}" -eq 2 ]; then
       unmeasured_names="${unmeasured_names}${suite_name} "
+      if [ "${SHELL_SUITES_MODE}" = "must-measure" ] && ! suite_needs_a_mac "$s"; then
+        unmarked_unmeasured="${unmarked_unmeasured}${suite_name} "
+      fi
     else
       failed_names="${failed_names}${suite_name} "
       failed_status="${suite_status}"
@@ -368,6 +406,21 @@ else
   echo "==> Shell suites: ${suites_ran} ran, ${suites_passed} passed, verdicts below"
   [ -n "${failed_names}" ] && echo "    failed: ${failed_names% }"
   [ -n "${unmeasured_names}" ] && echo "    could not measure: ${unmeasured_names% }"
+  if [ "${SHELL_SUITES_MODE}" = "macos-only" ]; then
+    echo "    ${left_to_linux} suite(s) carrying no '${SHELL_SUITE_MARKER}' line were left to the Linux job (ovation#161)."
+    if [ "${suites_ran}" -eq 0 ]; then
+      echo "Error: no suite carries '${SHELL_SUITE_MARKER}', so the macOS run measured nothing at all." >&2
+      exit 7
+    fi
+  fi
+  if [ -n "${unmarked_unmeasured}" ]; then
+    for name in ${unmarked_unmeasured}; do
+      echo "Error: ${name} could not measure here and carries no '${SHELL_SUITE_MARKER}' line," >&2
+      echo "       so no CI job would ever measure it. Make it measure on Linux, or mark it as" >&2
+      echo "       needing a Mac so the macOS build job runs it (ovation#161)." >&2
+    done
+    failed_status=1
+  fi
 
   if [ "${failed_status}" -ne 0 ]; then
     echo "    the run stops here: a failing suite means nothing after it is worth" >&2
@@ -378,7 +431,12 @@ else
   # The floor is checked only when nothing FAILED, because a failure breaks out
   # of the loop and the short count is then a consequence of the failure rather
   # than a fact about the tree. Reporting both would name the wrong cause (L11).
-  if [ -n "${OVATION_SHELL_SUITE_DIR:-}" ] && [ -z "${SUITE_FLOOR}" ]; then
+  if [ "${SHELL_SUITES_MODE}" = "macos-only" ]; then
+    # THE FLOOR COUNTS EVERY SUITE, and this run is deliberately a subset of them.
+    # The Linux job runs them all and holds the count; said rather than skipped
+    # silently, for the reason the injected directory case below gives (L98).
+    echo "==> Shell suite count check left to the Linux job: this run is the macOS subset (ovation#161)."
+  elif [ -n "${OVATION_SHELL_SUITE_DIR:-}" ] && [ -z "${SUITE_FLOOR}" ]; then
     # Said out loud rather than skipped silently, the same way the pure count
     # skip is: a run driven with throwaway suites cannot be judged against the
     # real floor, and a skip nobody is told about is indistinguishable from a

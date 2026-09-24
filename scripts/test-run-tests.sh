@@ -38,7 +38,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_DEFAULTS_DOMAINS_COMMAND \
       OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
       OVATION_REPO_ROOT \
-      OVATION_ONLY_TESTING OVATION_PROJECT_CURRENT_COMMAND OVATION_REGENERATE_COMMAND
+      OVATION_ONLY_TESTING OVATION_PROJECT_CURRENT_COMMAND OVATION_REGENERATE_COMMAND \
+      OVATION_SHELL_SUITES
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -75,7 +76,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 241
+harness_begin "test runner lock tests" 248
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -886,6 +887,41 @@ check "a suite that cannot measure does not stop the ones after it" \
 check "and the run's own verdict is CANNOT MEASURE, not a pass" "$ST11" "2"
 check "and the summary names the suite that could not measure" \
     "$(printf '%s' "$OUT11" | grep '^    could not measure:' | grep -c 'test-a-cannot.sh')" "1"
+
+# 11a1. ovation#161, Dan's decision 2026-09-23: the shell suites run ONCE, on
+#       Linux, and the macOS build job runs only the suites that need a Mac. Which
+#       ones those are is DECLARED by the suite, one marker line, never listed
+#       here or in the workflow (L41, L96), and the Linux job refuses a suite that
+#       cannot measure there and carries no marker, so a new Mac only suite cannot
+#       quietly go unmeasured by CI.
+stage_marked_suite() {
+    printf '#!/bin/bash\n# ovation-runs-on: macos\necho "RAN-%s"\nexit %s\n' "$1" "$2" > "$SUITES/test-$1.sh"
+    chmod +x "$SUITES/test-$1.sh"
+}
+clear_suites
+stage_marked_suite "a-needs-a-mac" 2
+stage_suite "b-anywhere" 0
+stage_suite "c-cannot-and-unmarked" 2
+OUT161A="$(OVATION_SHELL_SUITES=macos-only shell_run)"; ST161A=$?
+check "the macos only run runs the suite marked as needing a Mac" \
+    "$(printf '%s' "$OUT161A" | grep -c '^RAN-a-needs-a-mac$')" "1"
+check "and none of the others" \
+    "$(printf '%s' "$OUT161A" | grep -cE '^RAN-(b-anywhere|c-cannot-and-unmarked)$')" "0"
+check "and it says the others were left to the Linux job" \
+    "$(printf '%s' "$OUT161A" | grep -c 'were left to the Linux job')" "1"
+OUT161B="$(OVATION_SHELL_SUITES=must-measure shell_run)"; ST161B=$?
+check "on Linux, an unmarked suite that cannot measure fails the run" \
+    "$([ "$ST161B" -ne 0 ] && [ "$ST161B" -ne 2 ] && echo failed || echo "exit $ST161B")" "failed"
+check "and it names that suite and says to mark it or make it measure" \
+    "$(printf '%s' "$OUT161B" | grep -c 'test-c-cannot-and-unmarked.sh.*ovation-runs-on: macos')" "1"
+clear_suites
+stage_marked_suite "a-needs-a-mac" 2
+stage_suite "b-anywhere" 0
+OUT161C="$(OVATION_SHELL_SUITES=must-measure shell_run)"; ST161C=$?
+check "and a MARKED suite that cannot measure there is allowed, as it always was" "$ST161C" "2"
+OUT161D="$(shell_run)"; ST161D=$?
+check "with no mode, every suite runs, which is the push gate on Dan's Mac" \
+    "$(printf '%s' "$OUT161D" | grep -cE '^RAN-(a-needs-a-mac|b-anywhere)$')" "2"
 
 # 11a2. EACH SUITE IS NAMED BEFORE IT RUNS (ovation#337). The macOS shell suites
 #       job is cancelled at its cap intermittently, and the log then ends after
