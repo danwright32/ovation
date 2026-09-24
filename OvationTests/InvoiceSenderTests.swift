@@ -170,7 +170,9 @@ struct InvoiceSenderTests {
 
         let outcome = await Self.send(id, in: container, gmail: gmail)
 
-        guard case .couldNotTell = outcome else { Issue.record("got \(outcome)"); return }
+        guard case .couldNotTell(let sentence) = outcome else { Issue.record("got \(outcome)"); return }
+        // It says what Ovation does, never a control that is not built yet (ovation#471).
+        #expect(sentence.contains("It will not be sent again until that is settled."))
         guard case .attempting = try Self.status(id, in: container) else {
             Issue.record("it went back to a draft, so its number could be reissued"); return
         }
@@ -206,6 +208,15 @@ struct InvoiceSenderTests {
         guard case .refused = outcome else { Issue.record("\(reason): got \(outcome)"); return }
         #expect(gmail.sent.isEmpty, "\(reason) reached Gmail")
         #expect(try Self.status(id, in: container) == before, "\(reason) wrote something")
+    }
+
+    /// An invoice number is an identifier, so it is never grouped: "invoice 1,123" is a
+    /// number nobody issued.
+    @Test("the sent line names the invoice number as issued, with no thousands separator")
+    func theSentLineNamesTheNumberAsIssued() {
+        let line = InvoiceMail.sentLine(time: "10:13 AM", to: ["a@example.com", "b@example.com"],
+                                        number: 1_123)
+        #expect(line == "Sent at 10:13 AM to a@example.com, b@example.com, and recorded against invoice 1123.")
     }
 
     /// THE GATE IS ASKED AGAIN AT THE PRESS, not trusted from when the sheet opened

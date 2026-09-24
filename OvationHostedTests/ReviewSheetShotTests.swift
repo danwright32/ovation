@@ -81,6 +81,86 @@ struct ReviewSheetShotTests {
         print("REVIEW SHOTS: wrote \(written.count) file(s) to \(directory.path)")
     }
 
+    // MARK: the send (ovation#42)
+
+    /// THE SHEET OVER A REAL REVIEW, in every state the send can put it in, so the
+    /// Send half is judged by being looked at like the rest (L606). The review is
+    /// built the way the app builds one, over an in-memory store, and each state is
+    /// set on it; a stand in Gmail is never asked, because no picture presses Send.
+    @Test("the send states are captured, or it says it captured nothing")
+    func captureTheSendStates() async throws {
+        guard let directory = Self.outputDirectory else {
+            print("REVIEW SEND SHOTS: no TEST_RUNNER_OVATION_SHOT_DIR, so nothing was captured.")
+            return
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let day = Date(timeIntervalSince1970: 1_790_000_000)
+        var written = 0
+        for state in SendShot.all {
+            let review = try await Self.review(redirected: state.redirected, day: day)
+            review.state = state.state(day)
+            let presenter = review.presenter
+            let page = InvoicePage()
+            try presenter.show(on: page)
+            let sheet = ReviewSheet(presenter: presenter, review: review, page: page, close: {})
+            try OffscreenShot.capture(sheet, size: CGSize(width: 1352, height: 878), scheme: .light,
+                                      to: directory.appending(path: state.fileName))
+            written += 1
+        }
+        #expect(written == SendShot.all.count)
+        print("REVIEW SEND SHOTS: wrote \(written) file(s) to \(directory.path)")
+    }
+
+    private struct SendShot {
+        let fileName: String
+        let redirected: Bool
+        let state: (Date) -> ReviewSendState
+
+        /// COMPUTED, not stored: each carries a closure, which a shared constant may not.
+        static var all: [SendShot] { [
+            SendShot(fileName: "09-send-ready-light.png", redirected: false, state: { _ in .ready }),
+            SendShot(fileName: "10-send-ready-to-test-address-light.png", redirected: true, state: { _ in .ready }),
+            SendShot(fileName: "11-sending-light.png", redirected: false,
+                     state: { .working(since: $0.addingTimeInterval(-3)) }),
+            SendShot(fileName: "12-sent-light.png", redirected: false,
+                     state: { .sent(at: $0, to: ["booker@example.com"]) }),
+            SendShot(fileName: "13-not-sent-light.png", redirected: false,
+                     state: { _ in .refused("Gmail refused it: invalid recipient. Nothing was sent, and this is still a draft.") }),
+            SendShot(fileName: "14-could-not-tell-light.png", redirected: false,
+                     state: { _ in .couldNotTell("Gmail did not answer (the request timed out), so Ovation cannot tell whether it went. It will not be sent again until that is settled.") }),
+        ] }
+    }
+
+    /// A review of a real invoice over an in-memory store, as the app opens one.
+    private static func review(redirected: Bool, day: Date) async throws -> InvoiceReview {
+        let container = try OvationSchema.container(inMemory: true)
+        let context = container.mainContext
+        let client = Client(name: "A Client", taxStatus: .notExempt)
+        client.email = "booker@example.com"
+        context.insert(client)
+        let issued = BusinessDate.stamping(day)
+        let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: issued,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        context.insert(invoice)
+        invoice.dueDate = BusinessDate.stamping(day.addingTimeInterval(14 * 86_400))
+        let shoot = Shoot(name: "Autumn Concert", when: .dayOnly(issued), venue: "Calder Street Theatre")
+        shoot.shotFrom = ClockTime("19:00")
+        shoot.shotUntil = ClockTime("21:30")
+        invoice.add(shoot)
+        invoice.add(LineItem.hourly(hours: Hours(quarters: 10), at: Money(dollars: 250),
+                                    describedAs: "Concert photography", for: shoot))
+        try context.save()
+        let settings = URL.temporaryDirectory.appending(path: "ovation-shot-sending-\(UUID().uuidString).json")
+        let destination = redirected
+            ? #""destination":"test","testAddress":"second@example.com""#
+            : #""destination":"clients""#
+        try Data(#"{"fromName":"Dan Wright","fromEmail":"dan@example.com",\#(destination)}"#.utf8).write(to: settings)
+        let reviewer = InvoiceReviewer(container: container, footer: { .fixed }, settingsFile: settings,
+                                       makeSender: { _ in .failure(SenderUnavailable(sentence: "not in a picture")) },
+                                       clock: { day })
+        return try await reviewer.open(invoice.persistentModelID).get()
+    }
+
     /// One picture to take.
     private struct Shot {
         let sample: ReviewSample

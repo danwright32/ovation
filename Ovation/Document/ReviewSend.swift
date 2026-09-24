@@ -77,7 +77,8 @@ struct ReviewOutcome: View {
                 }
             case .sent(let at, let to):
                 big("Sent")
-                Text("Sent at \(at.formatted(date: .omitted, time: .shortened)) to \(to.joined(separator: ", ")), and recorded against invoice \(review.number).")
+                Text(InvoiceMail.sentLine(time: at.formatted(date: .omitted, time: .shortened),
+                                          to: to, number: review.number))
                     .font(.system(size: 13))
                 Button("Done", action: close).keyboardShortcut(.defaultAction)
             case .refused(let sentence):

@@ -437,7 +437,6 @@ struct OvationApp: App {
     /// opens a browser. The first send with no stored grant opens Google's consent page
     /// once; the grant is kept in the credentials folder for every send after. The one
     /// construction of the manager stays in `OvationGmail` (ovation#426).
-    @MainActor
     static func gmailSender(for settings: SendingSettings) async -> Result<any MailSender, SenderUnavailable> {
         let manager: GmailAuthManager
         do {

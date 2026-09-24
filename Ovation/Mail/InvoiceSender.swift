@@ -94,7 +94,7 @@ actor InvoiceSender {
                           then: .refused("\(refusal.localizedDescription) Nothing was sent, and this is still a draft."))
         } catch {
             // NO ANSWER. Left attempting, deliberately: the message may have gone.
-            return .couldNotTell("Gmail did not answer (\(error.localizedDescription)), so Ovation cannot tell whether it went. It is kept as sent-or-not until you say it did not go.")
+            return .couldNotTell("Gmail did not answer (\(error.localizedDescription)), so Ovation cannot tell whether it went. It will not be sent again until that is settled.")
         }
 
         let sentAt = clock()
@@ -113,7 +113,7 @@ actor InvoiceSender {
             return outcome
         } catch {
             modelContext.rollback()
-            return .couldNotTell("Gmail answered, and Ovation could not record the answer: \(error.localizedDescription). It is kept as sent-or-not until it is settled.")
+            return .couldNotTell("Gmail answered, and Ovation could not record the answer: \(error.localizedDescription). It will not be sent again until that is settled.")
         }
     }
 
@@ -148,6 +148,12 @@ enum InvoiceMail {
     }
 
     static func filename(number: Int64) -> String { "Invoice \(number).pdf" }
+
+    /// What the sheet says once Gmail accepted. Built as a String, because a SwiftUI
+    /// Text interpolating an integer groups it, and "invoice 1,123" names nothing issued.
+    static func sentLine(time: String, to recipients: [String], number: Int64) -> String {
+        "Sent at \(time) to \(recipients.joined(separator: ", ")), and recorded against invoice \(String(number))."
+    }
 
     /// The design record's one sentence for an empty message (Dan, 2026-09-09).
     static let emptyMessage = "The message is empty. Nothing is sent without one."
