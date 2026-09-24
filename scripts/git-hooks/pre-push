@@ -606,8 +606,12 @@ if [ -z "${SKIP_XCODE}" ] && [ -z "${TEST_COMMAND}" ]; then
     fi
     # shellcheck source=../lib/built-product.sh
     require_lib "${PRODUCT_LIB}"
+    # ASKED AS A FUNCTION, because it is asked twice: before, and again after the
+    # gate has built them (ovation#381), through the same predicate both times.
+    products_missing_now() {
     PRODUCTS_MISSING=""
     PRODUCT_REMEDIES=""
+    ONLY_BUILDING_FIXES_IT=1
     for config in ${BUILT_PRODUCT_CONFIGURATIONS}; do
         # From the top of the pushed tree, which is where the location query
         # expects to find the project. The project it asked is passed on, so a
@@ -616,6 +620,9 @@ if [ -z "${SKIP_XCODE}" ] && [ -z "${TEST_COMMAND}" ]; then
         reason="$(built_product_absence "${config}" "${app}" "${REPO_ROOT}/Ovation.xcodeproj")"
         code=$?
         [ "${code}" -eq 0 ] && continue
+        # 1 no bundle, 2 no executable, 3 no project yet: building fixes each.
+        # 4, a project that did not say where it builds, needs regenerating first.
+        case "${code}" in 1|2|3) ;; *) ONLY_BUILDING_FIXES_IT="" ;; esac
         PRODUCTS_MISSING="${PRODUCTS_MISSING}pre-push:     ${reason}
 "
         # EACH REMEDY ONCE, from the lib, so both configurations missing for one
@@ -627,6 +634,56 @@ if [ -z "${SKIP_XCODE}" ] && [ -z "${TEST_COMMAND}" ]; then
 " ;;
         esac
     done
+    }
+    products_missing_now
+
+    # THE GATE BUILDS THEM ITSELF when building is the whole remedy (ovation#381).
+    # It used to hand the 30 second build back, one refused push per fresh
+    # worktree, for two recorded reasons that have both since been answered: a
+    # build needs no sibling lock (ovation#302), and the keychain no longer
+    # prompts for the signing key (ovation#24). It runs UNDER A DEADLINE, so a
+    # build that hangs refuses the push rather than holding it with nothing said
+    # (L110), in its own process group so the whole build stops at the deadline
+    # (L321), and the products are then asked for again through the same
+    # predicate, never assumed built because the command exited 0.
+    if [ -n "${PRODUCTS_MISSING}" ] && [ -n "${ONLY_BUILDING_FIXES_IT}" ]; then
+        BUILD_DEADLINE="${OVATION_GATE_BUILD_DEADLINE:-900}"
+        BUILD_LOG="$(mktemp)"
+        echo "pre-push: the products this push needs are not built, so the gate builds them now" >&2
+        echo "pre-push: (bash scripts/build-products.sh, about 30 seconds cold, at most ${BUILD_DEADLINE}s):" >&2
+        printf '%s' "${PRODUCTS_MISSING}" >&2
+        set -m
+        ( cd "${REPO_ROOT}" && exec bash scripts/build-products.sh ) > "${BUILD_LOG}" 2>&1 &
+        build_pid=$!
+        set +m
+        waited=0
+        while kill -0 "${build_pid}" 2>/dev/null && [ "${waited}" -lt "${BUILD_DEADLINE}" ]; do
+            sleep 1
+            waited=$((waited + 1))
+        done
+        if kill -0 "${build_pid}" 2>/dev/null; then
+            kill -TERM -- "-${build_pid}" 2>/dev/null || kill -TERM "${build_pid}" 2>/dev/null
+            wait "${build_pid}" 2>/dev/null
+            echo "pre-push: the build did not finish within ${BUILD_DEADLINE}s, so it was stopped. Last lines:" >&2
+            tail -n 15 "${BUILD_LOG}" | sed 's/^/pre-push:     /' >&2
+            echo "pre-push: Push refused before running anything." >&2
+            rm -f "${BUILD_LOG}"
+            exit 1
+        fi
+        wait "${build_pid}"
+        build_status=$?
+        if [ "${build_status}" -ne 0 ]; then
+            echo "pre-push: the build failed (exit ${build_status}). Last lines:" >&2
+            tail -n 15 "${BUILD_LOG}" | sed 's/^/pre-push:     /' >&2
+            echo "pre-push: Push refused before running anything." >&2
+            rm -f "${BUILD_LOG}"
+            exit 1
+        fi
+        rm -f "${BUILD_LOG}"
+        echo "pre-push: built them in about ${waited}s; asking again whether they are there." >&2
+        products_missing_now
+    fi
+
     if [ -n "${PRODUCTS_MISSING}" ]; then
         echo "pre-push: this push contains something the built bundle suites judge, and" >&2
         echo "pre-push: they cannot measure a product that is not there:" >&2
