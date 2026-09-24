@@ -71,12 +71,15 @@ struct InvoiceSenderTests {
 
     private static func send(_ id: PersistentIdentifier, in container: ModelContainer, gmail: FakeGmail,
                              settings: SendingSettings = settings,
-                             message: String = "Hello,\n\nThe invoice is attached.\n\nThank you,\nDan")
+                             message: String = "Hello,\n\nThe invoice is attached.\n\nThank you,\nDan",
+                             approved: [String]? = nil)
     async -> InvoiceSendOutcome {
         let answeredAt = later
+        // WHAT THE SHEET SHOWED, by default exactly who this settings file sends to.
+        let shown = approved ?? settings.destination.recipients(forClient: ["booker@client.example"])
         return await InvoiceSender(modelContainer: container).send(
             id, render: render(), message: message, settings: settings, footer: footer,
-            through: gmail, clock: { answeredAt })
+            approvedRecipients: shown, through: gmail, clock: { answeredAt })
     }
 
     // MARK: it goes, and it is recorded as observed
@@ -217,6 +220,23 @@ struct InvoiceSenderTests {
         let line = InvoiceMail.sentLine(time: "10:13 AM", to: ["a@example.com", "b@example.com"],
                                         number: 1_123)
         #expect(line == "Sent at 10:13 AM to a@example.com, b@example.com, and recorded against invoice 1123.")
+    }
+
+    /// WHO IT GOES TO IS WHO THE SHEET SHOWED (L64). The sheet lists its recipients
+    /// when it opens; a settings file or a client address changed since then would
+    /// send somewhere Dan never approved, so the send refuses instead.
+    @Test("a send to anyone other than who the sheet showed is refused before anything is written")
+    func adifferentRecipientIsRefused() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+
+        let outcome = await Self.send(id, in: container, gmail: gmail,
+                                      approved: ["second@elsewhere.example"])
+
+        guard case .refused(let sentence) = outcome else { Issue.record("got \(outcome)"); return }
+        #expect(sentence == InvoiceMail.recipientsChanged)
+        #expect(gmail.sent.isEmpty)
+        #expect(try Self.status(id, in: container) == .notSent)
     }
 
     /// THE GATE IS ASKED AGAIN AT THE PRESS, not trusted from when the sheet opened

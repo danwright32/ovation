@@ -142,7 +142,7 @@ final class InvoiceReviewer {
         }
         let outcome = await InvoiceSender(modelContainer: container).send(
             review.invoiceID, render: render, message: review.message, settings: settings,
-            footer: footer, through: sender, clock: clock)
+            footer: footer, approvedRecipients: review.goingTo, through: sender, clock: clock)
         switch outcome {
         case .sent(let at, let to): review.state = .sent(at: at, to: to)
         case .refused(let sentence): review.state = .refused(sentence)

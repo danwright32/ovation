@@ -190,6 +190,22 @@ struct InvoiceReviewerTests {
 
     final class FooterBox { var footer = InvoiceFooter.fixed }
 
+    /// THE SHEET SAID CLIENT, THE FILE NOW SAYS TEST (or the reverse): the send
+    /// refuses rather than going somewhere the sheet never showed.
+    @Test("a destination changed after the sheet opened stops the send")
+    func achangedDestinationStopsTheSend() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = InvoiceSenderTests.FakeGmail()
+        let file = try Self.settingsFile(Self.clients)
+        let review = try await Self.reviewer(container, settings: file, gmail: gmail).open(id).get()
+        try Data(Self.test.utf8).write(to: file)
+
+        await review.send()
+
+        #expect(review.state == .refused(InvoiceMail.recipientsChanged))
+        #expect(gmail.sent.isEmpty)
+    }
+
     /// THE PREVIEW IS THE ATTACHMENT (PRD 10c): the bytes sent are the bytes the
     /// session rendered for the page, and the session rendered once.
     @Test("what is attached is the one render the page shows")

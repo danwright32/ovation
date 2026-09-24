@@ -27,7 +27,7 @@ import SwiftData
 actor InvoiceSender {
 
     func send(_ invoiceID: PersistentIdentifier, render: RenderedInvoice, message: String,
-              settings: SendingSettings, footer: InvoiceFooter,
+              settings: SendingSettings, footer: InvoiceFooter, approvedRecipients: [String],
               through sender: any MailSender, clock: @Sendable () -> Date) async -> InvoiceSendOutcome {
         guard let invoice = try? modelContext.fetch(FetchDescriptor<Invoice>())
             .first(where: { $0.persistentModelID == invoiceID }) else {
@@ -50,6 +50,11 @@ actor InvoiceSender {
         let recipients = settings.destination.recipients(forClient: invoice.client?.recipientsForInvoices ?? [])
         guard !recipients.isEmpty else {
             return .refused("This client has no address to send to, so nothing was sent.")
+        }
+        // WHO IT GOES TO IS WHO THE SHEET SHOWED (L64): a settings file or a client
+        // address changed since the sheet opened would send somewhere never approved.
+        guard recipients == approvedRecipients else {
+            return .refused(InvoiceMail.recipientsChanged)
         }
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .refused(InvoiceMail.emptyMessage)
@@ -148,6 +153,9 @@ enum InvoiceMail {
     }
 
     static func filename(number: Int64) -> String { "Invoice \(number).pdf" }
+
+    /// Said when the send would go to anyone other than who the review sheet showed.
+    static let recipientsChanged = "Who this would go to changed after it was opened, so nothing was sent. Close it and review it again."
 
     /// What the sheet says once Gmail accepted. Built as a String, because a SwiftUI
     /// Text interpolating an integer groups it, and "invoice 1,123" names nothing issued.
