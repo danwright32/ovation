@@ -428,12 +428,12 @@ struct OvationApp: App {
 
     /// Gmail for one send, or why it cannot be had (ovation#42).
     ///
-    /// ASKED ONLY AT THE PRESS, after every other refusal, so an ordinary refusal never
-    /// opens a browser. The first send with no stored grant opens Google's consent page
+    /// BUILT AT THE PRESS AND CONNECTED ONLY AFTER EVERY REFUSAL, by the send itself,
+    /// so an ordinary refusal never opens a browser. The first send with no stored grant opens Google's consent page
     /// once; the grant is kept in the credentials folder for every send after. The one
     /// construction of the manager stays in `OvationGmail` (ovation#426).
-    static func gmailSender(for settings: SendingSettings) async -> Result<any MailSender, SenderUnavailable> {
-        await OvationGmail.sender(for: settings, connection: { try OvationGmail.authManager() })
+    static func gmailSender(for settings: SendingSettings) -> Result<SendingRoute, SenderUnavailable> {
+        OvationGmail.sender(for: settings, connection: { try OvationGmail.authManager() })
     }
 
     /// The restore control, or nil when there is no folder to restore from.
@@ -611,7 +611,7 @@ struct OvationApp: App {
                          InvoiceReviewer(container: container,
                                          footer: { InvoiceFooterSetting(defaults: .standard).footer },
                                          settingsFile: StoreLocation.liveSendingSettingsFile(),
-                                         makeSender: { settings in await Self.gmailSender(for: settings) },
+                                         makeSender: { settings in Self.gmailSender(for: settings) },
                                          clock: { Date() })
                      },
                      progress: progress)

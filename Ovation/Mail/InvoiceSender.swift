@@ -8,6 +8,9 @@
 // Gmail's size limit. A refusal placed after the write would leave the in-flight state
 // behind on every ordinary refusal, for a person to clear (L667).
 //
+// Then Gmail is made ready, which is where a browser can ask Dan to sign in, so no
+// refusal above ever opens one (L667).
+//
 // Then the attempt is written, BEFORE the call. An invoice left `notSent` across the
 // call let a timeout hand its number back, and the next review issued that number to an
 // invoice a client may already hold (ovation#460).
@@ -28,7 +31,8 @@ actor InvoiceSender {
 
     func send(_ invoiceID: PersistentIdentifier, render: RenderedInvoice, message: String,
               settings: SendingSettings, footer: InvoiceFooter, approvedRecipients: [String],
-              through sender: any MailSender, clock: @Sendable () -> Date) async -> InvoiceSendOutcome {
+              through route: SendingRoute, clock: @Sendable () -> Date) async -> InvoiceSendOutcome {
+        let sender = route.sender
         guard let invoice = try? modelContext.fetch(FetchDescriptor<Invoice>())
             .first(where: { $0.persistentModelID == invoiceID }) else {
             return .refused("That invoice is no longer there, so nothing was sent.")
@@ -75,6 +79,13 @@ actor InvoiceSender {
             }
         } catch {
             return .refused("The message could not be measured for sending, so nothing was sent: \(error.localizedDescription)")
+        }
+
+        // GMAIL IS MADE READY LAST, after every refusal and before anything is written,
+        // because making it ready is where a browser can ask Dan to sign in, and an
+        // ordinary refusal must never open one (L667). A failure here sends nothing.
+        if let unavailable = await route.ready() {
+            return .refused(unavailable.sentence)
         }
 
         // 2. THE ATTEMPT, written before the call.
@@ -132,6 +143,15 @@ actor InvoiceSender {
             return "Gmail refused it: \(detail). Nothing was sent, and this is still a draft."
         }
     }
+}
+
+/// Gmail for one send, in two steps. Building it opens nothing, so the sender can
+/// measure the message while the refusals are asked; `ready` is the step that may open
+/// a browser, and the send calls it only once every refusal has been answered.
+struct SendingRoute: Sendable {
+    let sender: any MailSender
+    /// Nil once Gmail is ready to send, or why it cannot be.
+    let ready: @Sendable @MainActor () async -> SenderUnavailable?
 }
 
 /// How one press of Send ended. Three answers, because they need three different things

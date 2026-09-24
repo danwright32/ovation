@@ -72,14 +72,26 @@ struct InvoiceSenderTests {
     private static func send(_ id: PersistentIdentifier, in container: ModelContainer, gmail: FakeGmail,
                              settings: SendingSettings = settings,
                              message: String = "Hello,\n\nThe invoice is attached.\n\nThank you,\nDan",
-                             approved: [String]? = nil)
+                             approved: [String]? = nil, readiness: Readiness = .init())
     async -> InvoiceSendOutcome {
         let answeredAt = later
         // WHAT THE SHEET SHOWED, by default exactly who this settings file sends to.
         let shown = approved ?? settings.destination.recipients(forClient: ["booker@client.example"])
         return await InvoiceSender(modelContainer: container).send(
             id, render: render(), message: message, settings: settings, footer: footer,
-            approvedRecipients: shown, through: gmail, clock: { answeredAt })
+            approvedRecipients: shown, through: readiness.route(gmail), clock: { answeredAt })
+    }
+
+    /// Counts the moment Gmail is made ready, which is when a browser can open.
+    final class Readiness: @unchecked Sendable {
+        var calls = 0
+        var fails: String?
+        func route(_ gmail: FakeGmail) -> SendingRoute {
+            SendingRoute(sender: gmail, ready: {
+                self.calls += 1
+                return self.fails.map { SenderUnavailable(sentence: $0) }
+            })
+        }
     }
 
     // MARK: it goes, and it is recorded as observed
@@ -205,12 +217,43 @@ struct InvoiceSenderTests {
         default: break
         }
         let before = try Self.status(id, in: container)
+        let readiness = Readiness()
 
-        let outcome = await Self.send(id, in: container, gmail: gmail, message: message)
+        let outcome = await Self.send(id, in: container, gmail: gmail, message: message,
+                                      readiness: readiness)
 
         guard case .refused = outcome else { Issue.record("\(reason): got \(outcome)"); return }
         #expect(gmail.sent.isEmpty, "\(reason) reached Gmail")
+        // AN ORDINARY REFUSAL NEVER OPENS A BROWSER: Gmail is made ready only once
+        // every refusal has been answered (L667).
+        #expect(readiness.calls == 0, "\(reason) made Gmail ready first")
         #expect(try Self.status(id, in: container) == before, "\(reason) wrote something")
+    }
+
+    @Test("Gmail is made ready once, after every refusal and before anything is written")
+    func gmailIsMadeReadyLast() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+        let readiness = Readiness()
+
+        let outcome = await Self.send(id, in: container, gmail: gmail, readiness: readiness)
+
+        guard case .sent = outcome else { Issue.record("got \(outcome)"); return }
+        #expect(readiness.calls == 1)
+    }
+
+    @Test("a Gmail that cannot be made ready refuses by its own sentence, and nothing is written")
+    func anunreadyGmailRefuses() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+        let readiness = Readiness()
+        readiness.fails = "Gmail could not be connected (cancelled), so nothing was sent."
+
+        let outcome = await Self.send(id, in: container, gmail: gmail, readiness: readiness)
+
+        #expect(outcome == .refused("Gmail could not be connected (cancelled), so nothing was sent."))
+        #expect(gmail.sent.isEmpty)
+        #expect(try Self.status(id, in: container) == .notSent)
     }
 
     /// An invoice number is an identifier, so it is never grouped: "invoice 1,123" is a

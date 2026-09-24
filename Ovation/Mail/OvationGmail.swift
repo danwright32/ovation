@@ -92,17 +92,17 @@ enum OvationGmail {
                                     scopes: scopes, productName: "Ovation")
     }
 
-    /// A Gmail sender for one press of Send, or the sentence saying why there is none.
+    /// Gmail for one press of Send, or the sentence saying why there is none.
     ///
-    /// Connects first when Gmail is not connected, which is the moment the browser
-    /// asks Dan to sign in; the first send is where that happens, never at launch.
-    /// Every way this can end short of a sender stops the send and says which one
-    /// (L11): a build that may not reach Gmail, a connection that could not be made
-    /// ready, and a sign in that did not finish.
+    /// BUILDING IT CONNECTS NOTHING. Connecting is `ready` on the route, which is the
+    /// moment the browser asks Dan to sign in, and the send calls it only after every
+    /// other refusal, so an ordinary refusal never opens a browser (L667). Every way
+    /// this can end short of sending says which one (L11): a build that may not reach
+    /// Gmail, a connection that could not be set up, and a sign in that did not finish.
     @MainActor
     static func sender(for settings: SendingSettings,
-                       connection make: @MainActor () throws -> (any GmailSignIn)?) async
-        -> Result<any MailSender, SenderUnavailable> {
+                       connection make: @MainActor () throws -> (any GmailSignIn)?)
+        -> Result<SendingRoute, SenderUnavailable> {
         let gmail: any GmailSignIn
         do {
             guard let made = try make() else {
@@ -112,16 +112,18 @@ enum OvationGmail {
         } catch {
             return .failure(SenderUnavailable(sentence: "Gmail could not be set up (\(error.localizedDescription)), so nothing was sent."))
         }
-        if !gmail.isConnected {
+        let sender = GmailSender(fromName: settings.fromName, fromEmail: settings.fromEmail,
+                                 token: { try await gmail.validAccessToken() },
+                                 onAuthExpired: { try? await gmail.signalAuthExpired() })
+        return .success(SendingRoute(sender: sender, ready: {
+            guard !gmail.isConnected else { return nil }
             do {
                 try await gmail.connectNow()
+                return nil
             } catch {
-                return .failure(SenderUnavailable(sentence: "Gmail could not be connected (\(error.localizedDescription)), so nothing was sent."))
+                return SenderUnavailable(sentence: "Gmail could not be connected (\(error.localizedDescription)), so nothing was sent.")
             }
-        }
-        return .success(GmailSender(fromName: settings.fromName, fromEmail: settings.fromEmail,
-                                    token: { try await gmail.validAccessToken() },
-                                    onAuthExpired: { try? await gmail.signalAuthExpired() }))
+        }))
     }
 
     /// The one predicate both the sentence and the factory read, so a scope the

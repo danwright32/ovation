@@ -154,56 +154,65 @@ struct OvationGmailTests {
         .appending(path: "ovation-gmail-tests", directoryHint: .isDirectory)
 }
 
-/// ovation#42. What pressing Send does before any message exists: find a Gmail
-/// connection, connect it if it is not, and say why when either fails.
+/// ovation#42. Gmail for one press of Send, in two steps: building the sender, which
+/// opens nothing, and making it ready, which is where a browser can ask Dan to sign
+/// in and which the send calls only after every refusal (L667).
 ///
 /// A FAKE CONNECTION, because the real one opens a browser. Each case says what the
 /// person reads, since every refusal here stops a send (L11).
 @MainActor
 struct GmailSenderSetupTests {
 
-    @Test("a build that does not reach Gmail says so, and connects nothing")
-    func abuildWithoutGmailSaysSo() async {
-        let result = await OvationGmail.sender(for: Self.settings, connection: { nil })
+    @Test("a build that does not reach Gmail says so")
+    func abuildWithoutGmailSaysSo() {
+        let result = OvationGmail.sender(for: Self.settings, connection: { nil })
         #expect(Self.refusal(result) == "This build of Ovation does not reach Gmail, so nothing was sent.")
     }
 
     @Test("a connection that cannot be set up says so")
-    func asetupFailureSaysSo() async {
-        let result = await OvationGmail.sender(for: Self.settings,
-                                               connection: { throw FakeConnection.Failure.broken })
+    func asetupFailureSaysSo() {
+        let result = OvationGmail.sender(for: Self.settings,
+                                         connection: { throw FakeConnection.Failure.broken })
         #expect(Self.refusal(result)?.hasPrefix("Gmail could not be set up") == true)
         #expect(Self.refusal(result)?.hasSuffix("so nothing was sent.") == true)
     }
 
-    @Test("a connect that fails says so, and it was tried exactly once")
-    func afailedConnectSaysSo() async {
-        let gmail = FakeConnection(connected: false, connectFails: true)
-        let result = await OvationGmail.sender(for: Self.settings, connection: { gmail })
-        #expect(Self.refusal(result)?.hasPrefix("Gmail could not be connected") == true)
+    @Test("building the sender connects nothing, however unconnected Gmail is")
+    func buildingConnectsNothing() {
+        let gmail = FakeConnection(connected: false, connectFails: false)
+        _ = OvationGmail.sender(for: Self.settings, connection: { gmail })
+        #expect(gmail.connects == 0)
+    }
+
+    @Test("making a Gmail not yet connected ready connects it once")
+    func readyConnectsOnce() async throws {
+        let gmail = FakeConnection(connected: false, connectFails: false)
+        let route = try OvationGmail.sender(for: Self.settings, connection: { gmail }).get()
+        #expect(await route.ready() == nil)
         #expect(gmail.connects == 1)
     }
 
-    @Test("a Gmail not yet connected is connected once, then sends")
-    func anunconnectedGmailIsConnected() async {
-        let gmail = FakeConnection(connected: false, connectFails: false)
-        let result = await OvationGmail.sender(for: Self.settings, connection: { gmail })
-        #expect(Self.refusal(result) == nil)
+    @Test("a connect that fails says so, and it was tried exactly once")
+    func afailedConnectSaysSo() async throws {
+        let gmail = FakeConnection(connected: false, connectFails: true)
+        let route = try OvationGmail.sender(for: Self.settings, connection: { gmail }).get()
+        let why = await route.ready()
+        #expect(why?.sentence.hasPrefix("Gmail could not be connected") == true)
         #expect(gmail.connects == 1)
     }
 
     @Test("a Gmail already connected is not asked to connect again")
-    func aconnectedGmailIsLeftAlone() async {
+    func aconnectedGmailIsLeftAlone() async throws {
         let gmail = FakeConnection(connected: true, connectFails: false)
-        let result = await OvationGmail.sender(for: Self.settings, connection: { gmail })
-        #expect(Self.refusal(result) == nil)
+        let route = try OvationGmail.sender(for: Self.settings, connection: { gmail }).get()
+        #expect(await route.ready() == nil)
         #expect(gmail.connects == 0)
     }
 
     private static let settings = SendingSettings(fromName: "Dan Wright", fromEmail: "dan@studio.example",
                                                   destination: .clients)
 
-    private static func refusal(_ result: Result<any MailSender, SenderUnavailable>) -> String? {
+    private static func refusal(_ result: Result<SendingRoute, SenderUnavailable>) -> String? {
         if case .failure(let why) = result { return why.sentence }
         return nil
     }

@@ -24,7 +24,7 @@ final class InvoiceReviewer {
     private let container: ModelContainer
     private let footer: () -> InvoiceFooter
     private let settingsFile: URL?
-    private let makeSender: @MainActor (SendingSettings) async -> Result<any MailSender, SenderUnavailable>
+    private let makeSender: @MainActor (SendingSettings) async -> Result<SendingRoute, SenderUnavailable>
     private let clock: @Sendable () -> Date
 
     /// - Parameters:
@@ -33,7 +33,7 @@ final class InvoiceReviewer {
     ///   - makeSender: Gmail for these settings, or why it cannot be had. Asked only at the
     ///     press, after everything else has been answered.
     init(container: ModelContainer, footer: @escaping () -> InvoiceFooter, settingsFile: URL?,
-         makeSender: @escaping @MainActor (SendingSettings) async -> Result<any MailSender, SenderUnavailable>,
+         makeSender: @escaping @MainActor (SendingSettings) async -> Result<SendingRoute, SenderUnavailable>,
          clock: @escaping @Sendable () -> Date) {
         self.container = container
         self.footer = footer
@@ -133,16 +133,17 @@ final class InvoiceReviewer {
             return
         }
         review.state = .working(since: clock())
-        let sender: any MailSender
+        // BUILT, NOT CONNECTED: the send makes it ready only after its own refusals.
+        let route: SendingRoute
         switch await makeSender(settings) {
-        case .success(let made): sender = made
+        case .success(let made): route = made
         case .failure(let unavailable):
             review.state = .refused(unavailable.sentence)
             return
         }
         let outcome = await InvoiceSender(modelContainer: container).send(
             review.invoiceID, render: render, message: review.message, settings: settings,
-            footer: footer, approvedRecipients: review.goingTo, through: sender, clock: clock)
+            footer: footer, approvedRecipients: review.goingTo, through: route, clock: clock)
         switch outcome {
         case .sent(let at, let to): review.state = .sent(at: at, to: to)
         case .refused(let sentence): review.state = .refused(sentence)

@@ -51,11 +51,21 @@ struct InvoiceReviewerTests {
                                  footer: @escaping () -> InvoiceFooter = { .fixed }) -> InvoiceReviewer {
         let noon = Self.noon
         return InvoiceReviewer(container: container, footer: footer, settingsFile: settings,
-                               makeSender: { _ in senderCalls.count += 1; return .success(gmail) },
+                               makeSender: { _ in
+                                   senderCalls.count += 1
+                                   return .success(SendingRoute(sender: gmail, ready: {
+                                       senderCalls.readies += 1
+                                       return nil
+                                   }))
+                               },
                                clock: { noon })
     }
 
-    final class SenderCalls { var count = 0 }
+    final class SenderCalls: @unchecked Sendable {
+        var count = 0
+        /// How often Gmail was made ready, the moment a browser can open.
+        var readies = 0
+    }
 
     private static func invoice(_ id: PersistentIdentifier, in container: ModelContainer) throws -> Invoice {
         try #require(try ModelContext(container).fetch(FetchDescriptor<Invoice>())
@@ -196,14 +206,17 @@ struct InvoiceReviewerTests {
     func achangedDestinationStopsTheSend() async throws {
         let (container, id) = try Self.draft()
         let gmail = InvoiceSenderTests.FakeGmail()
+        let calls = SenderCalls()
         let file = try Self.settingsFile(Self.clients)
-        let review = try await Self.reviewer(container, settings: file, gmail: gmail).open(id).get()
+        let review = try await Self.reviewer(container, settings: file, gmail: gmail,
+                                             senderCalls: calls).open(id).get()
         try Data(Self.test.utf8).write(to: file)
 
         await review.send()
 
         #expect(review.state == .refused(InvoiceMail.recipientsChanged))
         #expect(gmail.sent.isEmpty)
+        #expect(calls.readies == 0, "a refused send made Gmail ready, which can open a browser")
     }
 
     /// THE PREVIEW IS THE ATTACHMENT (PRD 10c): the bytes sent are the bytes the
