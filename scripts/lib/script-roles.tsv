@@ -78,6 +78,7 @@ check-ci-liveness.sh	workflow	Run by .github/workflows/ci-liveness.yml on a sche
 check-clients-screen-draws.sh	workflow	Renders docs/design/clients.html in a headless browser, PRESSES the name rows and reads back what moved, which is the only way to see the rule ovation#98 settled: the held money figure is drawn on every row that has one except the row whose box is open beside it, so what is drawn depends on the selection and no reading of the source can check it. Since ovation#186 and ovation#209 it also presses the payment terms, the rail and the day switch, and claims the two balances' faces, the arrivals, the terms control, the roster pass's sections and count, and that a quantity of nothing is not drawn, as claims in this one check rather than another browser start (ovation#183). Run by .github/workflows/ci.yml's Linux job, and by its sibling test-clients-screen-draws.sh against the committed file on every test run, which is what makes a push judge it; that suite answers CANNOT MEASURE rather than passing when there is no browser. Not gated, for the reason written once under `workflow` above.
 check-custody-files.sh	gated	A repo wide guard.
 check-custody-not-staged.sh	gated	A repo wide guard.
+check-writers-wired.sh	gated	A repo wide guard over the app's @ModelActor writers (ovation#441).
 check-hooks-path.sh	gated	A machine guard: reads this checkout's git config, so only the push gate on the machine can ask it.
 check-design-shared-components.sh	gated	A repo wide guard.
 check-design-dead-rules.sh	gated	A repo wide guard.
@@ -179,6 +180,7 @@ test-pr-mergeable.sh	suite
 test-installed-build.sh	suite	
 test-scheduled-runs.sh	suite	
 test-report-branches.sh	suite	
+test-writers-wired.sh	suite	
 test-design-draws.sh	suite	
 test-design-record-open.sh	suite	
 test-design-measurements-marked.sh	suite	

@@ -234,6 +234,10 @@ gate_check check-schema-registered.sh "a model type is not in the store's schema
 # and raised in none, so the notice a first launch showed never cleared. Its
 # subjects are the problem kinds declared in the sources, and tests are not
 # scanned, because a test raising a kind by hand is how that went unseen.
+# A writer the app declares and never uses, unless listed with the issue that
+# wires it (ovation#441). Built is not wired, and a writer with its own tests
+# reads as done from every angle but the one that counts (L3).
+gate_check check-writers-wired.sh "a writer the app declares is used by nothing and listed nowhere."
 gate_check check-problem-kinds-raised.sh "a problem kind is resolved in the app and raised nowhere."
 
 # ovation#124. Ovation has one slide and one fade, and one file that knows whether
