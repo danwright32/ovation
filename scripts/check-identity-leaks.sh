@@ -33,6 +33,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import shutil
 import sqlite3
 import sys
@@ -389,6 +390,34 @@ def scan_tree(matchers, fingerprints):
     return files, hits, private
 
 
+def ignored_output_remedy(paths):
+    """The remedy, when EVERY path refused is output git ignores (ovation#394).
+
+    Browser snapshots written into a gitignored folder carried real values off a
+    rendered page, and this refused every push ten days later naming files nobody
+    made on purpose, with the remedy left for somebody to work out (L148, L406).
+    The guard reads ignored files deliberately, so it still refuses; what changes
+    is that it says what to do. Only when every path is ignored: a tracked or
+    untracked file among them is a real change, and advice to delete a folder
+    would be wrong about it. Nothing is deleted here."""
+    if not paths:
+        return None
+    try:
+        answered = subprocess.run(["git", "check-ignore", "--no-index", "--stdin"],
+                                  cwd=SCAN_ROOT, input="\n".join(paths) + "\n",
+                                  capture_output=True, text=True)
+    except OSError:
+        return None
+    ignored = {line.strip() for line in answered.stdout.splitlines() if line.strip()}
+    if ignored != set(paths):
+        return None
+    folders = sorted({p.split("/", 1)[0] for p in paths})
+    return ["",
+            "    Every file named above is ignored by git: local output, such as a browser",
+            "    tool's snapshots, not anything committed. Delete it and push again:",
+            "        rm -rf " + " ".join(folders)]
+
+
 def report_private(private):
     """Paths and counts only: the value is neither stored here nor printed."""
     print()
@@ -632,6 +661,10 @@ def main():
             print("    %s  (%d occurrence(s))" % (rel, hits[rel]))
 
     if hits or private:
+        remedy = ignored_output_remedy(sorted(set(hits) | set(private)))
+        if remedy:
+            for line in remedy:
+                print(line)
         return 1
 
     print("No derived identity appears anywhere under the scan root.")

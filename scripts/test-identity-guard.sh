@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 59
+harness_begin "identity guard tests" 63
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -90,6 +90,26 @@ check "and it reports how many needles it derived" \
     "$(printf '%s' "$OUT1" | grep -cE '[0-9]+ needle')" "1"
 check "and how many files it examined" \
     "$(printf '%s' "$OUT1" | grep -cE '[0-9]+ file')" "1"
+
+# 1b. ovation#394. A HIT ONLY IN IGNORED OUTPUT NAMES ITS REMEDY. Browser snapshots
+#     written into a gitignored folder carried real values off a rendered page, and
+#     the refusal blocked every push ten days later, naming files nobody made
+#     deliberately, with the remedy left for somebody to work out. It still refuses,
+#     since the guard reads ignored files on purpose, but it says what to do.
+T1B="$(tree ignored-output)"
+( cd "$T1B" && git init -q -b main && printf '.playwright-mcp/\n' > .gitignore \
+  && mkdir -p .playwright-mcp && printf 'snapshot of Zzfixture Chorale\n' > .playwright-mcp/page.md \
+  && printf 'ordinary source\n' > a.swift ) >/dev/null 2>&1
+OUT1B="$(run_guard "$T1B")"; ST1B=$?
+check "a real identity only in gitignored output is still refused" \
+    "$([ "$ST1B" -ne 0 ] && echo refused || echo passed)" "refused"
+check "and it says every match is in files git ignores" \
+    "$(says "$OUT1B" "every file named above is ignored by git")" "yes"
+check "and it names the folder to delete" "$(says "$OUT1B" "rm -rf .playwright-mcp")" "yes"
+( cd "$T1B" && printf 'let v = "Zzfixture Chorale"\n' > b.swift ) >/dev/null 2>&1
+OUT1B2="$(run_guard "$T1B")"
+check "and a match in a file that is not ignored gets no such advice" \
+    "$(says "$OUT1B2" "every file named above is ignored by git")" "no"
 
 # 2. A client name in a TRACKED file is caught.
 T2="$(tree tracked)"; printf 'let venue = "Zzfixture Chorale"\n' > "$T2/a.swift"
