@@ -1,6 +1,5 @@
 # Writers the app declares and does not use YET, each with the issue that wires it (ovation#441).
 # check-writers-wired.sh refuses one missing from here, a line with no issue, and a line for a
 # writer the app now uses. Tab separated: writer, issue, why it is not wired yet.
-InvoiceNumberAllocator	ovation#42	Review takes the number and a closed review gives it back; the review sheet over a real invoice is built by ovation#42.
 InvoiceCloser	ovation#47	Cancelling an invoice has its logic and no control; ovation#47 is the control and the money question.
 PaymentAllocator	ovation#510	Recording a payment has its logic and no control on the invoice screen.
