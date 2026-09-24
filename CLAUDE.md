@@ -29,6 +29,12 @@ BEHIND, tell Dan the installed app is missing that work and that
 `bash scripts/build-install.sh` reinstalls it; installing is his to run. Exit 2
 means there is no install record, which is its own answer, not a current install.
 
+Then run `bash scripts/check-scheduled-runs.sh`, which asks GitHub whether each
+scheduled workflow is still running (ovation#387). It is asked here as well as in
+CI because GitHub switching schedules off for inactivity switches off whatever in
+CI would notice. STOPPED names the workflow and, where GitHub disabled it, the
+command that re-enables it.
+
 ## What to know before editing
 
 - Needs xcodegen and flock (`brew install xcodegen flock`) and the Xcode named in `.xcode-version`,
