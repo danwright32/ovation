@@ -103,6 +103,10 @@ struct SettingsView: View {
                 .tabItem { Label("Backups", systemImage: "externaldrive") }
         }
         .frame(minWidth: Self.minimumWidth, minHeight: Self.minimumHeight)
+        // THE WHOLE WINDOW, not only the invoices pane, which already carried it
+        // (ovation#475). The backups tab and the tab control share this window, and
+        // macOS made it, so without this they take their colours from the Mac.
+        .ovationAppearance()
     }
 
     private var backupsPane: some View {
