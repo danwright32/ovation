@@ -1197,6 +1197,23 @@ else
       echo "    reports is worth less than usual."
     fi
 
+    # THE SCREENSHOT SUITES RUN ON EVERY RUN (ovation#383). They capture only when a
+    # folder is named for them, and nothing named one, so every run and every CI run
+    # executed nothing while reporting a pass: a capture that crashed the test process
+    # shipped unseen, and a pane could render wrongly with no run saying so (L98, L606).
+    # So a folder is always named: the caller's, or a fresh temporary one, and the
+    # suites' own count assertions then hold every run. TEST_RUNNER_ is the prefix
+    # xcodebuild passes into the test process; the bare name does not arrive.
+    if [ -n "${OVATION_SHOT_DIR:-}" ]; then
+      SHOT_DIR="${OVATION_SHOT_DIR}"
+      SHOT_DIR_IS_TEMPORARY=""
+      mkdir -p "${SHOT_DIR}" 2>/dev/null || true
+    else
+      SHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ovation-shots.XXXXXX")"
+      SHOT_DIR_IS_TEMPORARY=1
+    fi
+    export TEST_RUNNER_OVATION_SHOT_DIR="${SHOT_DIR}"
+
     # THE HOSTED SUITE IS STARTED WITH THE LOCK'S DESCRIPTOR CLOSED (ovation#492).
     # The lock IS descriptor 9, and a numbered descriptor opened by `exec` is
     # inherited by every process started while it is held (L441). xcodebuild
@@ -1216,6 +1233,13 @@ else
     fi
     HOSTED_STATUS=$?
     printf '%s\n' "${HOSTED_OUTPUT}"
+    SHOT_COUNT="$(find "${SHOT_DIR}" -name '*.png' -type f 2>/dev/null | wc -l | tr -d ' ')"
+    if [ -n "${SHOT_DIR_IS_TEMPORARY}" ]; then
+      echo "==> ${SHOT_COUNT} screenshots captured, in a temporary folder removed now; set OVATION_SHOT_DIR to keep them."
+      rm -rf "${SHOT_DIR}"
+    else
+      echo "==> ${SHOT_COUNT} screenshots captured into ${SHOT_DIR}."
+    fi
 
     if [ "${HOSTED_STATUS}" -ne 0 ]; then
       STATUS="${HOSTED_STATUS}"

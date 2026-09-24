@@ -13,7 +13,9 @@
 // screen, and `AppearanceParityTests` refuses any difference between the two, so
 // a dark picture here would be a second copy of one already required to match.
 //
-// OPT IN, AND IT SAYS WHEN IT DID NOTHING (L98): with no directory named it writes
+// IT RUNS ON EVERY RUN (ovation#383): scripts/run-tests.sh always names a folder, a
+// temporary one unless OVATION_SHOT_DIR names another, and CI keeps its pictures as
+// an artifact. Run some other way, it still SAYS WHEN IT DID NOTHING (L98): with no directory named it writes
 // nothing and prints that, because a run that quietly produced no pictures cannot
 // be told from one whose pictures were never looked at. The variable carries the
 // TEST_RUNNER_ prefix because the shell's environment does not otherwise reach the

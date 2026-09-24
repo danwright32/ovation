@@ -39,7 +39,7 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
       OVATION_REPO_ROOT \
       OVATION_ONLY_TESTING OVATION_PROJECT_CURRENT_COMMAND OVATION_REGENERATE_COMMAND \
-      OVATION_SHELL_SUITES
+      OVATION_SHELL_SUITES OVATION_SHOT_DIR TEST_RUNNER_OVATION_SHOT_DIR
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -76,7 +76,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 251
+harness_begin "test runner lock tests" 254
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -182,6 +182,20 @@ check "and it names the fix, deleting the import, beside the error" \
 OUT1A2="$(PURE_OVERRIDE='echo "error: cannot find Foo in scope"; exit 65' run_runner)"
 check "and an unrelated compile error gets no such advice" \
     "$(printf '%s' "$OUT1A2" | grep -c 'delete the line @testable import Ovation')" "0"
+
+# 1c. ovation#383. THE SCREENSHOT SUITES RUN ON EVERY RUN. They did nothing unless a
+#     folder was named for them and nothing named one, so every run and every CI run
+#     executed nothing while reporting a pass, and a capture that crashed the test
+#     process shipped unseen (L98, L606). The runner now names a folder every time:
+#     a fresh temporary one, unless the caller names its own.
+OUT1C="$(run_runner 'echo "SHOT-DIR=[${TEST_RUNNER_OVATION_SHOT_DIR:-}]"; echo "Test run with 5 tests in 1 suite passed"')"
+SHOT_SEEN="$(grep -oE 'SHOT-DIR=\[[^]]*\]' <<< "$OUT1C" | head -1)"
+check "the hosted suite is always given a folder to capture into" \
+    "$([ "$SHOT_SEEN" != "SHOT-DIR=[]" ] && [ -n "$SHOT_SEEN" ] && echo given || echo "not given")" "given"
+OUT1C2="$(OVATION_SHOT_DIR="$WORK/named-shots" run_runner 'echo "SHOT-DIR=[${TEST_RUNNER_OVATION_SHOT_DIR:-}]"; echo "Test run with 5 tests in 1 suite passed"')"
+check "and a folder the caller names is the one used" \
+    "$(grep -c "SHOT-DIR=\[$WORK/named-shots\]" <<< "$OUT1C2")" "1"
+check "and it says where the pictures went" "$(grep -c 'screenshots' <<< "$OUT1C2")" "1"
 
 # 1b. ovation#492. A CHILD THAT OUTLIVES THE RUNNER DOES NOT KEEP THE LOCK. The
 #     lock is a DESCRIPTOR, and a numbered descriptor opened by `exec` is inherited

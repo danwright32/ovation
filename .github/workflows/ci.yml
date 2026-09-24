@@ -249,6 +249,10 @@ jobs:
       - name: Build both, then run everything
         env:
           OVATION_SHELL_SUITES: macos-only
+          # THE SCREENSHOTS ARE KEPT (ovation#383), in a folder the next step uploads,
+          # so a pull request carries pictures of what it changed rather than relying
+          # on somebody remembering to look (L606).
+          OVATION_SHOT_DIR: ${{ runner.temp }}/shots
         run: |
           set +e
           bash scripts/build-products.sh && bash scripts/run-tests.sh
@@ -259,3 +263,15 @@ jobs:
             2) echo "::warning::Something could not be measured on this runner. See the log for which." ;;
             *) exit $status ;;
           esac
+
+      # WHATEVER THE VERDICT, because a failing run is when the pictures matter most
+      # (L514). `if-no-files-found: warn` rather than ignore: the suites always capture
+      # now, so an empty folder is itself worth seeing.
+      - name: Keep the screenshots this run captured
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: warn
+          retention-days: 14
