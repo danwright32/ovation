@@ -77,7 +77,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 283
+harness_begin "test runner lock tests" 287
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -1050,6 +1050,26 @@ check "and it names both numbers, so what moved is readable" \
 check "and the remedy is the command that moves the floor, ready to paste" \
     "$(printf '%s' "$OUT11F2" | grep -c "printf '%s.n' 4 > .*scripts/shell-suite-floor.txt")" "1"
 
+# 11f3. AND THE REFUSAL SAYS THE NUMBER COMES FROM THIS RUN (ovation#351), which
+#       is what ovation#346 settled for a suite's declared assertion count, and
+#       the two are one problem in two files. The floor is one number committed
+#       beside the suites it counts, so any two branches that each add a suite
+#       conflict on it and NEITHER side's number is right: it happened three
+#       times on 2026-09-15, on the branches for ovation#201, #329 and #339. The
+#       resolution invites arithmetic over two diffs, which is how a wrong number
+#       gets committed (L554), so the refusal says not to do it.
+check "and it says the number came from this run, not from adding up two diffs" \
+    "$(printf '%s' "$OUT11F2" | grep -c 'two diffs')" "1"
+
+# 11f4. AND A SHORT RUN IS NEVER HANDED A NUMBER TO PASTE (ovation#351). Writing
+#       what a short run counted is exactly how the floor stops seeing a suite
+#       that lost its executable bit, which is the defect it exists to prevent,
+#       so the paste ready remedy belongs to the other direction only (L11, L93).
+#       Green before and after ovation#351: it is the property being protected
+#       while the sentence above is added beside it.
+check "a short run is given no floor to paste, because that would silence the check" \
+    "$(printf '%s' "$OUT11F" | grep -c "printf '%s.n'")" "0"
+
 # 11g. The floor is a real committed number, not only a seam (L96). It is NOT
 #      compared against the real suite count here: the runner does exactly that
 #      on every run, and a second copy of the number would be a place for the two
@@ -1692,6 +1712,11 @@ counted_status() { counted_run "$@" >/dev/null 2>&1; printf '%s' "$?"; }
 
 check "a run that matches its floor exactly passes" "$(counted_status 100 100)" "0"
 check "a run BELOW its floor is refused" "$(counted_status 60 100)" "7"
+# AND A SHORT RUN IS NEVER HANDED A NUMBER TO PASTE, for the shell suite floor's
+# reason (ovation#351, case 11f4): writing what a short run counted is how the
+# floor stops seeing the tests that dropped out (L11, L93, L30).
+check "a short run is given no pure floor to paste, because that would silence the check" \
+    "$(counted_run 60 100 | grep -c "printf '%s.n'")" "0"
 
 OUT157="$(counted_run 140 100)"
 check "a run ABOVE its floor is refused too, because a floor that never moves stops being one" \
@@ -1700,6 +1725,12 @@ check "and it says the tests were ADDED rather than reporting a loss" \
     "$(mentions "$OUT157" "being ADDED")" "yes"
 check "and it gives the exact command, with the real number in it" \
     "$(mentions "$OUT157" "140 > ")" "yes"
+# And it says the number comes from this run, for the reason the shell suite
+# floor's refusal does (ovation#351, case 11f3): the floor file conflicts on every
+# pair of branches that add tests, and arithmetic over two diffs is how a wrong
+# number gets committed (L554, L30).
+check "and it says the number came from this run, not from adding up two diffs" \
+    "$(mentions "$OUT157" "two diffs")" "yes"
 
 
 # ---------------------------------------------------------------------------
