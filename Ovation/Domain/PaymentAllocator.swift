@@ -68,6 +68,28 @@ enum PaymentRecordingRefusal: Error, Equatable {
     case noSuchPayment
     /// Only a check has a cleared step (PRD 15).
     case hasNoClearedStep
+
+    /// What the screen says when a payment was not recorded or cleared, in the
+    /// words of the thing that stopped it, because a press that did nothing and
+    /// gives no reason leaves pressing it again as the only diagnosis (L109).
+    var sentence: String {
+        switch self {
+        case .amountIsNotPositive:
+            return "A payment needs an amount above nothing, so it was not recorded."
+        case .noSuchInvoice:
+            return "That invoice is no longer there, so the payment was not recorded."
+        case .invoiceIsNotSent:
+            return "This invoice has not been sent, so it takes no payment yet."
+        case .invoiceIsClosed:
+            return "This invoice was cancelled, so it takes no payment."
+        case .nothingIsOwed:
+            return "This invoice is already paid in full, so the payment was not recorded."
+        case .noSuchPayment:
+            return "That payment is no longer there, so nothing was cleared."
+        case .hasNoClearedStep:
+            return "Only a check waits to clear, so this payment needs no clearing."
+        }
+    }
 }
 
 /// What recording a payment did, read back after the one save.

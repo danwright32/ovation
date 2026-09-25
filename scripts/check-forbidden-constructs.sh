@@ -179,6 +179,20 @@ RULES = (
         ),
     },
     {
+        "name": "a member read through an optional client",
+        "tokens": (".client?.",),
+        "because": (
+            "ovation#497: reading `invoice.client?.member` makes the compiler lose "
+            "Client's own Hashable conformance whenever the reading file and "
+            "InvoiceListPresenter land in one compile job without Invoice.swift, "
+            "and which files share a job moves every time an app file is added or "
+            "removed. So the build fails on three lines of InvoiceListPresenter "
+            "that nobody touched, as it did for ovation#510's screen. Bind the "
+            "client first, `let client = invoice.client`, then read `client?.member`, "
+            "which compiles in every grouping measured."
+        ),
+    },
+    {
         "name": "ambient calendar",
         "tokens": ("Calendar.current", "NSCalendar.current", "TimeZone.current", "Locale.current"),
         "because": (

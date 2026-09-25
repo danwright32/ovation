@@ -136,6 +136,14 @@ enum BusinessCalendar {
         return "\(dayOfMonth) \(shortMonthNames[month - 1]) \(year)"
     }
 
+    /// "26 Sep", the day and month alone, for a date said inside a sentence on a
+    /// screen where the year is already plain: "Paid 26 Sep by Zelle" (PRD 51n).
+    /// Read from the same parts as `shortDate`, so the two can only ever differ by
+    /// the year.
+    static func dayAndMonth(_ day: BusinessDate) -> String? {
+        shortDate(day).map { $0.split(separator: " ").prefix(2).joined(separator: " ") }
+    }
+
     private static let shortMonthNames = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",

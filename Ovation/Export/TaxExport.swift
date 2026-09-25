@@ -241,6 +241,9 @@ enum TaxExport {
                 return left.id.uuidString < right.id.uuidString
             }
         let refunds = invoice.refunds.sorted { $0.refundedOn.dayKey < $1.refundedOn.dayKey }
+        // Bound first rather than read as `invoice.client?.member`: that form trips a
+        // compiler fault that depends on how files are batched (ovation#497).
+        let client = invoice.client
 
         return [
             // A number is Ovation's own, and a draft has none, which is a state
@@ -248,7 +251,7 @@ enum TaxExport {
             .formatted(invoice.number.map(String.init) ?? ""),
             .formatted(invoice.invoiceDate?.dayKey ?? ""),
             // The one field on this row that came from outside Ovation.
-            .text(invoice.client?.name ?? ""),
+            .text(client?.name ?? ""),
             .formatted(invoice.kind.exportLabel),
             .formatted(statusLabel(for: invoice)),
             .formatted(invoice.subtotal.exportAmount),

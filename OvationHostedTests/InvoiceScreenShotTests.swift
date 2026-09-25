@@ -68,7 +68,8 @@ struct InvoiceScreenShotTests {
                                   setTime: { _, _, _ in },
                                   answerTax: { _, _ in },
                                   addLine: { _, _ in }, createType: { _, _ in },
-                                  setDiscount: { _ in }, review: {}),
+                                  setDiscount: { _ in }, payment: Self.payment(for: state),
+                                  review: {}),
                 size: Self.windowSize, scheme: .light, to: file)
             written.append(file.lastPathComponent)
 
@@ -81,7 +82,8 @@ struct InvoiceScreenShotTests {
                                   setTime: { _, _, _ in },
                                   answerTax: { _, _ in },
                                   addLine: { _, _ in }, createType: { _, _ in },
-                                  setDiscount: { _ in }, review: {}),
+                                  setDiscount: { _ in }, payment: Self.payment(for: state),
+                                  review: {}),
                 size: Self.windowSize, scheme: .dark, to: darkFile)
             let light = try Data(contentsOf: file)
             let dark = try Data(contentsOf: darkFile)
@@ -118,6 +120,29 @@ struct InvoiceScreenShotTests {
         /// that puts a second control line into the money block, where the
         /// figures have the most to keep lined up against one right edge.
         case discounted
+        /// ovation#510. Sent and owed: the foot offers Record a payment.
+        case sentAndOwed
+        /// And the payment sheet open over it, floating centred (PRD 48a, 51m).
+        case recordingAPayment
+        /// 200.00 by a check that has not cleared: the payment line says so beside
+        /// Mark cleared, and Outstanding carries the weight (PRD 51n, 14m).
+        case partPaidByACheck
+        /// Paid in full by one check that has not cleared: the quiet line under
+        /// the Total, and Paid in full in the foot (round 2).
+        case paidByACheckWaiting
+    }
+
+    /// Payment controls that do nothing, open only for the state that shows the
+    /// sheet, and nil for the drafts, which offer no payment.
+    private static func payment(for state: State) -> InvoiceScreenView.PaymentControls? {
+        switch state {
+        case .sentAndOwed, .recordingAPayment, .partPaidByACheck, .paidByACheckWaiting:
+            return InvoiceScreenView.PaymentControls(
+                isOpen: state == .recordingAPayment,
+                open: {}, record: { _ in }, close: {}, markCleared: { _ in })
+        default:
+            return nil
+        }
     }
 
     private static func presenter(for state: State) throws -> InvoiceScreenPresenter {
@@ -165,6 +190,21 @@ struct InvoiceScreenShotTests {
             invoice.referralCredit = ReferralCredit(hours: Hours(whole: 1),
                                                     at: invoice.hourlyRate, earnedFrom: nil)
             invoice.discount = Discount(dollars: Money(dollars: 50))
+        }
+        let sentStates: [State] = [.sentAndOwed, .recordingAPayment, .partPaidByACheck,
+                                   .paidByACheckWaiting]
+        if sentStates.contains(state) {
+            invoice.number = 1_123
+            invoice.sentStatus = .sent(route: .ovationSentIt, at: noon)
+        }
+        let paidByCheck: Money? = state == .partPaidByACheck ? Money(dollars: 200)
+            : state == .paidByACheckWaiting ? invoice.total : nil
+        if let paidByCheck {
+            let check = Payment(client: client, amount: paidByCheck, method: .check,
+                                receivedOn: today)
+            context.insert(check)
+            context.insert(PaymentAllocation(payment: check, invoice: invoice,
+                                             amount: paidByCheck, allocatedOn: today))
         }
         return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today,
                                       serviceTypes: types)

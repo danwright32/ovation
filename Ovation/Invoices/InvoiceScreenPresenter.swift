@@ -61,6 +61,40 @@ final class InvoiceScreenPresenter {
         /// break on the first refinement of them, which already differ between
         /// a share and an amount (L103).
         var isDiscount = false
+        /// The check that `Mark cleared` on this row clears, or nil where the row
+        /// offers no such thing (PRD 51n). Only a check that has not cleared
+        /// carries one.
+        var clears: PersistentIdentifier?
+        /// A quiet line rather than a figure: a check waiting to clear on an
+        /// invoice already paid in full, said under the Total (round 2).
+        var isQuiet = false
+        /// What the screen draws each row under. Two payments can share their
+        /// words, "Check, not cleared", and a row keyed by its label would draw
+        /// one of them twice and the other not at all.
+        var id: String { key ?? label }
+        var key: String?
+    }
+
+    /// What the foot's main action is (round 9, and ovation#510 for a sent one).
+    enum FootAction: Equatable {
+        /// A draft: Review, which may be refused with the reason beside it.
+        case review
+        /// Sent and still owed: Record a payment opens the payment sheet.
+        case recordPayment
+        /// Sent and settled: the foot says Paid in full and offers nothing.
+        case paidInFull
+        /// Cancelled or deleted: nothing is offered.
+        case none
+    }
+
+    /// What the payment sheet starts with (PRD 51m, round 4 and Dan's two notes):
+    /// what is still owed, today in Eastern Time, and Zelle.
+    struct PaymentStart: Equatable {
+        let amount: String
+        let received: BusinessDate
+        let method: PaymentMethod
+        /// The number the sheet's heading names, which every sent invoice has.
+        var number = ""
     }
 
     /// One shoot in the head, with the times Dan types and what they produce
@@ -85,6 +119,9 @@ final class InvoiceScreenPresenter {
     let shoot: String
     let lines: [Line]
     let money: [MoneyRow]
+    let footAction: FootAction
+    /// Nil wherever the foot does not offer Record a payment.
+    let paymentStarts: PaymentStart?
     /// The due date as a date, or empty where there is none. BLANK RATHER THAN A
     /// PLACEHOLDER, which the design record states for the reason PRD 5.1b gives:
     /// a zero is a legitimate comped invoice and a missing value must not look
@@ -272,10 +309,19 @@ final class InvoiceScreenPresenter {
             .map { ServiceChoice(id: $0.persistentModelID, name: $0.name,
                                  usually: $0.defaultUnitAmount) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        client = invoice.client?.name ?? "No client"
+        // Bound first rather than read as `invoice.client?.member`: that form trips a
+        // compiler fault that depends on how files are batched (ovation#497).
+        let invoiceClient = invoice.client
+        client = invoiceClient?.name ?? "No client"
         shoot = Self.shootLine(invoice)
         lines = Self.rows(of: invoice)
-        money = Self.moneyRows(invoice)
+        money = Self.moneyRows(invoice) + Self.paymentRows(invoice)
+        footAction = Self.footAction(for: invoice)
+        paymentStarts = footAction == .recordPayment
+            ? PaymentStart(amount: PDFText.amount(invoice.amountOutstanding),
+                           received: today, method: .zelle,
+                           number: invoice.number.map(String.init) ?? "")
+            : nil
         due = invoice.dueDate.flatMap(BusinessCalendar.shortDate) ?? ""
         issued = invoice.invoiceDate.flatMap(BusinessCalendar.shortDate) ?? ""
         dueChoices = Self.dueChoices(for: invoice)
@@ -584,7 +630,10 @@ final class InvoiceScreenPresenter {
         //
         // ONE READING OF THE STATUS decides both the label and whether the row is
         // there, so the word and the figure beside it cannot disagree again (L544).
-        guard let status = invoice.client?.taxStatus, status != .neverRecorded else {
+        // Bound first rather than read as `invoice.client?.member`: that form trips a
+        // compiler fault that depends on how files are batched (ovation#497).
+        let client = invoice.client
+        guard let status = client?.taxStatus, status != .neverRecorded else {
             return rows
         }
         // THE DESIGN'S OWN SEPARATOR, a comma rather than the PDF's parenthesis.
@@ -592,8 +641,79 @@ final class InvoiceScreenPresenter {
         let rate = status.isTaxed ? invoice.taxRate.description : "exempt"
         rows.append(MoneyRow(label: "Sales tax, \(rate)", value: figure(invoice.tax),
                              isTotal: false))
-        rows.append(MoneyRow(label: "Total", value: figure(invoice.total), isTotal: true))
+        // WHERE OUTSTANDING IS DRAWN IT CARRIES THE WEIGHT, and Total drops to an
+        // ordinary line (PRD 14m). Only then: on almost every invoice the Total IS
+        // what is owed and stays heavy (ovation#510).
+        let outstandingIsDrawn = invoice.amountPaid > .zero && invoice.amountOutstanding > .zero
+        rows.append(MoneyRow(label: "Total", value: figure(invoice.total),
+                             isTotal: !outstandingIsDrawn))
         return rows
+    }
+
+    /// The foot's action, from the invoice's state.
+    ///
+    /// ONLY A SENT INVOICE TAKES A PAYMENT, which is the recorder's own rule
+    /// (`PaymentRecordingRefusal.invoiceIsNotSent`), so the screen never offers a
+    /// press the write would refuse (L651). Everything that is not sent keeps the
+    /// Review it always had, refusal and all.
+    private static func footAction(for invoice: Invoice) -> FootAction {
+        if invoice.closure != nil { return .none }
+        guard case .sent = invoice.sentStatus else { return .review }
+        if invoice.amountOutstanding > .zero { return .recordPayment }
+        // A COMPED INVOICE WAS NOT PAID. One totalling nothing (PRD 5.1b) with no
+        // payment against it owes nothing, and saying Paid in full would claim a
+        // payment that never arrived (L11), so the foot says nothing.
+        return invoice.amountPaid > .zero ? .paidInFull : .none
+    }
+
+    /// The payments under the Total (PRD 51n, 14k, 14m), oldest first.
+    ///
+    /// STILL OWED: one line per payment and Outstanding beneath them carrying the
+    /// weight, which takes it from the Total (14m). A check that has not cleared
+    /// says "Check, not cleared" and carries Mark cleared (round 5); any other
+    /// payment says when it arrived and how. PAID IN FULL: nothing, except a
+    /// quiet line for each check still waiting to clear (round 2), in the same
+    /// words, which Dan chose for both.
+    private static func paymentRows(_ invoice: Invoice) -> [MoneyRow] {
+        let standing = invoice.allocations
+            .filter { $0.releasedOn == nil && $0.payment != nil }
+            .sorted { ($0.payment?.receivedOn.dayKey ?? "", $0.allocatedOn.dayKey)
+                    < ($1.payment?.receivedOn.dayKey ?? "", $1.allocatedOn.dayKey) }
+        guard !standing.isEmpty else { return [] }
+        let waitingWords = "Check, not cleared"
+        func key(_ payment: Payment) -> String { "payment-\(payment.id.uuidString)" }
+
+        if invoice.amountOutstanding <= .zero {
+            return standing.compactMap { allocation in
+                guard let payment = allocation.payment, payment.isWaitingToClear else { return nil }
+                return MoneyRow(label: waitingWords, value: "", isTotal: false,
+                                clears: payment.persistentModelID, isQuiet: true,
+                                key: key(payment))
+            }
+        }
+        var rows = standing.compactMap { allocation -> MoneyRow? in
+            guard let payment = allocation.payment else { return nil }
+            let figure = "-" + PDFText.amount(allocation.amount)
+            if payment.isWaitingToClear {
+                return MoneyRow(label: waitingWords, value: figure, isTotal: false,
+                                clears: payment.persistentModelID, key: key(payment))
+            }
+            // A DAY IT CANNOT READ IS LEFT OUT, never drawn as a gap: "Paid by
+            // Zelle" claims only what is known (L11).
+            let method = Self.methodWord(payment.method)
+            let label = BusinessCalendar.dayAndMonth(payment.receivedOn)
+                .map { "Paid \($0) by \(method)" } ?? "Paid by \(method)"
+            return MoneyRow(label: label, value: figure, isTotal: false, key: key(payment))
+        }
+        rows.append(MoneyRow(label: "Outstanding", value: PDFText.amount(invoice.amountOutstanding),
+                             isTotal: true))
+        return rows
+    }
+
+    /// A method named inside a sentence: "by check", while the names that are
+    /// brands keep their capitals.
+    private static func methodWord(_ method: PaymentMethod) -> String {
+        method == .check ? "check" : method.exportLabel
     }
 
     /// The discount as the field shows it.

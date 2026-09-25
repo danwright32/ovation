@@ -72,6 +72,12 @@ struct ShellView: View {
     /// this invoice or taking it back off. Nil where this launch has no store to
     /// write to.
     var writeReferralCredit: ((PersistentIdentifier, ReferralCreditChange) async -> String?)?
+    /// ovation#510, PRD 51m and 51n. Recording a payment on the invoice on
+    /// screen, and clearing a check, each answering with a sentence where it did
+    /// nothing. Nil where this launch has no store to write to.
+    var writePayment: ((PersistentIdentifier, PaymentEntry) async -> String?)?
+    var writeCleared: ((PersistentIdentifier) async -> String?)?
+
     /// What the Edit menu is allowed to offer about the invoice on screen. The
     /// menu is declared on the app, outside every view, so this is how what is
     /// open reaches it (ovation#457).
@@ -80,6 +86,15 @@ struct ShellView: View {
     /// it, as ONE value rather than a closure per act, so a layer cannot pass half of it
     /// (ovation#485). Nil where this launch has no store, and then Review is not offered.
     var reviewer: InvoiceReviewer?
+
+    /// ovation#510. Whether the payment sheet is open, whether a press is being
+    /// recorded, and why the last payment or clearing did nothing. Held here
+    /// because the screen is rebuilt after every write, and a sheet that closed
+    /// itself on the rebuild would lose a refusal it was showing.
+    @State private var payingIsOpen = false
+    @State private var paymentIsRecording = false
+    @State private var refusedPayment: String?
+    @State private var refusedClearing: String?
 
     /// Which invoice is selected. It lives here rather than inside the list
     /// because coming back from an invoice has to find the row again (ovation#125).
@@ -358,6 +373,43 @@ struct ShellView: View {
         publishWhatIsOpen()
     }
 
+    /// ovation#510. The payment controls the invoice screen asks for, or nil where
+    /// this launch cannot record a payment AND clear a check. Both are asked for,
+    /// because the controls offer both, and Mark cleared with nowhere to write
+    /// would be a word that does nothing (L109).
+    private var paymentControls: InvoiceScreenView.PaymentControls? {
+        guard writePayment != nil, writeCleared != nil else { return nil }
+        return InvoiceScreenView.PaymentControls(
+            isOpen: payingIsOpen, isRecording: paymentIsRecording,
+            refused: refusedPayment, refusedClearing: refusedClearing,
+            open: { refusedPayment = nil; refusedClearing = nil; payingIsOpen = true },
+            record: { entry in Task { await paid(entry) } },
+            close: { payingIsOpen = false; refusedPayment = nil },
+            markCleared: { check in Task { await cleared(check) } },
+            edited: { refusedPayment = nil })
+    }
+
+    /// Records one payment, then re-reads the invoice, so the lines under the Total,
+    /// the foot and the sheet all change together or not at all (L14). The sheet
+    /// says Recording while the write is in flight and closes only on success; a
+    /// refusal stays in the sheet, beside the Record it answers (L608).
+    private func paid(_ entry: PaymentEntry) async {
+        guard let openedInvoiceID, !paymentIsRecording else { return }
+        paymentIsRecording = true
+        refusedPayment = await writePayment?(openedInvoiceID, entry)
+        paymentIsRecording = false
+        if refusedPayment == nil { payingIsOpen = false }
+        openedInvoice = openInvoice?(openedInvoiceID)
+        publishWhatIsOpen()
+    }
+
+    /// Clears one check, then re-reads the invoice the same way.
+    private func cleared(_ check: PersistentIdentifier) async {
+        refusedClearing = await writeCleared?(check)
+        if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
+        publishWhatIsOpen()
+    }
+
     /// The same shape again for the tax status: write, then re-read, so the tax
     /// row, the total, the question itself and the Review refusal all change
     /// together or not at all (L14). This is the one write on this screen that
@@ -462,6 +514,9 @@ struct ShellView: View {
                     close: {
                         openedInvoice = nil
                         openedInvoiceID = nil
+                        payingIsOpen = false
+                        refusedPayment = nil
+                        refusedClearing = nil
                         publishWhatIsOpen()
                     },
                     setTime: writeTime == nil ? nil : { shoot, edge, time in
@@ -487,6 +542,7 @@ struct ShellView: View {
                         guard let openedInvoiceID else { return }
                         Task { await discounted(openedInvoiceID, discount) }
                     },
+                    payment: paymentControls,
                     review: reviewer == nil ? nil : { startReview() },
                     refusedReview: refusedReview)
             } else if let invoices {

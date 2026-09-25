@@ -216,6 +216,19 @@ struct PaymentRecordingTests {
         #expect(try Self.read(container, invoice.id).amountOutstanding == Money(dollars: 100))
     }
 
+    @Test("every refusal says its own reason, in a sentence of its own")
+    func everyRefusalSaysWhy() {
+        // Distinct causes get distinct messages (L11): two refusals sharing a
+        // sentence would leave Dan unable to tell which one stopped him.
+        let all: [PaymentRecordingRefusal] = [
+            .amountIsNotPositive(asked: .zero), .noSuchInvoice, .invoiceIsNotSent,
+            .invoiceIsClosed, .nothingIsOwed, .noSuchPayment, .hasNoClearedStep,
+        ]
+        let sentences = all.map(\.sentence)
+        #expect(sentences.allSatisfy { !$0.isEmpty && $0.hasSuffix(".") })
+        #expect(Set(sentences).count == all.count)
+    }
+
     // MARK: clearing
 
     @Test("a check waits to clear, and every other method is cleared when it is recorded")

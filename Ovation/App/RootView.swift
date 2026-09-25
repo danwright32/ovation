@@ -63,6 +63,12 @@ struct RootView: View {
     /// or taking it back off. Passed through for the same reason as the rest:
     /// this view reaches no store of its own.
     var writeReferralCredit: ((PersistentIdentifier, ReferralCreditChange) async -> String?)?
+    /// ovation#510, PRD 51m and 51n. Recording a payment on the invoice on
+    /// screen, and clearing a check, each answering with a sentence where it did
+    /// nothing. Nil where this launch has no store to write to.
+    var writePayment: ((PersistentIdentifier, PaymentEntry) async -> String?)?
+    var writeCleared: ((PersistentIdentifier) async -> String?)?
+
     var edits: InvoiceEditCommand?
     /// ovation#42. The review of a real invoice, as one value. Nil where this launch
     /// has no store, and then the invoice screen offers no Review to press.
@@ -102,7 +108,8 @@ struct RootView: View {
                       writeDueDate: writeDueDate, writeTaxStatus: writeTaxStatus,
                       writeLine: writeLine, writeServiceType: writeServiceType,
                       writeDiscount: writeDiscount,
-                      writeReferralCredit: writeReferralCredit, edits: edits,
+                      writeReferralCredit: writeReferralCredit,
+                      writePayment: writePayment, writeCleared: writeCleared, edits: edits,
                       reviewer: reviewer)
         } else {
             problemsWindow
