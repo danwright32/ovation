@@ -190,6 +190,68 @@ struct InvoiceListViewTests {
         #expect(opened.isEmpty)
     }
 
+    /// ovation#517. SEND OPENS THE REVIEW OF THE ROW IT IS ON, and never the
+    /// invoice screen: the sheet opens over the list, and closing it leaves Dan on
+    /// the list (Dan, 2026-09-24).
+    @Test("pressing Send asks to review the row it is on, and opens nothing else")
+    func pressingSendReviewsThatRow() throws {
+        let context = try Self.store()
+        let (invoices, held) = Self.theRealList(context)
+        let ready = Self.aDraftReadyToSend(context)
+        let presenter = InvoiceListPresenter(invoices: invoices + [ready], heldMoney: held,
+                                             today: Self.today)
+        var opened: [PersistentIdentifier] = []
+        var reviewed: [PersistentIdentifier] = []
+        let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
+                                   selected: .constant(nil), open: { opened.append($0) },
+                                   review: { reviewed.append($0) })
+        let wanted = try #require(presenter.bands.flatMap { $0.rows }.first {
+            $0.action == InvoiceListPresenter.Action.send
+        }, "the real population has no draft ready to send, so this proves nothing")
+
+        try view.inspect().find(button: InvoiceListPresenter.Action.send).tap()
+
+        #expect(reviewed == [wanted.invoiceID])
+        #expect(opened.isEmpty)
+    }
+
+    @Test("with nothing to review a send, Send is drawn quiet")
+    func nothingToReviewLeavesSendQuiet() throws {
+        let context = try Self.store()
+        let (invoices, held) = Self.theRealList(context)
+        let presenter = InvoiceListPresenter(invoices: invoices + [Self.aDraftReadyToSend(context)],
+                                             heldMoney: held, today: Self.today)
+        let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
+                                   selected: .constant(nil), open: { _ in })
+        // A SEND ROW MUST BE THERE, or "not pressable" holds for a word never drawn.
+        #expect(presenter.bands.flatMap { $0.rows }.contains { $0.action == InvoiceListPresenter.Action.send },
+                "no row carries Send, so this proves nothing")
+
+        let pressable = try view.inspect().findAll(ViewType.Button.self)
+            .compactMap { try? $0.labelView().text().string() }
+
+        #expect(!pressable.contains(InvoiceListPresenter.Action.send))
+    }
+
+    /// ONE DRAFT READY TO GO, added by the tests that need it rather than to the
+    /// shared population, so no other test's count moves: a past shoot with its
+    /// times typed is what leaves a draft's action as Send rather than the thing it
+    /// is waiting on.
+    private static func aDraftReadyToSend(_ context: ModelContext) -> Invoice {
+        let client = Client(name: "Marlowe Early Music", taxStatus: .notExempt)
+        context.insert(client)
+        let ready = Invoice(client: client, kind: .photography, invoiceDate: day(-3),
+                            hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+        let shoot = Shoot(name: "Candlemas", when: .dayOnly(day(-3)), venue: nil)
+        shoot.shotFrom = ClockTime("19:00")
+        shoot.shotUntil = ClockTime("21:00")
+        ready.add(shoot)
+        ready.add(LineItem.hourly(hours: Hours(quarters: 8), at: Money(dollars: 250),
+                                  describedAs: "Concert photography", for: shoot))
+        context.insert(ready)
+        return ready
+    }
+
     /// AND WITH NOTHING THAT CAN SETTLE A SEND, MARK UNSENT IS NOT A CONTROL.
     @Test("with nothing to settle a send, Mark unsent is drawn quiet")
     func nothingToSettleLeavesMarkUnsentQuiet() throws {
