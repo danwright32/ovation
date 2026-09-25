@@ -331,8 +331,25 @@ struct PaymentTests {
         // HELD THERE ON PURPOSE, not raced and hoped for (L157). The allocator
         // carries a seam that runs after it has decided and before it writes;
         // the cancellation is STARTED from inside it and awaited outside, so the
-        // two are genuinely both in flight. Whichever order the gate hands them,
-        // the invoice must not end with a standing allocation on it.
+        // two are genuinely both in flight.
+        //
+        // AND THE SEAM DOES NOT LET GO UNTIL THE CANCELLATION IS DEMONSTRABLY
+        // QUEUED ON THE GATE (ovation#487). As first written the hook started the
+        // cancellation and returned at once, so nothing decided whether the
+        // cancellation reached its fetch before or after the allocation saved.
+        // With the gate taken out of `cancel` that version did go red on
+        // 2026-09-24, but only because the cancellation happened to get there
+        // first; had it arrived after the save it would have released the row
+        // and passed with no gate at all. Waiting on the gate's own count of who
+        // is queued, rather than on a duration (L290), removes the choice: a
+        // cancellation that takes the gate is seen queued behind the allocation,
+        // and one that does not runs to completion inside this window, so the
+        // allocation then lands on a cancelled invoice (L1, L159).
+        //
+        // THE WAIT ENDS ON EITHER OUTCOME, queued or already closed, and is
+        // bounded by a count of turns rather than a duration, so a writer that
+        // stops taking the gate fails with a sentence instead of hanging the
+        // suite (L511).
         let container = try Self.store()
         let context = ModelContext(container)
         let client = Self.client(context)
@@ -344,6 +361,7 @@ struct PaymentTests {
 
         let allocator = PaymentAllocator(modelContainer: container)
         let closer = InvoiceCloser(modelContainer: container)
+        let gate = MoneyWriteGates.gate(for: container)
         let invoiceID = invoice.persistentModelID
         let paymentID = payment.persistentModelID
         let day = BusinessDate.stamping(Self.day)
@@ -355,12 +373,19 @@ struct PaymentTests {
                 try await closer.cancel(invoiceID, reason: "called off",
                                         money: .heldForTheClient, on: day, now: now)
             }
+            for _ in 0 ..< 10_000 {
+                if gate.waiting > 0 { await cancelled.sawItQueue(); return }
+                if Self.isClosed(invoiceID, in: container) { return }
+                await Task.yield()
+            }
         }
 
         try await allocator.allocate(Money(dollars: 50), from: paymentID,
                                      to: invoiceID, on: day)
         await cancelled.finish()
 
+        #expect(await cancelled.queued,
+                "the cancellation never queued on the money gate while an allocation held it")
         let reader = ModelContext(container)
         let read = try #require(try reader.fetch(FetchDescriptor<Invoice>())
             .first { $0.persistentModelID == invoiceID })
@@ -372,6 +397,16 @@ struct PaymentTests {
             .first { $0.persistentModelID == paymentID })
         #expect(readPayment.unallocated == Money(dollars: 500),
                 "so every penny is back on the client rather than owed by nobody")
+    }
+
+    /// Whether the invoice has been closed, read through a context of its own so
+    /// it sees what has been saved rather than what one writer holds.
+    private static func isClosed(_ invoiceID: PersistentIdentifier,
+                                 in container: ModelContainer) -> Bool {
+        let reader = ModelContext(container)
+        let found = try? reader.fetch(FetchDescriptor<Invoice>())
+            .first { $0.persistentModelID == invoiceID }
+        return found?.closure != nil
     }
 
     @Test("allocating EXACTLY what is owed is accepted, so the refusal is not off by one")
@@ -634,6 +669,9 @@ struct PaymentTests {
     /// variable from the test.
     private actor Cancellation {
         private var work: Task<Void, Error>?
+        private(set) var queued = false
+
+        func sawItQueue() { queued = true }
 
         func start(_ body: @escaping @Sendable () async throws -> Void) {
             work = Task { try await body() }

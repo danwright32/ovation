@@ -62,6 +62,11 @@ actor PaymentAllocator {
     /// and a green run would mean nothing. This is the seam that opens it on
     /// purpose, and it is here from the day the gate is, rather than retrofitted
     /// (L524, L284).
+    ///
+    /// ITS ONE USER IS `PaymentTests.acancellationAndAnAllocationCannotInterleave`,
+    /// which sets it through `setBeforeWriting` and so never spells this name.
+    /// ovation#487 was filed because a search for `beforeWriting` in the suites
+    /// found nothing and read as the seam being unused.
     var beforeWriting: (@Sendable () async -> Void)?
 
     func setBeforeWriting(_ hook: (@Sendable () async -> Void)?) {
