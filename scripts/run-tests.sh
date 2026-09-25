@@ -1141,9 +1141,14 @@ else
             queue_said="${LOCK_QUEUE_AHEAD}"
           fi
         elif dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}")" "$$"; then
+          # RECORDED AS HELD FIRST, before anything else runs. release_locks frees
+          # the lock only when DIR_LOCK_HELD says so, and an interrupt landing
+          # between the take and this line leaves Downbeat's lock planted with no
+          # holder. Leaving the queue first widened that window enough for case 6b-i
+          # to fail on Linux CI.
+          DIR_LOCK_HELD=1
           # Holding it is the end of this run's place in the queue.
           lock_queue_leave
-          DIR_LOCK_HELD=1
           # Non blocking. If Overture has it, we do not queue holding Downbeat's.
           exec 9>"${FILE_LOCK}" || { echo "Error: cannot open ${FILE_LOCK}" >&2; exit 3; }
           if "${FLOCK_BIN}" -n 9; then
