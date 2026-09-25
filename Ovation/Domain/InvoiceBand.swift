@@ -381,7 +381,7 @@ extension InvoiceStanding {
             let waiting = invoice.allocations.contains { allocation in
                 guard allocation.releasedOn == nil, let payment = allocation.payment
                 else { return false }
-                return payment.canBeCleared && payment.clearedOn == nil
+                return payment.isWaitingToClear
             }
             return waiting ? .allOfItAwaitingAClearedCheck : .allOfItCleared
         }
