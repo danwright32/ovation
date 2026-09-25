@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "report finding tests" 64
+harness_begin "report finding tests" 110
 
 TARGET="scripts/report-finding.sh"
 require_target "$TARGET"
@@ -51,6 +51,17 @@ cat > "$BIN/gh" <<'STUB'
         [ -f "$D/list.json" ] && cat "$D/list.json"
         exit "$(cat "$D/list.status" 2>/dev/null || echo 0)"
     fi
+    if [ "${1:-} ${2:-}" = "issue view" ]; then
+        [ -f "$D/view.json" ] && cat "$D/view.json"
+        exit "$(cat "$D/view.status" 2>/dev/null || echo 0)"
+    fi
+    # WHAT A WRITE CARRIED, read from the file it was handed, because a write
+    # given a file the script composed names a path the case cannot predict.
+    after_body=""
+    for a in "$@"; do
+        if [ -n "$after_body" ]; then cat "$a" >> "$D/written.log"; after_body=""; fi
+        [ "$a" = "--body-file" ] && after_body=yes
+    done
     exit "$(cat "$D/write.status" 2>/dev/null || echo 0)"
 STUB
 chmod +x "$BIN/gh"
@@ -64,6 +75,8 @@ stage() {
     printf '%s' "$2" > "$STUB_DIR/list.json"
     printf '%s' "${3:-0}" > "$STUB_DIR/list.status"
     printf '%s' "${4:-0}" > "$STUB_DIR/write.status"
+    : > "$STUB_DIR/written.log"
+    rm -f "$STUB_DIR/view.json" "$STUB_DIR/view.status"
     export STUB_DIR
 }
 
@@ -125,6 +138,7 @@ check "and it names the issue it commented on" "$(says "$OUT" "44")" "yes"
 check "and gh was asked to comment exactly once" "$(calls 'issue comment')" "1"
 check "and it was never asked to create a second issue" "$(calls 'issue create')" "0"
 check "and the comment came from the file the caller gave" "$(carried "$AGAIN")" "yes"
+check "and with no verdict given it never read the issue's thread" "$(calls 'issue view')" "0"
 
 # ---------------------------------------------------------------------------
 # 3. THE LOOKUP IS FUZZY AND THE MATCH IS NOT. `in:title` is a search, not an
@@ -319,5 +333,209 @@ run_report recurred --title "$TITLE" --comment-file "$AGAIN" --body-file "$NEW"
 check "a recurrence given a body to file with is refused, not quietly obeyed" "$STATUS" "7"
 check "and it names the option this command has no use for" \
     "$(says "$OUT" "--body-file")" "yes"
+
+# ---------------------------------------------------------------------------
+# 13. SAID ONCE PER VERDICT, never once per run (ovation#512).
+#
+#     A finding that stands was commented on every time its workflow ran. On
+#     2026-09-23 the design record workflow put five identical comments on
+#     ovation#376, which held 53 comments carrying four distinct verdicts, so the
+#     one that said something new was buried in the ones that did not (L36).
+#
+#     With --verdict-file the script stamps what it writes with a fingerprint of
+#     that verdict, reads the thread, and comments only when the newest
+#     fingerprint on it differs. The fingerprint rather than the text, because the
+#     caller's words around the verdict carry a date and differ on every run, and
+#     cutting the verdict back out of them would depend on how the caller laid it
+#     out.
+# ---------------------------------------------------------------------------
+VERDICT="$WORK/verdict.txt"; printf '  CLOSED  ovation#318\nREFUSED: 1 of 4.\n' > "$VERDICT"
+OTHER="$WORK/other.txt";     printf '  CLOSED  ovation#318\n  CLOSED  ovation#40\nREFUSED: 2 of 4.\n' > "$OTHER"
+EMPTY="$WORK/empty.txt";     : > "$EMPTY"
+stamp() { printf '<!-- report-finding verdict %s -->' "$(shasum -a 256 "$1" | cut -d' ' -f1)"; }
+# thread <body> <comment>... prints what `gh issue view --json body,comments` does
+thread() {
+    python3 -c 'import json,sys; print(json.dumps({"body": sys.argv[1], "comments": [{"author": {"login": "a"}, "body": c} for c in sys.argv[2:]]}))' "$@"
+}
+view() { printf '%s' "$1" > "$STUB_DIR/view.json"; printf '%s' "${2:-0}" > "$STUB_DIR/view.status"; }
+
+stage unchanged "$EXACT"
+view "$(thread "Opened. $(stamp "$VERDICT")" "Still true. $(stamp "$VERDICT")")"
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$VERDICT"
+check "a verdict the thread already carries is not said again" "$STATUS" "9"
+check "and it says so in its own word" "$(says "$OUT" "UNCHANGED")" "yes"
+check "and it names the issue that already carries it" "$(says "$OUT" "44")" "yes"
+check "and it read that issue's thread to find out" "$(calls 'issue view')" "1"
+check "and nothing was written" \
+    "$(($(calls 'issue create') + $(calls 'issue comment') + $(calls 'issue close')))" "0"
+
+stage changed "$EXACT"
+view "$(thread "Opened. $(stamp "$OTHER")" "Still true. $(stamp "$OTHER")")"
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$VERDICT"
+check "a verdict that differs from the thread's newest is commented" "$STATUS" "1"
+check "and exactly once" "$(calls 'issue comment')" "1"
+check "and the comment carries the caller's words" \
+    "$(says "$(cat "$STUB_DIR/written.log")" "Still true today.")" "yes"
+check "and the new verdict's fingerprint, so the next run can tell" \
+    "$(says "$(cat "$STUB_DIR/written.log")" "$(stamp "$VERDICT")")" "yes"
+
+# THE NEWEST IS WHAT COUNTS. A verdict that went A, B and back to A is a change
+# on the third run, so an older comment carrying A must not silence it.
+stage went-back "$EXACT"
+view "$(thread "Opened. $(stamp "$VERDICT")" "Still true. $(stamp "$OTHER")")"
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$VERDICT"
+check "a verdict only an OLDER comment carries is a change, and is said" "$STATUS" "1"
+
+# AND A PERSON'S COMMENT IS NOT A VERDICT. Somebody writing "looking into it"
+# under the finding must not make the next run repeat what was last said.
+stage person-spoke "$EXACT"
+view "$(thread "Opened." "Still true. $(stamp "$VERDICT")" "Looking into it.")"
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$VERDICT"
+check "a person's comment after the last verdict does not make it repeat" "$STATUS" "9"
+
+stage body-only "$EXACT"
+view "$(thread "Opened. $(stamp "$VERDICT")")"
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$VERDICT"
+check "with no comments yet the body's verdict is the one compared" "$STATUS" "9"
+
+# A THREAD WRITTEN BEFORE THE FINGERPRINT EXISTED carries none, and says it once
+# more, stamped, rather than staying silent about a verdict nobody can compare.
+stage unstamped "$EXACT"
+view "$(thread "Opened." "Still true.")"
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$VERDICT"
+check "a thread carrying no fingerprint at all is commented on" "$STATUS" "1"
+
+stage filed-stamped '[]'
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$VERDICT"
+check "a finding filed with a verdict is filed as before" "$STATUS" "0"
+check "and without reading a thread that does not exist" "$(calls 'issue view')" "0"
+check "and its body carries the caller's words" \
+    "$(says "$(cat "$STUB_DIR/written.log")" "The body of a newly filed finding.")" "yes"
+check "and the fingerprint, so the first run after it can stay silent" \
+    "$(says "$(cat "$STUB_DIR/written.log")" "$(stamp "$VERDICT")")" "yes"
+
+# A THREAD THAT COULD NOT BE READ IS NOT A THREAD WITHOUT THE VERDICT (L214).
+# Reading it as "no verdict" would repeat, which is the fault being fixed, and
+# reading it as "same verdict" would lose a change, so neither is guessed.
+stage view-fails "$EXACT"
+view '' 1
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$VERDICT"
+check "a thread that could not be read refuses as CANNOT ASK" "$STATUS" "5"
+check "and writes nothing on the strength of it" "$(calls 'issue comment')" "0"
+
+stage view-garbled "$EXACT"
+view '{"body": "Opened.", "comments": "not a list"}'
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$VERDICT"
+check "a thread that cannot be parsed refuses the same way" "$STATUS" "5"
+
+stage verdict-empty "$EXACT"
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$EMPTY"
+check "an empty verdict is refused rather than compared" "$STATUS" "7"
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$AGAIN" --verdict-file "$WORK/no-such-verdict.txt"
+check "a verdict file that is not there is refused" "$STATUS" "7"
+run_report cleared --title "$TITLE" --comment-file "$CLOSE" --verdict-file "$VERDICT"
+check "and closing, which has no verdict to compare, refuses the option" "$STATUS" "7"
+
+# THE WORKFLOWS PASS THEIR VERDICT AND ACCEPT THE NEW OUTCOME. A caller that
+# enumerates its accepted codes and was not told about UNCHANGED would fail every
+# quiet day (L184), and one that never passes its verdict goes on commenting on
+# every run. Asserted by RUNNING each reporting step, not by searching its file:
+# a whole file search is satisfied by one occurrence anywhere in it, while a
+# second step beside it still comments on every run (L135). The step's script is
+# cut out of the workflow and run in a scratch directory whose
+# scripts/report-finding.sh is a stub recording what it was handed, so nothing
+# reaches the tracker (L2).
+step_script() {  # step_script <workflow> <step name>: prints the step's run script
+    awk -v want="      - name: $2" '
+        $0 == want { inside = 1; next }
+        inside && /^      - / { exit }
+        inside && /^        run: \|/ { body = 1; next }
+        inside && body { print }
+    ' "$1" | sed 's/^          //'
+}
+STEP_DIR="$WORK/step"; mkdir -p "$STEP_DIR/scripts"
+cat > "$STEP_DIR/scripts/report-finding.sh" <<'REPORTER'
+    for a in "$@"; do printf '%s\n' "$a" >> args.log; done
+    exit "${REPORTER_EXIT:?}"
+REPORTER
+printf '  a verdict line\nREFUSED: a verdict.\n' > "$STEP_DIR/verdict.txt"
+STEP_STATUS=""
+run_step() {  # run_step <workflow> <step name> <reporter exit> [VAR=value]...
+    local wf="$1" name="$2" code="$3"; shift 3
+    step_script "$wf" "$name" > "$STEP_DIR/step.sh"
+    : > "$STEP_DIR/args.log"
+    (cd "$STEP_DIR" && env GH_TOKEN=unused TITLE="A title" REPORTER_EXIT="$code" "$@" \
+        bash step.sh >/dev/null 2>&1)
+    STEP_STATUS=$?
+}
+handed_verdict() {
+    if grep -A1 -x -- '--verdict-file' "$STEP_DIR/args.log" | grep -qx 'verdict.txt'; then
+        echo yes; else echo no; fi
+}
+# every_stands_step <workflow> <label> <step name> [VAR=value]...: three checks
+every_stands_step() {
+    local wf="$1" label="$2" name="$3"; shift 3
+    run_step "$wf" "$name" 9 "$@"
+    check "$label passes its verdict to the reporter" "$(handed_verdict)" "yes"
+    check "$label accepts UNCHANGED rather than failing on it" "$STEP_STATUS" "0"
+    run_step "$wf" "$name" 5 "$@"
+    check "$label still fails the job on a refusal" "$STEP_STATUS" "5"
+}
+every_stands_step .github/workflows/design-record.yml "the design record step" "Say so, once"
+every_stands_step .github/workflows/runner-xcode.yml "the dropped Xcode step" \
+    "Say so when the image has dropped the pinned Xcode"
+every_stands_step .github/workflows/runner-xcode.yml "the newer Xcode step" \
+    "Say so when the image has gained a newer Xcode"
+every_stands_step .github/workflows/ci-liveness.yml "the CI FAILING step" "Say so, once" STATUS=3
+
+# BLOCKED IS LEFT AS IT WAS, and that is asserted rather than left to drift. Its
+# verdict counts hours since the newest commit, which grow on every run, so its
+# fingerprint would differ every time; which part of it is the measurement is a
+# judgement this change does not make.
+run_step .github/workflows/ci-liveness.yml "Say so, once" 1 STATUS=1
+check "the CI BLOCKED step passes no verdict, since its hour counts change every run" \
+    "$(handed_verdict)" "no"
+check "and still reports as before" "$STEP_STATUS" "0"
+
+# ---------------------------------------------------------------------------
+# 14. A CRASH IS NOT A COMMENT. Python exits 1 on an uncaught exception, and 1
+#     is COMMENTED, which every `stands` caller accepts as success. So a script
+#     that broke halfway read as a finding said. Any unexpected failure now exits
+#     10 BROKE, which no caller accepts. The crash staged here is the one the
+#     close path really had: a comment file that exists, passes the argument
+#     check, and cannot be read as text.
+# ---------------------------------------------------------------------------
+UNREADABLE="$WORK/unreadable.md"; printf '\377\376 not text\n' > "$UNREADABLE"
+stage crash-cleared "$EXACT"
+run_report cleared --title "$TITLE" --comment-file "$UNREADABLE"
+check "a crash on the close path does not exit as COMMENTED" "$STATUS" "10"
+check "and it says it broke rather than printing only a traceback" "$(says "$OUT" "BROKE")" "yes"
+check "and it closed nothing" "$(calls 'issue close')" "0"
+
+stage crash-stands "$EXACT"
+view "$(thread "Opened.")"
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$UNREADABLE" --verdict-file "$VERDICT"
+check "and a crash preparing a stamped comment is the same refusal" "$STATUS" "10"
+check "and commented nothing" "$(calls 'issue comment')" "0"
+
+# ---------------------------------------------------------------------------
+# 15. THE ROLES FILE NAMES EVERY CALLER. Its sentence for this script said
+#     "and by nothing else" while two more callers had arrived. The callers are
+#     derived here, as every non-test file under .github/workflows and scripts
+#     that names this script on a line that is not a comment, so the next caller
+#     fails this until the sentence names it.
+# ---------------------------------------------------------------------------
+ROLE_LINE="$(grep '^report-finding.sh	' scripts/lib/script-roles.tsv)"
+CALLERS="$(grep -l -E '^[^#]*report-finding\.sh' .github/workflows/*.yml scripts/*.sh \
+    | grep -v -E '(^|/)test-|scripts/report-finding\.sh$')"
+check "the caller derivation finds the four callers known today" \
+    "$(printf '%s\n' "$CALLERS" | grep -c .)" "4"
+UNNAMED=""
+for caller in $CALLERS; do
+    grep -qF -- "$caller" <<< "$ROLE_LINE" || UNNAMED="$UNNAMED $caller"
+done
+check "and the roles file names every one of them" "${UNNAMED:-none}" "none"
+check "and no longer claims there is nothing else" \
+    "$(says "$ROLE_LINE" "and by nothing else")" "no"
 
 harness_end

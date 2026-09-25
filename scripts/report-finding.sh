@@ -4,7 +4,7 @@
 __doc__ = """Report a finding on the tracker once, and stop reporting it when it is over.
 
     report-finding.sh stands   --title T --body-file NEW --comment-file AGAIN
-                               [--milestone M] [--label L]...
+                               [--milestone M] [--label L]... [--verdict-file V]
     report-finding.sh recurred --title T --comment-file AGAIN
     report-finding.sh cleared  --title T --comment-file CLOSING
 
@@ -57,6 +57,34 @@ a caller must enumerate the codes it accepts rather than testing for zero (L184)
 Both workflows do, in one line each, and that line is the only thing either of
 them still has to know about this.
 
+SAID ONCE PER VERDICT, NEVER ONCE PER RUN (ovation#512). `stands` commented
+every time its caller ran while the finding stood, and on 2026-09-23 that put
+five identical comments on ovation#376, whose 53 comments by then carried four
+distinct verdicts. A thread of repeats buries the one comment that says
+something new and teaches a reader to skip all of them (L36).
+
+So a caller may pass `--verdict-file`: the measurement the finding is about,
+separate from the words around it. Everything this writes is then stamped with a
+fingerprint of that verdict, a hidden HTML comment carrying its sha256, and
+before commenting on an issue already open it reads the thread and comments only
+when the NEWEST fingerprint on it differs.
+
+A FINGERPRINT RATHER THAN THE TEXT, because the caller's words around the
+verdict carry a date and differ on every run, and cutting the verdict back out
+of them would make this depend on how each caller lays its comment out, which is
+the words this script does not own.
+
+THE NEWEST STAMPED ONE, not the last comment. A verdict that goes A, B and back
+to A is a change on the third run, so an older A must not silence it; and a
+person's comment under the finding carries no stamp, so writing "looking into
+it" does not make the next run repeat what was last said. A thread written
+before the stamp existed carries none at all, and is commented on once more,
+stamped, which is the one comment the change costs.
+
+A THREAD THAT COULD NOT BE READ IS CANNOT ASK, never a guess: reading it as
+carrying no verdict repeats, which is the fault this fixes, and reading it as
+carrying this one loses a change (L214).
+
 Exit codes, one per outcome, each with its own sentence (L11):
 
     0  OPENED            no open issue carried the marker title, so one was filed
@@ -75,6 +103,15 @@ Exit codes, one per outcome, each with its own sentence (L11):
                          command has no use for
     8  NOTHING OPEN      `recurred` found no open issue carrying the title, and
                          that command may not file one, so nobody was told
+    9  UNCHANGED         `stands --verdict-file` found exactly one open issue and
+                         its newest verdict is this one, so nothing was written.
+                         Not a fault: it is what a finding that still stands
+                         looks like on every run after it was said
+   10  BROKE             something failed that none of the outcomes above
+                         names. Python exits 1 on an uncaught exception, and
+                         1 is COMMENTED, which every `stands` caller accepts,
+                         so a script that broke halfway read as a finding
+                         said. This code is accepted by no caller
 
 Seam:
 
@@ -84,15 +121,23 @@ Seam:
                 the backlog rather than about this script, and would file real
                 issues while doing it (L2, L291).
 """
+import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
+import tempfile
 
 OPENED, COMMENTED, CLOSED, NOTHING_TO_CLOSE = 0, 1, 2, 3
 MANY, CANNOT_ASK, COULD_NOT_SAY_IT, USED_WRONGLY = 4, 5, 6, 7
-NOTHING_OPEN = 8
+NOTHING_OPEN, UNCHANGED, BROKE = 8, 9, 10
+
+# THE STAMP. An HTML comment, so GitHub renders nothing for it, and the name of
+# this script in it, so it cannot be mistaken for anything a person wrote.
+STAMP = "<!-- report-finding verdict %s -->"
+STAMP_FOUND = re.compile(r"<!-- report-finding verdict ([0-9a-f]{64}) -->")
 
 # HOW MANY THE LOOKUP MAY RETURN. `gh issue list` pages at 30 by default, and a
 # ceiling that silently truncates would turn "many" into "one" on a tracker that
@@ -101,7 +146,7 @@ LOOKUP_LIMIT = "100"
 
 USAGE = [
     "    report-finding.sh stands   --title T --body-file NEW --comment-file AGAIN",
-    "                               [--milestone M] [--label L]...",
+    "                               [--milestone M] [--label L]... [--verdict-file V]",
     "    report-finding.sh recurred --title T --comment-file AGAIN",
     "    report-finding.sh cleared  --title T --comment-file CLOSING",
 ]
@@ -180,6 +225,51 @@ def open_issues_titled(title):
     return numbers
 
 
+def newest_verdict(number):
+    """The fingerprint of the newest verdict on this issue's thread, "" when the
+    thread carries none, or None when the thread could not be read.
+
+    Comments newest first, then the body, and the LAST stamp inside whichever
+    text carries one, so the answer is what this script said most recently.
+    """
+    done = ask(["issue", "view", str(number), "--json", "body,comments"])
+    if done is None or done.returncode != 0:
+        return None
+    try:
+        issue = json.loads(done.stdout or "")
+    except ValueError:
+        return None
+    if not isinstance(issue, dict) or not isinstance(issue.get("comments"), list):
+        return None
+    texts = [issue.get("body")]
+    for comment in issue["comments"]:
+        if not isinstance(comment, dict):
+            return None
+        texts.append(comment.get("body"))
+    for text in reversed(texts):
+        if not isinstance(text, str):
+            return None
+        stamps = STAMP_FOUND.findall(text)
+        if stamps:
+            return stamps[-1]
+    return ""
+
+
+def stamped(path, fingerprint, made):
+    """A copy of the caller's file with the stamp on its last line, or the
+    caller's own path when there is no verdict to stamp. Every copy is added to
+    `made` so the caller removes it."""
+    if not fingerprint:
+        return path
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    handle, copy = tempfile.mkstemp(suffix=".md")
+    made.append(copy)
+    with os.fdopen(handle, "w", encoding="utf-8") as out:
+        out.write(text.rstrip("\n") + "\n\n" + STAMP % fingerprint + "\n")
+    return copy
+
+
 def read_arguments(argv):
     """(command, options) or (None, the sentence saying what was wrong).
 
@@ -194,15 +284,17 @@ def read_arguments(argv):
     if command not in ("stands", "recurred", "cleared"):
         return None, "there is no `%s` command" % command
     options = {"title": None, "body-file": None, "comment-file": None,
-               "milestone": None, "labels": []}
-    takes = {"stands": ["--title", "--body-file", "--comment-file", "--milestone", "--label"],
+               "milestone": None, "labels": [], "verdict-file": None}
+    takes = {"stands": ["--title", "--body-file", "--comment-file", "--milestone", "--label",
+                        "--verdict-file"],
              "recurred": ["--title", "--comment-file"],
              "cleared": ["--title", "--comment-file"]}[command]
     rest = argv[2:]
     while rest:
         name = rest[0]
         if name not in takes:
-            if name in ("--title", "--body-file", "--comment-file", "--milestone", "--label"):
+            if name in ("--title", "--body-file", "--comment-file", "--milestone", "--label",
+                        "--verdict-file"):
                 return None, "`%s` takes no %s" % (command, name)
             return None, "there is no %s option" % name
         if len(rest) < 2:
@@ -218,11 +310,23 @@ def read_arguments(argv):
             return None, "no --%s was given" % name
     if command == "stands" and not options["body-file"]:
         return None, "no --body-file was given, and a finding filed with no body says nothing"
-    for name in ("body-file", "comment-file"):
+    for name in ("body-file", "comment-file", "verdict-file"):
         path = options[name]
         if path and not os.path.isfile(path):
             return None, "the --%s is not a file" % name
+    # AN EMPTY VERDICT IS REFUSED rather than fingerprinted: it would compare
+    # equal to every other empty one, and a caller whose measurement printed
+    # nothing has not measured the thing this finding is about.
+    if options["verdict-file"] and os.path.getsize(options["verdict-file"]) == 0:
+        return None, "the --verdict-file is empty"
     return command, options
+
+
+def fingerprint_of(path):
+    if not path:
+        return ""
+    with open(path, "rb") as handle:
+        return hashlib.sha256(handle.read()).hexdigest()
 
 
 def main(argv):
@@ -274,30 +378,55 @@ def main(argv):
         return COMMENTED
 
     if command == "stands":
-        if numbers:
-            if not tell(["issue", "comment", str(numbers[0]),
-                         "--body-file", options["comment-file"]]):
-                print("COULD NOT SAY IT: ovation#%d carries this finding and the "
-                      "comment saying it is still true could not be added. The "
-                      "finding was measured and nobody was told." % numbers[0])
-                return COULD_NOT_SAY_IT
-            print("COMMENTED: ovation#%d already carries this finding, so it was "
-                  "commented on rather than duplicated." % numbers[0])
-            return COMMENTED
-        create = ["issue", "create", "--title", options["title"],
-                  "--body-file", options["body-file"]]
-        if options["milestone"]:
-            create += ["--milestone", options["milestone"]]
-        for label in options["labels"]:
-            create += ["--label", label]
-        if not tell(create):
-            print("COULD NOT SAY IT: no open issue carries this finding and one "
-                  "could not be filed. The finding was measured and nobody was told.")
-            return COULD_NOT_SAY_IT
-        print("OPENED: no open issue carried this finding, so one was filed. It is "
-              "commented on rather than duplicated from here on.")
-        return OPENED
+        made = []
+        try:
+            return stands(options, numbers, made)
+        finally:
+            for path in made:
+                os.unlink(path)
 
+    return cleared(options, numbers)
+
+
+def stands(options, numbers, made):
+    fingerprint = fingerprint_of(options["verdict-file"])
+    if numbers:
+        if fingerprint:
+            newest = newest_verdict(numbers[0])
+            if newest is None:
+                print("CANNOT ASK: ovation#%d carries this finding and its thread "
+                      "could not be read, so whether this verdict was already said "
+                      "is not known and nothing was written." % numbers[0])
+                return CANNOT_ASK
+            if newest == fingerprint:
+                print("UNCHANGED: ovation#%d already says this verdict, so nothing "
+                      "was written." % numbers[0])
+                return UNCHANGED
+        if not tell(["issue", "comment", str(numbers[0]),
+                     "--body-file", stamped(options["comment-file"], fingerprint, made)]):
+            print("COULD NOT SAY IT: ovation#%d carries this finding and the "
+                  "comment saying it is still true could not be added. The "
+                  "finding was measured and nobody was told." % numbers[0])
+            return COULD_NOT_SAY_IT
+        print("COMMENTED: ovation#%d already carries this finding, so it was "
+              "commented on rather than duplicated." % numbers[0])
+        return COMMENTED
+    create = ["issue", "create", "--title", options["title"],
+              "--body-file", stamped(options["body-file"], fingerprint, made)]
+    if options["milestone"]:
+        create += ["--milestone", options["milestone"]]
+    for label in options["labels"]:
+        create += ["--label", label]
+    if not tell(create):
+        print("COULD NOT SAY IT: no open issue carries this finding and one "
+              "could not be filed. The finding was measured and nobody was told.")
+        return COULD_NOT_SAY_IT
+    print("OPENED: no open issue carried this finding, so one was filed. It is "
+          "commented on rather than duplicated from here on.")
+    return OPENED
+
+
+def cleared(options, numbers):
     if not numbers:
         print("NOTHING TO CLOSE: no open issue carries this finding, so there was "
               "nothing to close. That is what a condition which never fired looks "
@@ -315,5 +444,22 @@ def main(argv):
     return CLOSED
 
 
+def guarded(argv):
+    """main, with every failure it did not name turned into BROKE.
+
+    The traceback still goes to the log, because it is the diagnosis (L148); only
+    the exit code changes, so no caller can read a crash as one of its successes.
+    """
+    try:
+        return main(argv)
+    except Exception:  # noqa: BLE001, deliberately every unnamed failure
+        import traceback
+        traceback.print_exc()
+        print("BROKE: this failed in a way none of its outcomes names, so nothing it "
+              "may have done is known. It exits 10, which no caller accepts, rather "
+              "than 1, which reads as a comment made.")
+        return BROKE
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    sys.exit(guarded(sys.argv))

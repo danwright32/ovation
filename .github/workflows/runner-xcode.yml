@@ -27,6 +27,11 @@ name: Runner Xcode
 # finding is one issue, commented on while it stands and closed when it is over,
 # because an automated job that creates a named outside thing collides with its
 # own previous output for as long as that output sits unconsumed (L393).
+#
+# AND EACH IS COMMENTED ON ONLY WHEN ITS VERDICT CHANGES (ovation#512). The
+# verdict is a pure function of the pin, the runner label and the versions the
+# image lists, so it is passed to the reporter as it stands, which compares it
+# with the newest one already on the issue rather than saying it again daily.
 
 on:
   schedule:
@@ -115,14 +120,16 @@ jobs:
             --body-file issue-body.md \
             --comment-file comment-body.md \
             --milestone Ungrouped \
-            --label priority-p1 --label ci-hygiene --label bug
+            --label priority-p1 --label ci-hygiene --label bug \
+            --verdict-file verdict.txt
           reported=$?
           set -e
-          # 0 filed it, 1 commented on the one already open. Every other code is a
-          # refusal the script has already explained, and it fails this job rather
-          # than passing quietly (L184).
+          # 0 filed it, 1 commented on the one already open because the verdict
+          # changed, 9 wrote nothing because the issue already says this verdict
+          # (ovation#512). Every other code is a refusal the script has already
+          # explained, and it fails this job rather than passing quietly (L184).
           case "${reported}" in
-            0|1) ;;
+            0|1|9) ;;
             *) exit "${reported}" ;;
           esac
 
@@ -169,11 +176,12 @@ jobs:
             --body-file issue-body.md \
             --comment-file comment-body.md \
             --milestone Ungrouped \
-            --label priority-p2 --label ci-hygiene --label tech-debt
+            --label priority-p2 --label ci-hygiene --label tech-debt \
+            --verdict-file verdict.txt
           reported=$?
           set -e
           case "${reported}" in
-            0|1) ;;
+            0|1|9) ;;
             *) exit "${reported}" ;;
           esac
 
