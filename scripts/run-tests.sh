@@ -98,7 +98,10 @@
 #         preference domain brackets are held, the hosted half takes both sibling
 #         locks, and a filter that matched NOTHING is refused rather than reported
 #         as a pass. The shell suites are skipped, and so is the half of the Swift
-#         suite the filter is not in, and each skip is said out loud.
+#         suite the filter is not in, and each skip is said out loud. A run
+#         narrowed to OvationTests also builds the app first when a file the pure
+#         target leaves out, OvationApp.swift above all, differs from main
+#         (ovation#515, beside the project check below).
 #
 # WHY THE NARROWED RUN EXISTS AT ALL. Without it a test first cycle called
 # xcodebuild by hand, which is outside the lock protocol the three apps on this
@@ -142,6 +145,15 @@ DOMAINS_BRACKETED=""
 # the push gate runs, so nothing here has a second opinion about "current" (L70).
 PROJECT_CURRENT_COMMAND="${OVATION_PROJECT_CURRENT_COMMAND:-}"
 REGENERATE_COMMAND="${OVATION_REGENERATE_COMMAND:-}"
+# What a narrowed pure run asks about the app only files, and what builds the app
+# when one changed (ovation#515). Seams for the reason every command here is one:
+# on a branch that edits OvationApp.swift, the runner's own suite would otherwise
+# start a real app build from every narrowed case (L2, L291). The defaults are
+# this checkout, main as the push gate sees it, and the one place the app build
+# is written, scripts/lib/build-one-configuration.sh.
+APP_CHANGES_ROOT="${OVATION_APP_CHANGES_ROOT:-${REPO_ROOT}}"
+APP_CHANGES_BASE="${OVATION_APP_CHANGES_BASE:-origin/main}"
+APP_BUILD_COMMAND="${OVATION_APP_BUILD_COMMAND:-}"
 
 # ---------------------------------------------------------------------------
 # THE ARGUMENTS, READ BEFORE ANYTHING RUNS (ovation#321).
@@ -755,6 +767,115 @@ else
     0|2) ;;
     *) exit "${PROJECT_CURRENT_STATUS}" ;;
   esac
+
+  # ---------------------------------------------------------------------------
+  # A NARROWED PURE RUN BUILDS THE APP WHEN A FILE THE PURE TARGET LEAVES OUT HAS
+  # CHANGED (ovation#515).
+  #
+  # OvationTests compiles the app's sources in, and project.yml excludes
+  # App/OvationApp.swift from it because that file carries @main. So a run
+  # narrowed to OvationTests never compiled it, and a break there first showed up
+  # at the push gate's hosted phase. Measured 2026-09-24 on ovation#42: removing
+  # an import OvationApp.swift still needed passed every narrowed run and failed
+  # the gate about ten minutes in with "cannot find type 'MailSender' in scope".
+  #
+  # IT BUILDS RATHER THAN REFUSING, and that is the choice between making the
+  # omission impossible and warning about it. A refusal naming
+  # scripts/build-products.sh is a message somebody in a red-green cycle reads,
+  # skips and runs the narrowed suite again past; a build cannot be read past. It
+  # costs one incremental Debug build, and only on runs where one of those files
+  # differs, which is the only time the run could be wrong without it.
+  #
+  # "CHANGED" IS AGAINST WHERE THIS BRANCH LEFT MAIN, working tree included:
+  # the merge base with origin/main, compared with the files on disk, so a
+  # committed edit and an uncommitted one both count, and so does an untracked
+  # file a left out pattern matches. A branch far behind main is not accused of
+  # main's own edits.
+  #
+  # THE FILES ARE READ FROM project.yml, the OvationTests target's excludes, never
+  # listed here: a second list would stop covering the next exclusion the day it
+  # is added (L41). Info.plist is on it today and is built for the same reason.
+  #
+  # WHEN THE QUESTION CANNOT BE ANSWERED, IT BUILDS. An unreadable exclusion list,
+  # a missing origin/main or a git that fails would otherwise read as "nothing
+  # changed", which is the defect itself (L93, L215). Each says why it built.
+  #
+  # ONLY THE NARROWED PURE RUN. A narrowed hosted run and a full run both build
+  # the Ovation scheme for the hosted suite, so they already compile it. It
+  # happens here, registered as reading the project and before the suite, so a
+  # broken app stops the run with the build's own status and the suite is not
+  # reported over it.
+  # ---------------------------------------------------------------------------
+  # The left out paths, one per line, relative to the checkout: each exclude of
+  # a source path in the OvationTests target, joined to that path. Empty when the
+  # target or its excludes cannot be found.
+  pure_target_left_out() {
+    awk '
+      /^  OvationTests:[[:space:]]*$/ { in_target = 1; next }
+      in_target && /^  [^ #]/ { exit }
+      in_target && /^[^ #]/ { exit }
+      !in_target { next }
+      /^[[:space:]]*- path:/ { path = $0; sub(/^[[:space:]]*- path:[[:space:]]*/, "", path); gsub(/"/, "", path); in_excludes = 0; next }
+      /^[[:space:]]*excludes:[[:space:]]*$/ { in_excludes = 1; next }
+      in_excludes && /^[[:space:]]*- / {
+        item = $0; sub(/^[[:space:]]*-[[:space:]]*/, "", item); gsub(/"/, "", item)
+        if (path != "" && item != "") print path "/" item
+        next
+      }
+      { in_excludes = 0 }
+    ' "${APP_CHANGES_ROOT}/project.yml" 2>/dev/null
+  }
+
+  if [ "${ONLY_TARGET}" = "OvationTests" ]; then
+    APP_BUILD_REASON=""
+    LEFT_OUT="$(pure_target_left_out)"
+    if [ -z "${LEFT_OUT}" ]; then
+      APP_BUILD_REASON="this run could not read which files the pure target leaves out from ${APP_CHANGES_ROOT}/project.yml, so it cannot tell whether OvationApp.swift changed"
+    elif ! APP_BASE_COMMIT="$(git -C "${APP_CHANGES_ROOT}" merge-base HEAD "${APP_CHANGES_BASE}" 2>/dev/null)" \
+        || [ -z "${APP_BASE_COMMIT}" ]; then
+      APP_BUILD_REASON="this run could not compare the files the pure target leaves out with ${APP_CHANGES_BASE}, which this checkout has no common commit with"
+    else
+      LEFT_OUT_ARGS=()
+      while IFS= read -r left_out_path; do
+        [ -n "${left_out_path}" ] && LEFT_OUT_ARGS+=("${left_out_path}")
+      done <<< "${LEFT_OUT}"
+      APP_GIT_OK=1
+      APP_CHANGED="$(git -C "${APP_CHANGES_ROOT}" diff --name-only "${APP_BASE_COMMIT}" -- "${LEFT_OUT_ARGS[@]}" 2>/dev/null)" || APP_GIT_OK="" # never empty: LEFT_OUT was checked non empty above
+      APP_UNTRACKED="$(git -C "${APP_CHANGES_ROOT}" ls-files --others --exclude-standard -- "${LEFT_OUT_ARGS[@]}" 2>/dev/null)" || APP_GIT_OK="" # never empty: LEFT_OUT was checked non empty above
+      if [ -z "${APP_GIT_OK}" ]; then
+        APP_BUILD_REASON="this run could not compare the files the pure target leaves out with ${APP_CHANGES_BASE}, because git failed to"
+      else
+        APP_CHANGED="$(printf '%s\n%s\n' "${APP_CHANGED}" "${APP_UNTRACKED}" | sed '/^$/d' | sort -u | tr '\n' ' ')"
+        if [ -n "${APP_CHANGED}" ]; then
+          APP_BUILD_REASON="${APP_CHANGED% } differs from ${APP_CHANGES_BASE}, and the pure target never compiles it"
+        fi
+      fi
+    fi
+
+    if [ -z "${APP_BUILD_REASON}" ]; then
+      echo "==> App build not needed: nothing the pure target leaves out ($(printf '%s' "${LEFT_OUT}" | tr '\n' ' ' | sed 's/ $//')) differs from ${APP_CHANGES_BASE} (ovation#515)."
+    elif [ -n "${TEST_COMMAND}" ] && [ -z "${APP_BUILD_COMMAND}" ]; then
+      # Said out loud rather than skipped silently, as the hosted skip is: the
+      # runner is being measured with an injected command, and a real app build
+      # beside it would be the slow and real thing that seam exists to avoid.
+      echo "==> App build skipped: the pure command was injected and no app build was. It would have built because ${APP_BUILD_REASON}."
+    else
+      echo "==> Building the app (Debug) before this narrowed run (ovation#515): ${APP_BUILD_REASON}."
+      if [ -n "${APP_BUILD_COMMAND}" ]; then
+        bash -c "${APP_BUILD_COMMAND}"
+      else
+        "${REPO_ROOT}/scripts/lib/build-one-configuration.sh" Debug
+      fi
+      APP_BUILD_STATUS=$?
+      if [ "${APP_BUILD_STATUS}" -ne 0 ]; then
+        echo "Error: the app did not build (exit ${APP_BUILD_STATUS}), and the pure target never compiles OvationApp.swift," >&2
+        echo "       so ${ONLY_TESTING} was not run: it would have passed over an app that cannot" >&2
+        echo "       build, which the push gate then refuses. Fix the build error above and run the" >&2
+        echo "       same command again; scripts/build-products.sh builds both configurations." >&2
+        exit "${APP_BUILD_STATUS}"
+      fi
+    fi
+  fi
 
   if [ ! -x "${FLOCK_BIN}" ]; then
     echo "Error: flock was not found at ${FLOCK_BIN}." >&2

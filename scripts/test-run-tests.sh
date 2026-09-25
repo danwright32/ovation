@@ -39,7 +39,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
       OVATION_REPO_ROOT \
       OVATION_ONLY_TESTING OVATION_PROJECT_CURRENT_COMMAND OVATION_REGENERATE_COMMAND \
-      OVATION_SHELL_SUITES OVATION_SHOT_DIR TEST_RUNNER_OVATION_SHOT_DIR
+      OVATION_SHELL_SUITES OVATION_SHOT_DIR TEST_RUNNER_OVATION_SHOT_DIR \
+      OVATION_APP_CHANGES_ROOT OVATION_APP_CHANGES_BASE OVATION_APP_BUILD_COMMAND
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -76,7 +77,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 266
+harness_begin "test runner lock tests" 283
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -1985,12 +1986,34 @@ echo "Test run with 3 tests in 1 suite passed"
 STUB
 chmod +x "$ONLY/bin/xcodebuild"
 
+# A CHECKOUT WHOSE APP ONLY FILES ARE UNCHANGED, for every narrowed run that is
+# not about them (ovation#515). A narrowed pure run builds the app when a file the
+# pure target leaves out differs from main, and the checkout it asks by default is
+# this one: on a branch that edits OvationApp.swift, every case below would then
+# ask for a real app build (L2, L284). So each narrowed run is pointed at this
+# throwaway repository, carrying the REAL project.yml so the list of left out
+# files is derived from the file that decides it (L41), and at a stand in build.
+APPREPO="$WORK/app-changes"; rm -rf "$APPREPO"; mkdir -p "$APPREPO/Ovation/App"
+cp project.yml "$APPREPO/project.yml"
+printf '@main struct OvationApp {}\n' > "$APPREPO/Ovation/App/OvationApp.swift"
+printf '<plist/>\n' > "$APPREPO/Ovation/Info.plist"
+printf 'struct Other {}\n' > "$APPREPO/Ovation/Other.swift"
+appgit() { git -C "$APPREPO" -c user.name=suite -c user.email=suite@example.invalid -c commit.gpgsign=false "$@"; }
+appgit init -q
+appgit add -A
+appgit commit -qm base
+appgit update-ref refs/remotes/origin/main HEAD
+APP_BUILD_STANDIN='echo APP-BUILD-RAN'
+
 # What an injected command prints by default: the filter it can see, and a count.
 ONLY_COUNTED='echo "FILTER=${OVATION_ONLY_TESTING:-none}"; echo "Test run with 3 tests in 1 suite passed"'
 
 # only_run [runner arguments]. Overrides are prefixes on the call, and every call
 # sits inside a `$(...)`, so none of them outlives its case (L439).
 only_run() {
+    OVATION_APP_CHANGES_ROOT="${ONLY_APP_ROOT:-$APPREPO}" \
+    OVATION_APP_CHANGES_BASE="${ONLY_APP_BASE:-origin/main}" \
+    OVATION_APP_BUILD_COMMAND="${ONLY_APP_BUILD-$APP_BUILD_STANDIN}" \
     PATH="${ONLY_PATH:-$PATH}" \
     OVATION_XCODEBUILD="$WORK/no-xcodebuild-given" \
     OVATION_XCODE_VERSION_FILE="$WORK/no-xcode-pin-given" \
@@ -2278,6 +2301,118 @@ check "a narrowed run's real regeneration is not queued behind the run itself" \
 check "and it leaves no ticket behind" "$(queue_tickets)" "0"
 reset_regen
 rm -rf "$DIR_LOCK" "$DIR_LOCK.queue" "$STANDIN_PROJECT"; mkdir -p "$STANDIN_PROJECT"
+
+# ---------------------------------------------------------------------------
+# A NARROWED PURE RUN BUILDS THE APP WHEN A FILE THE PURE TARGET LEAVES OUT HAS
+# CHANGED (ovation#515). OvationTests compiles the app's sources in and excludes
+# OvationApp.swift, which carries @main, so a narrowed run never compiled it. On
+# 2026-09-24 removing an import that file still needed passed every narrowed run
+# and failed the push gate's hosted phase about ten minutes in.
+#
+# The checkout asked is the throwaway one above, and the build is a stand in, so
+# nothing here compiles anything (L2). Each case puts the fixture back to main.
+# ---------------------------------------------------------------------------
+reset_app() { appgit reset -q --hard origin/main; appgit clean -qfd; }
+
+# 515a. NOTHING LEFT OUT HAS CHANGED: no app build, and the run says so, naming
+#       what it compared, so a skip never reads as a build that passed (L98).
+reset_app
+OUT515A="$(ONLY_PURE="$PURE_MARKED" only_run --only OvationTests/SomeSuiteTests)"; ST515A=$?
+check "a narrowed pure run with nothing left out changed passes without building the app" \
+    "$ST515A:$(count_of "$OUT515A" 'APP-BUILD-RAN')" "0:0"
+check "and it says the app build was not needed, naming the file it compared" \
+    "$(count_of "$OUT515A" 'App build not needed.*Ovation/App/OvationApp.swift')" "1"
+
+# 515b. AN UNCOMMITTED EDIT TO OvationApp.swift builds the app, BEFORE the suite.
+reset_app
+printf '// edited\n' >> "$APPREPO/Ovation/App/OvationApp.swift"
+OUT515B="$(ONLY_PURE="$PURE_MARKED" only_run --only OvationTests/SomeSuiteTests)"; ST515B=$?
+check "an uncommitted edit to OvationApp.swift makes a narrowed pure run build the app" \
+    "$ST515B:$(count_of "$OUT515B" 'APP-BUILD-RAN')" "0:1"
+check "and the app is built before the narrowed suite runs" \
+    "$([ "$(line_of "$OUT515B" 'APP-BUILD-RAN')" -lt "$(line_of "$OUT515B" 'PURE-SUITE-RAN')" ] 2>/dev/null && echo built-first || echo not-first)" "built-first"
+check "and it names the changed file as the reason" \
+    "$(count_of "$OUT515B" 'Ovation/App/OvationApp.swift differs from origin/main')" "1"
+
+# 515c. A COMMITTED EDIT on the branch, with a clean tree, still counts: the push
+#       gate judges commits, not the working tree.
+reset_app
+printf '// committed\n' >> "$APPREPO/Ovation/App/OvationApp.swift"
+appgit commit -qam edit
+OUT515C="$(ONLY_PURE="$PURE_MARKED" only_run --only OvationTests/SomeSuiteTests)"; ST515C=$?
+check "a committed edit to OvationApp.swift on a clean tree also builds the app" \
+    "$ST515C:$(count_of "$OUT515C" 'APP-BUILD-RAN')" "0:1"
+
+# 515d. THE OTHER LEFT OUT FILE, read from the same project.yml entry, counts too,
+#       and a file the pure target DOES compile does not.
+reset_app
+printf '<!-- edited -->\n' >> "$APPREPO/Ovation/Info.plist"
+OUT515D="$(ONLY_PURE="$PURE_MARKED" only_run --only OvationTests/SomeSuiteTests)"
+check "an edit to Info.plist, which the pure target also leaves out, builds the app" \
+    "$(count_of "$OUT515D" 'APP-BUILD-RAN')" "1"
+reset_app
+printf '// edited\n' >> "$APPREPO/Ovation/Other.swift"
+OUT515E="$(ONLY_PURE="$PURE_MARKED" only_run --only OvationTests/SomeSuiteTests)"
+check "an edit only to a file the pure target compiles builds no app" \
+    "$(count_of "$OUT515E" 'APP-BUILD-RAN')" "0"
+
+# 515e. AN APP THAT DOES NOT BUILD STOPS THE RUN with the build's own status,
+#       before the suite, and says which file and what to run (L148, L399).
+reset_app
+printf '// edited\n' >> "$APPREPO/Ovation/App/OvationApp.swift"
+OUT515F="$(ONLY_PURE="$PURE_MARKED" ONLY_APP_BUILD='echo "error: cannot find type MailSender in scope"; exit 65' \
+    only_run --only OvationTests/SomeSuiteTests)"; ST515F=$?
+check "a narrowed run whose app does not build fails with the build's status and runs no suite" \
+    "$ST515F:$(count_of "$OUT515F" 'PURE-SUITE-RAN')" "65:0"
+check "and it says the app did not build, naming the file the pure target never compiles" \
+    "$(count_of "$OUT515F" 'the app did not build.*OvationApp.swift')" "1"
+
+# 515f. WHEN THE COMPARISON CANNOT BE MADE, THE APP IS BUILT. Building costs a
+#       minute; not building is the defect this exists to end (L93).
+reset_app
+OUT515G="$(ONLY_PURE="$PURE_MARKED" ONLY_APP_BASE=origin/no-such-branch only_run --only OvationTests/SomeSuiteTests)"; ST515G=$?
+check "a base that cannot be found builds the app rather than assuming nothing changed" \
+    "$ST515G:$(count_of "$OUT515G" 'APP-BUILD-RAN')" "0:1"
+check "and it says why it built" \
+    "$(count_of "$OUT515G" 'could not compare .* with origin/no-such-branch')" "1"
+APPREPO2="$WORK/app-changes-no-excludes"; rm -rf "$APPREPO2"; cp -R "$APPREPO" "$APPREPO2"
+printf 'targets: {}\n' > "$APPREPO2/project.yml"
+git -C "$APPREPO2" -c user.name=suite -c user.email=suite@example.invalid -c commit.gpgsign=false commit -qam "no excludes"
+git -C "$APPREPO2" update-ref refs/remotes/origin/main HEAD
+OUT515H="$(ONLY_PURE="$PURE_MARKED" ONLY_APP_ROOT="$APPREPO2" only_run --only OvationTests/SomeSuiteTests)"; ST515H=$?
+check "a project.yml the left out files cannot be read from builds the app, and says so" \
+    "$ST515H:$(count_of "$OUT515H" 'APP-BUILD-RAN'):$(count_of "$OUT515H" 'could not read which files the pure target leaves out')" "0:1:1"
+
+# 515g. ONLY THE NARROWED PURE RUN. A narrowed hosted run and a full run both
+#       build the app already, through the hosted scheme, so neither builds it twice.
+reset_app
+printf '// edited\n' >> "$APPREPO/Ovation/App/OvationApp.swift"
+OUT515I="$(only_run --only OvationHostedTests/LaunchTests)"
+check "a narrowed hosted run does not build the app a second time" \
+    "$(count_of "$OUT515I" 'APP-BUILD-RAN')" "0"
+OUT515J="$(only_run)"
+check "and neither does a full run" "$(count_of "$OUT515J" 'APP-BUILD-RAN')" "0"
+
+# 515h. AN INJECTED PURE COMMAND WITH NO APP BUILD NAMED BUILDS NOTHING REAL, and
+#       says so, for the same reason the hosted suite is skipped then (L2).
+OUT515K="$(ONLY_PURE="$PURE_MARKED" ONLY_APP_BUILD="" ONLY_PATH="$ONLY/bin:$PATH" \
+    only_run --only OvationTests/SomeSuiteTests)"; ST515K=$?
+check "an injected pure command with no app build named skips the build and says so" \
+    "$ST515K:$(count_of "$OUT515K" 'App build skipped: the pure command was injected')" "0:1"
+
+# 515i. THE REAL BUILD IS THE APP SCHEME, Debug, through the one place the app
+#       build is written (scripts/lib/build-one-configuration.sh).
+APPBIN="$WORK/app-bin"; rm -rf "$APPBIN"; mkdir -p "$APPBIN"
+cat > "$APPBIN/xcodebuild" <<STUB
+#!/bin/bash
+printf '%s ' "\$@" >> "$APPBIN/calls"; printf '\n' >> "$APPBIN/calls"
+echo "Test run with 3 tests in 1 suite passed"
+STUB
+chmod +x "$APPBIN/xcodebuild"
+OUT515L="$(ONLY_PATH="$APPBIN:$PATH" ONLY_PURE="" ONLY_APP_BUILD="" only_run --only OvationTests/SomeSuiteTests)"; ST515L=$?
+check "the real app build is the Ovation scheme in Debug, before the pure scheme" \
+    "$ST515L:$(sed -n 1p "$APPBIN/calls" 2>/dev/null | grep -c -- '-scheme Ovation -configuration Debug'):$(sed -n 2p "$APPBIN/calls" 2>/dev/null | grep -c -- '-scheme OvationCore')" "0:1:1"
+reset_app
 
 
 # EVERY INVOCATION OF THE REAL RUNNER SETS BOTH MACHINE SEAMS (ovation#152).
