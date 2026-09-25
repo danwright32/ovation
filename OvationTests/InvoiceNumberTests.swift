@@ -24,7 +24,7 @@ struct InvoiceNumberTests {
         _ context: ModelContext, number: Int64? = nil, importKey: String? = nil
     ) -> Invoice {
         let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: .stamping(day),
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         invoice.number = number
         invoice.importKey = importKey
         context.insert(invoice)

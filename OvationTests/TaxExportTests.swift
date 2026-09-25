@@ -578,7 +578,7 @@ struct TaxExportTests {
             context.insert(client)
             let invoice = Invoice(client: client, kind: .photography,
                                   invoiceDate: instant.map { BusinessDate.stamping($0) },
-                                  hourlyRate: Money(dollars: 100), taxRate: .newYorkCity)
+                                  hourlyRate: Money(dollars: 100), taxRate: .newYorkCity, createdOn: nil)
             context.insert(invoice)
             // A flat line so the total is exactly what the test asked for, before
             // tax, which the invoice adds on its own terms.

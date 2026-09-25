@@ -34,7 +34,8 @@ struct InvoiceTests {
             kind: .fromABooking,
             invoiceDate: .stamping(dated),
             hourlyRate: Money(dollars: 250),
-            taxRate: .newYorkCity
+            taxRate: .newYorkCity,
+            createdOn: nil
         )
         context.insert(invoice)
         return invoice

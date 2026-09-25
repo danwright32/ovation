@@ -338,7 +338,7 @@ struct YearEndExportTests {
             context.insert(client)
             let invoice = Invoice(client: client, kind: .photography,
                                   invoiceDate: .stamping(instant),
-                                  hourlyRate: Money(dollars: 100), taxRate: .newYorkCity)
+                                  hourlyRate: Money(dollars: 100), taxRate: .newYorkCity, createdOn: nil)
             context.insert(invoice)
             invoice.number = number
             invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))

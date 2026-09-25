@@ -114,7 +114,11 @@ enum BookingDraftOutcome: Equatable, Sendable {
 actor BookingDrafter {
 
     /// Read, decide and write, with nothing in between.
-    func draft(from record: HandoffRecord, at rate: Money) throws -> BookingDraftOutcome {
+    /// `day` is the day the draft is made on, which the invoice records as the day
+    /// it was created (ovation#510, PRD 51d). It is not the shoot's day, which
+    /// dates the invoice below.
+    func draft(from record: HandoffRecord, at rate: Money,
+               on day: BusinessDate) throws -> BookingDraftOutcome {
         // ALREADY DRAFTED IS ASKED FIRST, of the shoots, which is where the key
         // lives. Both this booking's id and the one it reruns, because a rerun
         // arrives with a new id for a shoot that already has an invoice.
@@ -165,7 +169,7 @@ actor BookingDrafter {
         // than today's date standing in for one nobody recorded (L192).
         let shootDay = BusinessCalendar.day(forKey: record.booking.startDate)
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: shootDay,
-                              hourlyRate: rate, taxRate: .newYorkCity)
+                              hourlyRate: rate, taxRate: .newYorkCity, createdOn: day)
         invoice.dueDate = shootDay.flatMap { BusinessCalendar.day(14, after: $0) }
         modelContext.insert(invoice)
 

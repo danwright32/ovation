@@ -170,7 +170,7 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
 
 }
 
-extension OvationSchemaV3 {
+extension OvationSchemaV4 {
     @Model
     final class Invoice {
         /// Ovation's own identity, minted fresh and never derived from anything
@@ -232,6 +232,17 @@ extension OvationSchemaV3 {
         /// what becomes of this field.
         var bookingKey: String?
 
+        /// The day this invoice was created, which the history opens with (PRD
+        /// 51d, ovation#510).
+        ///
+        /// STAMPED WHERE THE INVOICE IS CONSTRUCTED, never on a later write, so a
+        /// fresh draft has it from the start (L384). NIL ON EVERY INVOICE WRITTEN
+        /// BEFORE VERSION 4, and nil is the truth: that day was never recorded, and
+        /// a date standing in for one nobody recorded would be a fact the history
+        /// could not support (L192). The history leaves out Draft created rather
+        /// than guess it.
+        var createdOn: BusinessDate?
+
         /// The QuickBooks row this was imported from, for lookup only. ovation#68
         /// owns what goes in it.
         var importKey: String?
@@ -251,13 +262,20 @@ extension OvationSchemaV3 {
         @Relationship(deleteRule: .cascade, inverse: \Refund.invoice)
         var refunds: [Refund] = []
 
+        /// `createdOn` HAS NO DEFAULT, deliberately. Each constructor has to say
+        /// what day it is creating on, because a default would let one that forgot
+        /// stamp the wrong day or none at all, silently (L168): a draft made from a
+        /// booking is created today, and an imported invoice was created on a day
+        /// only its source knows.
         init(
             client: Client?,
             kind: InvoiceKind,
             invoiceDate: BusinessDate?,
             hourlyRate: Money,
-            taxRate: TaxRate
+            taxRate: TaxRate,
+            createdOn: BusinessDate?
         ) {
+            self.createdOn = createdOn
             self.client = client
             self.kind = kind
             self.invoiceDate = invoiceDate
@@ -543,4 +561,4 @@ extension OvationSchemaV3 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a newer version exists, this line moves to it and
 // every call site is already correct.
-typealias Invoice = OvationSchemaV3.Invoice
+typealias Invoice = OvationSchemaV4.Invoice

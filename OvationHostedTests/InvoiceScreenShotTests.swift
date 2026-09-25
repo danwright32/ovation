@@ -137,7 +137,7 @@ struct InvoiceScreenShotTests {
         client.email = "booker@example.com"
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: today,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         invoice.dueDate = .stamping(noon.addingTimeInterval(14 * 86_400))
         context.insert(invoice)
 

@@ -107,7 +107,7 @@ enum InvoiceFixtures {
         let rate = Money(dollars: 250)
         let invoice = Invoice(client: client, kind: .fromABooking,
                               invoiceDate: try businessDate(given.issued),
-                              hourlyRate: rate, taxRate: .newYorkCity)
+                              hourlyRate: rate, taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         invoice.number = try #require(Int64(given.number))
         invoice.dueDate = try businessDate(given.due)

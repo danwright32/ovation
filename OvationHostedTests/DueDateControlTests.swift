@@ -28,7 +28,7 @@ struct DueDateControlTests {
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography,
                               invoiceDate: BusinessCalendar.day(forKey: issued),
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         invoice.dueDate = due.flatMap(BusinessCalendar.day(forKey:))
         context.insert(invoice)
         return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today).dueChoices

@@ -477,7 +477,7 @@ struct SwiftDataBehaviourTests {
         let container = try OvationSchema.container(inMemory: true)
         let screen = ModelContext(container)
         let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         screen.insert(invoice)
         try screen.save()
         let id = invoice.id
@@ -520,7 +520,7 @@ struct SwiftDataBehaviourTests {
         let container = try OvationSchema.container(inMemory: true)
         let screen = ModelContext(container)
         let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         screen.insert(invoice)
         try screen.save()
         let id = invoice.id
@@ -580,7 +580,7 @@ struct SwiftDataBehaviourTests {
         let container = try OvationSchema.container(inMemory: true)
         let screen = ModelContext(container)
         let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         screen.insert(invoice)
         try screen.save()
         let id = invoice.id
@@ -786,7 +786,7 @@ struct SwiftDataBehaviourTests {
         let container = try OvationSchema.container(inMemory: true)
         let screen = ModelContext(container)
         let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         screen.insert(invoice)
         try screen.save()
         let id = invoice.persistentModelID

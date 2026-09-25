@@ -37,8 +37,9 @@ struct SchemaMigrationTests {
         // genuinely on disk: measured 2026-09-19, the installed store held 31
         // clients, so the window in which a field could be added or removed
         // without a version had closed. IT IS 3 SINCE ovation#43, which added the
-        // two clock times Dan types after a shoot.
-        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(3, 0, 0))
+        // two clock times Dan types after a shoot. IT IS 4 SINCE ovation#510,
+        // which added the day each invoice was created.
+        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(4, 0, 0))
     }
 
     @Test("the version's models are exactly the ones the store holds")
@@ -53,7 +54,8 @@ struct SchemaMigrationTests {
     @Test("the plan names every version in order, so each step is a migration")
     func thePlanNamesTheVersion() throws {
         let named = OvationMigrationPlan.schemas.map { $0.versionIdentifier }
-        #expect(named == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0)])
+        #expect(named == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0),
+                          Schema.Version(4, 0, 0)])
     }
 
     @Test("and every consecutive pair has a stage carrying a store across it")
@@ -86,6 +88,7 @@ struct SchemaMigrationTests {
             ("version 1", OvationSchemaV1.models),
             ("version 2", OvationSchemaV2.models),
             ("version 3", OvationSchemaV3.models),
+            ("version 4", OvationSchemaV4.models),
         ]
         for (name, models) in versions {
             #expect(Set(models.map(ObjectIdentifier.init)).count == models.count,
@@ -115,6 +118,23 @@ struct SchemaMigrationTests {
         #expect(current.shotFrom == ClockTime("19:30"))
         #expect(ObjectIdentifier(OvationSchemaV2.Shoot.self) != ObjectIdentifier(Shoot.self),
                 "version 3 is using version 2's class, so the two describe one shape")
+    }
+
+    /// The same statement for version 3, FROZEN WITHOUT the creation day version 4
+    /// added (ovation#510), made the way version 2's is: by construction, since a
+    /// field that is not there cannot be read.
+    @Test("and version 3 is frozen without the creation day version 4 added")
+    func theolderVersionHasNoCreationDay() throws {
+        let frozen = OvationSchemaV3.Invoice()
+        frozen.number = 1_042
+        let current = Invoice(client: nil, kind: .photography, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity,
+                              createdOn: .stamping(Date(timeIntervalSince1970: 1_790_352_000)))
+
+        #expect(frozen.number == 1_042)
+        #expect(current.createdOn != nil)
+        #expect(ObjectIdentifier(OvationSchemaV3.Invoice.self) != ObjectIdentifier(Invoice.self),
+                "version 4 is using version 3's class, so the two describe one shape")
     }
 
     @Test("and version 1 still has the field version 2 dropped, which is what it is FOR")
@@ -391,6 +411,68 @@ struct SchemaMigrationTests {
         #expect(migrated.subtotal == Money(dollars: 375), "the typed times now decide it")
     }
 
+    /// ovation#510. VERSION 3 IS WHAT THE INSTALLED APP WRITES, so this is the
+    /// migration Dan's own store takes. Its rows arrive with no creation day, which
+    /// is the truth rather than a gap: the day was never recorded.
+    @Test("a real version 3 store opens under version 4 with its rows, and no invented creation day")
+    func therealStoreMigratesFromVersionThree() throws {
+        let url = try Self.scratchStore("real-3")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        do {
+            let schema = Schema(versionedSchema: OvationSchemaV3.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            let client = OvationSchemaV3.Client()
+            client.name = "Cedar Hill Youth Orchestra"
+            client.taxStatus = .exempt
+            let invoice = OvationSchemaV3.Invoice()
+            invoice.number = 1_042
+            invoice.hourlyRate = Money(dollars: 250)
+            invoice.client = client
+            invoice.sentStatus = .sent(route: .ovationSentIt,
+                                       at: Date(timeIntervalSince1970: 1_789_920_000))
+            let shoot = OvationSchemaV3.Shoot()
+            shoot.name = "Side by Side concert"
+            shoot.shotFrom = ClockTime("19:00")
+            shoot.shotUntil = ClockTime("20:30")
+            shoot.invoice = invoice
+            let line = OvationSchemaV3.LineItem()
+            line.summary = "Photography"
+            line.hours = Hours(whole: 1)
+            line.unitAmount = Money(dollars: 250)
+            line.shoot = shoot
+            line.invoice = invoice
+            for model in [client, invoice, shoot, line] as [any PersistentModel] {
+                context.insert(model)
+            }
+            try context.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+        }
+
+        let container = try OvationSchema.container(at: url)
+        let context = ModelContext(container)
+        let invoices = try context.fetch(FetchDescriptor<Invoice>())
+        #expect(invoices.count == 1, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
+        let migrated = try #require(invoices.first)
+        #expect(migrated.number == 1_042)
+        #expect(migrated.client?.name == "Cedar Hill Youth Orchestra")
+        #expect(migrated.shoots.first?.shotFrom == ClockTime("19:00"), "version 3's own field survived")
+        #expect(migrated.subtotal == Money(dollars: 375))
+        if case .sent = migrated.sentStatus {} else {
+            Issue.record("the sent status did not survive: \(migrated.sentStatus)")
+        }
+        #expect(migrated.createdOn == nil, "a day nobody recorded is not invented")
+
+        // And it can be written, which a read alone cannot show.
+        migrated.createdOn = .stamping(Date(timeIntervalSince1970: 1_790_352_000))
+        try context.save()
+        let again = try #require(try ModelContext(container).fetch(FetchDescriptor<Invoice>()).first)
+        #expect(again.createdOn != nil)
+    }
+
     // MARK: every entity, every field, the whole way (ovation#408)
 
     /// ovation#408. THE FIVE ENTITIES NOTHING ABOVE CARRIES, carried from each frozen
@@ -513,6 +595,86 @@ struct SchemaMigrationTests {
                 configurations: ModelConfiguration(schema: schema, url: url))
             let context = ModelContext(container)
             typealias V = OvationSchemaV2
+            let fixture = EveryEntity.self
+            let client = V.Client()
+            client.name = fixture.clientName
+            let invoice = V.Invoice()
+            invoice.number = fixture.invoiceNumber
+            invoice.client = client
+            let payment = V.Payment()
+            payment.amount = fixture.paymentAmount
+            payment.client = client
+
+            let service = V.ServiceType()
+            service.name = fixture.serviceName
+            service.role = fixture.serviceRole
+            service.defaultUnitAmount = fixture.serviceDefault
+            service.retiredOn = fixture.serviceRetired
+            let line = V.LineItem()
+            line.summary = fixture.lineSummary
+            line.serviceType = service
+            line.invoice = invoice
+
+            let allocation = V.PaymentAllocation()
+            allocation.payment = payment
+            allocation.invoice = invoice
+            allocation.amount = fixture.allocationAmount
+            allocation.allocatedOn = fixture.allocatedOn
+            allocation.releasedOn = fixture.releasedOn
+
+            let refund = V.Refund()
+            refund.invoice = invoice
+            refund.payment = payment
+            refund.amount = fixture.refundAmount
+            refund.refundedOn = fixture.refundedOn
+            refund.method = fixture.refundMethod
+            refund.note = fixture.refundNote
+
+            let expense = V.Expense()
+            expense.amount = fixture.expenseAmount
+            expense.incurredOn = fixture.incurredOn
+            expense.vendor = fixture.vendor
+            expense.category = fixture.category
+            expense.assetJudgement = fixture.assetJudgement
+            expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
+            expense.receipt = fixture.receipt
+            expense.note = fixture.expenseNote
+            expense.gmailMessageKey = fixture.gmailMessageKey
+            expense.attachmentPartIndex = fixture.attachmentPartIndex
+            expense.gmailAttachmentID = fixture.gmailAttachmentID
+            expense.importKey = fixture.expenseImportKey
+
+            let referral = V.ReferralLedgerEntry()
+            referral.client = client
+            referral.hours = fixture.referralHours
+            referral.occurredOn = fixture.referralOn
+            referral.earnedFromBookingKey = fixture.earnedFromBookingKey
+            referral.spentOnInvoiceID = fixture.spentOnInvoiceID
+            referral.note = fixture.referralNote
+
+            for model in [client, invoice, payment, service, line, allocation, refund,
+                          expense, referral] as [any PersistentModel] {
+                context.insert(model)
+            }
+            try context.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+        }
+
+        try Self.expectEveryEntityCarried(from: url)
+    }
+
+    @Test("every entity's rows and links survive from a version 3 store")
+    func everyEntitySurvivesFromVersionThree() throws {
+        let url = try Self.scratchStore("every-entity-3")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        do {
+            let schema = Schema(versionedSchema: OvationSchemaV3.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            typealias V = OvationSchemaV3
             let fixture = EveryEntity.self
             let client = V.Client()
             client.name = fixture.clientName

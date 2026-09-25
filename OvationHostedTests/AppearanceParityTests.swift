@@ -141,7 +141,7 @@ struct AppearanceParityTests {
         let client = Client(name: "Cedar Hill Youth Orchestra", taxStatus: .notExempt)
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: today,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         invoice.dueDate = .stamping(noon.addingTimeInterval(14 * 86_400))
         context.insert(invoice)
         let shoot = Shoot(name: "Autumn Evensong", when: .dayOnly(today), venue: "St Anne's")
@@ -173,7 +173,7 @@ struct AppearanceParityTests {
         let client = Client(name: "Cedar Hill Youth Orchestra", taxStatus: .notExempt)
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: today,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         let shoot = Shoot(name: "Autumn Evensong", when: .dayOnly(today), venue: "St Anne's")
         invoice.add(shoot)

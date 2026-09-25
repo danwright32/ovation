@@ -31,7 +31,7 @@ struct PaymentTests {
     ) -> Invoice {
         let invoice = Invoice(client: client, kind: .fromABooking,
                               invoiceDate: .stamping(day),
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         if let owing { invoice.add(LineItem.flat(owing, describedAs: "Photography")) }
         return invoice

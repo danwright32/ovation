@@ -176,7 +176,7 @@ struct ReferralLedgerWriterTests {
         let context = ModelContext(container)
         let client = Self.client(context, "Northmoor Ensemble")
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         try context.save()
 
@@ -205,7 +205,7 @@ struct ReferralLedgerWriterTests {
         let context = ModelContext(container)
         let client = Self.client(context, "Northmoor Ensemble")
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         try context.save()
 
@@ -226,7 +226,7 @@ struct ReferralLedgerWriterTests {
         let context = ModelContext(container)
         let client = Self.client(context, "Northmoor Ensemble")
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         try context.save()
 
@@ -374,7 +374,7 @@ struct ReferralLedgerWriterTests {
         let context = ModelContext(container)
         let client = Self.client(context, "Northmoor Ensemble")
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         try context.save()
 
@@ -403,7 +403,7 @@ struct ReferralLedgerWriterTests {
         let context = ModelContext(container)
         let client = Self.client(context, "Northmoor Ensemble")
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         try context.save()
 
@@ -430,7 +430,7 @@ struct ReferralLedgerWriterTests {
         let context = ModelContext(container)
         let client = Self.client(context, "Northmoor Ensemble")
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         try context.save()
         try await ReferralLedger(modelContainer: container)
@@ -453,7 +453,7 @@ struct ReferralLedgerWriterTests {
         let context = ModelContext(container)
         let client = Self.client(context, "Northmoor Ensemble")
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         try context.save()
 

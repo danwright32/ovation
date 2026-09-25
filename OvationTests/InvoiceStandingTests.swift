@@ -30,7 +30,7 @@ struct InvoiceStandingTests {
                                 due: BusinessDate? = dayAfter) -> Invoice {
         let invoice = Invoice(client: Self.client(context), kind: .photography,
                               invoiceDate: dated,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         invoice.dueDate = due
         context.insert(invoice)
         return invoice

@@ -25,7 +25,7 @@ struct ShootTimesTests {
         context.insert(client)
         let invoice = Invoice(client: client, kind: .fromABooking,
                               invoiceDate: .stamping(Date(timeIntervalSince1970: 1_794_531_600)),
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         // DUE 14 DAYS LATER, which PRD 7 says every invoice is. It was missing
         // until ovation#446, and two cases here passed BECAUSE of that: they assert
         // `ReviewGate` refuses nothing, and the gate could not see a missing due

@@ -35,7 +35,7 @@ struct InvoiceLineWriterTests {
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography,
                               invoiceDate: BusinessCalendar.day(forKey: "2026-11-12"),
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         let type = ServiceType(name: "Rush turnaround", role: .ordinary,
                                defaultUnitAmount: Money(dollars: 150))

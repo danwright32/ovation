@@ -47,7 +47,7 @@ struct StoreWriteNoticesTests {
 
     private static func invoice(in context: ModelContext) throws -> PersistentIdentifier {
         let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         try context.save()
         return invoice.persistentModelID
