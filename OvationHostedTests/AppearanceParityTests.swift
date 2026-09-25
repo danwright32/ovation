@@ -53,15 +53,22 @@ struct AppearanceParityTests {
     /// THE BACKUPS TAB IS NOT CAPTURED ON ITS OWN. The appearance is pinned on the
     /// window, which both tabs share, so the whole window case covers what paints
     /// it; what that case cannot see is a colour the backups pane sets for itself.
+    ///
+    /// THE REVIEW SHEET IS TWO OF THEM TOO (ovation#479). It carried the modifier
+    /// with nothing checking it held. Over a sample it shows the due date band;
+    /// over a real review it shows the send half, the redirect band and the Send
+    /// controls, which is where a native control is most likely to be added next.
     enum Screen: String, CaseIterable {
         case theInvoice
         case theInvoiceList
         case theInvoiceSettings
         case theSettingsWindow
+        case theReviewSheet
+        case theReviewSheetReadyToSend
     }
 
     @Test("every screen draws the same in dark as in light", arguments: Screen.allCases)
-    func everyscreenDrawsTheSame(screen: Screen) throws {
+    func everyscreenDrawsTheSame(screen: Screen) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: "ovation-parity-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -70,8 +77,8 @@ struct AppearanceParityTests {
         let light = directory.appending(path: "light.png")
         let dark = directory.appending(path: "dark.png")
         let size = CGSize(width: 856, height: 560)
-        try capture(screen, size: size, scheme: .light, to: light)
-        try capture(screen, size: size, scheme: .dark, to: dark)
+        try await capture(screen, size: size, scheme: .light, to: light)
+        try await capture(screen, size: size, scheme: .dark, to: dark)
 
         let lightBytes = try Data(contentsOf: light)
         let darkBytes = try Data(contentsOf: dark)
@@ -84,8 +91,17 @@ struct AppearanceParityTests {
         #expect(lightBytes.count > 5_000, "\(screen.rawValue) captured \(lightBytes.count) bytes, which is not a screen")
     }
 
+    /// The review, for the one screen that needs it. It is opened the way the app
+    /// opens one, which is asynchronous, so it is built before the view rather than
+    /// inside it.
+    private func review(for screen: Screen) async throws -> InvoiceReview? {
+        guard screen == .theReviewSheetReadyToSend else { return nil }
+        return try await ReviewSheetShotTests.review(
+            redirected: true, dueToday: false, day: Date(timeIntervalSince1970: 1_790_000_000))
+    }
+
     @ViewBuilder
-    private func view(for screen: Screen) throws -> some View {
+    private func view(for screen: Screen, review: InvoiceReview?) throws -> some View {
         switch screen {
         case .theInvoice:
             InvoiceScreenView(presenter: try Self.invoice(), close: {}, setTime: { _, _, _ in })
@@ -96,11 +112,25 @@ struct AppearanceParityTests {
             InvoiceSettingsView(footer: .constant(.fixed))
         case .theSettingsWindow:
             settings()
+        case .theReviewSheet:
+            try Self.reviewSheet(presenter: ReviewSampleWorld.presenter(for: .dueSoon), review: nil)
+        case .theReviewSheetReadyToSend:
+            let review = try #require(review)
+            try Self.reviewSheet(presenter: review.presenter, review: review)
         }
     }
 
-    private func capture(_ screen: Screen, size: CGSize, scheme: ColorScheme, to url: URL) throws {
-        try OffscreenShot.capture(try view(for: screen), size: size, scheme: scheme, to: url)
+    private func capture(_ screen: Screen, size: CGSize, scheme: ColorScheme, to url: URL) async throws {
+        let review = try await review(for: screen)
+        try OffscreenShot.capture(try view(for: screen, review: review), size: size, scheme: scheme, to: url)
+    }
+
+    /// THE PAGE IS DRAWN FIRST, as the shot suite does it: the sheet loads it when
+    /// it appears, and a window that is never ordered front does not appear.
+    private static func reviewSheet(presenter: ReviewSheetPresenter, review: InvoiceReview?) throws -> ReviewSheet {
+        let page = InvoicePage()
+        try presenter.show(on: page)
+        return ReviewSheet(presenter: presenter, review: review, page: page, close: {})
     }
 
     /// A DRAFT WITH THE TIME FIELDS ON IT, because the native control is the whole

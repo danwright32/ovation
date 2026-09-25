@@ -35,7 +35,7 @@ struct InvoiceSettingsShotTests {
         return named.isEmpty ? nil : URL(fileURLWithPath: named)
     }
 
-    @Test("the invoice settings pane is captured in both themes, or it says it captured nothing")
+    @Test("the invoice settings pane is captured, or it says it captured nothing")
     func captureThePane() throws {
         guard let directory = Self.outputDirectory else {
             print("SETTINGS SHOTS: no TEST_RUNNER_OVATION_SHOT_DIR, so nothing was captured.")

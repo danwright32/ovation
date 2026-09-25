@@ -5,6 +5,14 @@ import Testing
 
 /// ovation#318 B7. Pictures of the real sheet, for Dan to judge before it merges.
 ///
+/// LIGHT ONLY, SINCE ovation#479. This suite used to file a dark picture beside
+/// two of the light ones, as separate deliverables that nothing compared. The sheet
+/// is pinned to light like every other screen, and `AppearanceParityTests` now
+/// refuses any difference between the two, so a dark picture here would be a
+/// second copy of one already required to match, reading as a comparison somebody
+/// made. The numbers the dark pictures held are left unused rather than renumbered,
+/// so a picture keeps its name from one run to the next.
+///
 /// WHY A REAL WINDOW AND NOT A PREVIEW RENDERER. The page is a PDFKit view inside
 /// an NSViewRepresentable, and SwiftUI's ImageRenderer does not draw those: the one
 /// thing worth looking at would come out blank, and a blank page area in a
@@ -35,7 +43,7 @@ struct ReviewSheetShotTests {
         return named.isEmpty ? nil : URL(fileURLWithPath: named)
     }
 
-    @Test("the sheet is captured in both themes, or it says it captured nothing")
+    @Test("the sheet is captured, or it says it captured nothing")
     func captureTheSheet() throws {
         guard let directory = Self.outputDirectory else {
             print("REVIEW SHOTS: no TEST_RUNNER_OVATION_SHOT_DIR, so nothing was captured.")
@@ -137,7 +145,8 @@ struct ReviewSheetShotTests {
     }
 
     /// A review of a real invoice over an in-memory store, as the app opens one.
-    private static func review(redirected: Bool, dueToday: Bool, day: Date) async throws -> InvoiceReview {
+    /// Not private: AppearanceParityTests opens the same one (ovation#479).
+    static func review(redirected: Bool, dueToday: Bool, day: Date) async throws -> InvoiceReview {
         let container = try OvationSchema.container(inMemory: true)
         let context = container.mainContext
         let client = Client(name: "A Client", taxStatus: .notExempt)
@@ -175,22 +184,18 @@ struct ReviewSheetShotTests {
         let size: CGSize
         let fileName: String
 
-        /// BOTH THEMES AND BOTH SIZES, because a surface looked at in one is a
-        /// surface half seen (L69, L606). The window sizes are Dan's smallest
-        /// (1352 by 878) and a wide one.
+        /// BOTH SIZES, because a surface looked at in one is a surface half seen
+        /// (L606). The window sizes are Dan's smallest (1352 by 878) and a wide one.
+        /// One theme, for the reason in the header.
         static let all: [Shot] = [
             Shot(sample: .ordinary, scheme: .light, opened: false,
                  size: CGSize(width: 1352, height: 878), fileName: "01-ordinary-light.png"),
-            Shot(sample: .ordinary, scheme: .dark, opened: false,
-                 size: CGSize(width: 1352, height: 878), fileName: "02-ordinary-dark.png"),
             Shot(sample: .ordinary, scheme: .light, opened: true,
                  size: CGSize(width: 1680, height: 1050), fileName: "03-page-opened-light.png"),
             Shot(sample: .pastDue, scheme: .light, opened: false,
                  size: CGSize(width: 1352, height: 878), fileName: "04-past-due-light.png"),
             Shot(sample: .dueSoon, scheme: .light, opened: false,
                  size: CGSize(width: 1352, height: 878), fileName: "05-due-soon-light.png"),
-            Shot(sample: .dueSoon, scheme: .dark, opened: false,
-                 size: CGSize(width: 1352, height: 878), fileName: "06-due-soon-dark.png"),
             Shot(sample: .genuineOverride, scheme: .light, opened: false,
                  size: CGSize(width: 1352, height: 878), fileName: "07-override-light.png"),
             Shot(sample: .nowhereToSend, scheme: .light, opened: false,
