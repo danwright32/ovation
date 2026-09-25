@@ -20,6 +20,12 @@ import Testing
 /// (L115). So the sheet is hosted in an NSWindow that is never ordered front, laid
 /// out, and captured from its own layer.
 ///
+/// THE PAGE IN EACH PICTURE IS THE CAMERA'S DRAWING (ovation#374). PDFKit does not
+/// draw into that capture either, so `OffscreenShot` draws the page the sheet's PDF
+/// view holds into the area it occupies and marks it, in magenta, as not the live
+/// view. `OffscreenShotPageTests` below reads the ink and the mark back out of the
+/// picture.
+///
 /// IT RUNS ON EVERY RUN (ovation#383): scripts/run-tests.sh always names a folder,
 /// and CI keeps the pictures as an artifact. Run some other way, it still SAYS WHEN IT
 /// DID NOTHING. With no directory named it writes
@@ -72,12 +78,11 @@ struct ReviewSheetShotTests {
             written.append(shot.fileName)
         }
 
-        // AND THE PAGE ITSELF, as a PDF beside the pictures. PDFKit does not draw
-        // into an offscreen snapshot, so the page area of every picture above is
-        // empty: that is the camera's limit and not the sheet's, and a reader given
-        // only those pictures would judge a blank document (L115). The bytes written
-        // here are the ones the sheet was handed, which are the ones a send would
-        // attach (PRD 10c).
+        // AND THE PAGE ITSELF, as a PDF beside the pictures. The page in each
+        // picture above is the camera's drawing of it, at the sheet's size, and is
+        // marked as such (ovation#374); this is the page at full resolution, to be
+        // judged on its own. The bytes written here are the ones the sheet was
+        // handed, which are the ones a send would attach (PRD 10c).
         let pagePresenter = try ReviewSampleWorld.presenter(for: .ordinary)
         let page = InvoicePage()
         try pagePresenter.show(on: page)
@@ -203,4 +208,82 @@ struct ReviewSheetShotTests {
         ]
     }
 
+}
+
+// MARK: the page in the picture (ovation#374)
+//
+// PDFKit does not draw into the camera's snapshot, so every picture of the sheet
+// used to hold an empty rectangle where the page sits, and a reviewer handed that
+// reads it as a layout fault or stops looking (L115). The camera now draws the
+// page itself, from the PDF the page view holds, and marks the whole area as its
+// own drawing so the substitute cannot be mistaken for the live view (L472).
+//
+// WHAT THIS MEASURES IS THE PICTURE, not the camera's report about it. The rect
+// the camera returns only says where to look; the ink, the paper and the mark are
+// read back out of the PNG that was written, because a camera that reported a
+// substitution it never drew would otherwise pass (L63).
+//
+// IN THIS FILE RATHER THAN ITS OWN, so the capture it guards and the picture
+// suite that depends on it are read together.
+
+@MainActor
+struct OffscreenShotPageTests {
+
+    @Test("the review sheet's picture shows the page, marked as the camera's drawing")
+    func thePageIsInThePicture() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "ovation-page-shot-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let presenter = try ReviewSampleWorld.presenter(for: .ordinary)
+        let page = InvoicePage()
+        try presenter.show(on: page)
+        let sheet = ReviewSheet(presenter: presenter, page: page, close: {})
+        let url = directory.appending(path: "sheet.png")
+        let shot = try OffscreenShot.capture(sheet, size: CGSize(width: 1352, height: 878),
+                                             scheme: .light, to: url)
+
+        // ONE PAGE, because the sheet shows one. Zero would mean the camera never
+        // found the page view, and the checks below would then have nothing to read.
+        try #require(shot.substitutedPages.count == 1)
+        let area = shot.substitutedPages[0]
+        let picture = try #require(NSBitmapImageRep(data: Data(contentsOf: url)))
+
+        var type = 0, paper = 0, mark = 0
+        for y in Int(area.minY)..<Int(area.maxY) {
+            for x in Int(area.minX)..<Int(area.maxX) {
+                // THE PICTURE'S OWN COMPONENTS, unconverted. The bitmap is calibrated
+                // RGB, and the camera's magenta reads back as about (0.97, 0.2, 0.96)
+                // in it (measured 2026-09-25), so the mark is recognised as magenta
+                // by shape rather than matched to a value a conversion would move.
+                guard let colour = picture.colorAt(x: x, y: y) else { continue }
+                let (r, g, b) = (colour.redComponent, colour.greenComponent, colour.blueComponent)
+                if r > 0.85, g < 0.4, b > 0.85 {
+                    mark += 1
+                } else if r > 0.97, g > 0.97, b > 0.97 {
+                    paper += 1
+                } else if max(r, g, b) < 0.9 {
+                    type += 1
+                }
+            }
+        }
+        let total = Int(area.width) * Int(area.height)
+        // SHARES OF THE AREA, NEVER COUNTS OF PIXELS. The area is measured in the
+        // picture's own pixels, and how many of those a point takes is the
+        // machine's backing scale: this Mac captures at 2x and CI at 1x, so a count
+        // calibrated here was a quarter the size there. And at 1x the invoice's
+        // small type is anti-aliased to grey rather than drawn black, so "type" is
+        // anything visibly darker than paper, not only near black. Measured
+        // 2026-09-25 on the ordinary sheet: type is 2.5% of the area here and 3.7%
+        // on CI, paper 87% and 85%, the mark 9.5% and 9.2%. The blank area this
+        // replaces measured 0 on type and on the mark, so each floor sits far
+        // below every real reading and far above the empty one (L172, L376).
+        //
+        // THE PAGE: mostly white paper with the invoice's type on it.
+        #expect(paper > total / 3, "only \(paper) of \(total) pixels in the page area are paper, so the page was not drawn")
+        #expect(type * 200 > total, "only \(type) of \(total) pixels in the page area are type, under half a percent, so there is no invoice on the page")
+        // THE MARK, in a colour the app uses nowhere, so the drawing says whose it is.
+        #expect(mark * 50 > total, "only \(mark) of \(total) pixels carry the substitute's mark, under 2%, so it could be read as the live view")
+    }
 }
