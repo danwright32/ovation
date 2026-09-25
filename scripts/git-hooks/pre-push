@@ -285,6 +285,11 @@ gate_check check-schema-registered.sh "a model type is not in the store's schema
 # wires it (ovation#441). Built is not wired, and a writer with its own tests
 # reads as done from every angle but the one that counts (L3).
 gate_check check-writers-wired.sh "a writer the app declares is used by nothing and listed nowhere."
+# ovation#368. A run whose subject was injected writes nothing to a durable record
+# unless it declares the staging is what it measures, and that rule lives in one
+# place. Two records each carried their own copy and the copies disagreed, which
+# is how staged faults were counted as real. Fast: it reads the scripts only.
+gate_check check-durable-records.sh "a script appends to a durable record without asking whether a staged run may write it."
 gate_check check-problem-kinds-raised.sh "a problem kind is resolved in the app and raised nowhere."
 
 # ovation#124. Ovation has one slide and one fade, and one file that knows whether

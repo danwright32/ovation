@@ -29,7 +29,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design renderer tests" 40
+harness_begin "design renderer tests" 42
 
 TARGET="scripts/lib/design_render.py"
 require_target "$TARGET"
@@ -125,7 +125,16 @@ render() {
     (
         export FAKE_STATE="$WORK/state" FAKE_SILENT_RUNS="$1"
         export LIBDIR="$PWD/scripts/lib" PAGE="$WORK/page.html"
-        export OVATION_HEADLESS_BROWSER="$WORK/fake-browser"
+        # FOUND RATHER THAN NAMED, for the cases that stand for a real run
+        # (ovation#368). The renderer calls a browser it was HANDED a stand in and
+        # one it LOOKED FOR real, so narrowing the search to the stand in is how a
+        # case exercises the real path without a real browser.
+        if [ -n "${FOUND_OVERRIDE:-}" ]; then
+            unset OVATION_HEADLESS_BROWSER
+            export OVATION_BROWSER_GLOBS="$WORK/fake-browser"
+        else
+            export OVATION_HEADLESS_BROWSER="$WORK/fake-browser"
+        fi
         export OVATION_RENDER_TIMEOUT="${TIMEOUT_OVERRIDE:-1}"
         export OVATION_RENDER_WAIT_MS=200
         [ -n "${NO_REPORT_OVERRIDE:-}" ] && export FAKE_NO_REPORT="$NO_REPORT_OVERRIDE"
@@ -367,6 +376,21 @@ rm -f "$AMBIENT"
 OVATION_RENDER_RESTART_LOG="$AMBIENT" render 1 >/dev/null 2>&1
 check "and a staged fault never reaches a record the environment named" \
     "$([ -e "$AMBIENT" ] && echo written || echo untouched)" "untouched"
+
+# AND A REAL RUN STILL RECORDS, which is what the record is for (ovation#368). The
+# staged cases above would all pass against a renderer that recorded nothing at
+# all, so the other direction is asserted here, with no declaration made: a
+# browser the renderer found for itself writes to the record named, and with none
+# named, to the default under the home directory (L63).
+REAL_LOG="$WORK/real.tsv"
+rm -f "$REAL_LOG"
+FOUND_OVERRIDE=1 LOG_OVERRIDE="$REAL_LOG" STAGED_OVERRIDE="" render 1 >/dev/null 2>&1
+check "a restart in a browser the renderer found writes to the record named" \
+    "$([ -s "$REAL_LOG" ] && echo written || echo empty)" "written"
+rm -rf "$WORK/home"
+FOUND_OVERRIDE=1 render 1 >/dev/null 2>&1
+check "and with none named, to the default record under the home directory" \
+    "$([ -s "$WORK/home/Library/Logs/Ovation/browser-restarts.tsv" ] && echo written || echo empty)" "written"
 
 # ---------------------------------------------------------------------------
 # AND CI'S RECORD LEAVES THE RUNNER (ovation#332).

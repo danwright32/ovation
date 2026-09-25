@@ -33,7 +33,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_DIR_LOCK OVATION_FILE_LOCK OVATION_FLOCK_BIN \
       OVATION_LOCK_TIMEOUT OVATION_LOCK_POLL_INTERVAL \
       OVATION_XCODE_PROJECT OVATION_XCODEGEN OVATION_XCODEBUILD_LISTER \
-      OVATION_LOCK_WAIT_LOG OVATION_XCODEBUILD OVATION_XCODE_VERSION_FILE \
+      OVATION_LOCK_WAIT_LOG OVATION_LOCK_WAIT_RECORD_STAGED OVATION_RENDER_RECORD_STAGED \
+      OVATION_XCODEBUILD OVATION_XCODE_VERSION_FILE \
       OVATION_XCODE_NOTICE_STATE \
       OVATION_DEFAULTS_DOMAINS_COMMAND \
       OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
@@ -77,7 +78,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 287
+harness_begin "test runner lock tests" 291
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -1442,10 +1443,15 @@ rm -f "$OWNER_READ_SHIM/armed" "$OWNER_READ_SHIM/fired"
 
 # 236e. EVERY attempt is recorded, a wait of nothing included, because how often a
 #       run waits is a fraction and needs the runs that did not (L396).
+#
+#       THIS CASE SAYS IT IS MEASURING THE RECORD (ovation#368). Every case here
+#       injects its commands, so every wait it stages is staged, and a staged run
+#       writes nothing to a record unless it declares that the staging is what it
+#       measures, the way test-design-render.sh does for the restart record.
 WAITLOG="$WORK/lock-waits.tsv"; rm -f "$WAITLOG"
-OVATION_LOCK_WAIT_LOG="$WAITLOG" run_runner >/dev/null 2>&1
+OVATION_LOCK_WAIT_RECORD_STAGED=1 OVATION_LOCK_WAIT_LOG="$WAITLOG" run_runner >/dev/null 2>&1
 mkdir -p "$DIR_LOCK"
-OVATION_LOCK_WAIT_LOG="$WAITLOG" TIMEOUT_OVERRIDE=1 run_runner >/dev/null 2>&1
+OVATION_LOCK_WAIT_RECORD_STAGED=1 OVATION_LOCK_WAIT_LOG="$WAITLOG" TIMEOUT_OVERRIDE=1 run_runner >/dev/null 2>&1
 rm -rf "$DIR_LOCK"
 check "a run that got the locks at once is recorded as acquired" \
     "$(sed -n 1p "$WAITLOG" 2>/dev/null | cut -f3)" "acquired"
@@ -1461,11 +1467,24 @@ HOME="$FAKEHOME" run_runner >/dev/null 2>&1
 check "an injected run that names no record writes nothing under HOME" \
     "$(find "$FAKEHOME" -type f | wc -l | tr -d ' ')" "0"
 
+# 236f2. NOR INTO A RECORD SOMEBODY NAMED (ovation#368). The name used to be taken
+#        whatever else was true, which is the shape that let the renderer write
+#        staged faults into the record CI carries to the tracker (ovation#366): a
+#        record named for a whole job is inherited by every suite in it (L439).
+STAGEDLOG="$WORK/staged-waits.tsv"; rm -f "$STAGEDLOG"
+OVATION_LOCK_WAIT_LOG="$STAGEDLOG" run_runner >/dev/null 2>&1
+check "an injected run writes nothing to a record it names without declaring the staging" \
+    "$([ -e "$STAGEDLOG" ] && echo written || echo untouched)" "untouched"
+# The declaration belongs to THIS record: the renderer's own does not reach it.
+OVATION_RENDER_RECORD_STAGED=1 OVATION_LOCK_WAIT_LOG="$STAGEDLOG" run_runner >/dev/null 2>&1
+check "and the restart record's declaration does not open the lock wait record" \
+    "$([ -e "$STAGEDLOG" ] && echo written || echo untouched)" "untouched"
+
 # 236g. And the record is read back: the start of a wait quotes recent waits, so
 #       the number that used to be lost is in front of the person waiting.
 printf '1789000000\t0\tacquired\t0\n1789000100\t40\tacquired\t1\n1789000200\t700\tgave-up\t3\n' > "$WAITLOG"
 mkdir -p "$DIR_LOCK"
-OUT236G="$(OVATION_LOCK_WAIT_LOG="$WAITLOG" TIMEOUT_OVERRIDE=1 run_runner)"
+OUT236G="$(OVATION_LOCK_WAIT_RECORD_STAGED=1 OVATION_LOCK_WAIT_LOG="$WAITLOG" TIMEOUT_OVERRIDE=1 run_runner)"
 rm -rf "$DIR_LOCK"
 check "the start of a wait quotes the longest recent wait from the record" \
     "$(mentions "$OUT236G" 'longest 700s')" "yes"
@@ -2059,7 +2078,7 @@ only_run() {
     OVATION_SKIP_XCODE_PHASE="${ONLY_SKIP:-}" \
     OVATION_PROJECT_CURRENT_COMMAND="${ONLY_CURRENT:-exit 2}" \
     OVATION_REGENERATE_COMMAND="${ONLY_REGENERATE:-echo REGENERATE-RAN; exit 99}" \
-    OVATION_LOCK_WAIT_LOG="$ONLY/lock-waits.tsv" \
+    OVATION_LOCK_WAIT_LOG="${ONLY_WAIT_LOG-$ONLY/lock-waits.tsv}" \
     OVATION_XCODEBUILD_LISTER=true \
     OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "./$TARGET" "$@" 2>&1
@@ -2153,6 +2172,21 @@ rm -f "$ONLY/xcodebuild-args"
 OUT321L="$(ONLY_PATH="$ONLY/bin:$PATH" ONLY_PURE="" ONLY_HOSTED="" only_run --only OvationHostedTests/LaunchTests)"; ST321L=$?
 check "the real hosted xcodebuild is narrowed to the filter in place of the whole hosted target" \
     "$ST321L:$(grep -cx -- '-only-testing:OvationHostedTests/LaunchTests' "$ONLY/xcodebuild-args" 2>/dev/null):$(grep -cx -- '-only-testing:OvationHostedTests' "$ONLY/xcodebuild-args" 2>/dev/null)" "0:1:0"
+
+# 321g2. A RUN WITH NO INJECTED COMMAND STILL RECORDS ITS WAIT (ovation#368). The
+#        rule that silences staged runs must leave real ones exactly as they were,
+#        or the fix would pass every staged case by recording nothing at all (L63).
+#        The xcodebuild here is a stand in on PATH, which the runner treats as the
+#        real one: its commands were not injected, so to the record it is real.
+rm -f "$ONLY/lock-waits.tsv"
+ONLY_PATH="$ONLY/bin:$PATH" ONLY_PURE="" ONLY_HOSTED="" only_run --only OvationHostedTests/LaunchTests >/dev/null 2>&1
+check "a run with no injected command writes its wait to the record it names" \
+    "$(sed -n 1p "$ONLY/lock-waits.tsv" 2>/dev/null | cut -f3)" "acquired"
+REALHOME="$WORK/realhome"; rm -rf "$REALHOME"; mkdir -p "$REALHOME"
+HOME="$REALHOME" ONLY_WAIT_LOG="" ONLY_PATH="$ONLY/bin:$PATH" ONLY_PURE="" ONLY_HOSTED="" \
+    only_run --only OvationHostedTests/LaunchTests >/dev/null 2>&1
+check "and with none named, to the default record under the home directory" \
+    "$(sed -n 1p "$REALHOME/Library/Logs/Ovation/lock-waits.tsv" 2>/dev/null | cut -f3)" "acquired"
 
 # 321h. NO TESTS EXECUTED IS A REFUSAL, whatever the exit code said (L98, L288).
 check "a narrowed run that reported success and printed no count is refused" \

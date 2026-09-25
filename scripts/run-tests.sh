@@ -1154,13 +1154,24 @@ else
       # succeeds says what it cost; and every attempt, a wait of nothing included,
       # is one line in a record the next wait quotes back (L46).
       #
-      # THE RECORD IS WRITTEN BY REAL RUNS AND BY A RUN THAT NAMES ONE. A run with
-      # injected commands that names none writes nothing, so no test run can reach
-      # Dan's real record by forgetting a seam (L2).
-      WAIT_LOG="${OVATION_LOCK_WAIT_LOG:-}"
-      if [ -z "${WAIT_LOG}" ] && [ -z "${TEST_COMMAND}${HOSTED_TEST_COMMAND}" ]; then
-        WAIT_LOG="${HOME}/Library/Logs/Ovation/lock-waits.tsv"
-      fi
+      # THE RECORD IS WRITTEN BY REAL RUNS ONLY, through the one rule every durable
+      # record in this repository asks, lib/durable-record.sh (ovation#368). A run
+      # with injected commands is staged, and writes nothing, WHOEVER NAMED A
+      # RECORD, unless it declares with OVATION_LOCK_WAIT_RECORD_STAGED that the
+      # staging is what it measures, which only this runner's own suite does. It
+      # used to take a named path whatever else was true, the shape that put staged
+      # browser faults into the record CI carries to the tracker (ovation#366): a
+      # name set for a whole job reaches every suite beneath it (L2, L439).
+      #
+      # A rule that refuses prints nothing, so the record is then simply not
+      # written, and that is said rather than taken for a quiet run (L11).
+      # shellcheck source=lib/durable-record.sh
+      require_lib "${REPO_ROOT}/scripts/lib/durable-record.sh"
+      WAIT_SUBJECT="real"
+      [ -n "${TEST_COMMAND}${HOSTED_TEST_COMMAND}" ] && WAIT_SUBJECT="staged"
+      WAIT_LOG="$(durable_record_path "${WAIT_SUBJECT}" OVATION_LOCK_WAIT_RECORD_STAGED \
+        "${OVATION_LOCK_WAIT_LOG:-}" "${HOME}/Library/Logs/Ovation/lock-waits.tsv")" \
+        || echo "    (whether this wait may be recorded could not be decided, so it is not recorded)" >&2
       holders_seen=0
       last_dir_holder=""
       last_dir_id=""

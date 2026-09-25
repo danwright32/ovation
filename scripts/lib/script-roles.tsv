@@ -80,6 +80,7 @@ check-clients-screen-draws.sh	workflow	Renders docs/design/clients.html in a hea
 check-custody-files.sh	gated	A repo wide guard.
 check-custody-not-staged.sh	gated	A repo wide guard.
 check-writers-wired.sh	gated	A repo wide guard over the app's @ModelActor writers (ovation#441).
+check-durable-records.sh	gated	A repo wide guard over every script that appends to a durable record: each must take its path from lib/durable-record.sh or be listed in durable-record-exemptions.tsv with the reason nothing can stage its subject (ovation#368).
 check-hooks-path.sh	gated	A machine guard: reads this checkout's git config, so only the push gate on the machine can ask it.
 check-design-shared-components.sh	gated	A repo wide guard.
 check-design-dead-rules.sh	gated	A repo wide guard.
@@ -141,6 +142,7 @@ lib/file-lock.sh	library	Who holds the file lock the runner waits on, and the ru
 lib/ensure-xcode-project.sh	library	Sourced by run-tests.sh and build-install.sh. Its behaviour is covered by test-run-tests.sh, which drives it through the runner with an injected generator, and drives two creates of one project at once directly (ovation#207).
 lib/design_embedded.py	library	The one definition of review-send.html's embedded invoice page: how it is built from invoice-pdf.html, encoded into the host and judged. Imported by check-design-embedded-page.sh and write-design-embedded-page.sh, so the checker can never pass a page the writer cannot produce (ovation#167). test-write-design-embedded-page.sh covers it.
 lib/json-field.sh	library	Sourced by check-booking-queue.sh and check-sibling-installs.sh. One JSON reader for both, after plutil made every record read as unreadable on Linux (ovation#152); their own suites cover its behaviour.
+lib/durable-record.sh	library	The one rule for whether a run may write a durable record: a run whose subject was injected writes none unless it declares the staging is what it measures (ovation#368). Sourced by run-tests.sh and executed by lib/design_render.py, so the lock wait record and the browser restart record are judged by one body of code. test-durable-records.sh covers it directly, and test-run-tests.sh and test-design-render.sh drive it through both callers.
 lib/require.sh	library	Sourced by every script that loads a library, so a missing one refuses by name (ovation#399).
 lib/repo-git.sh	library	The one place git is asked about a repository with the inherited environment cleared, and the one place the folder holding the sibling checkouts is worked out (ovation#314). Sourced by check-ported-artifacts.sh, check-sibling-installs.sh and build-install.sh, and run through bash by check-plan-claims.sh. test-sibling-root.sh covers it and refuses a hand rolled copy anywhere else.
 lib/design_render.py	library	Imported by all six rendering checks: check-design-draws.sh, check-invoice-screen-draws.sh, check-clients-screen-draws.sh, check-design-tokens-resolve.sh, check-design-sidebar-card.sh and check-design-window-top.sh. One way to render a design file headless and read back what its probe reported, rather than the same browser lookup and page reading copied into each checker (L370). Since ovation#183 a check starts ONE browser and opens each render as a fresh page, asked for as a new window, over the DevTools pipe, and every tool that renders, build-design-screenshot.sh included, gets its browser through its one open_browser, which answers CANNOT MEASURE when there is none. test-design-draws.sh drives its failure paths with stand in browsers, counts the starts, and drives every such tool with no browser to find; every rendering suite drives the rest.
@@ -183,6 +185,7 @@ test-installed-build.sh	suite
 test-scheduled-runs.sh	suite	
 test-report-branches.sh	suite	
 test-writers-wired.sh	suite	
+test-durable-records.sh	suite	
 test-design-draws.sh	suite	
 test-design-record-open.sh	suite	
 test-design-measurements-marked.sh	suite	

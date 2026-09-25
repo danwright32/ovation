@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 125
+harness_begin "output privacy tests" 126
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -207,6 +207,11 @@ check "the hooks path check prints no identity" \
 # 4c. The writers check (ovation#441), which prints type names and issue numbers.
 check "the writers check prints no identity" \
     "$(leaks_in "$(./scripts/check-writers-wired.sh 2>&1)")" "clean"
+
+# 4c2. The durable records check (ovation#368), which prints script paths, line
+#      numbers and the reasons in its exemptions list.
+check "the durable records check prints no identity" \
+    "$(leaks_in "$(./scripts/check-durable-records.sh 2>&1)")" "clean"
 
 # 4d. The two GitHub checks (ovation#350, ovation#387), driven by a stand in for gh
 #     that answers the way GitHub does, so they print what they would in CI.

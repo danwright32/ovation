@@ -62,7 +62,9 @@ request (120), OVATION_RENDER_WAIT_MS overrides how long a loaded page has to
 produce its report, OVATION_RENDER_RESTARTS is how many times a browser that
 stopped answering is started again (1), and OVATION_RENDER_RESTART_LOG is the file
 every restart is appended to (~/Library/Logs/Ovation/browser-restarts.tsv by
-default, and nothing at all when the browser was injected and no file was named).
+default). A browser that was injected writes nothing, whoever named a file,
+unless OVATION_RENDER_RECORD_STAGED says the staging is what is being measured:
+scripts/lib/durable-record.sh decides that for every durable record (ovation#368).
 """
 import atexit
 import fcntl
@@ -89,6 +91,34 @@ import time
 # which is why the workflow carries this record out to the tracker rather than
 # leaving it to die with the job.
 RESTART_RECORD = os.path.join("Library", "Logs", "Ovation", "browser-restarts.tsv")
+
+# WHETHER A RUN MAY WRITE A DURABLE RECORD IS ONE RULE (ovation#368), written once
+# in a shell library that scripts/run-tests.sh sources and this asks as a command.
+# This record and the runner's lock wait record each carried their own version of
+# the guard, and they disagreed: the runner took any record it was named, which is
+# the defect ovation#366 had just removed from here (L2, L613). A Python copy of
+# the rule would be the same mistake again, one language over (L370).
+DURABLE_RECORD_RULE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "durable-record.sh")
+
+
+def durable_record_path(subject, declared_by, named, default):
+    """The record this run may write, or None when it may write none.
+
+    `subject` is "real" or "staged", and `declared_by` the variable that, set,
+    says the staging is what the caller measures. A rule that could not be asked,
+    or refused, is RAISED as OSError rather than answered: the caller says so and
+    records nothing, because guessing either way is how a staged run reaches a
+    record."""
+    try:
+        asked = subprocess.run(["bash", DURABLE_RECORD_RULE, subject, declared_by, named, default],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as err:
+        raise OSError("the durable record rule could not be asked: %s" % err)
+    if asked.returncode != 0:
+        raise OSError("the durable record rule refused: %s"
+                      % (" ".join(asked.stderr.split()) or "exit %d" % asked.returncode))
+    return asked.stdout.rstrip("\n") or None
 
 # Where playwright puts the headless shell. Named as a glob rather than a pinned
 # version, because the version moves with whatever last installed it and a check
@@ -327,10 +357,11 @@ class Browser:
     def _record_restart(self, request, page, why=None):
         """Append this restart to the record, and say what the record now holds.
 
-        WRITTEN BY A REAL BROWSER, or by a run that NAMES a record (L2). A suite
-        drives this library with a stand in browser and stages the fault on
-        purpose, so a run whose browser was injected and which named no record
-        writes nothing: no test can reach the real record by forgetting a seam.
+        WRITTEN BY A REAL BROWSER, or by a run that DECLARES the staging is what
+        it measures (L2). A suite drives this library with a stand in browser and
+        stages the fault on purpose, so a run whose browser was injected writes
+        nothing, whoever named a record: no test can reach a real record by
+        forgetting a seam, or by inheriting one CI named (ovation#366, ovation#368).
 
         THE PAGE IS ITS BASENAME. A CI job carries this record out to the tracker,
         and a full path names a home directory or a runner's workspace, which is
@@ -340,25 +371,28 @@ class Browser:
         the page: a check that rendered perfectly well must not fail because a log
         directory was read only (L632).
         """
-        # A STAGED FAULT IS NOT AN OCCURRENCE (ovation#366), and this refusal comes
-        # FIRST rather than under "no record was named", which is where it used to
-        # sit. CI names a record for the whole Linux job, so every suite that
-        # stages a browser fault wrote into the record the workflow carries to the
-        # tracker: measured 2026-09-16, all fifteen lines of every recent run were
-        # this repository's own suites, counted on ovation#353 as real (L2, L93).
+        # A STAGED FAULT IS NOT AN OCCURRENCE (ovation#366). CI names a record for
+        # the whole Linux job, so every suite that stages a browser fault wrote into
+        # the record the workflow carries to the tracker: measured 2026-09-16, all
+        # fifteen lines of every recent run were this repository's own suites,
+        # counted on ovation#353 as real (L2, L93).
         #
-        # An injected browser is a stand in by definition, so nothing it does is
-        # recorded, whoever named a record. The one caller that IS measuring the
-        # record says so, and only scripts/test-design-render.sh sets it: a suite
-        # cannot reach the real record by forgetting a seam, only by naming one.
-        if os.environ.get("OVATION_HEADLESS_BROWSER", "").strip() \
-                and not os.environ.get("OVATION_RENDER_RECORD_STAGED", "").strip():
+        # An injected browser is a stand in by definition, so this run is STAGED,
+        # and a staged run writes nothing, whoever named a record. The one caller
+        # that IS measuring the record says so with OVATION_RENDER_RECORD_STAGED,
+        # and only scripts/test-design-render.sh sets it. The rule itself lives in
+        # scripts/lib/durable-record.sh, beside every other durable record's
+        # (ovation#368).
+        subject = "staged" if os.environ.get("OVATION_HEADLESS_BROWSER", "").strip() else "real"
+        try:
+            record = durable_record_path(subject, "OVATION_RENDER_RECORD_STAGED",
+                                         os.environ.get("OVATION_RENDER_RESTART_LOG", "").strip(),
+                                         os.path.join(os.path.expanduser("~"), RESTART_RECORD))
+        except OSError as err:
+            print("    (this browser restart was not recorded: %s)" % err, file=sys.stderr)
             return
-        named = os.environ.get("OVATION_RENDER_RESTART_LOG", "").strip()
-        if named:
-            record = named
-        else:
-            record = os.path.join(os.path.expanduser("~"), RESTART_RECORD)
+        if not record:
+            return
         # FIVE COLUMNS (ovation#366): when, the request that went unanswered, the
         # page, WHY the browser went, and the PROCESS that recorded it. The last
         # is what tells a cascade from one fault apart from several faults: a
