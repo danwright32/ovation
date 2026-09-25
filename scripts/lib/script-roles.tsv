@@ -135,6 +135,7 @@ lib/built-product.sh	library	Sourced by the bundle checks to find a built app.
 lib/bundle-icon-checks.sh	library	Sourced by test-built-bundle-icon.sh. test-bundle-icon-checks.sh covers its judgements directly.
 lib/bundle-identity-checks.sh	library	Sourced by test-built-bundle-identity.sh. test-bundle-identity-checks.sh covers its judgements directly.
 lib/dir-lock.sh	library	The directory lock every xcodebuild run in this repository takes, and the one place its owner line is written and read. Sourced by run-tests.sh, by regenerate-xcode-project.sh and by lib/ensure-xcode-project.sh for its create lock (ovation#207): every side writes that line and every side reads it, and a format that drifted would leave a refusal naming nobody (L370, ovation#202). Their own suites cover its behaviour.
+lib/lock-queue.sh	library	The arrival order queue beside the shared directory lock, so waiters on it are served in the order they arrived rather than whoever looks first after a release (downbeat#524). A port of Downbeat's scripts/lock-queue.sh that must stay identical to it in behaviour, since Downbeat, Overture and Ovation read one queue. Sourced by run-tests.sh and regenerate-xcode-project.sh; test-lock-queue.sh covers it directly and both scripts' suites drive it through them.
 lib/file-lock.sh	library	Who holds the file lock the runner waits on, and the rule that one holder is one holder however many descriptors its children inherit (ovation#433, L441). Sourced by run-tests.sh and measured directly by test-run-tests.sh case 236b-i, because the rule cannot be stated in the four lines it used to be.
 lib/ensure-xcode-project.sh	library	Sourced by run-tests.sh and build-install.sh. Its behaviour is covered by test-run-tests.sh, which drives it through the runner with an injected generator, and drives two creates of one project at once directly (ovation#207).
 lib/design_embedded.py	library	The one definition of review-send.html's embedded invoice page: how it is built from invoice-pdf.html, encoded into the host and judged. Imported by check-design-embedded-page.sh and write-design-embedded-page.sh, so the checker can never pass a page the writer cannot produce (ovation#167). test-write-design-embedded-page.sh covers it.
@@ -225,6 +226,7 @@ test-project-configuration.sh	suite
 test-python-scripts-under-bash.sh	suite
 test-report-finding.sh	suite
 test-review-samples-absent.sh	suite
+test-lock-queue.sh	suite
 test-regenerate-xcode-project.sh	suite	
 test-run-tests.sh	suite	
 test-schema-registered.sh	suite	

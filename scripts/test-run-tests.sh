@@ -76,7 +76,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 254
+harness_begin "test runner lock tests" 266
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -2184,6 +2184,100 @@ OUT321S="$(regen_run)"; ST321S=$?
 check "a full run over a stale project still stops without regenerating" \
     "$ST321S:$([ -e "$REGEN/attempts" ] && echo regenerated || echo untouched)" "1:untouched"
 reset_regen
+
+# ---------------------------------------------------------------------------
+# THE DIRECTORY LOCK IS SERVED IN ARRIVAL ORDER (downbeat#524).
+#
+# Every waiter on Downbeat's lock used to retry on its own timer, and whoever
+# looked first after a release won. On 2026-09-24 a Downbeat run waited 15 to 20
+# minutes three times behind newer runs and a push failed on its deadline having
+# run nothing. lib/lock-queue.sh keeps a queue BESIDE the lock, "<lock>.queue",
+# and a waiter may try mkdir only while no live earlier ticket is queued. These
+# cases stage tickets in the throwaway queue beside $DIR_LOCK, never the real one.
+queue_tickets() { ls "$DIR_LOCK.queue" 2>/dev/null | wc -l | tr -d ' '; }
+queue_has_tickets() { [ "$(queue_tickets)" -ge "$1" ]; }
+live_ticket_for() {
+    mkdir -p "$DIR_LOCK.queue"
+    printf '%s %s\n' "$1" "$(ps -o lstart= -p "$1" | sed 's/^ *//; s/ *$//')" \
+        > "$DIR_LOCK.queue/00000000001.000000.$1"
+}
+
+# 524a. A LIVE WAITER THAT ARRIVED EARLIER HOLDS THE TURN EVEN WHEN THE LOCK IS
+#       FREE. Taking it anyway is exactly the barging the queue exists to stop.
+rm -rf "$DIR_LOCK" "$DIR_LOCK.queue"
+sleep 60 & EARLIER524=$!; disown "$EARLIER524" 2>/dev/null
+harness_on_exit "kill $EARLIER524 2>/dev/null"
+live_ticket_for "$EARLIER524"
+OUT524A="$(TIMEOUT_OVERRIDE=1 run_runner "echo HOSTED-524A-RAN; $HOSTED_PASSES")"; ST524A=$?
+check "a run behind an earlier queued waiter does not take a free lock, and gives up" \
+    "$ST524A:$(count_of "$OUT524A" 'HOSTED-524A-RAN')" "3:0"
+check "and it says it is queued behind an earlier run, and again when it gives up" \
+    "$(count_of "$OUT524A" '1 earlier run')" "2"
+check "and the run that gave up leaves the queue, and the earlier ticket stands" \
+    "$(ls "$DIR_LOCK.queue" 2>/dev/null | tr '\n' ' ')" "00000000001.000000.$EARLIER524 "
+kill "$EARLIER524" 2>/dev/null
+rm -rf "$DIR_LOCK" "$DIR_LOCK.queue"
+
+# 524b. TWO RUNS WAITING ON A HELD LOCK GO IN THE ORDER THEY ARRIVED. The LATER one
+#       polls eight times as often, so without the queue it is the one that looks
+#       first after the release and usually wins. With both on one rhythm the
+#       earlier run's poll always landed first and this passed with the queue
+#       switched off, which Downbeat measured before splitting the rhythms (L1).
+: > "$WORK/order524"
+mkdir -p "$DIR_LOCK"; printf 'downbeat:524\n' > "$DIR_LOCK/owner"
+( TIMEOUT_OVERRIDE=30 POLL_OVERRIDE=0.8 \
+    run_runner "echo first >> '$WORK/order524'; $HOSTED_PASSES" >/dev/null 2>&1 ) &
+FIRST524=$!
+harness_wait_for "the first run to join the queue (524b)" 200 0.05 queue_has_tickets 1
+( TIMEOUT_OVERRIDE=30 POLL_OVERRIDE=0.1 \
+    run_runner "echo second >> '$WORK/order524'; $HOSTED_PASSES" >/dev/null 2>&1 ) &
+SECOND524=$!
+harness_wait_for "the second run to join the queue (524b)" 200 0.05 queue_has_tickets 2
+rm -rf "$DIR_LOCK"
+wait "$FIRST524" "$SECOND524"
+check "two waiting runs take the lock in the order they arrived" \
+    "$(tr '\n' ' ' < "$WORK/order524")" "first second "
+check "and the queue is empty once both have run" "$(queue_tickets)" "0"
+rm -rf "$DIR_LOCK" "$DIR_LOCK.queue"
+
+# 524d. A STOPPED WAITER ENDS, and takes its ticket with it. A trap on TERM that
+#       only cleaned up would return to the loop, which would rejoin the queue at
+#       the back and wait on (L473): Downbeat shipped exactly that and caught it
+#       with this case. The holder's lock is not this run's and must be untouched.
+mkdir -p "$DIR_LOCK"; printf 'downbeat:524d\n' > "$DIR_LOCK/owner"
+( TIMEOUT_OVERRIDE=30 run_runner > "$WORK/stopped524.out" 2>&1 ) &
+STOPPED524=$!
+harness_wait_for "the waiter to join the queue (524d)" 200 0.05 queue_has_tickets 1
+WAITER524="$(ls "$DIR_LOCK.queue" | head -1)"; WAITER524="${WAITER524##*.}"
+kill -TERM "$WAITER524" 2>/dev/null
+wait "$STOPPED524"; ST524D=$?
+check "a waiter stopped with TERM ends with 143 rather than waiting on" "$ST524D" "143"
+check "and it leaves the queue empty, and the holder's lock untouched" \
+    "$(queue_tickets):$(head -1 "$DIR_LOCK/owner" 2>/dev/null)" "0:downbeat:524d"
+rm -rf "$DIR_LOCK" "$DIR_LOCK.queue"
+
+# 524c. A NARROWED RUN'S OWN REGENERATION IS NEVER QUEUED BEHIND THE RUN ITSELF.
+#       The runner calls regenerate-xcode-project.sh, which takes the same lock
+#       through the same queue and refuses while any live earlier ticket stands. A
+#       runner that joined the queue before regenerating would hold exactly such a
+#       ticket, and would wait on its own child until its deadline. So this runs
+#       the REAL regenerator, with a stand in generator writing only into this
+#       suite's temp directory (L2), and the runner must get through it.
+cat > "$REGEN/xcodegen" <<GENERATOR
+#!/bin/bash
+: > "$REGEN/regenerated"
+mkdir -p "\$OVATION_XCODE_PROJECT"
+GENERATOR
+chmod +x "$REGEN/xcodegen"
+reset_regen
+OUT524C="$(OVATION_XCODEGEN="$REGEN/xcodegen" TIMEOUT_OVERRIDE=3 ONLY_PURE="$PURE_MARKED" \
+    ONLY_CURRENT="'$REGEN/current'" ONLY_REGENERATE="'$PWD/scripts/regenerate-xcode-project.sh'" \
+    only_run --only OvationTests/BrandNewSuiteTests)"; ST524C=$?
+check "a narrowed run's real regeneration is not queued behind the run itself" \
+    "$ST524C:$(count_of "$OUT524C" 'OK: regenerated'):$(count_of "$OUT524C" 'PURE-SUITE-RAN')" "0:1:1"
+check "and it leaves no ticket behind" "$(queue_tickets)" "0"
+reset_regen
+rm -rf "$DIR_LOCK" "$DIR_LOCK.queue" "$STANDIN_PROJECT"; mkdir -p "$STANDIN_PROJECT"
 
 
 # EVERY INVOCATION OF THE REAL RUNNER SETS BOTH MACHINE SEAMS (ovation#152).
