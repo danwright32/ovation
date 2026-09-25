@@ -909,7 +909,7 @@ color: var(--faint); }
                  border: 1px solid var(--rule); border-radius: 4px; white-space: nowrap;
                  justify-self: start; width: 108px; height: 26px; line-height: 20px;
                  box-sizing: border-box; text-align: right; }
-.payform .pamt:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.payform .pamt:focus, .payform .pdate:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .payform .pmeth { display: flex; flex-wrap: wrap; gap: 4px; }
 .payform .pfoot { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 16px;
                   align-items: center; padding-top: 4px; }
@@ -2397,6 +2397,15 @@ function buildInvoice() {
      that is already there. */
   hb.addEventListener("click", function () {
     PANE_OPEN = !PANE_OPEN;
+    /* THE JUST RECORDED MARK LASTS UNTIL THE HISTORY IS CLOSED, so a payment is
+       not still marked new an hour of edits later (ovation#510). Cleared on the
+       element rather than by a redraw, which would lose the slide. */
+    if (!PANE_OPEN && JUST >= 0) {
+      JUST = -1;
+      [].forEach.call(document.querySelectorAll(".hev.justnow"), function (e) {
+        e.classList.remove("justnow");
+      });
+    }
     document.querySelector(".panewrap").classList.toggle("paneopen", PANE_OPEN);
     hb.textContent = PANE_OPEN ? "Hide history" : "History";
     hb.setAttribute("aria-expanded", String(PANE_OPEN));
@@ -2751,7 +2760,9 @@ function paymentSheet(total) {
     foot.replaceChildren(ask);
   }
   amount.addEventListener("keydown", function (e) {
-    if (e.key === "Enter") { e.preventDefault(); record.click(); }
+    /* Not while the sheet is asking whether to close: an Enter then is not a
+       decision to record. */
+    if (e.key === "Enter" && !SHEET.asking) { e.preventDefault(); record.click(); }
   });
   markRecord();
   return dim;
@@ -3073,9 +3084,10 @@ function buildInvoiceScreen() {
     b.append(el("span", null, c[1]));
     if (c[2]) b.append(el("span", "share", c[2]));
     b.addEventListener("click", function () {
+      /* A NEW state starts with no payments recorded through the sheet; pressing
+         the state already chosen changes nothing. */
+      if (c[0] !== INVSTATE) { PAYMENTS = []; SHEET = null; JUST = -1; }
       INVSTATE = c[0];
-      /* A new state starts with no payments recorded through the sheet. */
-      PAYMENTS = []; SHEET = null; JUST = -1;
       if (INVSTATE !== "draft") ensureIssued();
       markInvoiceStates();
       redraw();
