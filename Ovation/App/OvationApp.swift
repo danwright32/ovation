@@ -619,6 +619,14 @@ struct OvationApp: App {
                 // order inside the launch is unchanged; what changed is that
                 // there is now somewhere for it to say what it is doing.
                 .task { await startLaunch() }
+                // NO TITLE IN THE TITLE BAR (ovation#123, Dan 2026-09-23). The
+                // Instrument Serif heading in the content names the screen, so the
+                // window's own title is hidden, as macOS apps with a large content
+                // heading do. HIDDEN, NOT REMOVED: the Window menu and a screen
+                // reader still read it. Only the text goes; `MainWindowTitleTests`
+                // holds the title bar's height, style and lack of a toolbar at what
+                // they measured before this line existed.
+                .toolbar(removing: .title)
                 // ovation#318 B5, PRD 52a: the sheet belongs to the WINDOW, so it is
                 // presented from the window's content above RootView and a launch
                 // finishing does not dismiss it. Debug only until ovation#42 gives

@@ -151,7 +151,9 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .titlebar { display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 14px; background: var(--chrome); border-bottom: 1px solid var(--rule); }
 .dot { width: 11px; height: 11px; border-radius: 50%; }
 .dot.r { background: #ED6A5E; } .dot.y { background: #F4BF50; } .dot.g { background: #61C454; }
-.titlebar .name { margin-left: 2px; font-size: 12px; color: var(--faint); font-weight: 500; }
+/* NO WINDOW TITLE (ovation#123, Dan 2026-09-23). The Instrument Serif heading in
+   the content names the screen, so the title bar carries no title, hidden as
+   macOS apps with a large content heading do. The SwiftUI window hides its own. */
 
 .side { border-right: 1px solid var(--rule); padding: 8px 9px 12px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
 .item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 4px; color: var(--soft); font-size: 14px; font-weight: 500; }
