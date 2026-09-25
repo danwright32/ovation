@@ -79,7 +79,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 292
+harness_begin "test runner lock tests" 294
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -2255,6 +2255,33 @@ check "and the regeneration was pointed at this run's project and build lock" \
     "$(sort -u "$REGEN/attempts" 2>/dev/null)" "attempt $STANDIN_PROJECT $DIR_LOCK"
 check "and the suite ran only after the project was regenerated" \
     "$([ "$(line_of "$OUT321O" 'OK: regenerated')" -lt "$(line_of "$OUT321O" 'PURE-SUITE-RAN')" ] 2>/dev/null && echo regenerated-first || echo ran-first)" "regenerated-first"
+
+# 321i2. AND ITS WAITING IS SAID AS IT HAPPENS (ovation#542). Each attempt now waits
+#       inside the regeneration for most of this run's deadline, so a runner that
+#       captured its words until it returned would be silent for up to half an
+#       hour, which cannot be told from a hang (L110). This stand in says it is
+#       waiting and then blocks until the case lets it go, so the line can only
+#       be seen here if it reached the run's output while the wait was going on.
+cat > "$REGEN/waits-live" <<WAITSLIVE
+#!/bin/bash
+echo "WAITING: $DIR_LOCK is held by overture:1717." >&2
+echo "         Holding this run's place in the queue, for up to 2s." >&2
+for _ in \$(seq 1 400); do [ -e "$REGEN/go" ] && break; sleep 0.05; done
+: > "$REGEN/regenerated"
+echo "OK: regenerated the stand in project."
+WAITSLIVE
+chmod +x "$REGEN/waits-live"
+reset_regen; rm -f "$REGEN/go"
+( ONLY_CURRENT="'$REGEN/current'" ONLY_REGENERATE="'$REGEN/waits-live'" ONLY_PURE="$PURE_MARKED" \
+    only_run --only OvationTests/BrandNewSuiteTests > "$REGEN/live-out" 2>&1
+  echo "$?" > "$REGEN/live-status" ) &
+LIVE_RUN=$!
+says_waiting_live() { grep -q "held by overture:1717" "$REGEN/live-out" 2>/dev/null; }
+harness_wait_for "the regeneration's waiting line to be shown while it still waits" 200 0.05 says_waiting_live
+: > "$REGEN/go"; wait "$LIVE_RUN"
+check "and once it has its turn the run goes on, saying the wait once" \
+    "$(cat "$REGEN/live-status"):$(grep -c "held by overture:1717" "$REGEN/live-out")" "0:1"
+rm -f "$REGEN/go"
 
 reset_regen; : > "$REGEN/stays-stale"
 OUT321P="$(ONLY_PURE="$PURE_MARKED" regen_run --only OvationTests/BrandNewSuiteTests)"; ST321P=$?

@@ -712,14 +712,27 @@ else
       echo "==> The project does not list every Swift file on disk, which a new test file is."
       echo "    Regenerating ${XCODE_PROJECT} for this narrowed run, waiting up to ${TIMEOUT}s if"
       echo "    another run is using it."
+      # The regeneration's own progress lines (regenerate-xcode-project.sh --wait).
+      REGEN_WAIT_LINES='^(WAITING:|[[:space:]]+(Holding this run|still waiting after))'
       regen_started="$(date +%s)"
       regen_announced=0
       regen_refused=""
       while :; do
         regen_left=$(( TIMEOUT - ($(date +%s) - regen_started) ))
         [ "${regen_left}" -gt 0 ] || regen_left=0
-        REGEN_WORDS="$(regenerate_project "${regen_left}" 2>&1)"
-        REGEN_STATUS=$?
+        # ITS WAITING IS SHOWN AS IT HAPPENS. The attempt can wait inside the
+        # regeneration for most of this run's deadline, and words captured until
+        # it returns would leave that whole wait silent (L110). So its WAITING
+        # and "still waiting" lines pass straight through as they arrive, and
+        # everything it said is kept for the decisions below, where those lines
+        # are left out so nothing is said twice.
+        regen_log="$(mktemp)"
+        regenerate_project "${regen_left}" 2>&1 | tee "${regen_log}" \
+          | { grep --line-buffered -E "${REGEN_WAIT_LINES}" || true; } \
+          | while IFS= read -r regen_line; do printf '    %s\n' "${regen_line}"; done
+        REGEN_STATUS=${PIPESTATUS[0]}
+        REGEN_WORDS="$(grep -v -E "${REGEN_WAIT_LINES}" "${regen_log}")"
+        rm -f "${regen_log}"
         # 1 is the regenerator's "a lock is held, or a build is reading it", the
         # one outcome worth waiting on. Anything else is a fault in the tree that
         # waiting cannot mend, and it keeps its own status and its own words.
