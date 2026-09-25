@@ -101,10 +101,11 @@ final class InvoiceListPresenter {
             // THE CLIENT QUALIFIES, THE INVOICE MOVES, and those are two different
             // questions. Held money waiting on a decision is a fact about a CLIENT,
             // so the set above is a set of clients; applying it to every invoice
-            // that client has would sweep up their drafts and their settled
+            // that client has would sweep up their settled and cancelled
             // invoices too. Only the invoices the money could actually settle
-            // move, which is the same predicate the set was counted over (L16).
-            let moves = read.isOpen && read.sent.wasSent
+            // move, drafts among them since ovation#453, which is the same
+            // predicate the set was counted over (L16).
+            let moves = read.isOpenForHeldMoney
                 && (invoice.client.map { waiting.contains($0) } ?? false)
             let standing = InvoiceStanding(of: invoice, today: today,
                                            couldSettleMoreThanOne: moves)
@@ -184,25 +185,23 @@ final class InvoiceListPresenter {
     /// presence check that accepts any value would move every one of their invoices
     /// into a band asking a question about no money (L706).
     ///
-    /// A DRAFT IS NOT AN OPEN INVOICE HERE, and that is read off the design record
-    /// rather than decided in this file. `docs/design/invoice-list.html` draws
-    /// Cedar Hill Youth Orchestra with TWO invoices in the waiting band and a THIRD
-    /// Cedar Hill row, a draft, sitting outside it in the drafts to send. That
-    /// arrangement was rendered and settled, so a draft stays where its dates put
-    /// it and only an issued invoice can be one of the several this money could
-    /// settle.
+    /// A DRAFT IS AN OPEN INVOICE HERE (Dan, 2026-09-23, ovation#453), and which
+    /// invoices count is `InvoiceStanding.isOpenForHeldMoney` rather than a test
+    /// written in this file, so applying the money on the invoice (ovation#185)
+    /// counts the same set. The design record's Cedar Hill fixture still draws its
+    /// draft outside the band, and that arrangement is what this reversed.
     ///
     /// IT IS DELIBERATELY NOT THE WHOLE QUESTION. Whether money can be recorded
     /// against a draft at all, and where a deposit sits before the booking even
     /// reaches Ovation, is ovation#96, which records in terms that it has no
-    /// answer yet. This reads the one arrangement that HAS been settled and leaves
-    /// that issue everything else (L61, L542).
+    /// answer yet. This answers only whether an existing draft counts toward the
+    /// more than one test, and leaves that issue everything else (L61, L542).
     private static func clientsWhoseMoneyCouldSettleMoreThanOne(
         _ read: [(invoice: Invoice, standing: InvoiceStanding)],
         heldMoney: [Client: Money]
     ) -> Set<Client> {
         var open: [Client: Int] = [:]
-        for (invoice, standing) in read where standing.isOpen && standing.sent.wasSent {
+        for (invoice, standing) in read where standing.isOpenForHeldMoney {
             guard let client = invoice.client else { continue }
             open[client, default: 0] += 1
         }

@@ -186,14 +186,17 @@ struct InvoiceListPresenterTests {
             .bands.contains { $0.band == .toPlace })
     }
 
-    @Test("a draft is not one of the invoices held money could settle, so it stays where it is")
-    func adraftIsNotMovedByHeldMoney() throws {
-        // Read off the design record rather than decided here:
-        // `docs/design/invoice-list.html` draws Cedar Hill with TWO invoices in the
-        // waiting band and a THIRD Cedar Hill row, a draft, outside it in the
-        // drafts to send. Whether money can be recorded against a draft at all is
-        // ovation#96, which records that it has no answer yet, so this reads the
-        // one arrangement that has been settled and leaves that issue the rest.
+    // DRAFTS COUNT AS OPEN INVOICES (ovation#453). Dan, 2026-09-23: "drafts COUNT
+    // as open invoices for PRD 14j. A client with money on account and more than
+    // one open invoice, drafts included, has it applied to none of them, and each
+    // (draft or sent) offers `Use it here`; their drafts join the held money
+    // band." The two cases below asserted the reverse, which had been read off
+    // the design record's Cedar Hill fixture rather than decided, and they are
+    // inverted rather than adjusted because that reading is what was reversed
+    // (L252).
+
+    @Test("a draft is one of the invoices held money could settle, so it joins the band")
+    func adraftJoinsTheHeldMoneyBand() throws {
         let context = try Self.store()
         let client = Self.client(context, "Cedar Hill Youth Orchestra")
         let one = Self.invoice(context, for: client, shoot: Self.day(-30), due: Self.day(-20),
@@ -203,21 +206,61 @@ struct InvoiceListPresenterTests {
         let draft = Self.invoice(context, for: client, shoot: Self.day(-2))
 
         let list = Self.present([one, two, draft], held: [client: Money(dollars: 500)])
+        #expect(list.bands.map(\.band) == [.toPlace])
         let place = try #require(list.bands.first { $0.band == .toPlace })
-        #expect(place.rows.count == 2)
-        let drafts = try #require(list.bands.first { $0.band == .draftNeedsSending })
-        #expect(drafts.rows.count == 1)
+        #expect(place.rows.map(\.number) == ["1026", "1044", "draft"])
+        // EACH OFFERS `Use it here`, the draft as well as the sent ones, and the
+        // card counts all three under To place rather than the draft under To send.
+        #expect(place.rows.map(\.action) == Array(repeating: "Use it here", count: 3))
+        #expect(list.card == [.init(label: "To place", count: 3)])
     }
 
-    @Test("two drafts alone never make a waiting band, however much is held")
-    func twodraftsAloneNeverWait() throws {
+    @Test("two drafts are more than one open invoice, so held money waits on both")
+    func twodraftsWaitOnHeldMoney() throws {
         let context = try Self.store()
         let client = Self.client(context, "Cedar Hill Youth Orchestra")
         let a = Self.invoice(context, for: client, shoot: Self.day(-4))
         let b = Self.invoice(context, for: client, shoot: Self.day(-2))
 
         let list = Self.present([a, b], held: [client: Money(dollars: 500)])
+        #expect(list.bands.map(\.band) == [.toPlace])
+        #expect(list.bands.flatMap(\.rows).count == 2)
+    }
+
+    @Test("one draft and one sent invoice are two open invoices, and both wait")
+    func adraftAndASentInvoiceBothWait() throws {
+        // The issue's own case: money held against one issued invoice and one
+        // draft. Before ovation#453 this counted as ONE open invoice, so the money
+        // would have been applied to the sent one with no question asked.
+        let context = try Self.store()
+        let client = Self.client(context, "Cedar Hill Youth Orchestra")
+        let sent = Self.invoice(context, for: client, shoot: Self.day(-10), due: Self.day(4),
+                                number: 1044, sent: true)
+        let draft = Self.invoice(context, for: client, shoot: Self.day(-2))
+
+        let list = Self.present([sent, draft], held: [client: Money(dollars: 500)])
+        let place = try #require(list.bands.first { $0.band == .toPlace })
+        #expect(place.rows.map(\.number) == ["1044", "draft"])
+        #expect(list.bands.count == 1)
+    }
+
+    @Test("an invoice whose send is unsettled is neither a draft nor sent, and does not count")
+    func anunsettledSendIsNotCounted() throws {
+        // WHAT THE DECISION DOES NOT SAY IS LEFT AS IT WAS. Dan's words name drafts
+        // and sent invoices, and an invoice whose send could not be settled
+        // (ovation#45, ovation#460) is neither: it keeps its own band and its own
+        // question, `Mark unsent`, rather than being swept into this one.
+        let context = try Self.store()
+        let client = Self.client(context, "Alder Street Opera")
+        let draft = Self.invoice(context, for: client, shoot: Self.day(-2))
+        let unsettled = Self.invoice(context, for: client, shoot: Self.day(-18),
+                                     due: Self.day(-4), number: 1037)
+        unsettled.sentStatus = .couldNotDetermine(
+            checkedAt: Date(timeIntervalSince1970: 1_794_400_000))
+
+        let list = Self.present([draft, unsettled], held: [client: Money(dollars: 500)])
         #expect(!list.bands.contains { $0.band == .toPlace })
+        #expect(list.bands.map(\.band) == [.draftNeedsSending, .sayWhetherItWasSent])
     }
 
     @Test("one client's held money never moves another client's invoices")
