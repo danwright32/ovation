@@ -83,6 +83,11 @@ jobs:
       # ci-liveness.yml calls. This file used to carry its own copy of the lookup,
       # the exact match, the comment and the creation, and a third condition would
       # have been a third copy of all of it. This step owns the words only.
+      #
+      # IT SPEAKS WHEN THE VERDICT CHANGES, NOT ON EVERY RUN (ovation#512). The
+      # verdict is passed separately from the words so the script can compare it
+      # with the newest one already on the issue, because the words carry a date
+      # and differ every day.
       - name: Say so, once
         if: steps.ask.outputs.status == '1'
         env:
@@ -119,14 +124,18 @@ jobs:
             --body-file issue-body.md \
             --comment-file comment-body.md \
             --milestone "Design file tooling" \
-            --label priority-p2 --label ci-hygiene --label documentation
+            --label priority-p2 --label ci-hygiene --label documentation \
+            --verdict-file verdict.txt
           reported=$?
           set -e
-          # 0 filed the issue, 1 commented on the one already open. Every other
-          # code is a refusal the script has already explained, and it fails this
-          # job rather than passing quietly (L184).
+          # 0 filed the issue, 1 commented on the one already open because the
+          # verdict changed, 9 wrote nothing because the issue already says this
+          # verdict (ovation#512: this used to comment on every run, and put
+          # five identical comments on ovation#376 in one day). Every other code
+          # is a refusal the script has already explained, and it fails this job
+          # rather than passing quietly (L184).
           case "${reported}" in
-            0|1) ;;
+            0|1|9) ;;
             *) exit "${reported}" ;;
           esac
 
