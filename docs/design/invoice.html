@@ -918,6 +918,12 @@ color: var(--faint); }
 .payform .pdo { font-size: 14.5px; font-weight: 600; color: var(--accent); }
 .payform .pdo.greyed { color: var(--faint); }
 .payform .pno { font-size: 13px; color: var(--quiet); }
+/* Asked in place of Cancel and Record when a changed sheet is closed by a click
+   outside it or by Escape. */
+.payform .pask { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; width: 100%;
+                 justify-content: flex-end; font-size: 13px; color: var(--ink); }
+.payform .pask span { flex: 1 0 100%; }
+.payform .pask button { white-space: nowrap; }
 /* A check waiting to clear, under the Total of a paid invoice (round 2). */
 .clearline { display: flex; justify-content: space-between; align-items: baseline; width: 318px;
              padding-top: 6px; font-size: 12.5px; color: var(--quiet); }
@@ -1724,7 +1730,7 @@ var JUST = -1;               /* the index of the payment just recorded, marked i
 /* TODAY IN THE FIXTURE, in Eastern Time, which is what the date starts at. It is
    the date the history already gave this invoice's payment, 26 Sep, so the two
    never disagree; the menu bar's clock is chrome and predates this. */
-var TODAY_TEXT = "26 Sep 2026", TODAY_SHORT = "26 Sep", CLEARED_SHORT = "2 Oct";
+var TODAY_TEXT = "26 Sep 2026", CLEARED_SHORT = "2 Oct";
 var METHODS = ["Check", "Zelle", "Venmo", "PayPal"];   /* PRD 15, and only these */
 /* A method named inside a sentence: "by check", as this history always said,
    while the brand names keep their capitals. */
@@ -2537,7 +2543,9 @@ function buildInvoice() {
       act.setAttribute("role", "button");
       act.tabIndex = 0;
       var openSheet = function () {
-        SHEET = { amount: money(owedOn(t.total)), method: "Zelle" };
+        var opened = { amount: money(owedOn(t.total)), method: "Zelle", received: TODAY_TEXT };
+        SHEET = { amount: opened.amount, method: opened.method, received: opened.received,
+                  opened: opened, asking: false };
         redraw(function () {
           var first = document.querySelector(".sheet .pamt");
           if (first) first.focus();
@@ -2649,7 +2657,14 @@ function paymentSheet(total) {
   amount.value = SHEET.amount;
   amount.setAttribute("aria-label", "Amount");
   amount.addEventListener("input", function () { SHEET.amount = amount.value; markRecord(); });
-  var date = el("span", "pval pdate", TODAY_TEXT);
+  /* THE DATE IS ASKED FOR, starting at today (PRD 51m): a check that arrived
+     yesterday is recorded on yesterday. It is read the way the due date is, so
+     a day the month does not have is refused rather than rolled forward. */
+  var date = el("input", "pval pdate");
+  date.type = "text";
+  date.value = SHEET.received;
+  date.setAttribute("aria-label", "Received");
+  date.addEventListener("input", function () { SHEET.received = date.value; markRecord(); });
   var methods = el("div", "pmeth");
   methods.setAttribute("role", "group");
   methods.setAttribute("aria-label", "Paid by");
@@ -2674,17 +2689,19 @@ function paymentSheet(total) {
     return isFinite(n) && n > 0 ? cents(n) : null;
   }
   function markRecord() {
-    var ok = typed() !== null;
+    var amountOk = typed() !== null, dateOk = readDate(SHEET.received) !== null;
+    var ok = amountOk && dateOk;
     record.setAttribute("aria-disabled", String(!ok));
     record.classList.toggle("greyed", !ok);
-    why.textContent = ok ? "" : "Needs an amount.";
+    why.textContent = !amountOk ? "Needs an amount." : !dateOk ? "Needs a date like 26 Sep 2026." : "";
   }
   record.addEventListener("click", function () {
-    var n = typed();
-    if (n === null) return;
+    var n = typed(), on = readDate(SHEET.received);
+    if (n === null || on === null) return;
+    var when = new Date(on).getUTCDate() + " " + MONTHS[new Date(on).getUTCMonth()];
     var owed = owedOn(total);
     var held = Math.max(0, cents(n - owed));
-    PAYMENTS.push({ amount: n, method: SHEET.method, when: TODAY_SHORT,
+    PAYMENTS.push({ amount: n, method: SHEET.method, when: when,
                     cleared: SHEET.method !== "Check", clearedWhen: null, held: held });
     if (held > 0) HELD_ON_CLIENT = cents(HELD_ON_CLIENT + held);
     if (n >= owed) { INVSTATE = "paid"; markInvoiceStates(); }
@@ -2701,12 +2718,38 @@ function paymentSheet(total) {
      dimmed window outside it. Nothing is lost by it, since the sheet opens at
      what is owed each time. Enter in the amount records, as it saves in the due
      panel. */
+  /* A CLICK OUTSIDE OR ESCAPE CLOSES IT ONLY IF NOTHING WAS CHANGED (Dan,
+     2026-09-25): "A click outside can close it but warn if I've changed
+     anything". Closing a panel by accident is not a decision to discard what is
+     in it (L628), so with a change it asks instead. Cancel is a decision, and
+     closes without asking. */
+  function changed() {
+    var o = SHEET.opened;
+    return SHEET.amount !== o.amount || SHEET.method !== o.method || SHEET.received !== o.received;
+  }
+  function closeIncidentally() {
+    if (!changed()) { SHEET = null; redraw(); return; }
+    SHEET.asking = true;
+    redraw();
+  }
   dim.addEventListener("click", function (e) {
-    if (e.target === dim) { SHEET = null; redraw(); }
+    if (e.target === dim) closeIncidentally();
   });
   sheet.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") { e.preventDefault(); SHEET = null; redraw(); }
+    if (e.key === "Escape") { e.preventDefault(); closeIncidentally(); }
   });
+  if (SHEET.asking) {
+    var ask = el("div", "pask");
+    ask.append(el("span", null, "Close without recording this payment?"));
+    var keep = el("button", "pno", "Keep editing");
+    keep.type = "button";
+    keep.addEventListener("click", function () { SHEET.asking = false; redraw(); });
+    var drop = el("button", "pdo", "Close");
+    drop.type = "button";
+    drop.addEventListener("click", function () { SHEET = null; redraw(); });
+    ask.append(keep, drop);
+    foot.replaceChildren(ask);
+  }
   amount.addEventListener("keydown", function (e) {
     if (e.key === "Enter") { e.preventDefault(); record.click(); }
   });
