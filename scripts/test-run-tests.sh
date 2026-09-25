@@ -77,7 +77,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 286
+harness_begin "test runner lock tests" 287
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -1712,6 +1712,11 @@ counted_status() { counted_run "$@" >/dev/null 2>&1; printf '%s' "$?"; }
 
 check "a run that matches its floor exactly passes" "$(counted_status 100 100)" "0"
 check "a run BELOW its floor is refused" "$(counted_status 60 100)" "7"
+# AND A SHORT RUN IS NEVER HANDED A NUMBER TO PASTE, for the shell suite floor's
+# reason (ovation#351, case 11f4): writing what a short run counted is how the
+# floor stops seeing the tests that dropped out (L11, L93, L30).
+check "a short run is given no pure floor to paste, because that would silence the check" \
+    "$(counted_run 60 100 | grep -c "printf '%s.n'")" "0"
 
 OUT157="$(counted_run 140 100)"
 check "a run ABOVE its floor is refused too, because a floor that never moves stops being one" \
