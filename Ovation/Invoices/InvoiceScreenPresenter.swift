@@ -596,13 +596,56 @@ final class InvoiceScreenPresenter {
         return rows
     }
 
+    /// What a value typed into the discount's field asks for. ovation#495.
+    ///
+    /// AN UNREADABLE VALUE IS A ZERO OF THE UNIT IN FORCE, which is how
+    /// `docs/design/invoice.html` handles it: its field reads `isFinite(n) ? n :
+    /// 0` and keeps `DISCOUNT.kind`. Dan decided on 2026-09-23 that the app
+    /// follows the record here, which retired an earlier version that left the
+    /// discount alone.
+    ///
+    /// WHAT IS READABLE IS `Hundredths`'s answer, the one parser every typed
+    /// figure goes through (L370), each unit stripping only its own sign so a
+    /// figure typed into one cannot be read as the other's (L118).
+    ///
+    /// READABLE BUT REFUSED IS NIL, and the discount is left where it is. A share
+    /// outside nothing to everything and a negative amount are what `Discount`'s
+    /// own initialisers refuse, and the decision is about a value that cannot be
+    /// read, not about one that can.
+    static func discountAsked(typed: String, isPercent: Bool) -> Discount? {
+        let read = Hundredths.read(typed, stripping: isPercent ? "%" : "$") ?? 0
+        return isPercent
+            ? Discount(percentBasisPoints: read)
+            : Discount(dollars: Money(cents: read))
+    }
+
+    /// What committing a typed discount saves, and what the field then shows.
+    /// ovation#495.
+    ///
+    /// THE FIELD SHOWS WHAT WAS SAVED, as the design record's redraw does. The
+    /// store's own reseed fires only when the discount CHANGES, so an unreadable
+    /// value typed over a discount already at zero would otherwise stay in the
+    /// field while the invoice carried the zero, and the field would say
+    /// something the invoice does not. Nil where the discount refuses the value
+    /// and nothing is saved.
+    struct DiscountCommit: Equatable {
+        let discount: Discount
+        let fieldShows: String
+    }
+
+    static func discountCommitted(typed: String, isPercent: Bool) -> DiscountCommit? {
+        guard let discount = discountAsked(typed: typed, isPercent: isPercent),
+              let shown = discountEdit(discount) else { return nil }
+        return DiscountCommit(discount: discount, fieldShows: shown.typed)
+    }
+
     /// The discount as the field shows it.
     ///
     /// THE SHARE, NOT THE FIGURE IT COMES TO, because the share is what Dan
     /// typed and what he would change (PRD 5.4a). It goes out through the same
     /// `Hundredths` that reads it back, so editing a discount cannot change it
     /// by looking at it (L317).
-    private static func discountEdit(_ discount: Discount?) -> DiscountEdit? {
+    static func discountEdit(_ discount: Discount?) -> DiscountEdit? {
         guard let discount else { return nil }
         if let points = discount.percentBasisPoints {
             return DiscountEdit(isPercent: true, typed: Hundredths.text(points))

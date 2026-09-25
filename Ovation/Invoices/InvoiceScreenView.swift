@@ -682,13 +682,10 @@ struct InvoiceScreenView: View {
     /// The discount's own line, seeded from the store and handing back what was
     /// typed.
     ///
-    /// AN UNREADABLE VALUE LEAVES THE DISCOUNT ALONE, and that is a deliberate
-    /// difference from the design record, filed as ovation#495. The record's own
-    /// field turns anything it cannot read into a ZERO, and a zero discount is a
-    /// legitimate recorded decision rather than an absence (PRD 5.1b), so that
-    /// would write a decision nobody made and leave an invoice indistinguishable
-    /// from one discounted to nothing on purpose (L340). It is also what the
-    /// line's amount field already does, for the reason the record gives there.
+    /// AN UNREADABLE VALUE IS A ZERO OF THE UNIT IN FORCE, which is how the
+    /// design record's own field handles it and what Dan decided on 2026-09-23
+    /// (ovation#495). `InvoiceScreenPresenter.discountAsked` says what a typed
+    /// value asks for.
     private func discountControls(_ editing: InvoiceScreenPresenter.DiscountEdit) -> some View {
         DiscountLine(isPercent: discountIsPercent,
                      value: $discountTyped,
@@ -712,23 +709,14 @@ struct InvoiceScreenView: View {
             }
     }
 
-    /// Reads what was typed and saves it, or leaves the discount as it is.
-    ///
-    /// THE TWO UNITS READ THROUGH ONE PARSER, each stripping only its own sign,
-    /// so a figure typed into one cannot be read as the other's (L118).
+    /// Reads what was typed and saves it, or leaves the discount as it is where
+    /// the value is one the discount refuses. The field then shows what was
+    /// saved, for the reason `InvoiceScreenPresenter.discountCommitted` gives.
     private func commitDiscount() {
-        guard let read = Hundredths.read(discountTyped,
-                                         stripping: discountIsPercent ? "%" : "$")
-        else { return }
-        let wanted = discountIsPercent
-            ? Discount(percentBasisPoints: read)
-            : Discount(dollars: Money(cents: read))
-        // REFUSED BY THE TYPE, NOT BY A SECOND RULE HERE. A share outside
-        // nothing to everything and a negative amount are what `Discount`'s own
-        // initialisers refuse, and a control that refused them again would be a
-        // second place for that rule to live (L370).
-        guard let wanted else { return }
-        setDiscount?(wanted)
+        guard let commit = InvoiceScreenPresenter.discountCommitted(
+            typed: discountTyped, isPercent: discountIsPercent) else { return }
+        setDiscount?(commit.discount)
+        discountTyped = commit.fieldShows
     }
 
     // MARK: the tax status question
