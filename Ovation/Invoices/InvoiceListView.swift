@@ -49,6 +49,10 @@ struct InvoiceListView: View {
     /// confirms before anything changes. Nil where nothing can write.
     var settle: ((PersistentIdentifier) -> Void)?
 
+    /// ovation#517. Opening the review sheet over a draft, over the list, so
+    /// closing it leaves Dan here. Nil where nothing can review.
+    var review: ((PersistentIdentifier) -> Void)?
+
     /// The column widths, from the design record's own `--cols`. Named here once
     /// so the header and every row are laid out by one declaration and cannot
     /// drift apart (L553).
@@ -298,7 +302,7 @@ struct InvoiceListView: View {
                 // treatment withdraws is the OFFER that the word itself will do
                 // what it says.
                 ActionWord(word: action, size: 12.5,
-                           press: Self.press(action, on: row, open: open, settle: settle),
+                           press: Self.press(action, on: row, open: open, settle: settle, review: review),
                            notYet: Self.notYet(action))
             }
         }
@@ -312,7 +316,8 @@ struct InvoiceListView: View {
     /// two that can disagree (L70).
     private static func press(_ action: String, on row: InvoiceListPresenter.Row,
                               open: ((PersistentIdentifier) -> Void)?,
-                              settle: ((PersistentIdentifier) -> Void)?)
+                              settle: ((PersistentIdentifier) -> Void)?,
+                              review: ((PersistentIdentifier) -> Void)?)
         -> (() -> Void)? {
         switch InvoiceListPresenter.Action.destination(of: action) {
         case .theInvoiceScreen:
@@ -321,6 +326,9 @@ struct InvoiceListView: View {
         case .settleTheSend:
             guard let settle else { return nil }
             return { settle(row.invoiceID) }
+        case .theReviewSheet:
+            guard let review else { return nil }
+            return { review(row.invoiceID) }
         case nil:
             return nil
         }

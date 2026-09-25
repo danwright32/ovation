@@ -244,15 +244,14 @@ final class InvoiceListPresenter {
         ///
         /// TOTAL, AND EACH ANSWER IS A DECISION. A word added later has to be
         /// answered here rather than taking a default that reads as considered
-        /// (L113, L129). Today two have somewhere to go, and this is the
+        /// (L113, L129). Today three have somewhere to go, and this is the
         /// measurement rather than an impression:
         ///
         ///   `Add hours`        the invoice screen, which the list already opens
         ///                      and which is where the shoot's times are typed
         ///                      (ovation#467). LIVE.
-        ///   `Send`             the review sheet, which exists and is presented
-        ///                      only from `ReviewSamplesCommand` under `#if
-        ///                      DEBUG` (ovation#318). ovation#42 wires it.
+        ///   `Send`             the review sheet over that invoice, opened over
+        ///                      the list (ovation#517). LIVE.
         ///   `Add date`         setting the invoice's own date, which no screen
         ///                      offers: the invoice screen types the SHOOT's
         ///                      times and nothing else.
@@ -271,6 +270,7 @@ final class InvoiceListPresenter {
             switch action {
             case addHours: return .theInvoiceScreen
             case markUnsent: return .settleTheSend
+            case send: return .theReviewSheet
             default: return nil
             }
         }
@@ -280,6 +280,8 @@ final class InvoiceListPresenter {
             case theInvoiceScreen
             /// Marking the send as not sent, in place, once Dan has confirmed.
             case settleTheSend
+            /// The review sheet over that invoice, opened over the list (ovation#517).
+            case theReviewSheet
         }
     }
 

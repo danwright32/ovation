@@ -108,8 +108,9 @@ struct ShellView: View {
     /// ovation#471. The unsettled send Dan asked to mark as not sent, awaiting his
     /// confirmation, with the sentence naming what it does to that invoice.
     @State private var settling: Settling?
-    /// Why the last Mark unsent did not happen, said on the list (L109).
-    @State private var refusedSettle: String?
+    /// Why the last Mark unsent or Send from the list did not happen, said on the
+    /// list where it was pressed (L109).
+    @State private var refusedOnTheList: String?
     /// Why the last Review could not be opened, or nil. Said, never swallowed: a
     /// control that silently does nothing leaves pressing it again as the only
     /// diagnosis (L109, L148).
@@ -141,18 +142,33 @@ struct ShellView: View {
     // MARK: the review (ovation#42)
 
     private func startReview() {
-        guard let reviewer, let openedInvoiceID else { return }
+        guard let openedInvoiceID else { return }
         refusedReview = nil
+        review(openedInvoiceID) { refusal in refusedReview = refusal }
+    }
+
+    /// ovation#517. Send from the list: the same review, opened over the list, so
+    /// closing it leaves Dan on the list (Dan, 2026-09-24). A refusal is said on
+    /// the list, where the press was.
+    private func startReviewFromTheList(_ invoiceID: PersistentIdentifier) {
+        refusedOnTheList = nil
+        review(invoiceID) { refusal in refusedOnTheList = refusal }
+    }
+
+    /// Opens the review of one invoice, whichever screen asked, through the one
+    /// reviewer, so what is sent never depends on where the press came from.
+    private func review(_ invoiceID: PersistentIdentifier, refused: @escaping (String) -> Void) {
+        guard let reviewer else { return }
         Task {
-            switch await reviewer.open(openedInvoiceID) {
+            switch await reviewer.open(invoiceID) {
             case .success(let review):
                 reviewOnScreen.opened(review)
                 openReview = review
-            case .failure(let refusal): refusedReview = refusal.sentence
+            case .failure(let refusal): refused(refusal.sentence)
             }
-            // THE NUMBER MAY HAVE BEEN TAKEN, so the screen behind the sheet is built
-            // again and shows it.
-            openedInvoice = openInvoice?(openedInvoiceID)
+            // THE NUMBER MAY HAVE BEEN TAKEN, so the invoice screen behind the sheet,
+            // when that is where it opened, is built again and shows it.
+            if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
         }
     }
 
@@ -169,9 +185,9 @@ struct ShellView: View {
 
     /// Asks before anything changes, naming the invoice's own number (L180, L608).
     private func askToSettle(_ invoiceID: PersistentIdentifier) {
-        refusedSettle = nil
+        refusedOnTheList = nil
         guard let consequence = reviewer?.confirmation(forSettling: invoiceID) else {
-            refusedSettle = SendSettleRefusal.noSuchInvoice.sentence
+            refusedOnTheList = SendSettleRefusal.noSuchInvoice.sentence
             return
         }
         settling = Settling(invoiceID: invoiceID, consequence: consequence)
@@ -179,7 +195,7 @@ struct ShellView: View {
 
     private func settle(_ invoiceID: PersistentIdentifier) {
         settling = nil
-        Task { refusedSettle = await reviewer?.markNotSent(invoiceID) }
+        Task { refusedOnTheList = await reviewer?.markNotSent(invoiceID) }
     }
 
     /// The sheet went away by a route no control saw, the Escape key.
@@ -474,7 +490,8 @@ struct ShellView: View {
                                     openedInvoice = openInvoice?(id)
                                     publishWhatIsOpen()
                                 },
-                                settle: reviewer == nil ? nil : { id in askToSettle(id) })
+                                settle: reviewer == nil ? nil : { id in askToSettle(id) },
+                                review: reviewer == nil ? nil : { id in startReviewFromTheList(id) })
                     .confirmationDialog("Mark unsent?", isPresented: settlingIsAsked,
                                         presenting: settling) { asked in
                         Button("Mark unsent", role: .destructive) { settle(asked.invoiceID) }
@@ -485,8 +502,8 @@ struct ShellView: View {
                     // RESERVED AT THE FOOT, never laid over the rows, so a refusal
                     // cannot cover the last one at the real count (L189).
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if let refusedSettle {
-                            Text(refusedSettle)
+                        if let refusedOnTheList {
+                            Text(refusedOnTheList)
                                 .font(.system(size: 12.5))
                                 .foregroundStyle(OvationPalette.ink)
                                 .padding(.horizontal, 24)

@@ -33,13 +33,24 @@ struct ActionDestinationTests {
         #expect(InvoiceListPresenter.cardLine(for: word) == "To confirm")
     }
 
+    /// ovation#517. SEND OPENS THE REVIEW SHEET over that invoice, the same sheet
+    /// the invoice screen's Review opens, so what is sent never depends on where
+    /// the press came from.
+    @Test("Send opens the review sheet, and still counts under To send")
+    func sendOpensTheReviewSheet() {
+        let word = InvoiceListPresenter.Action.send
+        #expect(InvoiceListPresenter.Action.destination(of: word) == .theReviewSheet)
+        #expect(InvoiceListPresenter.cardLine(for: word) == "To send")
+    }
+
     /// AND EVERY OTHER WORD HAS NOWHERE TO GO TODAY. Enumerated from the same
     /// list the words themselves come from, so a word added later is answered
     /// here rather than taking a default that reads as a considered decision
     /// (L41, L113).
     @Test("every other word has nowhere to go, and is enumerated rather than assumed")
     func everyotherWordHasNowhereToGo() {
-        let live = [InvoiceListPresenter.Action.addHours, InvoiceListPresenter.Action.markUnsent]
+        let live = [InvoiceListPresenter.Action.addHours, InvoiceListPresenter.Action.markUnsent,
+                    InvoiceListPresenter.Action.send]
         let expected = Set(InvoiceListPresenter.Action.all).subtracting(live)
 
         let nowhere = Set(InvoiceListPresenter.Action.all
