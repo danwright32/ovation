@@ -239,11 +239,16 @@ final class InvoiceReview: Identifiable {
     /// ready again; a refusal is said in place of the outcome.
     func markNotSent() async {
         guard case .couldNotTell = state else { return }
+        // LET GO OF THE NUMBER BEFORE THE WRITE, not after it. A Close landing while
+        // the settle saves would otherwise find the invoice a draft again and this
+        // review still claiming the number, and hand it back (L157). A refused settle
+        // loses nothing by it: the invoice is still sent or unsettled, and the
+        // allocator refuses to release either.
+        numberTakenHere = nil
         if let refusal = await performSettle(self) {
             state = .couldNotTell(refusal)
             return
         }
-        numberTakenHere = nil
         state = .ready
     }
 }

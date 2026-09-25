@@ -304,6 +304,39 @@ struct InvoiceReviewerTests {
         #expect(after.number == number)
     }
 
+    /// A CLOSE THAT LANDS WHILE THE SETTLE IS SAVING must not hand the number back.
+    /// The settle here closes the review right after its write, which is the worst
+    /// timing a Close pressed mid-save can have: the invoice is a draft again, so the
+    /// allocator would allow the release if the review still claimed the number (L157).
+    @Test("a close landing while Mark unsent is saving does not hand the number back")
+    func acloseMidSettleKeepsTheNumber() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = InvoiceSenderTests.FakeGmail()
+        gmail.answer = .neverAnswers(URLError(.timedOut))
+        let reviewer = Self.reviewer(container, settings: try Self.settingsFile(Self.clients), gmail: gmail)
+        let real = try await reviewer.open(id).get()
+        let number = real.number
+        let probe = InvoiceReview(
+            invoiceID: real.invoiceID, number: real.number, numberTakenHere: real.numberTakenHere,
+            presenter: real.presenter, subject: real.subject, message: real.message,
+            destinationWarning: real.destinationWarning, goingTo: real.goingTo,
+            send: { _ in },
+            settle: { review in
+                let refusal = await reviewer.markNotSent(review.invoiceID)
+                await reviewer.close(review)
+                return refusal
+            })
+        await real.send()
+        probe.state = real.state
+        guard case .couldNotTell = probe.state else { Issue.record("got \(probe.state)"); return }
+
+        await probe.markNotSent()
+
+        let after = try Self.invoice(id, in: container)
+        #expect(after.sentStatus == .notSent)
+        #expect(after.number == number, "a close mid-settle handed the number back")
+    }
+
     @Test("marking as not sent from the list settles the send and keeps the number")
     func markingFromTheListSettles() async throws {
         let (container, id) = try Self.draft(numbered: 1_123)
