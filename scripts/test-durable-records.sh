@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.." || exit 1
 # The one declaration the cases below use, cleared so a value inherited from the
 # shell that launched this suite cannot answer for a case (L439).
 unset OVATION_SUITE_RECORD_STAGED
-harness_begin "durable record tests" 28
+harness_begin "durable record tests" 31
 
 RULE="scripts/lib/durable-record.sh"
 TARGET="scripts/check-durable-records.sh"
@@ -90,6 +90,16 @@ check "and it is named as routed, so the count is read" "$(says "$OUT" "routed.s
 printf 'LOG="${OVATION_X_LOG:-}"\n' >> "$TREE/scripts/routed.sh"
 OUT="$(run_check)"; ST=$?
 check "a writer whose variable is also assigned around the rule is refused" "$ST" "1"
+
+# 1c. THE TARGET MUST BE THE ROUTED VARIABLE EXACTLY. A path built FROM it is
+#     another file the rule never judged: `${LOG}.bak` beside the record, or the
+#     record's name with something else joined on (L266).
+for built in '"${LOG}.bak"' '"$LOG"x' '"${LOG}${OTHER}"'; do
+    reset_tree
+    printf 'LOG="$(durable_record_path real OVATION_X_RECORD_STAGED "" "$HOME/x.tsv")"\nprintf "a\\n" >> %s\n' "$built" > "$TREE/scripts/built.sh"
+    OUT="$(run_check)"; ST=$?
+    check "an append to $built, built from a routed variable, is refused" "$ST:$(says "$OUT" "UNROUTED: scripts/built.sh:2")" "1:yes"
+done
 
 # 2. The defect: an append to a durable path that never asks.
 reset_tree

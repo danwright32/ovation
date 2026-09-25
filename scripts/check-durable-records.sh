@@ -52,10 +52,15 @@ NOT_A_FILE = re.compile(r'^(?:&\d|/dev/(?:null|stderr|stdout|fd/\d+))$')
 
 
 def variable_in(target):
-    """The variable a write target is built from, or None for a literal path."""
-    found = re.match(r'^\$\{?([A-Za-z_][A-Za-z0-9_]*)', target)
+    """The variable a write target IS, or None for anything else.
+
+    EXACTLY `$NAME` or `${NAME}`, anchored at both ends. It was anchored only at
+    the start, so `${LOG}.bak` and `${LOG}${OTHER}` read as the routed record
+    while writing a file the rule never judged (L266). A target that merely
+    begins with a variable is a path built from it, which is unrouted."""
+    found = re.match(r'^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$', target)
     if found:
-        return found.group(1)
+        return found.group(1) or found.group(2)
     found = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)$', target)
     return found.group(1) if found else None
 
