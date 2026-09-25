@@ -1730,7 +1730,9 @@ var METHODS = ["Check", "Zelle", "Venmo", "PayPal"];   /* PRD 15, and only these
    while the brand names keep their capitals. */
 function methodWord(m) { return m === "Check" ? "check" : m; }
 var NUMBER = "1042";         /* the header and the sheet read this one value */
-var LAST_TOTAL = 0;          /* the total the invoice last drew, which the sheet is opened over */
+var LAST_TOTAL = 0;
+/* Marks the state switch above the window; set once the switch is built. */
+var markInvoiceStates = function () {};          /* the total the invoice last drew, which the sheet is opened over */
 
 function paidSoFar() {
   return PAYMENTS.reduce(function (sum, p) { return sum + p.amount - p.held; }, 0);
@@ -2685,7 +2687,7 @@ function paymentSheet(total) {
     PAYMENTS.push({ amount: n, method: SHEET.method, when: TODAY_SHORT,
                     cleared: SHEET.method !== "Check", clearedWhen: null, held: held });
     if (held > 0) HELD_ON_CLIENT = cents(HELD_ON_CLIENT + held);
-    if (n >= owed) INVSTATE = "paid";
+    if (n >= owed) { INVSTATE = "paid"; markInvoiceStates(); }
     JUST = PAYMENTS.length - 1;
     PANE_OPEN = true;
     SHEET = null;
@@ -2695,6 +2697,19 @@ function paymentSheet(total) {
   form.append(foot);
   sheet.append(form);
   dim.append(sheet);
+  /* CLOSED THE WAY EVERY OTHER PANEL IN THIS FILE IS: Escape, or a click on the
+     dimmed window outside it. Nothing is lost by it, since the sheet opens at
+     what is owed each time. Enter in the amount records, as it saves in the due
+     panel. */
+  dim.addEventListener("click", function (e) {
+    if (e.target === dim) { SHEET = null; redraw(); }
+  });
+  sheet.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { e.preventDefault(); SHEET = null; redraw(); }
+  });
+  amount.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); record.click(); }
+  });
   markRecord();
   return dim;
 }
@@ -3019,16 +3034,21 @@ function buildInvoiceScreen() {
       /* A new state starts with no payments recorded through the sheet. */
       PAYMENTS = []; SHEET = null; JUST = -1;
       if (INVSTATE !== "draft") ensureIssued();
-      [].forEach.call(bar.querySelectorAll(".sbtn:not(.dbtn)"), function (o, i) {
-        o.setAttribute("aria-pressed", String(choices[i][0] === INVSTATE));
-      });
+      markInvoiceStates();
       redraw();
     });
     bar.append(b);
   });
-  [].forEach.call(bar.querySelectorAll(".sbtn:not(.dbtn)"), function (o, i) {
-    o.setAttribute("aria-pressed", String(i === 0));
-  });
+  /* ONE FUNCTION MARKS WHICH STATE IS PRESSED, called by these buttons and by
+     Record in the payment sheet, which moves the invoice to paid on its own. The
+     switch kept showing "sent" over a paid invoice until Record called it too
+     (ovation#510). */
+  markInvoiceStates = function () {
+    [].forEach.call(bar.querySelectorAll(".sbtn:not(.dbtn)"), function (o, i) {
+      o.setAttribute("aria-pressed", String(choices[i][0] === INVSTATE));
+    });
+  };
+  markInvoiceStates();
   anchor.parentNode.insertBefore(bar, anchor.nextSibling);
 
   /* TWO FIXTURE SWITCHES ON ONE ROW: how much of the invoice the balance covers,
