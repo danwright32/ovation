@@ -454,13 +454,15 @@ check "and the later waiter's ticket is all that is left in the queue" \
 kill "$LATER_PID" 2>/dev/null; wait "$LATER_PID" 2>/dev/null
 
 # A HELD LOCK past the deadline is a refusal that says it waited, names the
-# holder, and leaves the queue and the holder's lock as they were.
+# holder, and leaves the queue and the holder's lock as they were. A deadline of
+# 0 reaches that path on the first look, so no case here waits on the real clock
+# (L290, L524).
 fresh_tree; stub_generator 0; rm -rf "$QUEUE"
 mkdir -p "$WORK/lock"; printf 'Downbeat:4321\n' > "$WORK/lock/owner"
-OUT="$(run_it --wait 1)"; RC=$?
+OUT="$(run_it --wait 0)"; RC=$?
 check "a lock still held at the deadline is refused" "$RC" "1"
 check "and it says it gave up after waiting, naming the holder" \
-    "$(grep -c "gave up after .* of 1s.*4321" <<< "$OUT")" "1"
+    "$(grep -c "gave up after .* of 0s.*4321" <<< "$OUT")" "1"
 check "and it did NOT generate, the holder keeps the lock, and it left the queue" \
     "$([ -f "$WORK/generated.txt" ] && echo generated || echo no):$(head -1 "$WORK/lock/owner"):$(waiting_ticket_count)" "no:Downbeat:4321:0"
 rm -rf "$WORK/lock"
@@ -476,9 +478,9 @@ check "and says nothing about waiting" "$(grep -c "WAITING" <<< "$OUT")" "0"
 # used wrongly too.
 fresh_tree; stub_generator 0; rm -rf "$QUEUE"
 mkdir -p "$WORK/lock"; printf 'Downbeat:4321\n' > "$WORK/lock/owner"
-OUT="$(OVATION_REGENERATE_WAIT=1 run_it)"; RC=$?
+OUT="$(OVATION_REGENERATE_WAIT=0 run_it)"; RC=$?
 check "OVATION_REGENERATE_WAIT waits as --wait does, and gives up by name" \
-    "$RC:$(grep -c "gave up after .* of 1s" <<< "$OUT")" "1:1"
+    "$RC:$(grep -c "gave up after .* of 0s" <<< "$OUT")" "1:1"
 rm -rf "$WORK/lock"
 check "and a bad OVATION_REGENERATE_WAIT is used wrongly" \
     "$(OVATION_REGENERATE_WAIT=soon status_of)" "4"
