@@ -32,7 +32,27 @@ xcuserdata/
 # Committing it would give the repository two descriptions of one project that
 # drift silently, and the generated one is what Xcode actually reads (L41).
 # This is a deliberate DIFFERENCE from the port source, which commits its project.
-Ovation.xcodeproj/
+#
+# EXCEPT ITS PACKAGE RESOLUTION (ovation#421). SwiftPM writes the revision every
+# package resolved to into Package.resolved INSIDE the generated project, and
+# that file is not generated from project.yml: it is the lock file. Ignored with
+# the rest, no resolved revision existed anywhere in version control, so a tag
+# moved under an exact version would move the build with no diff (L25, L496).
+# Committed, a build that resolves differently rewrites a TRACKED file, and
+# scripts/check-package-resolution.sh refuses on it. Overture commits the same
+# file at the same path, as part of committing its whole project.
+#
+# Spelled one level at a time, because git cannot re-include a file under a
+# directory it has excluded: each level ignores its contents and re-includes
+# only the next directory down. scripts/test-gitignore.sh holds both halves.
+/Ovation.xcodeproj/*
+!/Ovation.xcodeproj/project.xcworkspace/
+/Ovation.xcodeproj/project.xcworkspace/*
+!/Ovation.xcodeproj/project.xcworkspace/xcshareddata/
+/Ovation.xcodeproj/project.xcworkspace/xcshareddata/*
+!/Ovation.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+/Ovation.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/*
+!/Ovation.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 # Swift Package Manager working directories.
 .build/

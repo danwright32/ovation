@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode project regeneration tests" 47
+harness_begin "xcode project regeneration tests" 50
 
 TARGET="scripts/regenerate-xcode-project.sh"
 require_target "$TARGET"
@@ -134,6 +134,23 @@ mkdir -p "$WORK/tree/Ovation.xcodeproj"
 printf 'old\n' > "$WORK/tree/Ovation.xcodeproj/marker.txt"
 run_it >/dev/null
 check "a successful run leaves no copy of the old project behind" \
+    "$(find "$WORK/tree" -maxdepth 1 -name 'Ovation.xcodeproj*' | wc -l | tr -d ' ')" "1"
+
+# 5e. THE COMMITTED PACKAGE RESOLUTION SURVIVES A REGENERATION (ovation#421). It
+#     is a tracked file inside the project, and the old project is moved aside
+#     and dropped, so without carrying it over every regeneration would delete a
+#     committed file and leave the next build to resolve every package afresh,
+#     which is the floating that committing it exists to end. The stub generator
+#     writes an empty project, as xcodegen writes one with no resolution in it.
+RESOLVED_IN="project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+fresh_tree; stub_generator 0
+mkdir -p "$WORK/tree/Ovation.xcodeproj/$(dirname "$RESOLVED_IN")"
+printf '{ "pins" : [ "the committed resolution" ] }\n' > "$WORK/tree/Ovation.xcodeproj/$RESOLVED_IN"
+OUT="$(run_it)"; RC=$?
+check "a regeneration over a project holding the committed resolution succeeds" "$RC" "0"
+check "and the new project carries the committed resolution, byte for byte" \
+    "$(cat "$WORK/tree/Ovation.xcodeproj/$RESOLVED_IN" 2>/dev/null)" '{ "pins" : [ "the committed resolution" ] }'
+check "and nothing of the old project is left beside it" \
     "$(find "$WORK/tree" -maxdepth 1 -name 'Ovation.xcodeproj*' | wc -l | tr -d ' ')" "1"
 
 # 5d. AN EMPTY PATH IS REFUSED BEFORE ANY DELETE. This script deletes things, and

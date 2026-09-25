@@ -1,0 +1,24 @@
+{
+  "originHash" : "e2258ed096008c391de60429bc13ce46a66d538cbef889426f369b68c25e1576",
+  "pins" : [
+    {
+      "identity" : "backstage",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/danwright32/backstage",
+      "state" : {
+        "revision" : "515c80694088b2fc8a4ea006eb9ff071320eeb47",
+        "version" : "0.3.0"
+      }
+    },
+    {
+      "identity" : "viewinspector",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nalexn/ViewInspector",
+      "state" : {
+        "revision" : "e9a06346499a3a889165647e3f23f8a7b2609a1c",
+        "version" : "0.10.3"
+      }
+    }
+  ],
+  "version" : 3
+}

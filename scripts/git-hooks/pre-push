@@ -449,6 +449,12 @@ gate_check check-app-icon-current.sh "the committed icon catalog is not what the
 # allowed: the next run generates one from these very directories.
 gate_check check-xcode-project-current.sh "the generated Xcode project does not list the Swift files on disk; run bash scripts/regenerate-xcode-project.sh."
 
+# ovation#421. The package resolution is committed, inside the generated project,
+# and a build on this Mac that resolved differently has rewritten it. Pushing
+# then sends commits CI will build against the committed resolution while this
+# Mac's suite judged them against another. Asked in seconds, from git alone.
+gate_check check-package-resolution.sh "the package resolution on disk is not the one HEAD commits."
+
 # The launch sequence must be WIRED into the entry point. ovation#88: the store
 # schema guard was written and fully tested and then called by nothing, because
 # the file carrying @main is the one file the pure test target cannot compile, so

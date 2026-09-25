@@ -229,6 +229,24 @@ if ! ( cd "${REPO_ROOT}" && "${XCODEGEN}" generate ) >/dev/null 2>&1; then
     exit 2
 fi
 
+# THE COMMITTED PACKAGE RESOLUTION IS CARRIED OVER (ovation#421). It is a tracked
+# file inside the project, and xcodegen writes a project with none, so dropping
+# the old project with it would delete a committed file and leave the next build
+# to resolve every package afresh: the floating that committing it exists to
+# end. Copied before the old project is dropped, and a copy that fails is a
+# refusal with the old project put back, never a regeneration reported as done
+# over a tree that lost its lock file (L5).
+RESOLVED_IN="project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+if [ -f "${ASIDE}/${RESOLVED_IN}" ] && [ ! -e "${PROJECT}/${RESOLVED_IN}" ]; then
+    if ! { mkdir -p "$(dirname "${PROJECT}/${RESOLVED_IN}")" \
+        && cp -p "${ASIDE}/${RESOLVED_IN}" "${PROJECT}/${RESOLVED_IN}"; }; then
+        echo "REFUSED: the regenerated project could not be given the committed package" >&2
+        echo "         resolution from the old one, so the project that was there has been" >&2
+        echo "         put back rather than losing it." >&2
+        exit 2
+    fi
+fi
+
 # THE NEW ONE EXISTS, so the old one is no longer wanted. Dropped here rather
 # than left for the trap, which would put it back over the new project.
 rm -rf "${ASIDE}" 2>/dev/null || true

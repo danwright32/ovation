@@ -94,5 +94,21 @@ if [ "$STATUS" -ne 0 ]; then
     exit "$STATUS"
 fi
 
+# AND THEY WERE BUILT AGAINST THE PACKAGES THE REPOSITORY COMMITS (ovation#421).
+# The package resolution is a tracked file inside the project, and a build that
+# resolves differently rewrites it and goes on building, so a moved package would
+# otherwise be a line in `git status` nobody is made to read. Asked here, after
+# both builds have resolved, because this is the command CI runs and the one the
+# push gate builds with. Injectable so scripts/test-build-products.sh can stage a
+# refusal; the default is the real check.
+RESOLUTION_CHECK="${OVATION_RESOLUTION_CHECK:-${REPO_ROOT}/scripts/check-package-resolution.sh}"
+"${RESOLUTION_CHECK}"
+RESOLUTION_STATUS=$?
+if [ "${RESOLUTION_STATUS}" -ne 0 ]; then
+    echo "The products were built, against a package resolution that is not the one" >&2
+    echo "HEAD commits (above), so they are not ready to be judged." >&2
+    exit "${RESOLUTION_STATUS}"
+fi
+
 echo "${CONFIGURATIONS// / and } are built and ready for scripts/run-tests.sh."
 exit 0

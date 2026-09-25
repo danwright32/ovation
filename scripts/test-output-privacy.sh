@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 123
+harness_begin "output privacy tests" 125
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -1121,6 +1121,30 @@ check "the Xcode project currency check prints no identity when it refuses" \
     "$(leaks_in "$(OVATION_REPO_ROOT="$PROJTREE" OVATION_XCODE_PROJECT="$PROJTREE/Ovation.xcodeproj" ./scripts/check-xcode-project-current.sh 2>&1)")" "clean"
 check "and that refusal really did name a file, so the case reached the line that prints" \
     "$(OVATION_REPO_ROOT="$PROJTREE" OVATION_XCODE_PROJECT="$PROJTREE/Ovation.xcodeproj" ./scripts/check-xcode-project-current.sh 2>&1 | grep -c 'App/Unlisted.swift')" "1"
+
+# ---------------------------------------------------------------------------
+# THE PACKAGE RESOLUTION CHECK (ovation#421). It prints package identities,
+# versions and short revisions, never a line of the file and never a package's
+# location, which is a URL and the one free text field in it. The identity is
+# planted in the location and in a field SwiftPM does not define, and a
+# revision is moved so the refusal reaches the lines that print.
+# ---------------------------------------------------------------------------
+PRTREE="$WORK/resolutiontree"
+PRFILE="Ovation.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+mkdir -p "$PRTREE/$(dirname "$PRFILE")"
+git init -q -b main "$PRTREE"
+pr_resolution() {
+    printf '{\n  "note" : "%s at %s",\n  "pins" : [ { "identity" : "viewinspector", "kind" : "remoteSourceControl", "location" : "https://example.invalid/%s", "state" : { "revision" : "%s", "version" : "0.10.3" } } ],\n  "version" : 3\n}\n' \
+        "$CLIENT" "$VENUE" "$CLIENT" "$1" > "$PRTREE/$PRFILE"
+}
+pr_resolution e9a06346499a3a889165647e3f23f8a7b2609a1c
+git -C "$PRTREE" add -- "$PRFILE"
+git -C "$PRTREE" -c user.name=Test -c user.email=test@example.invalid commit -q -m resolution
+pr_resolution 0000000000000000000000000000000000000abc
+check "the package resolution check prints no identity when it refuses" \
+    "$(leaks_in "$(OVATION_REPO_ROOT="$PRTREE" ./scripts/check-package-resolution.sh 2>&1)")" "clean"
+check "and that refusal really did name the package that moved, so the case reached the line that prints" \
+    "$(OVATION_REPO_ROOT="$PRTREE" ./scripts/check-package-resolution.sh 2>&1 | grep -c 'viewinspector: committed at')" "1"
 
 # ---------------------------------------------------------------------------
 # THE FINDING REPORTER (ovation#339). It is handed a TITLE and a BODY FILE that

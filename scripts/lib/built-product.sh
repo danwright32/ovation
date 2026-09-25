@@ -87,7 +87,14 @@ BUILT_PRODUCT_CONFIGURATIONS="Debug Release"
 built_product_absence() {
     local config="$1" app="$2" project="${3:-Ovation.xcodeproj}"
     if [ -z "${app%/Ovation.app}" ]; then
-        if [ ! -d "$project" ]; then
+        # A DIRECTORY HOLDING NOTHING BUT THE COMMITTED PACKAGE RESOLUTION IS NO
+        # PROJECT (ovation#421): a fresh clone has exactly that, and a build is
+        # what fixes it. The same rule as xcode_project_present in
+        # ensure-xcode-project.sh, written out here because this file is copied
+        # alone into the suites' throwaway trees.
+        local resolved_in="project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        if [ ! -d "$project" ] || { [ -f "$project/$resolved_in" ] \
+            && [ -z "$(find "$project" -type f ! -path "$project/$resolved_in" -print 2>/dev/null | head -1)" ]; }; then
             printf 'there is no Xcode project at %s to ask where the %s product is' "$project" "$config"
             return 3
         fi

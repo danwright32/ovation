@@ -14,7 +14,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "gitignore tests" 3
+harness_begin "gitignore tests" 8
 
 harness_temp_dir WORK
 
@@ -35,5 +35,32 @@ check "and so git status in the checkout does not report it" \
     "$( cd "$REPO" && git status --porcelain --untracked-files=all | grep -c 'worktrees' )" "0"
 check "the project settings beside it stay visible, so only the worktrees are hidden" \
     "$(ignored .claude/settings.json)" "no"
+
+# THE PACKAGE RESOLUTION IS COMMITTED, AND NOTHING ELSE OF THE PROJECT (ovation#421).
+# SwiftPM writes the revision every package resolved to inside the generated
+# project, and ignoring that directory wholesale kept the one file in it that is
+# not generated from project.yml out of version control, so a moved tag moved
+# the build with no diff anywhere (L25, L496). The generated files around it stay
+# ignored, because committing those is the two descriptions of one project that
+# the ignore exists to prevent (L41). Asked of each depth, because git cannot
+# re-include a file under a directory it has excluded.
+RESOLVED="Ovation.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+mkdir -p "$REPO/$(dirname "$RESOLVED")" "$REPO/Ovation.xcodeproj/xcshareddata/xcschemes" \
+    "$REPO/Ovation.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration"
+printf '{}\n' > "$REPO/$RESOLVED"
+printf 'x\n' > "$REPO/Ovation.xcodeproj/project.pbxproj"
+printf 'x\n' > "$REPO/Ovation.xcodeproj/project.xcworkspace/contents.xcworkspacedata"
+printf 'x\n' > "$REPO/Ovation.xcodeproj/xcshareddata/xcschemes/Ovation.xcscheme"
+printf 'x\n' > "$REPO/Ovation.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration/x"
+check "the package resolution inside the generated project is not ignored" \
+    "$(ignored "$RESOLVED")" "no"
+check "and git add takes it without being forced" \
+    "$( cd "$REPO" && git add -- "$RESOLVED" >/dev/null 2>&1 && git ls-files -- "$RESOLVED" | grep -c . )" "1"
+check "the generated project file is still ignored" \
+    "$(ignored Ovation.xcodeproj/project.pbxproj)" "yes"
+check "and so are the generated workspace and schemes beside it" \
+    "$(ignored Ovation.xcodeproj/project.xcworkspace/contents.xcworkspacedata):$(ignored Ovation.xcodeproj/xcshareddata/xcschemes/Ovation.xcscheme)" "yes:yes"
+check "and so is anything else SwiftPM writes next to the resolution" \
+    "$(ignored Ovation.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration/x)" "yes"
 
 harness_end

@@ -3,10 +3,10 @@
 # cannot.
 #
 # ovation#424, ovation#427. `danwright32/backstage` is private, and every fresh
-# checkout, CI run and project regeneration performs a live SPM resolution
-# against github.com, because `.gitignore` excludes `Ovation.xcodeproj/` and the
-# resolved file lives inside it (ovation#421). Ovation's own repository token has
-# no access to backstage, so without a credential the resolve fails.
+# checkout and CI run fetches it from github.com. The committed package
+# resolution (ovation#421) fixes WHICH revision is fetched; it does not remove the
+# fetch. Ovation's own repository token has no access to backstage, so without a
+# credential the fetch fails.
 #
 # WHY IT IS A SCRIPT AND NOT THREE LINES IN THE WORKFLOW. The failure it exists
 # to prevent is not "the resolve failed", it is "the resolve failed and the
