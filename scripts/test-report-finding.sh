@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "report finding tests" 90
+harness_begin "report finding tests" 98
 
 TARGET="scripts/report-finding.sh"
 require_target "$TARGET"
@@ -442,5 +442,46 @@ check "the design record workflow passes its verdict to the reporter" \
     "$(grep -c -- '--verdict-file verdict.txt' .github/workflows/design-record.yml)" "1"
 check "and accepts UNCHANGED as an outcome rather than failing on it" \
     "$(grep -cE '^ *0\|1\|9\) ;;' .github/workflows/design-record.yml)" "1"
+
+# ---------------------------------------------------------------------------
+# 14. A CRASH IS NOT A COMMENT. Python exits 1 on an uncaught exception, and 1
+#     is COMMENTED, which every `stands` caller accepts as success. So a script
+#     that broke halfway read as a finding said. Any unexpected failure now exits
+#     10 BROKE, which no caller accepts. The crash staged here is the one the
+#     close path really had: a comment file that exists, passes the argument
+#     check, and cannot be read as text.
+# ---------------------------------------------------------------------------
+UNREADABLE="$WORK/unreadable.md"; printf '\377\376 not text\n' > "$UNREADABLE"
+stage crash-cleared "$EXACT"
+run_report cleared --title "$TITLE" --comment-file "$UNREADABLE"
+check "a crash on the close path does not exit as COMMENTED" "$STATUS" "10"
+check "and it says it broke rather than printing only a traceback" "$(says "$OUT" "BROKE")" "yes"
+check "and it closed nothing" "$(calls 'issue close')" "0"
+
+stage crash-stands "$EXACT"
+view "$(thread "Opened.")"
+run_report stands --title "$TITLE" --body-file "$NEW" --comment-file "$UNREADABLE" --verdict-file "$VERDICT"
+check "and a crash preparing a stamped comment is the same refusal" "$STATUS" "10"
+check "and commented nothing" "$(calls 'issue comment')" "0"
+
+# ---------------------------------------------------------------------------
+# 15. THE ROLES FILE NAMES EVERY CALLER. Its sentence for this script said
+#     "and by nothing else" while two more callers had arrived. The callers are
+#     derived here, as every non-test file under .github/workflows and scripts
+#     that names this script on a line that is not a comment, so the next caller
+#     fails this until the sentence names it.
+# ---------------------------------------------------------------------------
+ROLE_LINE="$(grep '^report-finding.sh	' scripts/lib/script-roles.tsv)"
+CALLERS="$(grep -l -E '^[^#]*report-finding\.sh' .github/workflows/*.yml scripts/*.sh \
+    | grep -v -E '(^|/)test-|scripts/report-finding\.sh$')"
+check "the caller derivation finds the four callers known today" \
+    "$(printf '%s\n' "$CALLERS" | grep -c .)" "4"
+UNNAMED=""
+for caller in $CALLERS; do
+    grep -qF -- "$caller" <<< "$ROLE_LINE" || UNNAMED="$UNNAMED $caller"
+done
+check "and the roles file names every one of them" "${UNNAMED:-none}" "none"
+check "and no longer claims there is nothing else" \
+    "$(says "$ROLE_LINE" "and by nothing else")" "no"
 
 harness_end

@@ -107,6 +107,11 @@ Exit codes, one per outcome, each with its own sentence (L11):
                          its newest verdict is this one, so nothing was written.
                          Not a fault: it is what a finding that still stands
                          looks like on every run after it was said
+   10  BROKE             something failed that none of the outcomes above
+                         names. Python exits 1 on an uncaught exception, and
+                         1 is COMMENTED, which every `stands` caller accepts,
+                         so a script that broke halfway read as a finding
+                         said. This code is accepted by no caller
 
 Seam:
 
@@ -127,7 +132,7 @@ import tempfile
 
 OPENED, COMMENTED, CLOSED, NOTHING_TO_CLOSE = 0, 1, 2, 3
 MANY, CANNOT_ASK, COULD_NOT_SAY_IT, USED_WRONGLY = 4, 5, 6, 7
-NOTHING_OPEN, UNCHANGED = 8, 9
+NOTHING_OPEN, UNCHANGED, BROKE = 8, 9, 10
 
 # THE STAMP. An HTML comment, so GitHub renders nothing for it, and the name of
 # this script in it, so it cannot be mistaken for anything a person wrote.
@@ -376,13 +381,6 @@ def main(argv):
         made = []
         try:
             return stands(options, numbers, made)
-        except OSError:
-            # A STAMPED COPY THAT COULD NOT BE WRITTEN. Left uncaught, Python
-            # would exit 1, which is COMMENTED, and a finding nobody was told
-            # about would read as said.
-            print("COULD NOT SAY IT: the finding was measured and the text carrying "
-                  "its verdict could not be prepared, so nobody was told.")
-            return COULD_NOT_SAY_IT
         finally:
             for path in made:
                 os.unlink(path)
@@ -446,5 +444,22 @@ def cleared(options, numbers):
     return CLOSED
 
 
+def guarded(argv):
+    """main, with every failure it did not name turned into BROKE.
+
+    The traceback still goes to the log, because it is the diagnosis (L148); only
+    the exit code changes, so no caller can read a crash as one of its successes.
+    """
+    try:
+        return main(argv)
+    except Exception:  # noqa: BLE001, deliberately every unnamed failure
+        import traceback
+        traceback.print_exc()
+        print("BROKE: this failed in a way none of its outcomes names, so nothing it "
+              "may have done is known. It exits 10, which no caller accepts, rather "
+              "than 1, which reads as a comment made.")
+        return BROKE
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    sys.exit(guarded(sys.argv))
