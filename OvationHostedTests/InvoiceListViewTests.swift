@@ -402,10 +402,12 @@ struct InvoiceListViewTests {
         let (view, presenter) = Self.view(context)
         let drawn = try view.inspect().findAll(ViewType.Text.self).map { try $0.string() }
         #expect(drawn.contains("500.00 held"))
-        // PRD 46d: it MOVES its rows rather than copying them, so the two invoices
-        // are drawn once, here.
+        // PRD 46d: it MOVES its rows rather than copying them, so the invoices are
+        // drawn once, here. Three since ovation#453: Cedar Hill's two sent invoices
+        // and its draft, because drafts count as open invoices (Dan, 2026-09-23).
         let place = try #require(presenter.bands.first { $0.band == .toPlace })
-        #expect(place.rows.count == 2)
+        #expect(place.rows.map(\.shoot)
+            == ["Family concert", "Autumn Gala", "Side by Side concert"])
         let familyConcerts = presenter.bands.flatMap(\.rows)
             .filter { (row: InvoiceListPresenter.Row) in row.shoot == "Family concert" }
         #expect(familyConcerts.count == 1)

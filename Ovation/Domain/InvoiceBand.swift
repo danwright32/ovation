@@ -170,6 +170,31 @@ struct InvoiceStanding: Equatable, Hashable, Sendable {
     var isOpen: Bool {
         ending == nil && money != .allOfItCleared
     }
+
+    /// Whether this is one of the open invoices a client's held money could
+    /// settle, which is what PRD 14h and 14j count: exactly one and Ovation applies
+    /// it, more than one and it applies it to none and asks on each.
+    ///
+    /// A DRAFT IS ONE (Dan, 2026-09-23, ovation#453): "drafts COUNT as open
+    /// invoices for PRD 14j ... each (draft or sent) offers `Use it here`; their
+    /// drafts join the held money band." Before that only an issued invoice was
+    /// counted, which had been read off the design record's Cedar Hill fixture
+    /// rather than decided.
+    ///
+    /// THE TWO UNSETTLED SENDS ARE NOT, because the decision names drafts and sent
+    /// invoices and they are neither. Each already carries its own question
+    /// (ovation#45, ovation#460), and sweeping it into this one would take that
+    /// question off the list. They keep what they had, which was not counted.
+    ///
+    /// ONE PREDICATE FOR BOTH HALVES. The list's band reads it now, and applying
+    /// the money on the invoice (ovation#185) must read it too, or the invoice and
+    /// the list will disagree about how many are open (L16, L370).
+    var isOpenForHeldMoney: Bool {
+        switch sent {
+        case .notSent, .sent: return isOpen
+        case .couldNotDetermine, .attempting: return false
+        }
+    }
 }
 
 extension InvoiceBand {

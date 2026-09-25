@@ -271,4 +271,31 @@ struct InvoiceStandingTests {
         invoice.allocations.append(allocation)
         payment.allocations.append(allocation)
     }
+
+    // MARK: which invoices held money could settle (ovation#453)
+
+    /// THE ONE PREDICATE PRD 14h AND 14j COUNT OVER, asserted across every send
+    /// state rather than the two the list's fixtures happen to hold. Dan,
+    /// 2026-09-23: drafts COUNT as open invoices, "(draft or sent)". The two states
+    /// that are neither keep what they had, which was not counted, because the
+    /// decision does not name them.
+    @Test("a draft and a sent invoice are open for held money, an unsettled send is not")
+    func whichSendStatesHeldMoneyCounts() {
+        let noon = Date(timeIntervalSince1970: 1_794_531_600)
+        let attempt = SendAttempt(destination: ["booker@client.example"],
+                                  wasRedirected: false, renderSHA256: "abc", startedAt: noon)
+        let counted: [(SentStatus, Bool)] = [
+            (.notSent, true),
+            (.sent(route: .ovationSentIt, at: noon), true),
+            (.couldNotDetermine(checkedAt: noon), false),
+            (.attempting(attempt), false),
+        ]
+        for (sent, expected) in counted {
+            #expect(InvoiceStanding(sent: sent).isOpenForHeldMoney == expected, "\(sent)")
+        }
+        // AND OPEN STILL MEANS OPEN: a cancelled draft or a paid and cleared one
+        // is not money waiting on anything.
+        #expect(!InvoiceStanding(ending: .cancelled, sent: .notSent).isOpenForHeldMoney)
+        #expect(!InvoiceStanding(sent: .notSent, money: .allOfItCleared).isOpenForHeldMoney)
+    }
 }
