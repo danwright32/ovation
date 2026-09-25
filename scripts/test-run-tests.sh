@@ -77,7 +77,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 283
+harness_begin "test runner lock tests" 286
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -1720,6 +1720,12 @@ check "and it says the tests were ADDED rather than reporting a loss" \
     "$(mentions "$OUT157" "being ADDED")" "yes"
 check "and it gives the exact command, with the real number in it" \
     "$(mentions "$OUT157" "140 > ")" "yes"
+# And it says the number comes from this run, for the reason the shell suite
+# floor's refusal does (ovation#351, case 11f3): the floor file conflicts on every
+# pair of branches that add tests, and arithmetic over two diffs is how a wrong
+# number gets committed (L554, L30).
+check "and it says the number came from this run, not from adding up two diffs" \
+    "$(mentions "$OUT157" "two diffs")" "yes"
 
 
 # ---------------------------------------------------------------------------

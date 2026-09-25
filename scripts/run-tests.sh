@@ -1097,11 +1097,14 @@ else
       # REFUSED RATHER THAN PRINTED. A notice on a green run is one nobody reads,
       # and this is the only moment both numbers are in front of anybody. The cost
       # is one command per change that adds tests, and the message is that command
-      # rather than a description of it (L399).
+      # rather than a description of it (L399). It says the number comes from
+      # this run for the shell suite floor's reason above (ovation#351, L30).
       echo "Error: the suite executed ${PURE_COUNT} tests and the floor says ${PURE_FLOOR}." >&2
       echo "       That is tests being ADDED, which is good, and the floor has to" >&2
       echo "       move with them or it stops being able to see a run that loses" >&2
-      echo "       some. Run this, then push:" >&2
+      echo "       some. Write the number THIS RUN counted, never one worked out" >&2
+      echo "       from two diffs, which is how a wrong one gets committed." >&2
+      echo "       Run this, then push:" >&2
       echo "" >&2
       echo "       printf '%s\\n' ${PURE_COUNT} > ${FLOOR_FILE}" >&2
       echo "" >&2
