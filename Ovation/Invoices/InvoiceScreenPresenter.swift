@@ -114,14 +114,47 @@ final class InvoiceScreenPresenter {
     /// both places is the composition defect that shows only when the page is read
     /// as one surface, and it shipped that way until the screen was looked at.
     ///
-    /// IT STANDS DOWN FOR THAT ONE FACT AND NOT FOR ANY OTHER (L324). A missing
-    /// payment line stops every invoice in the app and the gate says it FIRST, so
-    /// a rule that went quiet whenever the question was on screen would hide it
-    /// and send Dan to answer a tax status that is not what is stopping him.
+    /// IT STANDS DOWN ONLY FOR A FACT A CONTROL ON SCREEN IS ANSWERING (L324). A
+    /// missing payment line stops every invoice in the app and the gate says it
+    /// FIRST, so a rule that went quiet whenever the question was on screen would
+    /// hide it and send Dan to answer a tax status that is not what is stopping
+    /// him.
+    ///
+    /// DERIVED FROM `remediesShown` RATHER THAN WRITTEN AS ONE CONDITION PER
+    /// CONTROL (ovation#483). The tax question was the first remedy in the body
+    /// and is not the last, and a rule each new control has to remember to join is
+    /// one the next control forgets, with nothing but a screen that reads slightly
+    /// wrong to show for it (L621).
     ///
     /// COMPARED AGAINST THE GATE'S OWN SENTENCE rather than a second copy of those
     /// words here, so the two cannot drift into disagreeing (L118, L370).
     let refusalAtTheFoot: String?
+
+    /// A control in the body that answers a refusal where its fact is stated.
+    /// ovation#483.
+    ///
+    /// EACH ONE DECLARES THE REFUSAL IT ANSWERS, through a switch with no default,
+    /// so a control added here cannot be added without saying which fact the foot
+    /// should then leave to it (L113). A control that answers no refusal is not a
+    /// member at all.
+    enum BodyRemedy: CaseIterable, Equatable {
+        /// The tax status question in the money block, with its two answers.
+        case taxQuestion
+
+        /// The refusal this control answers.
+        var answers: InvoiceRefusal {
+            switch self {
+            case .taxQuestion: return .taxStatusNeverRecorded
+            }
+        }
+    }
+
+    /// The body remedies this screen is drawing, in the order they are listed in
+    /// `BodyRemedy`.
+    ///
+    /// READ FROM THE SAME VALUES THE VIEW DRAWS, so the foot stands down only for
+    /// a control that is actually on screen (L16).
+    let remediesShown: [BodyRemedy]
 
     /// The shoots, with their times, in the head.
     let shoots: [TimedShoot]
@@ -264,9 +297,14 @@ final class InvoiceScreenPresenter {
         editMenuFacts = InvoiceEditCommand.Open(invoice)
         let asking = Self.taxQuestion(for: invoice)
         taxQuestion = asking
-        refusalAtTheFoot = asking != nil
-            && refusal == ReviewGate.sentence(for: .taxStatusNeverRecorded)
-            ? nil : refusal
+        let shown = BodyRemedy.allCases.filter { remedy in
+            switch remedy {
+            case .taxQuestion: return asking != nil
+            }
+        }
+        remediesShown = shown
+        let answered = shown.map { ReviewGate.sentence(for: $0.answers) }
+        refusalAtTheFoot = refusal.map(answered.contains) == true ? nil : refusal
         shoots = invoice.orderedShoots.map { Self.timed($0, on: invoice) }
         mayEdit = invoice.sentStatus == .notSent
     }
