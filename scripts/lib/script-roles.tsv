@@ -243,3 +243,4 @@ test-test-harness.sh	suite
 configure-private-package-access.sh	workflow	Named by both macOS jobs in .github/workflows/ci.yml. It writes a credential into the job's git config so SwiftPM can resolve the PRIVATE backstage package, and refuses by name when the secret is absent (ovation#424, ovation#427).
 test-private-package-access.sh	suite	Covers configure-private-package-access.sh, against a throwaway HOME so no case can touch the real machine's git config.
 test-package-resolution.sh	suite	
+test-497-probe.sh	suite	
