@@ -641,6 +641,57 @@ struct InvoiceScreenPresenterTests {
         #expect(screen.money.contains { $0.label.hasPrefix("Discount") })
     }
 
+    // MARK: what a typed discount asks for (ovation#495)
+
+    /// AN UNREADABLE VALUE IS A ZERO OF THE UNIT IN FORCE, which is how
+    /// `docs/design/invoice.html` handles it (`isFinite(n) ? n : 0`, keeping
+    /// `DISCOUNT.kind`) and what Dan decided on 2026-09-23: "an unreadable value
+    /// is handled as `docs/design/invoice.html` handles it."
+    @Test("an unreadable share is a zero share", arguments: ["ten", "", "12 dollars", "1.2.3"])
+    func anunreadableShareIsAZeroShare(typed: String) {
+        #expect(InvoiceScreenPresenter.discountAsked(typed: typed, isPercent: true)
+                == Discount(percentBasisPoints: 0))
+    }
+
+    @Test("an unreadable amount is a zero amount", arguments: ["ten", "", "%5"])
+    func anunreadableAmountIsAZeroAmount(typed: String) {
+        #expect(InvoiceScreenPresenter.discountAsked(typed: typed, isPercent: false)
+                == Discount(dollars: .zero))
+    }
+
+    @Test("a readable value is what was typed, in the unit in force")
+    func areadableValueIsWhatWasTyped() {
+        #expect(InvoiceScreenPresenter.discountAsked(typed: "33.33", isPercent: true)
+                == Discount(percentBasisPoints: 3_333))
+        #expect(InvoiceScreenPresenter.discountAsked(typed: "$50", isPercent: false)
+                == Discount(dollars: Money(dollars: 50)))
+    }
+
+    /// THE FIELD SHOWS WHAT WAS SAVED AFTER A COMMIT, as the design record's
+    /// redraw does. The store's own reseed fires only when the discount CHANGES,
+    /// so an unreadable value typed over a discount already at zero would stay in
+    /// the field while the invoice carried the zero.
+    @Test("after a commit the field shows what was saved, not what was typed")
+    func afteracommitTheFieldShowsWhatWasSaved() {
+        #expect(InvoiceScreenPresenter.discountCommitted(typed: "ten", isPercent: true)
+                == .init(discount: Discount(percentBasisPoints: 0)!, fieldShows: "0"))
+        #expect(InvoiceScreenPresenter.discountCommitted(typed: "ten", isPercent: false)?
+                .fieldShows == InvoiceScreenPresenter.discountEdit(Discount(dollars: .zero))?.typed)
+        #expect(InvoiceScreenPresenter.discountCommitted(typed: "10.0", isPercent: true)?
+                .fieldShows == "10")
+        #expect(InvoiceScreenPresenter.discountCommitted(typed: "150", isPercent: true) == nil)
+    }
+
+    /// READABLE BUT REFUSED IS NOT UNREADABLE. A share past everything or a
+    /// negative amount is a figure the discount itself refuses, and that is left
+    /// where it was, as before: the decision is about a value that cannot be
+    /// read, not one that can.
+    @Test("a value the discount refuses asks for nothing")
+    func avalueTheDiscountRefusesAsksForNothing() {
+        #expect(InvoiceScreenPresenter.discountAsked(typed: "150", isPercent: true) == nil)
+        #expect(InvoiceScreenPresenter.discountAsked(typed: "-5", isPercent: false) == nil)
+    }
+
     // MARK: the status that was never recorded (ovation#457, PRD 5.5)
 
     /// NEVER RECORDED IS NOT THE SAME AS NOT EXEMPT, which PRD 5.5 states outright
