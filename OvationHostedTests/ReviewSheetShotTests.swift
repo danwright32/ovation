@@ -250,7 +250,7 @@ struct OffscreenShotPageTests {
         let area = shot.substitutedPages[0]
         let picture = try #require(NSBitmapImageRep(data: Data(contentsOf: url)))
 
-        var ink = 0, paper = 0, mark = 0
+        var type = 0, paper = 0, mark = 0
         for y in Int(area.minY)..<Int(area.maxY) {
             for x in Int(area.minX)..<Int(area.maxX) {
                 // THE PICTURE'S OWN COMPONENTS, unconverted. The bitmap is calibrated
@@ -263,17 +263,27 @@ struct OffscreenShotPageTests {
                     mark += 1
                 } else if r > 0.97, g > 0.97, b > 0.97 {
                     paper += 1
-                } else if r < 0.4, g < 0.4, b < 0.4 {
-                    ink += 1
+                } else if max(r, g, b) < 0.9 {
+                    type += 1
                 }
             }
         }
         let total = Int(area.width) * Int(area.height)
-        // THE PAGE: mostly white paper with the invoice's type on it. The blank
-        // picture this replaces had neither, only the window's own backdrop.
+        // SHARES OF THE AREA, NEVER COUNTS OF PIXELS. The area is measured in the
+        // picture's own pixels, and how many of those a point takes is the
+        // machine's backing scale: this Mac captures at 2x and CI at 1x, so a count
+        // calibrated here was a quarter the size there. And at 1x the invoice's
+        // small type is anti-aliased to grey rather than drawn black, so "type" is
+        // anything visibly darker than paper, not only near black. Measured
+        // 2026-09-25 on the ordinary sheet: type is 2.5% of the area here and 3.7%
+        // on CI, paper 87% and 85%, the mark 9.5% and 9.2%. The blank area this
+        // replaces measured 0 on type and on the mark, so each floor sits far
+        // below every real reading and far above the empty one (L172, L376).
+        //
+        // THE PAGE: mostly white paper with the invoice's type on it.
         #expect(paper > total / 3, "only \(paper) of \(total) pixels in the page area are paper, so the page was not drawn")
-        #expect(ink > 500, "only \(ink) pixels in the page area are ink, so there is no invoice on the page")
+        #expect(type * 200 > total, "only \(type) of \(total) pixels in the page area are type, under half a percent, so there is no invoice on the page")
         // THE MARK, in a colour the app uses nowhere, so the drawing says whose it is.
-        #expect(mark > 2_000, "only \(mark) pixels carry the substitute's mark, so it could be read as the live view")
+        #expect(mark * 50 > total, "only \(mark) of \(total) pixels carry the substitute's mark, under 2%, so it could be read as the live view")
     }
 }
