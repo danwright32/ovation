@@ -7,19 +7,16 @@
 // `ReviewSamplesCommand` already uses, with the direction reversed: there the
 // menu presses and the view listens, here the view publishes and the menu reads.
 //
-// TWO RECORDED DECISIONS MEET HERE AND NEITHER IS OVERRULED (L542).
-// `docs/design/invoice.html` round 5 draws "Add a discount" only while there is
-// no discount, because once there is one the row carries its own controls and a
-// second way to change it would be the same action twice, with the menu copy
-// further from the thing it acts on (L605). `OvationApp`'s own rule for this
-// menu is written into it: an entry "IS NEVER HIDDEN, only disabled with a
-// reason said out loud, because a control that is not there cannot be asked
-// why" (L49, L109).
+// THE ENTRY IS DRAWN ONLY WHILE THERE IS NO DISCOUNT: hidden, not disabled,
+// where one exists. That is `docs/design/invoice.html` round 5, and Dan decided
+// on 2026-09-23 to follow it (ovation#495), which retired an earlier version that
+// kept the entry and disabled it. Once there is a discount the row carries its
+// own controls, and a second way to change it would be the same action twice,
+// with the menu copy further from the thing it acts on (L605).
 //
-// So the entry stays and, where there is already a discount, it is disabled and
-// NAMES WHERE THE DISCOUNT IS CHANGED. The design's concern is that there is one
-// place to edit a discount, and that is kept; the app's is that a menu never
-// goes quiet, and that is kept too.
+// Where there is no discount and it still cannot be added (no invoice open, a
+// sent invoice), it stays and is disabled with its reason said out loud, which is
+// the menu's own rule for every other entry (L49, L109).
 import Foundation
 import Observation
 import SwiftData
@@ -110,10 +107,17 @@ final class InvoiceEditCommand {
         case .attempting, .couldNotDetermine:
             return InvoiceDiscountRefusal.sendIsUnsettled.sentence
         }
-        if open.hasDiscount {
-            return "This invoice already has a discount, which is changed on the invoice."
-        }
         return nil
+    }
+
+    /// Whether the entry is drawn at all. ovation#495.
+    ///
+    /// ONLY WHILE THERE IS NO DISCOUNT, whatever else is true of the invoice,
+    /// because the design record's own test is `if (!DISCOUNT)` and asks nothing
+    /// else: a sent invoice carrying one hides the entry too, rather than drawing
+    /// it to refuse. With no invoice open there is no discount, so it is drawn.
+    static func offersToAddADiscount(_ open: Open?) -> Bool {
+        open?.hasDiscount != true
     }
 
     // MARK: the referral credit, PRD 5.8 and 5.51e

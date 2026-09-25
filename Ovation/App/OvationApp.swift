@@ -682,15 +682,19 @@ struct OvationApp: App {
             // action offered twice on one screen, and this is the copy further
             // from the thing it acts on (L605).
             //
-            // NEVER HIDDEN, ONLY DISABLED WITH ITS REASON, which is this menu's
-            // own rule above and differs from the record, where the entry
-            // disappears. Both concerns are kept and the difference is filed as
-            // ovation#495.
+            // DRAWN ONLY WHILE THERE IS NO DISCOUNT, hidden rather than disabled
+            // where one exists, which is the design record's round 5 and Dan's
+            // decision of 2026-09-23 (ovation#495). It is the one exception to
+            // this menu's never hidden rule above, and it is his. Where there is
+            // no discount and one still cannot be added, the rule above holds:
+            // disabled, with its reason said out loud.
             CommandGroup(after: .pasteboard) {
-                Button(InvoiceEditCommand.addDiscountTitle) { addADiscount() }
-                    .disabled(InvoiceEditCommand.whyADiscountCannotBeAdded(edits.open) != nil)
-                if let why = InvoiceEditCommand.whyADiscountCannotBeAdded(edits.open) {
-                    Text(why).font(.footnote)
+                if InvoiceEditCommand.offersToAddADiscount(edits.open) {
+                    Button(InvoiceEditCommand.addDiscountTitle) { addADiscount() }
+                        .disabled(InvoiceEditCommand.whyADiscountCannotBeAdded(edits.open) != nil)
+                    if let why = InvoiceEditCommand.whyADiscountCannotBeAdded(edits.open) {
+                        Text(why).font(.footnote)
+                    }
                 }
                 // ovation#457, PRD 5.8 and 5.51e. ONE ENTRY WHOSE WORD CHANGES,
                 // which is the design record's round 5 and is the whole of this
@@ -719,6 +723,7 @@ struct OvationApp: App {
     /// measurement, the commonest of the five in the whole history.
     private func addADiscount() {
         guard let open = edits.open,
+              InvoiceEditCommand.offersToAddADiscount(open),
               InvoiceEditCommand.whyADiscountCannotBeAdded(open) == nil,
               let add = edits.addDiscount else { return }
         add(open.id, InvoiceEditCommand.whatItAdds)
