@@ -121,6 +121,12 @@ struct ShellView: View {
     /// unbuilt entry and must not drift between them.
     static let notBuiltMark = "not built yet"
 
+    /// ovation#485. Lets a hosted test read this view while it is on screen, which is
+    /// the only way to reach the invoice it keeps open in `@State`, and so the only
+    /// way to prove the writes it is given reach that screen and the Edit menu. It
+    /// never fires in the app (see `Inspection`).
+    let inspection = Inspection<Self>()
+
     var body: some View {
         HStack(spacing: 0) {
             rail
@@ -137,6 +143,7 @@ struct ShellView: View {
                         close: { finishReview(review) })
                 .interactiveDismissDisabled(review.state.holdsTheSheetOpen)
         }
+        .onReceive(inspection.notice) { inspection.visit(self, $0) }
     }
 
     // MARK: the review (ovation#42)
