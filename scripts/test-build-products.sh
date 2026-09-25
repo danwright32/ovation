@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "build products tests" 16
+harness_begin "build products tests" 21
 
 TARGET="scripts/build-products.sh"
 require_target "$TARGET"
@@ -53,9 +53,21 @@ chmod +x "$WORK/builder"
 
 RECORD="$WORK/record"
 
+# A stand-in for scripts/check-package-resolution.sh. It records that it was asked,
+# and answers whatever RESOLUTION_STATUS says, so a refusal can be staged without
+# a real repository behind it.
+cat > "$WORK/resolution-check" <<'EOF'
+#!/bin/bash
+  echo "resolution-checked" >> "$RECORD"
+  if [ "${RESOLUTION_STATUS:-0}" != "0" ]; then echo "viewinspector moved" >&2; fi
+  exit "${RESOLUTION_STATUS:-0}"
+EOF
+chmod +x "$WORK/resolution-check"
+
 run_build() {
     : > "$RECORD"
-    RECORD="$RECORD" FAIL_ON="${FAIL_ON:-}" \
+    RECORD="$RECORD" FAIL_ON="${FAIL_ON:-}" RESOLUTION_STATUS="${RESOLUTION_STATUS:-0}" \
+    OVATION_RESOLUTION_CHECK="$WORK/resolution-check" \
     OVATION_BUILD_RUNNER="$WORK/runner" \
     OVATION_BUILD_COMMAND="$WORK/builder" \
         "./$TARGET" 2>&1
@@ -153,5 +165,27 @@ check "the runner is handed no hosted command, so it takes no sibling lock for t
 FAIL_ON="" OVATION_HOSTED_TEST_COMMAND="echo inherited" run_build >/dev/null 2>&1
 check "and a hosted command inherited from the shell does not reach the runner" \
     "$(grep -c '^hosted:unset$' "$RECORD")" "1"
+
+# ---------------------------------------------------------------------------
+# 5. THE BUILDS USE THE COMMITTED PACKAGE RESOLUTION, AND IT IS ASKED (ovation#421).
+#
+# The resolution is a tracked file inside the project, and a build that resolves
+# differently rewrites it and goes on building. This is the command CI runs, so
+# the question is asked here, after both builds have resolved, and a refusal is a
+# failed command: products built against packages the repository does not commit
+# are not ready to be judged, and must not say they are (L422).
+# ---------------------------------------------------------------------------
+FAIL_ON="" RESOLUTION_STATUS=0 build_once
+check "the committed resolution is asked about once, after both builds" \
+    "$(grep -e '^built:' -e '^resolution-checked$' "$RECORD" | tr '\n' ' ')" \
+    "built:Debug built:Release resolution-checked "
+FAIL_ON="" RESOLUTION_STATUS=1 build_once
+check "a build that resolved packages differently from the commit fails the command" "$BUILD_ST" "1"
+check "and it does not claim the products are ready" "$(says "$BUILD_OUT" "built and ready")" "no"
+check "and it says the resolution is why, with the check's own words" \
+    "$(says "$BUILD_OUT" "package resolution"):$(says "$BUILD_OUT" "viewinspector moved")" "yes:yes"
+FAIL_ON=Debug RESOLUTION_STATUS=0 build_once
+check "a build that failed is not also asked about its resolution" \
+    "$(grep -c '^resolution-checked$' "$RECORD")" "0"
 
 harness_end

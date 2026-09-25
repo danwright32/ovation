@@ -1,6 +1,7 @@
 # ovation#151. Make the Xcode project when there is none, and only then.
 #
-# `Ovation.xcodeproj` is generated from project.yml by xcodegen and is gitignored,
+# `Ovation.xcodeproj` is generated from project.yml by xcodegen and is gitignored
+# (all but its committed package resolution, ovation#421),
 # so a fresh clone, Dan's second Mac and any CI runner start without one. What
 # that gave was `xcodebuild: error: Ovation.xcodeproj does not exist`, which names
 # the symptom rather than the missing step.
@@ -91,6 +92,23 @@ xcode_project_readers() {
     printf '/tmp/ovation-project-readers-%s' "$(xcode_project_key "$1")"
 }
 
+# WHETHER THERE IS A PROJECT (ovation#421). The directory alone stopped being
+# the answer when the package resolution inside it was committed: a fresh clone
+# has an Ovation.xcodeproj/ holding that one file and nothing Xcode can open.
+# Taken as a project, the create would be skipped and xcodebuild would meet a
+# project with no project file, naming the symptom rather than the missing step.
+# So a directory holding NOTHING BUT the committed resolution is no project, and
+# anything else xcodegen or a person put there still is, exactly as before.
+# xcodegen generates into such a directory and leaves the resolution where it
+# is. lib/built-product.sh asks the same question the same way, and
+# scripts/test-package-resolution.sh holds the two to agree.
+XCODE_PROJECT_RESOLVED_IN="project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+xcode_project_present() {
+    [ -d "$1" ] || return 1
+    [ -f "$1/${XCODE_PROJECT_RESOLVED_IN}" ] || return 0
+    [ -n "$(find "$1" -type f ! -path "$1/${XCODE_PROJECT_RESOLVED_IN}" -print 2>/dev/null | head -1)" ]
+}
+
 # Claims a create lock whose owner is no longer running. Answers 0 when the
 # holder was dead (the lock is then free, or was taken by somebody else in
 # between), and 1 when the lock is held by a live run or one that named no pid,
@@ -165,7 +183,7 @@ ensure_xcode_project() {
             continue
         fi
 
-        if [ -d "${project}" ]; then
+        if xcode_project_present "${project}"; then
             [ -n "${announced}" ] && echo "==> $(basename "${project}") was made by that run; going on with it."
             return 0
         fi
@@ -183,7 +201,7 @@ ensure_xcode_project() {
 
         # Asked again UNDER the lock, because a run can have finished between the
         # look above and the take.
-        if [ -d "${project}" ]; then
+        if xcode_project_present "${project}"; then
             rm -rf "${lock}" 2>/dev/null || true
             return 0
         fi
@@ -200,7 +218,7 @@ ensure_xcode_project() {
         # A GENERATOR THAT EXITS 0 AND WRITES NOTHING is the shape this exists for:
         # without it the next line is xcodebuild's own error about a missing project,
         # one step further from the cause (L100, L184).
-        if [ ! -d "${project}" ]; then
+        if ! xcode_project_present "${project}"; then
             echo "Error: xcodegen reported success and ${project} is still not there." >&2
             return 2
         fi

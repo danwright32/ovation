@@ -29,6 +29,12 @@ packages:
     # This Mac went on building only because its generated project held a cached
     # pin at 0.10.3 (L25, L31).
     #
+    # AND THE RESOLUTION IS COMMITTED NOW (ovation#421). An exact version still
+    # resolves a TAG, which is a movable ref, so `.gitignore` re-includes that one
+    # `Package.resolved` and the revision each package resolved to is in the
+    # repository. scripts/check-package-resolution.sh refuses when a build
+    # resolves anything else, after both builds and before a push.
+    #
     # 0.10.3 IS THE VERSION THIS REPOSITORY HAS ALWAYS BUILT AND TESTED AGAINST,
     # read from that cached `Package.resolved` rather than chosen. Moving it is a
     # commit somebody makes on purpose, with the suite run against the new one.
@@ -48,9 +54,9 @@ packages:
   # decision.
   #
   # THE REPOSITORY IS PRIVATE, AND THAT COSTS SOMETHING HERE (ovation#427).
-  # `.gitignore` excludes `Ovation.xcodeproj/`, so the resolved versions live
-  # inside a generated directory and every fresh checkout, CI run and
-  # regeneration performs a LIVE resolution against github.com. A private
+  # Every fresh checkout and CI run FETCHES the package from github.com, the
+  # committed resolution (ovation#421) saying which revision rather than
+  # removing the fetch. A private
   # backstage therefore makes `xcodebuild -showBuildSettings` fail to resolve,
   # which takes `test-project-configuration.sh` with it, and that suite runs in
   # the push gate. Both macOS CI jobs run
