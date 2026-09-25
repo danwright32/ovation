@@ -180,8 +180,13 @@ check "and the built product lookup says there is no project, which the gate kno
 printf '#!/bin/bash\necho GENERATOR-RAN >> "%s/generated.log"\nprintf "x\\n" > "%s/project.pbxproj"\n' \
     "$WORK" "$ONLY" > "$WORK/xcodegen"
 chmod +x "$WORK/xcodegen"
-OVATION_PROJECT_CREATE_POLL=0.05 bash -c '. scripts/lib/ensure-xcode-project.sh; ensure_xcode_project "$1" "$2" "$3"' _ \
-    "$WORK/only" "$ONLY" "$WORK/xcodegen" >/dev/null 2>&1
+# Inside a function because the inner `$1` belongs to `bash -c`, and the runner's
+# own suite reads unindented lines for suite level arguments.
+create_into() {
+    OVATION_PROJECT_CREATE_POLL=0.05 bash -c '. scripts/lib/ensure-xcode-project.sh; ensure_xcode_project "$1" "$2" "$3"' _ \
+        "$WORK/only" "$ONLY" "$WORK/xcodegen" >/dev/null 2>&1
+}
+create_into
 check "so a run meeting that directory generates the project into it" \
     "$(grep -c GENERATOR-RAN "$WORK/generated.log" 2>/dev/null)" "1"
 check "and the committed resolution is still there afterwards, unchanged" \
