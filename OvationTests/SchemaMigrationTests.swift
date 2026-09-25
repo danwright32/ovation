@@ -391,6 +391,325 @@ struct SchemaMigrationTests {
         #expect(migrated.subtotal == Money(dollars: 375), "the typed times now decide it")
     }
 
+    // MARK: every entity, every field, the whole way (ovation#408)
+
+    /// ovation#408. THE FIVE ENTITIES NOTHING ABOVE CARRIES, carried from each frozen
+    /// version with every stored field set.
+    ///
+    /// WHY A ROW CHECK AS WELL AS THE FINGERPRINT. `SchemaFingerprintTests` asks
+    /// what SHAPE a frozen version writes; this asks what the rows SAY after the
+    /// stages have run. A frozen copy whose property is misspelt, or whose shared
+    /// value type decodes differently, can leave the shape plausible and the value
+    /// gone, and only a row read at the far end sees that (L400).
+    ///
+    /// WHICH FIVE, counted from the cases above rather than from the issue. Client,
+    /// Invoice, Shoot, LineItem and Payment are driven by the three real cases.
+    /// `Expense`, `ServiceType`, `PaymentAllocation`, `Refund` AND
+    /// `ReferralLedgerEntry` were driven by nothing, the last one missed by the
+    /// issue's own count of six carried.
+    ///
+    /// EVERY VALUE DIFFERS FROM ITS DEFAULT AND FROM EVERY OTHER VALUE OF ITS TYPE,
+    /// for the reason `thesentStatusAndTheClearedDateSurvive` gives: a default is
+    /// what a lost column reads back as, so asserting one proves nothing (L159), and
+    /// two fields holding the same date could swap columns unseen.
+    ///
+    /// SEEN TO FAIL on 2026-09-25 by leaving `vendor` unwritten in the version 1
+    /// writer and `note` unwritten on version 2's refund: each case went red on
+    /// exactly that field and no other, which is what a column the frozen copy
+    /// failed to carry reads back as.
+    @Test("every entity's rows and links survive from a version 1 store")
+    func everyEntitySurvivesFromVersionOne() throws {
+        let url = try Self.scratchStore("every-entity-1")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        do {
+            let schema = Schema(versionedSchema: OvationSchemaV1.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            typealias V = OvationSchemaV1
+            let fixture = EveryEntity.self
+            let client = V.Client()
+            client.name = fixture.clientName
+            let invoice = V.Invoice()
+            invoice.number = fixture.invoiceNumber
+            invoice.client = client
+            let payment = V.Payment()
+            payment.amount = fixture.paymentAmount
+            payment.client = client
+
+            let service = V.ServiceType()
+            service.name = fixture.serviceName
+            service.role = fixture.serviceRole
+            service.defaultUnitAmount = fixture.serviceDefault
+            service.retiredOn = fixture.serviceRetired
+            let line = V.LineItem()
+            line.summary = fixture.lineSummary
+            line.serviceType = service
+            line.invoice = invoice
+
+            let allocation = V.PaymentAllocation()
+            allocation.payment = payment
+            allocation.invoice = invoice
+            allocation.amount = fixture.allocationAmount
+            allocation.allocatedOn = fixture.allocatedOn
+            allocation.releasedOn = fixture.releasedOn
+
+            let refund = V.Refund()
+            refund.invoice = invoice
+            refund.payment = payment
+            refund.amount = fixture.refundAmount
+            refund.refundedOn = fixture.refundedOn
+            refund.method = fixture.refundMethod
+            refund.note = fixture.refundNote
+
+            let expense = V.Expense()
+            expense.amount = fixture.expenseAmount
+            expense.incurredOn = fixture.incurredOn
+            expense.vendor = fixture.vendor
+            expense.category = fixture.category
+            expense.assetJudgement = fixture.assetJudgement
+            expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
+            expense.receipt = fixture.receipt
+            expense.note = fixture.expenseNote
+            expense.gmailMessageKey = fixture.gmailMessageKey
+            expense.attachmentPartIndex = fixture.attachmentPartIndex
+            expense.gmailAttachmentID = fixture.gmailAttachmentID
+            expense.importKey = fixture.expenseImportKey
+
+            let referral = V.ReferralLedgerEntry()
+            referral.client = client
+            referral.hours = fixture.referralHours
+            referral.occurredOn = fixture.referralOn
+            referral.earnedFromBookingKey = fixture.earnedFromBookingKey
+            referral.spentOnInvoiceID = fixture.spentOnInvoiceID
+            referral.note = fixture.referralNote
+
+            for model in [client, invoice, payment, service, line, allocation, refund,
+                          expense, referral] as [any PersistentModel] {
+                context.insert(model)
+            }
+            try context.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+        }
+
+        try Self.expectEveryEntityCarried(from: url)
+    }
+
+    /// The same statement from version 2, the step Dan's installed store takes.
+    /// Written separately rather than generically because each version's classes
+    /// are distinct types by design, which is the property `theversionsDoNotShareTheirTypes`
+    /// defends; a shared writer would have to name one version's classes.
+    @Test("every entity's rows and links survive from a version 2 store")
+    func everyEntitySurvivesFromVersionTwo() throws {
+        let url = try Self.scratchStore("every-entity-2")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        do {
+            let schema = Schema(versionedSchema: OvationSchemaV2.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            typealias V = OvationSchemaV2
+            let fixture = EveryEntity.self
+            let client = V.Client()
+            client.name = fixture.clientName
+            let invoice = V.Invoice()
+            invoice.number = fixture.invoiceNumber
+            invoice.client = client
+            let payment = V.Payment()
+            payment.amount = fixture.paymentAmount
+            payment.client = client
+
+            let service = V.ServiceType()
+            service.name = fixture.serviceName
+            service.role = fixture.serviceRole
+            service.defaultUnitAmount = fixture.serviceDefault
+            service.retiredOn = fixture.serviceRetired
+            let line = V.LineItem()
+            line.summary = fixture.lineSummary
+            line.serviceType = service
+            line.invoice = invoice
+
+            let allocation = V.PaymentAllocation()
+            allocation.payment = payment
+            allocation.invoice = invoice
+            allocation.amount = fixture.allocationAmount
+            allocation.allocatedOn = fixture.allocatedOn
+            allocation.releasedOn = fixture.releasedOn
+
+            let refund = V.Refund()
+            refund.invoice = invoice
+            refund.payment = payment
+            refund.amount = fixture.refundAmount
+            refund.refundedOn = fixture.refundedOn
+            refund.method = fixture.refundMethod
+            refund.note = fixture.refundNote
+
+            let expense = V.Expense()
+            expense.amount = fixture.expenseAmount
+            expense.incurredOn = fixture.incurredOn
+            expense.vendor = fixture.vendor
+            expense.category = fixture.category
+            expense.assetJudgement = fixture.assetJudgement
+            expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
+            expense.receipt = fixture.receipt
+            expense.note = fixture.expenseNote
+            expense.gmailMessageKey = fixture.gmailMessageKey
+            expense.attachmentPartIndex = fixture.attachmentPartIndex
+            expense.gmailAttachmentID = fixture.gmailAttachmentID
+            expense.importKey = fixture.expenseImportKey
+
+            let referral = V.ReferralLedgerEntry()
+            referral.client = client
+            referral.hours = fixture.referralHours
+            referral.occurredOn = fixture.referralOn
+            referral.earnedFromBookingKey = fixture.earnedFromBookingKey
+            referral.spentOnInvoiceID = fixture.spentOnInvoiceID
+            referral.note = fixture.referralNote
+
+            for model in [client, invoice, payment, service, line, allocation, refund,
+                          expense, referral] as [any PersistentModel] {
+                context.insert(model)
+            }
+            try context.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+        }
+
+        try Self.expectEveryEntityCarried(from: url)
+    }
+
+    /// Opens the store the way the app does and reads every field the fixture set,
+    /// through the CURRENT types, so the assertion is about what ships.
+    private static func expectEveryEntityCarried(from url: URL) throws {
+        let container = try OvationSchema.container(at: url)
+        let context = ModelContext(container)
+        let fixture = EveryEntity.self
+
+        // A count first for each, because an empty store opens perfectly (L98).
+        let services = try context.fetch(FetchDescriptor<ServiceType>())
+        let allocations = try context.fetch(FetchDescriptor<PaymentAllocation>())
+        let refunds = try context.fetch(FetchDescriptor<Refund>())
+        let expenses = try context.fetch(FetchDescriptor<Expense>())
+        let referrals = try context.fetch(FetchDescriptor<ReferralLedgerEntry>())
+        #expect(services.count == 1)
+        #expect(allocations.count == 1)
+        #expect(refunds.count == 1)
+        #expect(expenses.count == 1)
+        #expect(referrals.count == 1)
+
+        let service = try #require(services.first)
+        #expect(service.name == fixture.serviceName)
+        #expect(service.role == fixture.serviceRole)
+        #expect(service.defaultUnitAmount == fixture.serviceDefault)
+        #expect(service.retiredOn == fixture.serviceRetired)
+        let line = try #require(try context.fetch(FetchDescriptor<LineItem>()).first)
+        #expect(line.serviceType?.name == fixture.serviceName, "the line still names its service")
+
+        let allocation = try #require(allocations.first)
+        #expect(allocation.amount == fixture.allocationAmount)
+        #expect(allocation.allocatedOn == fixture.allocatedOn)
+        #expect(allocation.releasedOn == fixture.releasedOn)
+        #expect(allocation.payment?.amount == fixture.paymentAmount)
+        #expect(allocation.invoice?.number == fixture.invoiceNumber)
+
+        let refund = try #require(refunds.first)
+        #expect(refund.amount == fixture.refundAmount)
+        #expect(refund.refundedOn == fixture.refundedOn)
+        #expect(refund.method == fixture.refundMethod)
+        #expect(refund.note == fixture.refundNote)
+        #expect(refund.payment?.amount == fixture.paymentAmount)
+        #expect(refund.invoice?.number == fixture.invoiceNumber)
+
+        // And the inverses, which are what the invoice and payment screens read.
+        let invoice = try #require(allocation.invoice)
+        #expect(invoice.allocations.count == 1)
+        #expect(invoice.refunds.count == 1)
+        let payment = try #require(allocation.payment)
+        #expect(payment.allocations.count == 1)
+        #expect(payment.refunds.count == 1)
+
+        let expense = try #require(expenses.first)
+        #expect(expense.amount == fixture.expenseAmount)
+        #expect(expense.incurredOn == fixture.incurredOn)
+        #expect(expense.vendor == fixture.vendor)
+        #expect(expense.category == fixture.category)
+        #expect(expense.assetJudgement == fixture.assetJudgement)
+        #expect(expense.bothAreRealAcknowledgedOn == fixture.acknowledgedOn)
+        #expect(expense.receipt == fixture.receipt,
+                "both associated values, because a partial decode keeps neither")
+        #expect(expense.note == fixture.expenseNote)
+        #expect(expense.gmailMessageKey == fixture.gmailMessageKey)
+        #expect(expense.attachmentPartIndex == fixture.attachmentPartIndex)
+        #expect(expense.gmailAttachmentID == fixture.gmailAttachmentID)
+        #expect(expense.importKey == fixture.expenseImportKey)
+
+        let referral = try #require(referrals.first)
+        #expect(referral.hours == fixture.referralHours)
+        #expect(referral.occurredOn == fixture.referralOn)
+        #expect(referral.earnedFromBookingKey == fixture.earnedFromBookingKey)
+        #expect(referral.spentOnInvoiceID == fixture.spentOnInvoiceID)
+        #expect(referral.note == fixture.referralNote)
+        #expect(referral.client?.name == fixture.clientName)
+        #expect(referral.client?.referralEntries.count == 1, "and the inverse resolves too")
+    }
+
+    private static func scratchStore(_ label: String) throws -> URL {
+        let directory = URL.temporaryDirectory
+            .appending(path: "ovation-\(label)-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appending(path: "Ovation.store")
+    }
+
+    /// One value per stored field, each distinct from its default and from every
+    /// other value of its type, so a lost or swapped column cannot read back right.
+    private enum EveryEntity {
+        static func day(_ offset: Double, _ key: String) -> BusinessDate {
+            BusinessDate(storedInstant: Date(timeIntervalSinceReferenceDate: 780_000_000 + offset),
+                         storedDayKey: key)
+        }
+
+        static let clientName = "Ashgrove Chamber Players"
+        static let invoiceNumber: Int64 = 1_125
+        static let paymentAmount = Money(cents: 61_700)
+
+        static let serviceName = "Second shooter"
+        static let serviceRole = ServiceRole.hourlyPhotography
+        static let serviceDefault: Money? = Money(cents: 12_500)
+        static let serviceRetired: BusinessDate? = day(1_000, "2025-09-20")
+        static let lineSummary = "Second shooter, evening"
+
+        static let allocationAmount = Money(cents: 40_100)
+        static let allocatedOn = day(2_000, "2025-09-21")
+        static let releasedOn: BusinessDate? = day(3_000, "2025-09-22")
+
+        static let refundAmount = Money(cents: 7_300)
+        static let refundedOn = day(4_000, "2025-09-23")
+        static let refundMethod: PaymentMethod? = .venmo
+        static let refundNote: String? = "returned the travel surcharge"
+
+        static let expenseAmount = Money(cents: 289_900)
+        static let incurredOn = day(5_000, "2025-09-24")
+        static let vendor: String? = "the camera shop on the corner"
+        static let category: ExpenseCategory? = .gear
+        static let assetJudgement = AssetJudgement.treatAsAsset
+        static let acknowledgedOn: BusinessDate? = day(6_000, "2025-09-25")
+        static let receipt = ReceiptEvidence.file(sha256: "3f7a9c", relativePath: "Receipts/3f7a9c.pdf")
+        static let expenseNote: String? = "replacement body"
+        static let gmailMessageKey: String? = "msg-18f2"
+        static let attachmentPartIndex: Int? = 2
+        static let gmailAttachmentID: String? = "att-77"
+        static let expenseImportKey: String? = "qb-2025-batch-3"
+
+        static let referralHours = Hours(quarters: 7)
+        static let referralOn = day(7_000, "2025-09-26")
+        static let earnedFromBookingKey: String? = "booking-4410"
+        static let spentOnInvoiceID: UUID? = UUID(uuidString: "6B1C1D4E-2F3A-4B5C-8D9E-0A1B2C3D4E5F")
+        static let referralNote: String? = "earned from the spring referral"
+    }
+
     // MARK: fixtures
 
     /// A store written under version 1, checkpointed so the store file alone
