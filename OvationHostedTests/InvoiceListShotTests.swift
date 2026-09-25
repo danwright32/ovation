@@ -54,7 +54,7 @@ struct InvoiceListShotTests {
             heldMoney: Self.population(context).held,
             today: Self.today)
         let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
-                                   selected: .constant(nil), open: { _ in })
+                                   selected: .constant(nil), open: { _ in }, settle: { _ in })
 
         let file = directory.appending(path: "invoice-list.png")
         try OffscreenShot.capture(view, size: Self.windowSize, scheme: .light, to: file)

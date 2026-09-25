@@ -159,12 +159,50 @@ struct InvoiceListViewTests {
                                    selected: .constant(nil), open: { opened.append($0) })
         let allRows = presenter.bands.flatMap { $0.rows }
         let wanted = try #require(allRows.first {
-            InvoiceListPresenter.Action.destination(of: $0.action ?? "") != nil
+            InvoiceListPresenter.Action.destination(of: $0.action ?? "") == .theInvoiceScreen
         })
 
         try view.inspect().find(button: wanted.action ?? "").tap()
 
         #expect(opened == [wanted.invoiceID])
+    }
+
+    /// ovation#471. MARK UNSENT ASKS TO SETTLE THE ROW IT IS ON, and never opens
+    /// the invoice: settling happens in place, after Dan confirms, so the press
+    /// goes to the settle route with that row's invoice (L166).
+    @Test("pressing Mark unsent asks to settle the row it is on, and opens nothing")
+    func pressingMarkUnsentAsksToSettleThatRow() throws {
+        let context = try Self.store()
+        let (invoices, held) = Self.theRealList(context)
+        let presenter = InvoiceListPresenter(invoices: invoices, heldMoney: held, today: Self.today)
+        var opened: [PersistentIdentifier] = []
+        var settled: [PersistentIdentifier] = []
+        let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
+                                   selected: .constant(nil), open: { opened.append($0) },
+                                   settle: { settled.append($0) })
+        let wanted = try #require(presenter.bands.flatMap { $0.rows }.first {
+            $0.action == InvoiceListPresenter.Action.markUnsent
+        }, "the real population has no unsettled send, so this proves nothing")
+
+        try view.inspect().find(button: InvoiceListPresenter.Action.markUnsent).tap()
+
+        #expect(settled == [wanted.invoiceID])
+        #expect(opened.isEmpty)
+    }
+
+    /// AND WITH NOTHING THAT CAN SETTLE A SEND, MARK UNSENT IS NOT A CONTROL.
+    @Test("with nothing to settle a send, Mark unsent is drawn quiet")
+    func nothingToSettleLeavesMarkUnsentQuiet() throws {
+        let context = try Self.store()
+        let (invoices, held) = Self.theRealList(context)
+        let presenter = InvoiceListPresenter(invoices: invoices, heldMoney: held, today: Self.today)
+        let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
+                                   selected: .constant(nil), open: { _ in })
+
+        let pressable = try view.inspect().findAll(ViewType.Button.self)
+            .compactMap { try? $0.labelView().text().string() }
+
+        #expect(!pressable.contains(InvoiceListPresenter.Action.markUnsent))
     }
 
     /// AND WITH NO WAY TO OPEN AN INVOICE, NO WORD IS A CONTROL. The caller

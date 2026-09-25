@@ -379,7 +379,7 @@ color: var(--faint); }
       matinee and an evening on one date show that one date.</p></div>
     <div><h3>The actions</h3>
       <p><b>Words, not buttons.</b> Eight filled buttons beside five filled bands made structure and
-      action look identical. A button also says what it does: Mark cleared, Mark sent.</p>
+      action look identical. A button also says what it does: Mark cleared, Mark unsent.</p>
       <p>Downbeat already ships a three tier button system whose plain tier is a word with padding and
       no border, so this builds natively with nothing invented.</p></div>
     <div><h3>The counts</h3>
@@ -510,7 +510,7 @@ function groupsFor() { return [
   { sum: "1,100.00", rows: [
     { c: "Saint Anne's Chamber Series", s: "Advent Vespers", d: "11 Aug 2026", n: "1033", a: "1,100.00", act: "Mark cleared" }]},
   { sum: "1,320.00", rows: [
-    { c: "Alder Street Opera", s: "La Boheme, act three", d: "24 Aug 2026", n: "1037", a: "1,320.00", act: "Mark sent" }]}
+    { c: "Alder Street Opera", s: "La Boheme, act three", d: "24 Aug 2026", n: "1037", a: "1,320.00", act: "Mark unsent" }]}
 ]; }
 /* The invoices that client's money could settle, named by NUMBER so the group
    moves them rather than holding a second copy of them, and the balance itself,
@@ -543,7 +543,7 @@ var HELD_ON_CLIENT = "500.00";
 var CARD_LINES = [
   { label: "To send",          acts: ["Send"] },
   { label: "To chase",         acts: ["Remind"] },
-  { label: "To confirm",       acts: ["Mark cleared", "Mark sent"] },
+  { label: "To confirm",       acts: ["Mark cleared", "Mark unsent"] },
   { label: "To place",         acts: ["Use it here"] },
   { label: "Receipts to file", acts: [], fixed: "7" }
 ];

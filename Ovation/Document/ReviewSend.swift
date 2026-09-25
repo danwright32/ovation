@@ -59,6 +59,7 @@ struct ReviewMessage: View {
 struct ReviewOutcome: View {
     let review: InvoiceReview
     let close: () -> Void
+    @State private var askingToSettle = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -92,7 +93,19 @@ struct ReviewOutcome: View {
             case .couldNotTell(let sentence):
                 big("Could not tell whether it went")
                 Text(sentence).font(.system(size: 13))
-                Button("Close", action: close)
+                // ovation#471. The one thing Dan may say about it: that it did not go.
+                HStack(spacing: 12) {
+                    Button("Mark unsent") { askingToSettle = true }
+                    Button("Close", action: close)
+                }
+                .confirmationDialog("Mark unsent?", isPresented: $askingToSettle) {
+                    Button("Mark unsent", role: .destructive) {
+                        Task { await review.markNotSent() }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(SendSettler.confirmation(number: review.number))
+                }
             }
             Spacer(minLength: 0)
         }
