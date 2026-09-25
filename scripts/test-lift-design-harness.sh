@@ -22,7 +22,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design harness lift tests" 59
+harness_begin "design harness lift tests" 72
 
 TARGET="scripts/lift-design-harness.sh"
 require_target "$TARGET"
@@ -102,7 +102,8 @@ spec = {
     "option_one": "One",
     "builder_ends_before": 'var stage = document.getElementById("stage");',
     "page_rules": {"body": ".screen"},
-    "moves": [{"field": "heading", "variable": "CARD_HEADING", "holds": '"Needs you"'}],
+    "moves": [{"field": "heading", "variable": "CARD_HEADING", "holds": '"Needs you"',
+               "values": ["Needs you", "Waiting on you"]}],
     "same": {"tolerance": 0, "ignore": []}
 }
 for change in sys.argv[3:]:
@@ -142,8 +143,23 @@ check "and it says why, because every option would draw the same screen" \
     "$(says "$(run "$WORK/no-moves.json" "$WORK/out")" "draws every option identically")" "yes"
 
 spec_for "$WORK/bad-var.json" "standin.html" \
-    'moves=[{"field": "heading", "variable": "not a name", "holds": "\"Needs you\""}]'
+    'moves=[{"field": "heading", "variable": "not a name", "holds": "\"Needs you\"", "values": ["A", "B"]}]'
 check "a variable JavaScript cannot declare is refused" "$(status "$WORK/bad-var.json" "$WORK/out")" "4"
+
+# ovation#407. A move has to say which values the round gives it, because the only
+# way to prove a moved value MOVES something is to draw each one. Fewer than two,
+# or two the same, is a round with no question in it.
+spec_for "$WORK/no-values.json" "standin.html" \
+    'moves=[{"field": "heading", "variable": "CARD_HEADING", "holds": "\"Needs you\""}]'
+check "a move that names no values is refused" "$(status "$WORK/no-values.json" "$WORK/out")" "4"
+check "and the refusal names what is missing" \
+    "$(says "$(run "$WORK/no-values.json" "$WORK/out")" "move 1 must list the values")" "yes"
+spec_for "$WORK/one-value.json" "standin.html" \
+    'moves=[{"field": "heading", "variable": "CARD_HEADING", "holds": "\"Needs you\"", "values": ["Needs you"]}]'
+check "a move with one value is refused" "$(status "$WORK/one-value.json" "$WORK/out")" "4"
+spec_for "$WORK/twin-values.json" "standin.html" \
+    'moves=[{"field": "heading", "variable": "CARD_HEADING", "holds": "\"Needs you\"", "values": ["A", "A"]}]'
+check "a move whose values repeat one is refused" "$(status "$WORK/twin-values.json" "$WORK/out")" "4"
 
 spec_for "$WORK/bad-tol.json" "standin.html" 'same={"tolerance": "loose", "ignore": []}'
 check "a tolerance that is not a whole number of pixels is refused" \
@@ -210,12 +226,12 @@ check "a stripped line matching nothing is refused" \
     "$(status "$WORK/nostrip.json" "$WORK/out")" "6"
 
 spec_for "$WORK/nomove.json" "standin.html" \
-    'moves=[{"field": "heading", "variable": "CARD_HEADING", "holds": "\"Not in the builder\""}]'
+    'moves=[{"field": "heading", "variable": "CARD_HEADING", "holds": "\"Not in the builder\"", "values": ["A", "B"]}]'
 check "a moved value that is not in the builder is refused" \
     "$(status "$WORK/nomove.json" "$WORK/out")" "6"
 
 spec_for "$WORK/taken.json" "standin.html" \
-    'moves=[{"field": "heading", "variable": "buildThing", "holds": "\"Needs you\""}]'
+    'moves=[{"field": "heading", "variable": "buildThing", "holds": "\"Needs you\"", "values": ["A", "B"]}]'
 check "a move whose variable name the builder already uses is refused" \
     "$(status "$WORK/taken.json" "$WORK/out")" "6"
 
@@ -304,6 +320,44 @@ check "and every line of the difference names an element and its box, on both si
 check "and it names the remedy, which is the retarget" \
     "$(says "$(run --check "$WORK/lost.json" "$LOST")" "page_rules")" "yes"
 
+# ---------------------------------------------------------------------------
+# ovation#407. A MOVED VALUE THAT MOVES NOTHING. The faithfulness check above
+# draws option 1, where the moved value still holds its original, so it is blind
+# by construction to a value the builder never reads while it builds: a value
+# baked into a literal the script evaluates ONCE, at load. That is how a round on
+# the invoice list drew one screen twice under a readout naming two words. The
+# stand in below reads its heading out of such a literal; the lift still
+# succeeds, the faithfulness check still says SAME, and --check has to refuse.
+# The live stand in is the positive control, in the same fixture (L159).
+# ---------------------------------------------------------------------------
+check "a move the builder reads while it builds is proved to move the screen" \
+    "$(says "$(run --check "$SPEC" "$OUT")" "MOVES: variant.heading draws 2 different screens")" "yes"
+
+INERT="$WORK/inert.html"
+python3 - "$STANDIN" "$INERT" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+old = 'screen.append(el("div", "row", "Needs you"));'
+assert text.count(old) == 1, "the plant matched nothing, so this case proves nothing"
+text = text.replace(old, 'screen.append(el("div", "row", AT_LOAD[0]));', 1)
+mark = "var FIXTURES = ["
+assert text.count(mark) == 1, "the plant matched nothing, so this case proves nothing"
+text = text.replace(mark, 'var AT_LOAD = ["Needs you"];\n' + mark, 1)
+open(sys.argv[2], "w", encoding="utf-8").write(text)
+PY
+spec_for "$WORK/inert.json" "inert.html"
+INERTOUT="$WORK/inertout"
+check "a value held in a literal built at load still lifts" "$(status "$WORK/inert.json" "$INERTOUT")" "0"
+INERTSAYS="$(run --check "$WORK/inert.json" "$INERTOUT")"
+check "and still draws option 1 the way the design file does" "$(says "$INERTSAYS" "SAME:")" "yes"
+check "but --check refuses it, because its values draw one screen" \
+    "$(status --check "$WORK/inert.json" "$INERTOUT")" "8"
+check "it names the move and the values that drew the same screen" \
+    "$(says "$INERTSAYS" "INERT: variant.heading draws the same screen for values 1 and 2")" "yes"
+check "and it names the cause to look for" "$(says "$INERTSAYS" "evaluated once, when the script loads")" "yes"
+check "it never prints a value, so no fixture's wording reaches the terminal" \
+    "$(grep -c 'Waiting on you' <<< "$INERTSAYS")" "0"
+
 spec_for "$WORK/nolabel.json" "standin.html" 'option_one="Three"'
 check "an option 1 label on no fixture cannot be read" \
     "$(status --check "$WORK/nolabel.json" "$OUT")" "7"
@@ -364,7 +418,8 @@ json.dump({
     "option_one": "Ordinary",
     "builder_ends_before": 'var bar = document.getElementById("fixbar");',
     "page_rules": {"body": ".page"},
-    "moves": [{"field": "dueLabel", "variable": "DUE_LABEL", "holds": '"Amount due"'}],
+    "moves": [{"field": "dueLabel", "variable": "DUE_LABEL", "holds": '"Amount due"',
+               "values": ["Amount due", "Balance due"]}],
     "same": {"tolerance": 0, "ignore": []}
 }, open(sys.argv[1], "w", encoding="utf-8"), indent=1)
 PY
@@ -383,7 +438,8 @@ json.dump({
     "builder_ends_before":
         'function drawList() { document.getElementById("stage").replaceChildren(windowFor("")); }',
     "page_rules": {"body": ".screen"},
-    "moves": [{"field": "cardHeading", "variable": "CARD_HEADING", "holds": '"Needs you"'}],
+    "moves": [{"field": "cardHeading", "variable": "CARD_HEADING", "holds": '"Needs you"',
+               "values": ["Needs you", "Waiting on you"]}],
     "same": {"tolerance": 0, "ignore": []}
 }, open(sys.argv[1], "w", encoding="utf-8"), indent=1)
 PY
@@ -413,6 +469,52 @@ check "and the element it names is one a person can find in the screen" \
 # of the same markup differing by a few pixels in one row, with the lift
 # innocent. The seam composes the harness page with no doctype, so the fault can
 # be produced on purpose rather than waited for.
+# ovation#407 ON THE FILE IT HAPPENED IN. The round for ovation#129 moved an
+# action's words, and invoice-list.html then held its rows in a literal built at
+# load. It now builds them in groupsFor() on every draw, so the same move on the
+# committed file is proved to move the screen, and a copy with the literal put
+# back is refused: the pair is one fixture with and without the fault.
+python3 - "$WORK/action.json" "$PWD/docs/design/invoice-list.html" <<'PY'
+import json, sys
+json.dump({
+    "source": sys.argv[2],
+    "screen": ".screen",
+    "fixtures": '[{ label: "A day with work waiting", layout: "" }]',
+    "screen_from": "windowFor(fixture.layout)",
+    "option_one": "A day with work waiting",
+    "builder_ends_before":
+        'function drawList() { document.getElementById("stage").replaceChildren(windowFor("")); }',
+    "page_rules": {"body": ".screen"},
+    "moves": [{"field": "action", "variable": "ACTION_WORDS", "holds": '"Add tax status"',
+               "values": ["Add tax status", "Open client"]}],
+    "same": {"tolerance": 0, "ignore": []}
+}, open(sys.argv[1], "w", encoding="utf-8"), indent=1)
+PY
+python3 "$TARGET" "$WORK/action.json" "$WORK/action" >/dev/null 2>&1
+check "the round that went wrong, on the committed file, moves the screen" \
+    "$(status --check "$WORK/action.json" "$WORK/action")" "0"
+AGAIN="$WORK/list-at-load.html"
+python3 - docs/design/invoice-list.html "$AGAIN" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+head, tail = "function groupsFor() { return [", "\n]; }\n"
+assert text.count(head) == 1, "the plant matched nothing, so this case proves nothing"
+at = text.index(head)
+end = text.index(tail, at)
+text = (text[:at] + "var GROUPS_AT_LOAD = [" + text[at + len(head):end]
+        + "\n];\nfunction groupsFor() { return GROUPS_AT_LOAD; }\n" + text[end + len(tail):])
+open(sys.argv[2], "w", encoding="utf-8").write(text)
+PY
+python3 - "$WORK/action.json" "$WORK/action-at-load.json" "$AGAIN" <<'PY'
+import json, sys
+spec = json.load(open(sys.argv[1], encoding="utf-8"))
+spec["source"] = sys.argv[3]
+json.dump(spec, open(sys.argv[2], "w", encoding="utf-8"), indent=1)
+PY
+python3 "$TARGET" "$WORK/action-at-load.json" "$WORK/action-at-load" >/dev/null 2>&1
+check "and with its rows back in a literal built at load, the same round is refused" \
+    "$(status --check "$WORK/action-at-load.json" "$WORK/action-at-load")" "8"
+
 check "a harness page in quirks mode is caught, which is ovation#194" \
     "$(OVATION_HARNESS_QUIRKS=1 python3 "$TARGET" --check "$WORK/pdf.json" "$PDF" \
         >/dev/null 2>&1; printf '%s' "$?")" "1"

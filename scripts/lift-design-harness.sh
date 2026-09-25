@@ -69,7 +69,8 @@ THE SPEC, with `source` resolved against the spec file's own directory:
       "strip":    ["var stage = document.getElementById(\\"stage\\");"],
       "page_rules": {"body": ".page"},     rules that are the page, retargeted
       "moves":  [{"field": "dueLabel", "variable": "DUE_LABEL",
-                  "holds": "\\"Amount due\\""}],
+                  "holds": "\\"Amount due\\"",
+                  "values": ["Amount due", "Balance due"]}],
       "same":   {"tolerance": 0, "ignore": []}
     }
 
@@ -88,13 +89,33 @@ field that sets it. THEY ARE VALUES IN THE BUILDER, NEVER IN THE STYLESHEET, and
 a round moving a CSS value is not something this does; it is said here so nobody
 reads the silence as coverage.
 
+`values` is what the round's options give that field, as the switcher's variants
+carry it, at least two and all different (ovation#407). THEY ARE THERE SO
+`--check` CAN PROVE THE MOVE MOVES SOMETHING. Replacing a value with a variable
+only works if the builder READS the variable while it builds; a value sitting in
+a literal the script evaluates once, at load (`var GROUPS = [ ... ]`), is already
+inside that literal when buildScreen assigns the variable, so every option draws
+the same screen. That is how a round on the invoice list offered a choice
+between two copies of one screen on 2026-09-19, with the lift reporting success
+and the faithfulness check reporting SAME, because that check draws option 1,
+the one option where the moved value still holds its original and so the one
+option that cannot see it (L101, L159). So after the faithfulness check `--check`
+draws option 1's fixture once per value of each move, every other move left at
+option 1, and refuses when two values draw the same screen. "The same screen" is
+the built element's markup, its text and attributes included, and every
+element's tag, classes and box: a word changed inside a fixed width box moves no
+box, and a width changed through a class moves no text, so either alone would
+pass a move the other can see. The values are compared, never printed: a
+refusal names them by their place in the list.
+
 WHAT IT PRINTS is file names, selectors, class names, counts and boxes. It never
 prints a design file's text, so no fixture's wording can reach a terminal
 (docs/PRIVACY-FLOOR.md), and the committed fixtures carry invented names anyway.
 
 Exit codes, one per outcome (L11):
 
-    0  the harness was written, or --check and it draws the same screen
+    0  the harness was written, or --check and it draws the same screen and
+       every move's values draw different ones
     1  --check and the harness draws a DIFFERENT screen, named element by element
     2  used wrongly, or the spec, the design file or a written harness is not there
     3  cannot measure: no headless browser
@@ -106,6 +127,8 @@ Exit codes, one per outcome (L11):
        builder already defines buildScreen
     7  --check and a page could not be read: its probe reported an error, or an
        ignore selector matched nothing in either rendering
+    8  --check and a move is INERT: two of its values draw the same screen, so a
+       round moving it would offer a choice between copies of one screen
 
 Seams: OVATION_HEADLESS_BROWSER, OVATION_HARNESS_QUIRKS (compose the harness
 page with NO doctype, so the document mode difference of ovation#194 can be
@@ -126,7 +149,7 @@ BUILDER = "builder.js"
 
 # The exit codes above, named so a refusal cannot be raised with the wrong one.
 WRITTEN, DIFFERS, USED_WRONGLY = 0, 1, 2
-NO_BROWSER, BAD_SPEC, BAD_SHAPE, LIFT_REFUSED, UNREADABLE = 3, 4, 5, 6, 7
+NO_BROWSER, BAD_SPEC, BAD_SHAPE, LIFT_REFUSED, UNREADABLE, INERT = 3, 4, 5, 6, 7, 8
 
 
 class Refusal(Exception):
@@ -194,6 +217,23 @@ def read_spec(path):
         if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", move["variable"]):
             raise Refusal(BAD_SPEC, "move %d names the variable %r, which is not a name "
                                     "JavaScript can declare" % (index + 1, move["variable"]))
+        # THE VALUES THE ROUND GIVES IT, which is what --check draws to prove the
+        # move moves anything (ovation#407). Two the same are one question asked
+        # twice, and are compared as JSON so 1 and 1.0 are not told apart here
+        # while the browser would draw them alike.
+        values = move.get("values")
+        if (not isinstance(values, list) or len(values) < 2
+                or len({json.dumps(v, sort_keys=True) for v in values}) != len(values)):
+            raise Refusal(BAD_SPEC,
+                          "move %d must list the values the round's options give %s, at "
+                          "least two and all different, and it lists %s."
+                          % (index + 1, move["field"],
+                             "none" if not isinstance(values, list)
+                             else "%d, %d different" % (
+                                 len(values),
+                                 len({json.dumps(v, sort_keys=True) for v in values}))),
+                          "--check draws each one to prove the move moves the screen; a "
+                          "move nobody can prove moves anything is not a round.")
 
     for key, want in (("strip", list), ("page_rules", dict), ("variant", dict), ("same", dict)):
         if key in spec and not isinstance(spec[key], want):
@@ -605,10 +645,18 @@ def probe_for_design(spec):
        "screen_from": spec["screen_from"]}
 
 
-def probe_for_harness(spec):
-    """Draw option 1 through the lifted buildScreen and measure it the same way."""
+def option_one(spec):
     variant = dict(spec["variant"])
     variant[spec["label"]] = spec["option_one"]
+    return variant
+
+
+def probe_for_harness(spec, variant=None, markup=False):
+    """Draw one variant through the lifted buildScreen and measure it the same
+    way, option 1 unless another is named. With `markup` the built element's
+    markup is reported beside its boxes, for the proof that a move moves
+    something, which has to see a word change inside a box that did not."""
+    variant = option_one(spec) if variant is None else variant
     return """
 <script>
 (function () {
@@ -620,6 +668,7 @@ def probe_for_harness(spec):
     var built = buildScreen(%(variant)s);
     document.body.appendChild(built);
     report = ovationMeasure(built, IGNORE);
+    if (%(markup)s) { report.markup = built.outerHTML; }
   } catch (e) { report = { error: String((e && e.message) || e) }; }
   var pre = document.createElement("pre");
   pre.id = "ovation-probe";
@@ -628,7 +677,7 @@ def probe_for_harness(spec):
 })();
 </script>
 """ % {"measure": MEASURE, "ignore": json.dumps(spec["ignore"]),
-       "variant": json.dumps(variant)}
+       "variant": json.dumps(variant), "markup": "true" if markup else "false"}
 
 
 # THE PAGE THE HARNESS IS DRAWN IN, and it is deliberately not the design file's.
@@ -724,6 +773,36 @@ def read_report(session, path, probe, what):
     return report
 
 
+def prove_moves(session, spec, page):
+    """Draw option 1's fixture once per value of each move, in a fresh page each,
+    and return (field, count, first, second) for every move two of whose values
+    drew the same screen, with (field, count, None, None) for every move whose
+    values all differed.
+
+    A FRESH PAGE PER VALUE, so a builder that keeps state between calls cannot
+    make one value's drawing depend on the one before it. And the comparison is
+    the WHOLE drawing, markup and boxes, never the value itself: what has to be
+    proved is that the screen moved, not that the variable was assigned (L63).
+    """
+    answers = []
+    for move in spec["moves"]:
+        drawn = []
+        for index, value in enumerate(move["values"]):
+            variant = option_one(spec)
+            variant[move["field"]] = value
+            report = read_report(session, page, probe_for_harness(spec, variant, True),
+                                 "the harness with value %d of variant.%s"
+                                 % (index + 1, move["field"]))
+            drawn.append(json.dumps([report.get("markup"), report["rows"]]))
+        twin = None
+        for later in range(len(drawn)):
+            for earlier in range(later):
+                if twin is None and drawn[earlier] == drawn[later]:
+                    twin = (earlier + 1, later + 1)
+        answers.append((move, len(drawn)) + (twin or (None, None)))
+    return answers
+
+
 def check(spec, out_dir):
     styles_at = os.path.join(out_dir, STYLES)
     builder_at = os.path.join(out_dir, BUILDER)
@@ -751,6 +830,11 @@ def check(spec, out_dir):
         with session:
             design = read_report(session, spec["source_path"], probe_for_design(spec), name)
             harness = read_report(session, page, probe_for_harness(spec), "the harness")
+            faithful = not differences(design["rows"], harness["rows"], spec["tolerance"])[0]
+            # THE MOVES ARE PROVED ONLY ON A FAITHFUL LIFT. A lift that already
+            # draws the wrong screen has one fault to report, and a proof run
+            # over it would be a claim about a screen nobody meant (L475).
+            moved = prove_moves(session, spec, page) if faithful else []
     except CannotMeasure as err:
         raise Refusal(NO_BROWSER, str(err))
 
@@ -783,7 +867,7 @@ def check(spec, out_dir):
     if not faults:
         print("SAME: the harness draws the screen %s draws, %d element(s), tag, classes "
               "and box." % (name, len(design["rows"])))
-        return WRITTEN
+        return report_moves(moved)
 
     print("DIFFERS: the harness does not draw the screen %s draws." % name)
     for kind, a, b in faults[:8]:
@@ -802,6 +886,28 @@ def check(spec, out_dir):
           "silently, because the lifted copy still renders. Retarget the page's rules "
           "onto the screen through the spec's page_rules.")
     return DIFFERS
+
+
+def report_moves(moved):
+    """What the proof of the moves found, one line per move (ovation#407)."""
+    inert = False
+    for move, count, first, second in moved:
+        if first is None:
+            print("MOVES: variant.%s draws %d different screens for its %d values, markup "
+                  "and box." % (move["field"], count, count))
+            continue
+        inert = True
+        print("INERT: variant.%s draws the same screen for values %d and %d, so a round "
+              "moving it would offer a choice between copies of one screen."
+              % (move["field"], first, second))
+        print("    The builder does not read %s while it builds the screen. The usual "
+              "cause is a literal evaluated once, when the script loads, that already "
+              "holds the original value by the time buildScreen assigns the variable."
+              % move["variable"])
+        print("    Build that literal in a function called on every draw, as "
+              "invoice-list.html's groupsFor() does, or move a value the builder does "
+              "read.")
+    return INERT if inert else WRITTEN
 
 
 # ---------------------------------------------------------------------------
@@ -830,8 +936,9 @@ def write(spec, out_dir):
               % (move["field"], move["variable"], moved[move["field"]]))
     print("  option 1     %r, picked by label, and buildScreen refuses any other count"
           % spec["option_one"])
-    print("  next         --check renders both and compares, then make-switcher.py "
-          "turns these two files into the round's page.")
+    print("  next         --check renders both and compares, draws each move's values "
+          "to prove they differ, then make-switcher.py turns these two files into the "
+          "round's page.")
     return WRITTEN
 
 
