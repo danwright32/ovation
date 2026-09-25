@@ -769,6 +769,173 @@ struct InvoiceScreenPresenterTests {
         #expect(screen.refusalAtTheFoot == "Waiting on the time the shoot ended.")
     }
 
+    /// One way an invoice can reach the screen, and what its foot says with and
+    /// without the tax question on screen beside it.
+    private struct FootCase {
+        let name: String
+        /// The refusal that leads, or nil where the gate says nothing from the
+        /// invoice's own vocabulary (no refusal, or a page that cannot be drawn).
+        let leads: InvoiceRefusal?
+        /// What the gate says with the question absent, or nil where no invoice
+        /// without the question can reach this case.
+        let refusalAlone: String??
+        /// What the gate says with the question present, or nil where no invoice
+        /// with the question can reach this case.
+        let refusalAsked: String??
+        /// What the foot draws with the question present.
+        let footAsked: String??
+        let footer: InvoiceFooter
+        let shape: (ModelContext, TaxStatus) throws -> Invoice
+    }
+
+    /// EVERY REFUSAL AGAINST EVERY BODY REMEDY, which is ovation#483's proof that
+    /// turning the pairing into data changed nothing anybody sees. It was written
+    /// and passed against the condition it replaces, then kept unchanged.
+    ///
+    /// THE FIXTURE PROVES IT REACHED EACH STATE by asserting the gate's own answer
+    /// before the foot's, so a case that fell into a neighbouring refusal fails
+    /// rather than passing on the wrong one (L165). And the cases are checked to
+    /// cover `ReviewGate.order` whole, so a refusal added to the vocabulary is a
+    /// failure here rather than an untested row (L96).
+    @Test("the foot stands down only for the refusal a body remedy answers, over every refusal")
+    func thefootAgainstEveryRefusalAndRemedy() throws {
+        let noPayment = InvoiceFooter(payment: "  ", note: "", contact: "dan@example.com")
+        let noContact = InvoiceFooter(payment: "Pay by cheque.", note: "", contact: "")
+        let tax = ReviewGate.sentence(for: .taxStatusNeverRecorded)
+        func said(_ refusal: InvoiceRefusal) -> String?? { .some(ReviewGate.sentence(for: refusal)) }
+        let nobody: String?? = .some(nil)
+        let unreachable: String?? = nil
+
+        let cases: [FootCase] = [
+            FootCase(name: "nothing refused", leads: nil,
+                     refusalAlone: nobody, refusalAsked: .some(tax), footAsked: nobody,
+                     footer: .fixed) { try Self.invoice($0, taxStatus: $1) },
+            FootCase(name: "no payment line", leads: .paymentInstructionsNotSet,
+                     refusalAlone: said(.paymentInstructionsNotSet),
+                     refusalAsked: said(.paymentInstructionsNotSet),
+                     footAsked: said(.paymentInstructionsNotSet),
+                     footer: noPayment) { try Self.invoice($0, taxStatus: $1) },
+            FootCase(name: "no contact", leads: .contactDetailsNotSet,
+                     refusalAlone: said(.contactDetailsNotSet),
+                     refusalAsked: said(.contactDetailsNotSet),
+                     footAsked: said(.contactDetailsNotSet),
+                     footer: noContact) { try Self.invoice($0, taxStatus: $1) },
+            FootCase(name: "no times", leads: .shootTimesNotGiven,
+                     refusalAlone: said(.shootTimesNotGiven),
+                     refusalAsked: said(.shootTimesNotGiven),
+                     footAsked: said(.shootTimesNotGiven), footer: .fixed) {
+                try Self.invoice($0, taxStatus: $1, from: nil, until: nil, rate: nil)
+            },
+            FootCase(name: "no end time", leads: .shootEndTimeNotGiven,
+                     refusalAlone: said(.shootEndTimeNotGiven),
+                     refusalAsked: said(.shootEndTimeNotGiven),
+                     footAsked: said(.shootEndTimeNotGiven), footer: .fixed) {
+                try Self.invoice($0, taxStatus: $1, until: nil, rate: nil)
+            },
+            FootCase(name: "no start time", leads: .shootStartTimeNotGiven,
+                     refusalAlone: said(.shootStartTimeNotGiven),
+                     refusalAsked: said(.shootStartTimeNotGiven),
+                     footAsked: said(.shootStartTimeNotGiven), footer: .fixed) {
+                try Self.invoice($0, taxStatus: $1, from: nil, rate: nil)
+            },
+            // 09:00 to 08:00 is 23 hours, a typo rather than a shoot.
+            FootCase(name: "longer than a shoot", leads: .durationLongerThanAShoot,
+                     refusalAlone: said(.durationLongerThanAShoot),
+                     refusalAsked: said(.durationLongerThanAShoot),
+                     footAsked: said(.durationLongerThanAShoot), footer: .fixed) {
+                try Self.invoice($0, taxStatus: $1, from: "09:00", until: "08:00", rate: nil)
+            },
+            // UNREACHABLE WITHOUT THE QUESTION, because the question is asked of
+            // exactly the condition that raises this refusal.
+            FootCase(name: "tax status never recorded", leads: .taxStatusNeverRecorded,
+                     refusalAlone: unreachable, refusalAsked: .some(tax), footAsked: nobody,
+                     footer: .fixed) { try Self.invoice($0, taxStatus: $1) },
+            FootCase(name: "nothing charged", leads: .nothingIsBeingCharged,
+                     refusalAlone: said(.nothingIsBeingCharged),
+                     refusalAsked: .some(tax), footAsked: nobody, footer: .fixed) {
+                try Self.invoice($0, taxStatus: $1, rate: nil)
+            },
+            FootCase(name: "discount too large", leads: .discountExceedsSubtotal,
+                     refusalAlone: said(.discountExceedsSubtotal),
+                     refusalAsked: .some(tax), footAsked: nobody, footer: .fixed) {
+                let invoice = try Self.invoice($0, taxStatus: $1)
+                invoice.discount = Discount(dollars: Money(dollars: 1_000))
+                return invoice
+            },
+            // $375 of charges and a line of minus $500.
+            FootCase(name: "below zero", leads: .totalBelowZero,
+                     refusalAlone: said(.totalBelowZero),
+                     refusalAsked: .some(tax), footAsked: nobody, footer: .fixed) {
+                let invoice = try Self.invoice($0, taxStatus: $1)
+                invoice.add(LineItem.flat(Money(dollars: -500), describedAs: "Correction"))
+                return invoice
+            },
+            FootCase(name: "no due date", leads: nil,
+                     refusalAlone: .some(ReviewGate.sentence(forCannotBeDrawn: .noDueDate)),
+                     refusalAsked: .some(tax), footAsked: nobody, footer: .fixed) {
+                let invoice = try Self.invoice($0, taxStatus: $1)
+                invoice.dueDate = nil
+                return invoice
+            },
+            // UNREACHABLE WITH THE QUESTION: it is about a client, and there is none.
+            FootCase(name: "no client", leads: nil,
+                     refusalAlone: .some(ReviewGate.sentence(forCannotBeDrawn: .noClient)),
+                     refusalAsked: unreachable, footAsked: unreachable, footer: .fixed) {
+                let invoice = try Self.invoice($0, taxStatus: $1)
+                invoice.client = nil
+                return invoice
+            },
+        ]
+
+        #expect(Set(cases.compactMap(\.leads)) == Set(ReviewGate.order),
+                "every refusal the gate can say has a case here")
+
+        for each in cases {
+            if case .some(let expected) = each.refusalAlone {
+                let invoice = try each.shape(try Self.store(), .notExempt)
+                let screen = InvoiceScreenPresenter(invoice: invoice, footer: each.footer,
+                                                    today: Self.today)
+                #expect(screen.taxQuestion == nil, "\(each.name), not asked")
+                #expect(screen.refusal == expected, "\(each.name), not asked")
+                // WITH NOTHING ANSWERED IN THE BODY THE FOOT IS THE GATE, always.
+                #expect(screen.refusalAtTheFoot == expected, "\(each.name), not asked")
+            }
+            if case .some(let expected) = each.refusalAsked,
+               case .some(let foot) = each.footAsked {
+                let invoice = try each.shape(try Self.store(), .neverRecorded)
+                let screen = InvoiceScreenPresenter(invoice: invoice, footer: each.footer,
+                                                    today: Self.today)
+                #expect(screen.taxQuestion != nil, "\(each.name), asked")
+                #expect(screen.refusal == expected, "\(each.name), asked")
+                #expect(screen.refusalAtTheFoot == foot, "\(each.name), asked")
+            }
+        }
+    }
+
+    /// THE PAIRING IS DATA (ovation#483). Each control in the body that answers a
+    /// refusal declares which, and no refusal is declared by two of them, so a
+    /// second control answering the same fact is a failure here rather than a
+    /// question of which one the foot believed (L83).
+    @Test("every body remedy declares the one refusal it answers, and no two declare the same")
+    func everyBodyRemedyDeclaresItsRefusalOnce() {
+        let declared = InvoiceScreenPresenter.BodyRemedy.allCases.map(\.answers)
+
+        #expect(declared.isEmpty == false)
+        #expect(Set(declared).count == declared.count)
+        #expect(InvoiceScreenPresenter.BodyRemedy.taxQuestion.answers == .taxStatusNeverRecorded)
+    }
+
+    /// AND WHAT IS ON SCREEN IS READ FROM THE SAME VALUES the view draws, so the
+    /// foot can only stand down for a control that is actually there.
+    @Test("the remedies on screen are exactly the body controls being drawn")
+    func theremediesOnScreenAreTheOnesDrawn() throws {
+        let asked = Self.present(try Self.invoice(try Self.store(), taxStatus: .neverRecorded))
+        let answered = Self.present(try Self.invoice(try Self.store()))
+
+        #expect(asked.remediesShown == [.taxQuestion])
+        #expect(answered.remediesShown.isEmpty)
+    }
+
     /// ASKED ONLY WHILE IT IS OUTSTANDING. A question still on the screen after it
     /// has been answered reads as the answer not having landed (L152).
     @Test("an answered status asks nothing, on either answer")
