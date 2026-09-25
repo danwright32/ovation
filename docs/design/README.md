@@ -48,6 +48,7 @@ three things in it are web idioms that must be translated rather than copied:
 | --- | --- |
 | Shell | One window. Invoices, Expenses, Clients. Export and Import are File menu commands, Settings is in the app menu. Single window is a hard rule (PRD 41b), asserted by a test. |
 | Sidebar | A full height panel in espresso running to the top of the window with the traffic lights on it, which is the macOS pattern when a sidebar carries colour. The title bar exists only over the content. |
+| Window title | None. The Instrument Serif heading in the content names the screen, and the title bar carries no title, hidden as macOS apps with a large content heading do (Dan, 2026-09-23, ovation#123). The title bar keeps its height and its back control; only the title text went. The SwiftUI window hides its title to match. |
 | The list | No group headings and no per row chips. Both said what the action word on the right already says. The groups still decide ORDER, they are simply not drawn (see ovation#49). |
 | Column headers | Five, one per column: Shoot, Shoot date, Invoice, Amount, Action. Added 2026-09-09 at Dan's request, then chosen against three lighter sets. They reuse the sidebar card's label treatment and share the rows' own `--cols` grid, so a label cannot drift from its column. |
 | A row's first column | The SHOOT carries the weight and the client goes quiet, always, not only where a client has several shoots (Dan, 2026-09-09). |
