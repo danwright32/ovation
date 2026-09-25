@@ -75,8 +75,55 @@ fi
 # STDIN IS ONLY READ WHEN SOMETHING IS FEEDING IT. git always does; a person
 # running this by hand does not, and an unguarded read there waits for ever (L110).
 PUSH_LINES=""
+PUSH_LINES_READ=""
 if [ ! -t 0 ]; then
-    PUSH_LINES="$(cat)"
+    # A read that FAILED is kept apart from a read that found nothing, because
+    # only the second is an answer from git (ovation#356, below).
+    if PUSH_LINES="$(cat)"; then
+        PUSH_LINES_READ=1
+    else
+        PUSH_LINES=""
+    fi
+fi
+
+# A PUSH GIT HAS ALREADY REFUSED STANDS DOWN BEFORE ANYTHING RUNS (ovation#356).
+#
+# git asks the remote for its tips BEFORE running this hook, and it leaves out of
+# the list it hands over every ref it has already decided: behind the remote,
+# refused by a stale --force-with-lease, or with nothing new to send. When that is
+# every ref, the list is EMPTY. This used to read an empty list as a push it could
+# not place and run everything. Measured 2026-09-15: the branch for ovation#331,
+# amended after its first push, ran the whole suite green and was then rejected as
+# non fast forward, twenty minutes for a refusal git knew about before the first
+# check started. A refusal belongs at the first step that can answer it (L667).
+#
+# NO LOOKUP OF ITS OWN. The issue suggested asking the remote with ls-remote, but
+# git has already asked it, in the same push, and the empty list IS its answer.
+# There is no network call here that could fail, so no failure to mistake for a
+# refusal. What CAN fail is reading the list, and a read that failed is no answer:
+# it falls through to the whole gate (L345, L98).
+#
+# NO BROADER THAN ITS REASON (L324). The list is git's answer only when git handed
+# it over, and git always passes the remote's name and location as the two
+# arguments. A run without them is a person or a test with nothing on stdin, which
+# is a push nobody described, and it still runs everything.
+#
+# IT ALLOWS, AND GIT REFUSES. Measured: a hook that exits non zero here replaces
+# git's own reason, "rejected (non-fast-forward)" or "stale info" with its hint,
+# by a bare "failed to push some refs", and turns an "Everything up-to-date" push
+# into a failure. Exiting 0 changes nothing git will send, because there is nothing
+# on the list, and leaves git to print the exact sentence and remedy it always has.
+#
+# WHAT IT DELIBERATELY DOES NOT CATCH. A ref whose remote tip is a commit this
+# clone has never fetched ("fetch first") IS on the list, and so is the same ref
+# pushed with --force, with identical lines, measured. This hook is not told
+# whether a push is forced, so it cannot tell the doomed push from the deliberate
+# one, and it runs the gate for both rather than refusing a forced push.
+if [ -n "${PUSH_LINES_READ}" ] && [ "$#" -ge 2 ] && [ -z "${PUSH_LINES//[[:space:]]/}" ]; then
+    echo "pre-push: git handed this gate no ref that can change. git has already refused every ref" >&2
+    echo "pre-push: in this push (behind the remote, or a stale lease), or none has anything new to" >&2
+    echo "pre-push: send. Nothing can land, so no check and no suite was run. git's own reason follows." >&2
+    exit 0
 fi
 
 # A DELETE ONLY PUSH STANDS DOWN, and the condition is no broader than the reason

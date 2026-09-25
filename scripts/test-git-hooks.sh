@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "git hooks tests" 97
+harness_begin "git hooks tests" 107
 
 INSTALLER="scripts/install-git-hooks.sh"
 HOOK="scripts/git-hooks/pre-push"
@@ -384,6 +384,73 @@ check "a deletion pushed alongside real commits still runs the checks" \
 check "and does not claim to have stood down" \
     "$(printf '%s' "$OUT395B" | grep -c 'only deletes')" "0"
 
+# ovation#356. A PUSH GIT HAS ALREADY REFUSED STANDS DOWN BEFORE ANYTHING RUNS.
+#
+# git asks the remote for its tips BEFORE it runs a pre-push, and it leaves out
+# of the hook's list every ref it has already decided cannot land: behind the
+# remote (an amend after the first push), a stale --force-with-lease, or already
+# up to date. When that is every ref, the list is EMPTY, and the gate used to read
+# an empty list as a push it could not place and run the whole suite, twenty
+# minutes, before git printed the rejection it had known about from the start.
+#
+# The premise is git's behaviour, so it is MEASURED here with real pushes to a
+# throwaway bare remote, never assumed (L82), and the gate is measured on those
+# same real pushes.
+R356="$(stage_tree gate356 0)"
+git init -q --bare "$WORK/gate356-remote.git" >/dev/null 2>&1
+(
+    cd "$R356" && git remote add origin "$WORK/gate356-remote.git" \
+    && git config --local core.hooksPath scripts/git-hooks \
+    && git add -A && git commit -qm one
+) >/dev/null 2>&1
+push356() {
+    ( cd "$R356" && env -u SKIP_TEST_RUN -u FORCE_TEST_RUN -u SKIP_STYLE_CHECK \
+        -u SKIP_TEST_CHECK git push "$@" 2>&1 )
+}
+OUT356A="$(push356 origin main)"; ST356A=$?
+check "the first push runs the gate and lands" \
+    "$ST356A:$(printf '%s' "$OUT356A" | grep -c 'SUITE-FROM-gate356')" "0:1"
+( cd "$R356" && git commit -q --amend --allow-empty -m one-amended ) >/dev/null 2>&1
+OUT356B="$(push356 origin main)"; ST356B=$?
+check "an amended branch pushed without a lease is still rejected by git" \
+    "$([ "$ST356B" -ne 0 ] && echo rejected || echo landed):$(printf '%s' "$OUT356B" | grep -c 'non-fast-forward')" "rejected:1"
+check "and the gate ran neither its checks nor the suite for it" \
+    "$(printf '%s' "$OUT356B" | grep -c 'SUITE-FROM-gate356')" "0"
+check "and it says why it stood down before git's own reason" \
+    "$(printf '%s' "$OUT356B" | grep -c 'git has already refused every ref')" "1"
+# The remedy git itself prints is left intact, which a refusal from the hook
+# would have replaced with a bare "failed to push some refs" (measured).
+check "and git's own hint about the rejection still reaches the reader" \
+    "$(printf '%s' "$OUT356B" | grep -c 'hint: Updates were rejected')" "1"
+OUT356C="$(push356 --force-with-lease=main:"$(git -C "$R356" rev-parse HEAD)" origin main)"; ST356C=$?
+check "a stale lease is rejected by git without the suite running" \
+    "$([ "$ST356C" -ne 0 ] && echo rejected || echo landed):$(printf '%s' "$OUT356C" | grep -c 'SUITE-FROM-gate356')" "rejected:0"
+( cd "$R356" && git fetch -q origin && git reset -q --hard origin/main ) >/dev/null 2>&1
+OUT356D="$(push356 origin main)"; ST356D=$?
+check "a push with nothing new is allowed without the suite running" \
+    "$ST356D:$(printf '%s' "$OUT356D" | grep -c 'SUITE-FROM-gate356')" "0:0"
+( cd "$R356" && git commit -q --allow-empty -m two ) >/dev/null 2>&1
+OUT356E="$(push356 origin main)"; ST356E=$?
+check "a push that can land still runs the whole gate" \
+    "$ST356E:$(printf '%s' "$OUT356E" | grep -c 'SUITE-FROM-gate356'):$(printf '%s' "$OUT356E" | grep -c 'already refused')" "0:1:0"
+
+# THE STAND DOWN IS NO BROADER THAN ITS REASON (L324). An empty list means
+# nothing can land only when GIT handed it over, and git always names the remote
+# and its location as the hook's two arguments. A run with no arguments is a
+# person or a test, and an empty stdin there is a push nobody described, which
+# still runs everything, as case 135F below also holds.
+OUT356F="$( cd "$R356" && : | env -u SKIP_TEST_RUN bash "$R356/scripts/git-hooks/pre-push" 2>&1 )"
+check "an empty list with no remote named still runs the gate" \
+    "$(printf '%s' "$OUT356F" | grep -c 'SUITE-FROM-gate356'):$(printf '%s' "$OUT356F" | grep -c 'already refused')" "1:0"
+# AND A LIST THAT COULD NOT BE READ IS NOT AN EMPTY ONE (L345, L98). stdin is a
+# directory here, so the read fails with "Is a directory", and a failed read is no
+# answer from git: the gate falls through to running everything rather than
+# standing down. NOT a closed stdin: with fd 0 closed the next file bash opens
+# lands on it and the read waits on that for ever, measured as a hang (L110).
+OUT356G="$( cd "$R356" && env -u SKIP_TEST_RUN bash "$R356/scripts/git-hooks/pre-push" origin "$WORK/gate356-remote.git" < / 2>&1 )"
+check "a list that could not be read runs the gate rather than standing down" \
+    "$(printf '%s' "$OUT356G" | grep -c 'SUITE-FROM-gate356'):$(printf '%s' "$OUT356G" | grep -c 'already refused')" "1:0"
+
 G1="$(stage_tree gate1 0)"; add_check "$G1" "check-identity-leaks.sh" 1
 OUT135A="$(hook_from_tree_in "$G1" "$G1")"; ST135A=$?
 check "a check that found a fault refuses the push" \
@@ -550,9 +617,11 @@ check "one relevant path among irrelevant ones still runs the xcode phase" \
 # RETARGETED IN ovation#395, NOT DELETED. Stdin is now read ONCE, at the top, so a
 # delete only push can stand down before any check runs, and every later loop
 # reads that copy. The guard moved with the read: exactly one read of stdin, and
-# it sits behind the terminal test (L430).
+# it sits behind the terminal test (L430). ovation#356 put two comment lines
+# between the test and the read, so the read is looked for within the next four
+# lines rather than on the next one (L518).
 check "the ref loop does not read a terminal it was never given" \
-    "$(grep -A1 'if \[ ! -t 0 \]; then' "$REPO_ROOT/$HOOK" | grep -c 'PUSH_LINES="$(cat)"'):$(grep -c '$(cat)' "$REPO_ROOT/$HOOK")" "1:1"
+    "$(grep -A4 'if \[ ! -t 0 \]; then' "$REPO_ROOT/$HOOK" | grep -c 'PUSH_LINES="$(cat)"'):$(grep -c '$(cat)' "$REPO_ROOT/$HOOK")" "1:1"
 
 # The workflow files are on the skippable list too: nothing in an Xcode build or
 # test reads .github/, and the shell suites, which DO read it now that
