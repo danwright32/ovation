@@ -449,6 +449,14 @@ whose elements are not compared, every run prints both, and a selector that matc
 refused rather than passed. The same comparison is what found ovation#194, where two renderings
 differed by 3px in one row and the cause was the document mode rather than the lift.
 
+**And it proves each move moves something** (ovation#407). The faithfulness comparison draws option
+1, the one option where a moved value still holds its original, so it cannot see a move that does
+nothing. One did nothing on 2026-09-19: `invoice-list.html` held its rows in a literal evaluated once
+at load, the lift turned a word inside it into a variable nobody read while building, and a round
+offered a choice between two copies of one screen with the lift and `--check` both green. So every
+move in the spec lists the `values` the round's options give it, and `--check` draws option 1's
+fixture once per value, markup and boxes, and refuses with exit 8 when two draw the same screen.
+
 ## Nothing carries CSS for a screen it does not draw
 
 **`scripts/check-design-dead-rules.sh` refuses a rule the file that holds it can never apply.** Each
