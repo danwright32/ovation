@@ -12,7 +12,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "build-install tests" 47
+harness_begin "build-install tests" 49
 
 TARGET="scripts/build-install.sh"
 require_target "$TARGET"
@@ -302,7 +302,7 @@ project_step() {  # $1 the check's exit status before, $2 after, $3 regenerate's
     : > "$PROJ_LOG"
     printf '#!/bin/bash\necho check >> "%s"\nif [ -f "%s.regenerated" ]; then exit %s; fi\nexit %s\n' \
         "$PROJ_LOG" "$PROJ_LOG" "$2" "$1" > "$WORK/check-project"
-    printf '#!/bin/bash\necho regenerate >> "%s"\n: > "%s.regenerated"\nexit %s\n' \
+    printf '#!/bin/bash\necho "regenerate wait=${OVATION_REGENERATE_WAIT:-none}" >> "%s"\n: > "%s.regenerated"\nexit %s\n' \
         "$PROJ_LOG" "$PROJ_LOG" "$3" > "$WORK/regenerate"
     rm -f "$PROJ_LOG.regenerated"
     OVATION_PROJECT_CHECK="$WORK/check-project" OVATION_REGENERATE="$WORK/regenerate" \
@@ -315,10 +315,16 @@ check "a current project is built from as it is" "$ST:$(grep -c regenerate "$PRO
 OUT="$(project_step 1 0 0)"; ST=$?
 check "a stale project is regenerated before the build" "$ST:$(grep -c regenerate "$PROJ_LOG")" "0:1"
 check "and it says why it regenerated" "$(printf '%s' "$OUT" | grep -c 'out of date')" "1"
+# HOLDING ITS PLACE IN THE BUILD QUEUE (ovation#542): a regeneration that refuses
+# at once whenever a sibling is queued fails every install on a busy Mac.
+check "and the regeneration waits for its turn rather than refusing at once" \
+    "$(grep -c '^regenerate wait=3600$' "$PROJ_LOG")" "1"
 
 OUT="$(project_step 1 0 1)"; ST=$?
 check "a regeneration that fails refuses, so nothing is built from the stale project" "$ST" "2"
 check "and names the command to run" "$(printf '%s' "$OUT" | grep -c 'regenerate-xcode-project.sh')" "1"
+check "and the command it names waits its turn too" \
+    "$(printf '%s' "$OUT" | grep -c 'regenerate-xcode-project.sh --wait 3600')" "1"
 
 OUT="$(project_step 1 1 0)"; ST=$?
 check "a project still stale after regenerating refuses rather than building it" "$ST" "2"

@@ -3,6 +3,7 @@
 # lock, and never while a build outside those locks is reading it.
 #
 #     regenerate-xcode-project.sh
+#     regenerate-xcode-project.sh --wait <seconds>
 #
 # ovation#202. The project is generated from project.yml and gitignored, and
 # `lib/ensure-xcode-project.sh` deliberately never regenerates one that exists:
@@ -19,10 +20,24 @@
 # and the one operation that rewrites the project out from under a build was the
 # one operation outside the locking (L453).
 #
-# IT REFUSES RATHER THAN WAITING, and that is the decision rather than a detail.
-# Regenerating is a deliberate act somebody is doing at a keyboard; waiting
-# silently behind a ten minute suite is worse than being told to try again. The
-# refusal NAMES the holder, so it is actionable rather than just a no (L148).
+# IT REFUSES RATHER THAN WAITING, unless told to wait. Regenerating was taken to
+# be a deliberate act somebody does at a keyboard, where waiting silently behind a
+# ten minute suite is worse than being told to try again, and the refusal NAMES
+# the holder, so it is actionable rather than just a no (L148).
+#
+# BUT TRYING AGAIN NEVER WORKS UNDER TRAFFIC (ovation#542). A refusal leaves the
+# arrival queue, so every retry joins at the back, behind whoever arrived while it
+# was away. On 2026-09-25 a retry every 15 seconds lost for 3617s straight while
+# Overture kept queueing runs, and a fresh worktree could not be pushed (L1012).
+# So `--wait <seconds>` joins the queue ONCE and keeps its ticket until it is at
+# the front and the lock is free, says what it is waiting behind as it goes, and
+# refuses by name at the deadline. Every remedy that tells somebody to run this
+# names --wait, because the somebody is usually not at a keyboard at all. Without
+# it this still refuses at once, for a person who would rather know now.
+#
+# --wait covers the build lock and its queue, which is where the traffic is. A
+# build reading the project OUTSIDE that lock, or another regeneration holding
+# the create lock, is still a refusal at once: both are brief and rare.
 #
 # THE LOCKS ARE THE READERS', not one of its own. A lock must be the one the
 # READERS take or it protects nothing (L453). The hosted suite reads the project
@@ -53,14 +68,44 @@
 #        Nothing was touched
 #     2  there is no generator, or the generator failed
 #     3  there is no project.yml to generate from
+#     4  used wrongly: an argument it does not know, or a --wait that is not a
+#        whole number of seconds. Nothing was touched
 #
 # Seams: OVATION_REPO_ROOT, OVATION_XCODE_PROJECT, OVATION_XCODEGEN,
-# OVATION_DIR_LOCK. The arrival queue is "<OVATION_DIR_LOCK>.queue", derived from
+# OVATION_DIR_LOCK, OVATION_REGENERATE_WAIT (--wait), OVATION_REGENERATE_POLL (seconds between looks while
+# waiting, 5 by default), OVATION_REGENERATE_ANNOUNCE (seconds between "still
+# waiting" lines, 30 by default). The arrival queue is "<OVATION_DIR_LOCK>.queue", derived from
 # it, so a throwaway lock brings a throwaway queue (downbeat#524).
 set -uo pipefail
 # ovation#399: every library is loaded through require_lib, which refuses by name
 # rather than carrying on without it. See scripts/lib/require.sh.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/require.sh" 2>/dev/null || { echo "REFUSED: scripts/lib/require.sh is missing, so nothing was checked." >&2; exit 2; }
+
+# OVATION_REGENERATE_WAIT is --wait by environment, which is how run-tests.sh
+# hands this every other setting; an argument given as well wins.
+WAIT="${OVATION_REGENERATE_WAIT:-}"
+WAIT_FROM="OVATION_REGENERATE_WAIT"
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --wait)
+            WAIT="${2:-}"
+            WAIT_FROM="--wait"
+            [ -n "${WAIT}" ] || WAIT="(nothing)"
+            shift; [ "$#" -gt 0 ] && shift ;;
+        *)
+            echo "REFUSED: $1 is not an argument this knows. Nothing was touched." >&2
+            echo "         Usage: regenerate-xcode-project.sh [--wait <seconds>]" >&2
+            exit 4 ;;
+    esac
+done
+case "${WAIT}" in
+    *[!0-9]*)
+        echo "REFUSED: ${WAIT_FROM} takes a whole number of seconds, and was given '${WAIT}'." >&2
+        echo "         Nothing was touched." >&2
+        exit 4 ;;
+esac
+POLL="${OVATION_REGENERATE_POLL:-5}"
+ANNOUNCE="${OVATION_REGENERATE_ANNOUNCE:-30}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="${OVATION_REPO_ROOT:-$(dirname "${HERE}")}"
@@ -114,28 +159,53 @@ fi
 # wait on this refusal until its deadline (test-run-tests.sh case 524c).
 # shellcheck source=lib/lock-queue.sh
 require_lib "${HERE}/lib/lock-queue.sh"
-QUEUED_AHEAD=0
-if lock_queue_join "${DIR_LOCK}" "$$"; then
+# What stands between this run and the lock right now, in WHY_NOT, or nothing
+# when the lock was just taken. Asked the same way whether or not it waits, so the
+# two modes cannot come to disagree about what a turn is.
+take_turn() {
+    WHY_NOT=""
     lock_queue_ahead
-    QUEUED_AHEAD="${LOCK_QUEUE_AHEAD}"
-fi
-if [ "${QUEUED_AHEAD}" -gt 0 ]; then
-    lock_queue_leave
-    echo "REFUSED: ${DIR_LOCK} is $(dir_lock_describe "${DIR_LOCK}"), and ${QUEUED_AHEAD} earlier run(s)" >&2
-    echo "         are queued for it in ${DIR_LOCK}.queue, so it is theirs first." >&2
-    echo "         Nothing was touched. Try again when they are done." >&2
-    exit 1
-fi
+    if [ "${LOCK_QUEUE_AHEAD}" -gt 0 ]; then
+        WHY_NOT="${DIR_LOCK} is $(dir_lock_describe "${DIR_LOCK}"), and ${LOCK_QUEUE_AHEAD} earlier run(s) are queued for it in ${DIR_LOCK}.queue, so it is theirs first"
+        return 1
+    fi
+    if ! dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}") regenerate" "$$"; then
+        WHY_NOT="${DIR_LOCK} is $(dir_lock_describe "${DIR_LOCK}")"
+        return 1
+    fi
+}
 
-# NON BLOCKING, ON PURPOSE. See the header: a refusal naming the holder beats a
-# silent ten minute wait.
-if ! dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}") regenerate" "$$"; then
-    lock_queue_leave
-    echo "REFUSED: ${DIR_LOCK} is $(dir_lock_describe "${DIR_LOCK}")." >&2
-    echo "         Rewriting ${PROJECT} while a build is reading it is the hazard this" >&2
-    echo "         refusal exists for. Nothing was touched. Try again when that run is" >&2
-    echo "         done, or find out what is holding the lock." >&2
-    exit 1
+lock_queue_join "${DIR_LOCK}" "$$" || true
+if [ -z "${WAIT}" ]; then
+    if ! take_turn; then
+        lock_queue_leave
+        echo "REFUSED: ${WHY_NOT}." >&2
+        echo "         Rewriting ${PROJECT} while a build is reading it is the hazard this" >&2
+        echo "         refusal exists for. Nothing was touched. Try again when that run is" >&2
+        echo "         done, or run this with --wait <seconds> to keep a place in the queue." >&2
+        exit 1
+    fi
+else
+    WAIT_STARTED="$(date +%s)"
+    ANNOUNCED=0
+    until take_turn; do
+        WAITED=$(( $(date +%s) - WAIT_STARTED ))
+        if [ "${ANNOUNCED}" -eq 0 ]; then
+            echo "WAITING: ${WHY_NOT}." >&2
+            echo "         Holding this run's place in the queue, for up to ${WAIT}s." >&2
+            ANNOUNCED=1
+        elif [ "${ANNOUNCE}" -gt 0 ] && [ "$(( WAITED / ANNOUNCE ))" -ge "${ANNOUNCED}" ]; then
+            ANNOUNCED=$(( WAITED / ANNOUNCE + 1 ))
+            echo "         still waiting after ${WAITED}s of ${WAIT}s: ${WHY_NOT}." >&2
+        fi
+        if [ "${WAITED}" -ge "${WAIT}" ]; then
+            lock_queue_leave
+            echo "REFUSED: gave up after ${WAITED}s of ${WAIT}s waiting for a turn: ${WHY_NOT}." >&2
+            echo "         Nothing was touched." >&2
+            exit 1
+        fi
+        sleep "${POLL}"
+    done
 fi
 lock_queue_leave
 DIR_LOCK_HELD=1

@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode project regeneration tests" 50
+harness_begin "xcode project regeneration tests" 66
 
 TARGET="scripts/regenerate-xcode-project.sh"
 require_target "$TARGET"
@@ -55,9 +55,10 @@ run_it() {
     OVATION_XCODE_PROJECT="$WORK/tree/Ovation.xcodeproj" \
     OVATION_XCODEGEN="$WORK/xcodegen" \
     OVATION_DIR_LOCK="$WORK/lock" \
-        "./$TARGET" 2>&1
+    OVATION_REGENERATE_POLL="${POLL_FOR_TEST:-0.05}" \
+        "./$TARGET" "$@" 2>&1
 }
-status_of() { run_it >/dev/null 2>&1; printf '%s' "$?"; }
+status_of() { run_it "$@" >/dev/null 2>&1; printf '%s' "$?"; }
 
 # 1. THE ORDINARY CASE: nothing holds the lock, so it regenerates and says so.
 fresh_tree; stub_generator 0
@@ -409,5 +410,84 @@ fresh_tree; stub_generator 0
 check "a dead earlier waiter does not stop it regenerating" "$(status_of)" "0"
 check "and the queue is empty afterwards, its ticket and the dead one both gone" \
     "$(ls "$QUEUE" | wc -l | tr -d ' ')" "0"
+
+# ---------------------------------------------------------------------------
+# 11. --wait HOLDS ITS PLACE (ovation#542). Refusing and retrying goes to the
+# back of the queue every time, so under steady sibling traffic a retry loop never
+# gets a turn: on 2026-09-25 one lost every 15 second retry for 3617s. With --wait
+# it joins ONCE, keeps its ticket, and goes when it reaches the front and the
+# lock is free. The poll is a seam, so nothing here sleeps for real (L524).
+# ---------------------------------------------------------------------------
+live_ticket() {  # <arrival> <pid>: a ticket for a live process, as a waiter writes it
+    printf '%s %s\n' "$2" "$(ps -o lstart= -p "$2" | sed 's/^ *//; s/ *$//')" > "$QUEUE/$1.$2"
+}
+waiting_ticket_count() { ls "$QUEUE" 2>/dev/null | grep -c . || true; }
+has_said_waiting() { grep -q "WAITING" "$WORK/wait-out.txt" 2>/dev/null; }
+
+sleep 60 & AHEAD_PID=$!; disown "$AHEAD_PID" 2>/dev/null
+sleep 60 & LATER_PID=$!; disown "$LATER_PID" 2>/dev/null
+harness_on_exit "kill $AHEAD_PID $LATER_PID 2>/dev/null"
+fresh_tree; stub_generator 0; rm -rf "$QUEUE"; mkdir -p "$QUEUE"
+live_ticket 00000000001.000000 "$AHEAD_PID"
+( run_it --wait 5 > "$WORK/wait-out.txt"; echo "$?" > "$WORK/wait-status" ) &
+WAITER=$!
+harness_wait_for "the waiting run to say it is waiting" 200 0.05 has_said_waiting
+# A LATER arrival joins behind it while it waits, stamped with the real time as a
+# waiter stamps itself. Holding its place means it goes before this one; a run
+# that left and rejoined on each look would be stamped later still and queue
+# behind it, which is the starvation (a control rejoining each poll turns the
+# two cases below red). Its deadline is short, so that failure is quick too.
+LATER_ARRIVAL="$(perl -MTime::HiRes=time -e 'printf "%017.6f", time')"
+live_ticket "$LATER_ARRIVAL" "$LATER_PID"
+check "while it waits, it has not generated" \
+    "$([ -f "$WORK/generated.txt" ] && echo generated || echo no)" "no"
+check "and it holds one ticket between the earlier waiter and the later one" \
+    "$(waiting_ticket_count)" "3"
+check "and it says who it is waiting behind, and for how long it will" \
+    "$(grep -c -e "1 earlier run" -e "up to 5s" "$WORK/wait-out.txt")" "2"
+kill "$AHEAD_PID" 2>/dev/null; wait "$AHEAD_PID" 2>/dev/null
+wait "$WAITER"
+check "when the earlier waiter goes, it regenerates, ahead of the later one" \
+    "$(cat "$WORK/wait-status"):$([ -f "$WORK/generated.txt" ] && echo generated || echo no)" "0:generated"
+check "and the later waiter's ticket is all that is left in the queue" \
+    "$(ls "$QUEUE" | tr '\n' ' ')" "$LATER_ARRIVAL.$LATER_PID "
+kill "$LATER_PID" 2>/dev/null; wait "$LATER_PID" 2>/dev/null
+
+# A HELD LOCK past the deadline is a refusal that says it waited, names the
+# holder, and leaves the queue and the holder's lock as they were.
+fresh_tree; stub_generator 0; rm -rf "$QUEUE"
+mkdir -p "$WORK/lock"; printf 'Downbeat:4321\n' > "$WORK/lock/owner"
+OUT="$(run_it --wait 1)"; RC=$?
+check "a lock still held at the deadline is refused" "$RC" "1"
+check "and it says it gave up after waiting, naming the holder" \
+    "$(grep -c "gave up after .* of 1s.*4321" <<< "$OUT")" "1"
+check "and it did NOT generate, the holder keeps the lock, and it left the queue" \
+    "$([ -f "$WORK/generated.txt" ] && echo generated || echo no):$(head -1 "$WORK/lock/owner"):$(waiting_ticket_count)" "no:Downbeat:4321:0"
+rm -rf "$WORK/lock"
+
+# A FREE LOCK AND AN EMPTY QUEUE: --wait costs nothing and says nothing of waiting.
+fresh_tree; stub_generator 0; rm -rf "$QUEUE"
+OUT="$(run_it --wait 30)"; RC=$?
+check "with nobody ahead, --wait regenerates at once" "$RC" "0"
+check "and says nothing about waiting" "$(grep -c "WAITING" <<< "$OUT")" "0"
+
+# THE SAME WAIT BY ENVIRONMENT, which is how run-tests.sh hands every other
+# setting to this script: OVATION_REGENERATE_WAIT is --wait, and a bad one is
+# used wrongly too.
+fresh_tree; stub_generator 0; rm -rf "$QUEUE"
+mkdir -p "$WORK/lock"; printf 'Downbeat:4321\n' > "$WORK/lock/owner"
+OUT="$(OVATION_REGENERATE_WAIT=1 run_it)"; RC=$?
+check "OVATION_REGENERATE_WAIT waits as --wait does, and gives up by name" \
+    "$RC:$(grep -c "gave up after .* of 1s" <<< "$OUT")" "1:1"
+rm -rf "$WORK/lock"
+check "and a bad OVATION_REGENERATE_WAIT is used wrongly" \
+    "$(OVATION_REGENERATE_WAIT=soon status_of)" "4"
+
+# USED WRONGLY is its own outcome: a deadline that is not a whole number of
+# seconds, or an argument it does not know, touches nothing.
+fresh_tree; stub_generator 0
+check "a --wait that is not a whole number of seconds is used wrongly" "$(status_of --wait soon)" "4"
+check "and so is an argument it does not know" "$(status_of --nope)" "4"
+check "and neither generated" "$([ -f "$WORK/generated.txt" ] && echo generated || echo no)" "no"
 
 harness_end

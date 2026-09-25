@@ -660,14 +660,18 @@ else
         "${REPO_ROOT}/scripts/check-xcode-project-current.sh"
     fi
   }
+  # $1 is how long the regeneration may wait for its turn at the build lock,
+  # holding its place in the queue meanwhile (ovation#542).
   regenerate_project() {
     if [ -n "${REGENERATE_COMMAND}" ]; then
       OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
       OVATION_DIR_LOCK="${DIR_LOCK}" OVATION_XCODEGEN="${XCODEGEN}" \
+      OVATION_REGENERATE_WAIT="$1" \
         bash -c "${REGENERATE_COMMAND}"
     else
       OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
       OVATION_DIR_LOCK="${DIR_LOCK}" OVATION_XCODEGEN="${XCODEGEN}" \
+      OVATION_REGENERATE_WAIT="$1" \
         "${REPO_ROOT}/scripts/regenerate-xcode-project.sh"
     fi
   }
@@ -690,6 +694,13 @@ else
   # has been waiting as it goes: a wait that cannot be told from a hang is the
   # worse of the two (L110, L148).
   #
+  # AND EACH ATTEMPT HOLDS ITS PLACE (ovation#542). Called again after a refusal,
+  # the regeneration joined the arrival queue at the back every time, and while
+  # siblings kept queueing it never reached the front. So each attempt is given
+  # what is left of this run's deadline to wait in the queue itself; this loop
+  # remains for the refusals that wait does not cover, a build reading the
+  # project outside the lock.
+  #
   # IT HAPPENS BEFORE THIS RUN REGISTERS AS A READER, because a regeneration
   # refuses while any live registration stands, and this run's own would be one
   # (ovation#299).
@@ -705,7 +716,9 @@ else
       regen_announced=0
       regen_refused=""
       while :; do
-        REGEN_WORDS="$(regenerate_project 2>&1)"
+        regen_left=$(( TIMEOUT - ($(date +%s) - regen_started) ))
+        [ "${regen_left}" -gt 0 ] || regen_left=0
+        REGEN_WORDS="$(regenerate_project "${regen_left}" 2>&1)"
         REGEN_STATUS=$?
         # 1 is the regenerator's "a lock is held, or a build is reading it", the
         # one outcome worth waiting on. Anything else is a fault in the tree that

@@ -40,6 +40,7 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
       OVATION_REPO_ROOT \
       OVATION_ONLY_TESTING OVATION_PROJECT_CURRENT_COMMAND OVATION_REGENERATE_COMMAND \
+      OVATION_REGENERATE_WAIT \
       OVATION_SHELL_SUITES OVATION_SHOT_DIR TEST_RUNNER_OVATION_SHOT_DIR \
       OVATION_APP_CHANGES_ROOT OVATION_APP_CHANGES_BASE OVATION_APP_BUILD_COMMAND
 
@@ -78,7 +79,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 291
+harness_begin "test runner lock tests" 292
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -2220,6 +2221,7 @@ CURRENT
 cat > "$REGEN/regenerate" <<REGENERATE
 #!/bin/bash
 echo "attempt \$OVATION_XCODE_PROJECT \$OVATION_DIR_LOCK" >> "$REGEN/attempts"
+echo "wait \${OVATION_REGENERATE_WAIT:-none}" >> "$REGEN/args"
 left="\$(cat "$REGEN/refusals" 2>/dev/null || echo 0)"
 if [ "\$left" -gt 0 ]; then
     printf '%s\n' "\$((left - 1))" > "$REGEN/refusals"
@@ -2232,7 +2234,7 @@ if [ -e "$REGEN/fails" ]; then echo "REFUSED: xcodegen is not at /nowhere/xcodeg
 echo "OK: regenerated the stand in project."
 REGENERATE
 chmod +x "$REGEN/current" "$REGEN/regenerate"
-reset_regen() { rm -f "$REGEN/regenerated" "$REGEN/attempts" "$REGEN/refusals" "$REGEN/stays-stale" "$REGEN/fails"; }
+reset_regen() { rm -f "$REGEN/regenerated" "$REGEN/attempts" "$REGEN/args" "$REGEN/refusals" "$REGEN/stays-stale" "$REGEN/fails"; }
 regen_run() { ONLY_CURRENT="'$REGEN/current'" ONLY_REGENERATE="'$REGEN/regenerate'" only_run "$@"; }
 PURE_MARKED='echo PURE-SUITE-RAN; echo "Test run with 3 tests in 1 suite passed"'
 
@@ -2243,6 +2245,12 @@ check "and it waited out the regeneration's refusals rather than stopping at the
     "$(grep -c attempt "$REGEN/attempts" 2>/dev/null)" "4"
 check "and it printed the refusal's own words once, when it first refused" \
     "$(count_of "$OUT321O" 'held by downbeat:4242')" "1"
+# AND EACH ATTEMPT HOLDS ITS PLACE IN THE QUEUE (ovation#542). A regeneration that
+# refuses and is called again joins at the back each time, and under sibling
+# traffic never gets a turn, so every attempt is asked to wait, for no longer than
+# this run has left of its own deadline (2s here, OVATION_LOCK_TIMEOUT in only_run).
+check "and every attempt was asked to wait in the queue, within this run's deadline" \
+    "$(grep -c -v -E '^wait [0-2]$' "$REGEN/args" 2>/dev/null):$(grep -c . "$REGEN/args" 2>/dev/null)" "0:4"
 check "and the regeneration was pointed at this run's project and build lock" \
     "$(sort -u "$REGEN/attempts" 2>/dev/null)" "attempt $STANDIN_PROJECT $DIR_LOCK"
 check "and the suite ran only after the project was regenerated" \
