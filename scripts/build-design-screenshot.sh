@@ -126,7 +126,9 @@ def capture(browser, path, rect, into):
     holder = tempfile.mkdtemp(prefix="ovation-shot-")
     whole = os.path.join(holder, "whole.png")
     done = subprocess.run(
-        [browser, "--headless", "--disable-gpu", "--hide-scrollbars",
+        # A stand in keychain, so no run puts "Keychain Not Found" on the Mac's
+        # screen (ovation#543, lib/design_render.py).
+        [browser, "--headless", "--disable-gpu", "--hide-scrollbars", "--use-mock-keychain",
          "--virtual-time-budget=6000",
          "--force-device-scale-factor=%d" % SCALE,
          "--window-size=%d,%d" % WINDOW,
