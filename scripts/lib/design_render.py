@@ -72,6 +72,7 @@ import glob
 import json
 import os
 import pathlib
+import re
 import select
 import shutil
 import subprocess
@@ -261,8 +262,85 @@ def _number(name, default):
 _STATE = ("(function () { var p = document.getElementById('ovation-probe');"
           " return {href: location.href, ready: document.readyState,"
           " report: p ? p.textContent : null,"
+          " unloaded: window.ovationFacesUnloaded || null,"
           " bytes: document.documentElement"
           " ? new Blob([document.documentElement.outerHTML]).size : 0}; })()")
+
+
+# A PROBE RUNS ONLY ONCE THE PAGE'S TYPEFACES HAVE LOADED (ovation#543).
+#
+# A probe appended to a page ran the moment the parser reached it, which is
+# before the page's first layout, and a face declared with @font-face is not even
+# requested until a layout needs it. So it measured every word in a fallback face
+# unless the typeface happened to be ready already, and two renderings of one
+# screen could disagree by a pixel in the width of a word: main went red on the
+# design harness lift suite that way, twice on 2026-09-25, and passed on rerun.
+#
+# So the probe's scripts are held back and run, in order and in the page's own
+# global scope as inline scripts are, once every declared face has been asked to
+# load and document.fonts says loading is done. A face that fails to load is
+# recorded, and render() refuses by name rather than measuring the fallback that
+# is the defect itself (L11). Anything in a probe that is not a script is kept
+# where it was. Done here, where every tool renders, so no tool can forget it.
+_PROBE_SCRIPT = re.compile(r"<script>(.*?)</script>", re.DOTALL)
+_AFTER_FACES = """<script>
+(function () {
+  var held = %s;
+  /* A held probe arrives after the page's load events have fired, so a listener
+     it adds for one of those would wait for ever. While it runs, such a listener
+     is kept, and called with that event once its scripts have run, as the page
+     would have called it. */
+  function run() {
+    var late = [];
+    function catching(target, add) {
+      return function (type, listener, options) {
+        var past = (type === "load" && target === window && document.readyState === "complete") ||
+                   (type === "DOMContentLoaded" && document.readyState !== "loading");
+        if (past) { late.push([target, type, listener]); return; }
+        return add.call(this, type, listener, options);
+      };
+    }
+    var onWindow = window.addEventListener, onDocument = document.addEventListener;
+    window.addEventListener = catching(window, onWindow);
+    document.addEventListener = catching(document, onDocument);
+    try {
+      held.forEach(function (text) {
+        var s = document.createElement("script");
+        s.textContent = text;
+        document.body.appendChild(s);
+      });
+    } finally {
+      window.addEventListener = onWindow;
+      document.addEventListener = onDocument;
+    }
+    late.forEach(function (entry) {
+      var listener = entry[2], event = new Event(entry[1]);
+      if (typeof listener === "function") { listener.call(entry[0], event); }
+      else if (listener && typeof listener.handleEvent === "function") { listener.handleEvent(event); }
+    });
+  }
+  if (!document.fonts || !document.fonts.forEach) { run(); return; }
+  var loads = [];
+  document.fonts.forEach(function (face) {
+    loads.push(face.load().then(null, function () {
+      window.ovationFacesUnloaded = (window.ovationFacesUnloaded || []).concat([face.family]);
+    }));
+  });
+  Promise.all(loads).then(function () { return document.fonts.ready; })
+    .then(function () { if (!window.ovationFacesUnloaded) { run(); } });
+})();
+</script>
+"""
+
+
+def after_faces_load(probe):
+    """The probe, its scripts held back until the page's typefaces have loaded."""
+    held = _PROBE_SCRIPT.findall(probe)
+    if not held:
+        return probe
+    rest = _PROBE_SCRIPT.sub("", probe)
+    # A "</" inside a held script would end the script carrying it.
+    return rest + _AFTER_FACES % json.dumps(held).replace("</", "<\\/")
 
 
 class Browser:
@@ -319,8 +397,15 @@ class Browser:
         # Both flags are scoped to Linux rather than passed everywhere, because
         # on Dan's Mac the sandbox works and turning it off would be measuring
         # something other than the browser he renders in (L376).
+        #
+        # NEVER THE KEYCHAIN (ovation#543). On a Mac the browser asks for the
+        # login keychain to keep its secrets in, and under a suite's throwaway
+        # home there is none, so macOS put "Keychain Not Found" on Dan's screen
+        # for every browser a run started. A browser rendering test pages has no
+        # secrets to keep, so it is given a stand in keychain, everywhere, since
+        # the flag does nothing where there is no keychain to ask for.
         flags = [self.path, "--headless", "--disable-gpu", "--remote-debugging-pipe",
-                 "--window-size=1440,1200"]
+                 "--window-size=1440,1200", "--use-mock-keychain"]
         if sys.platform.startswith("linux"):
             flags += ["--no-sandbox", "--disable-dev-shm-usage"]
         # Stderr goes to a file rather than a pipe nobody drains, which a
@@ -571,7 +656,7 @@ class Browser:
         try:
             probed = os.path.join(holder, "probed.html")
             with open(probed, "w", encoding="utf-8") as handle:
-                handle.write(page + probe)
+                handle.write(page + after_faces_load(probe))
             url = pathlib.Path(probed).as_uri()
             attempts = max(self.restarts, 0) + 1
             for attempt in range(attempts):
@@ -625,6 +710,12 @@ class Browser:
                 state = self._state(session)
                 now = time.monotonic()
                 if state and state.get("href") == url and state.get("ready") == "complete":
+                    if state.get("unloaded"):
+                        raise CannotMeasure(
+                            "the page declares a typeface that could not be loaded (%s), so "
+                            "anything measured would have been drawn in a fallback face "
+                            "rather than the one the page asks for, and nothing was measured."
+                            % ", ".join(state["unloaded"]))
                     if state.get("report") is not None:
                         return self._parse(state["report"])
                     if report_by is None:

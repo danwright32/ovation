@@ -29,7 +29,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design renderer tests" 42
+harness_begin "design renderer tests" 44
 
 TARGET="scripts/lib/design_render.py"
 require_target "$TARGET"
@@ -53,6 +53,8 @@ dying = {int(n) for n in os.environ.get("FAKE_DYING_RUNS", "").split(",") if n.s
 no_report = os.environ.get("FAKE_NO_REPORT", "")
 with open(os.path.join(state, "runs"), "a") as handle:
     handle.write("x")
+with open(os.path.join(state, "flags"), "w") as handle:
+    handle.write("\n".join(__import__("sys").argv[1:]) + "\n")
 run = os.path.getsize(os.path.join(state, "runs"))
 
 # THE OTHER FAULT: the browser exits before answering anything, which is what a
@@ -172,6 +174,27 @@ browsers_started() { printf '%s' "$(wc -c < "$WORK/state/runs" | tr -d ' ')"; }
 check "an ordinary render returns the probe's report" \
     "$(render "" | grep -c '^REPORT {"ran": 1}')" "1"
 check "and it starts one browser and no more" "$(browsers_started)" "1"
+# NEVER THE KEYCHAIN (ovation#543). On a Mac a real browser asks for the login
+# keychain to store its secrets, and a suite that gives it a throwaway home has no
+# keychain to offer, so macOS put up "Keychain Not Found" on Dan's screen once for
+# every browser a run started. A browser that only renders test pages has nothing
+# to keep there, so it is told to use a stand in for one.
+check "and the browser is told never to reach for the Mac's keychain" \
+    "$(grep -c -x -- '--use-mock-keychain' "$WORK/state/flags")" "1"
+# AND SO IS EVERY OTHER BROWSER THIS REPOSITORY STARTS. Enumerated from the tree,
+# so a tool written tomorrow that starts its own browser is held to it too (L41,
+# L613): every script passing --headless passes --use-mock-keychain as well.
+unkeyed_launchers() {
+    local f
+    for f in $(grep -l -e '"--headless"' scripts/*.sh scripts/*.py scripts/lib/*.py 2>/dev/null); do
+        case "$f" in scripts/test-*) continue ;; esac
+        grep -q -e '"--use-mock-keychain"' "$f" || echo "$f"
+    done
+}
+UNKEYED="$(unkeyed_launchers)"
+[ -z "$UNKEYED" ] || printf '    starts a browser without --use-mock-keychain:\n%s\n' "$UNKEYED" >&2
+check "and every script that starts a browser gives it a stand in keychain" \
+    "$(grep -c . <<< "$UNKEYED" || true)" "0"
 
 # ---------------------------------------------------------------------------
 # THE CASE THIS EXISTS FOR: the browser stops answering Page.navigate.
