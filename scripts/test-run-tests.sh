@@ -1050,6 +1050,26 @@ check "and it names both numbers, so what moved is readable" \
 check "and the remedy is the command that moves the floor, ready to paste" \
     "$(printf '%s' "$OUT11F2" | grep -c "printf '%s.n' 4 > .*scripts/shell-suite-floor.txt")" "1"
 
+# 11f3. AND THE REFUSAL SAYS THE NUMBER COMES FROM THIS RUN (ovation#351), which
+#       is what ovation#346 settled for a suite's declared assertion count, and
+#       the two are one problem in two files. The floor is one number committed
+#       beside the suites it counts, so any two branches that each add a suite
+#       conflict on it and NEITHER side's number is right: it happened three
+#       times on 2026-09-15, on the branches for ovation#201, #329 and #339. The
+#       resolution invites arithmetic over two diffs, which is how a wrong number
+#       gets committed (L554), so the refusal says not to do it.
+check "and it says the number came from this run, not from adding up two diffs" \
+    "$(printf '%s' "$OUT11F2" | grep -c 'two diffs')" "1"
+
+# 11f4. AND A SHORT RUN IS NEVER HANDED A NUMBER TO PASTE (ovation#351). Writing
+#       what a short run counted is exactly how the floor stops seeing a suite
+#       that lost its executable bit, which is the defect it exists to prevent,
+#       so the paste ready remedy belongs to the other direction only (L11, L93).
+#       Green before and after ovation#351: it is the property being protected
+#       while the sentence above is added beside it.
+check "a short run is given no floor to paste, because that would silence the check" \
+    "$(printf '%s' "$OUT11F" | grep -c "printf '%s.n'")" "0"
+
 # 11g. The floor is a real committed number, not only a seam (L96). It is NOT
 #      compared against the real suite count here: the runner does exactly that
 #      on every run, and a second copy of the number would be a place for the two

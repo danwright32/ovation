@@ -496,10 +496,22 @@ else
       # green run is one nobody reads, and this is the only moment both numbers
       # are in front of anybody. The message is the command that fixes it rather
       # than a description of it (L399).
+      #
+      # AND IT SAYS THE NUMBER COMES FROM THIS RUN (ovation#351), which is what
+      # ovation#346 settled for a suite's declared assertion count: one problem
+      # in two files. The floor is one number committed beside the suites it
+      # counts, so any two branches that each add a suite conflict on it and
+      # NEITHER side's number is right (L554); it happened three times on
+      # 2026-09-15. Arithmetic over two diffs is how a wrong number gets
+      # committed. The short direction above is deliberately handed no number,
+      # because writing what a short run counted is how the floor stops seeing
+      # a suite that dropped out.
       echo "Error: the shell suites ran ${suites_ran} and the floor says ${SUITE_FLOOR}." >&2
       echo "       That is suites being ADDED, which is good, and the floor has to" >&2
       echo "       move with them or it stops being able to see a run that loses" >&2
-      echo "       some. Run this, then push:" >&2
+      echo "       some. Write the number THIS RUN counted, never one worked out" >&2
+      echo "       from two diffs, which is how a wrong one gets committed." >&2
+      echo "       Run this, then push:" >&2
       echo "" >&2
       echo "       printf '%s\\n' ${suites_ran} > ${SHELL_FLOOR_FILE}" >&2
       echo "" >&2
