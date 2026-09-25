@@ -75,7 +75,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.environ.get("OVATION_REPO_ROOT") or os.path.dirname(HERE)
 PROJECT = os.environ.get("OVATION_XCODE_PROJECT") or os.path.join(REPO_ROOT, "Ovation.xcodeproj")
-REMEDY = "bash scripts/regenerate-xcode-project.sh"
+REMEDY = "bash scripts/regenerate-xcode-project.sh --wait 3600"
 
 # A `- path: X` item, which in project.yml is a target's source. An `excludes`
 # item is a bare string and a dependency is `- sdk:`, `- target:` or

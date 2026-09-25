@@ -660,14 +660,18 @@ else
         "${REPO_ROOT}/scripts/check-xcode-project-current.sh"
     fi
   }
+  # $1 is how long the regeneration may wait for its turn at the build lock,
+  # holding its place in the queue meanwhile (ovation#542).
   regenerate_project() {
     if [ -n "${REGENERATE_COMMAND}" ]; then
       OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
       OVATION_DIR_LOCK="${DIR_LOCK}" OVATION_XCODEGEN="${XCODEGEN}" \
+      OVATION_REGENERATE_WAIT="$1" \
         bash -c "${REGENERATE_COMMAND}"
     else
       OVATION_REPO_ROOT="${REPO_ROOT}" OVATION_XCODE_PROJECT="${XCODE_PROJECT}" \
       OVATION_DIR_LOCK="${DIR_LOCK}" OVATION_XCODEGEN="${XCODEGEN}" \
+      OVATION_REGENERATE_WAIT="$1" \
         "${REPO_ROOT}/scripts/regenerate-xcode-project.sh"
     fi
   }
@@ -690,6 +694,13 @@ else
   # has been waiting as it goes: a wait that cannot be told from a hang is the
   # worse of the two (L110, L148).
   #
+  # AND EACH ATTEMPT HOLDS ITS PLACE (ovation#542). Called again after a refusal,
+  # the regeneration joined the arrival queue at the back every time, and while
+  # siblings kept queueing it never reached the front. So each attempt is given
+  # what is left of this run's deadline to wait in the queue itself; this loop
+  # remains for the refusals that wait does not cover, a build reading the
+  # project outside the lock.
+  #
   # IT HAPPENS BEFORE THIS RUN REGISTERS AS A READER, because a regeneration
   # refuses while any live registration stands, and this run's own would be one
   # (ovation#299).
@@ -701,12 +712,27 @@ else
       echo "==> The project does not list every Swift file on disk, which a new test file is."
       echo "    Regenerating ${XCODE_PROJECT} for this narrowed run, waiting up to ${TIMEOUT}s if"
       echo "    another run is using it."
+      # The regeneration's own progress lines (regenerate-xcode-project.sh --wait).
+      REGEN_WAIT_LINES='^(WAITING:|[[:space:]]+(Holding this run|still waiting after))'
       regen_started="$(date +%s)"
       regen_announced=0
       regen_refused=""
       while :; do
-        REGEN_WORDS="$(regenerate_project 2>&1)"
-        REGEN_STATUS=$?
+        regen_left=$(( TIMEOUT - ($(date +%s) - regen_started) ))
+        [ "${regen_left}" -gt 0 ] || regen_left=0
+        # ITS WAITING IS SHOWN AS IT HAPPENS. The attempt can wait inside the
+        # regeneration for most of this run's deadline, and words captured until
+        # it returns would leave that whole wait silent (L110). So its WAITING
+        # and "still waiting" lines pass straight through as they arrive, and
+        # everything it said is kept for the decisions below, where those lines
+        # are left out so nothing is said twice.
+        regen_log="$(mktemp)"
+        regenerate_project "${regen_left}" 2>&1 | tee "${regen_log}" \
+          | { grep --line-buffered -E "${REGEN_WAIT_LINES}" || true; } \
+          | while IFS= read -r regen_line; do printf '    %s\n' "${regen_line}"; done
+        REGEN_STATUS=${PIPESTATUS[0]}
+        REGEN_WORDS="$(grep -v -E "${REGEN_WAIT_LINES}" "${regen_log}")"
+        rm -f "${regen_log}"
         # 1 is the regenerator's "a lock is held, or a build is reading it", the
         # one outcome worth waiting on. Anything else is a fault in the tree that
         # waiting cannot mend, and it keeps its own status and its own words.

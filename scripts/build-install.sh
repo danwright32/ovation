@@ -240,16 +240,19 @@ ovation_ensure_current_project() {
       ;;
   esac
   echo "==> The Xcode project is out of date with the Swift files on disk, so it is regenerated first."
-  if ! bash "${regen}"; then
+  # Waiting its turn in the build queue, holding its place, because one that
+  # refuses whenever a sibling is queued fails every install on a busy Mac
+  # (ovation#542).
+  if ! OVATION_REGENERATE_WAIT=3600 bash "${regen}"; then
     echo "REFUSED: the Xcode project is out of date and could not be regenerated, so nothing was built or installed." >&2
-    echo "    Run: bash scripts/regenerate-xcode-project.sh" >&2
+    echo "    Run: bash scripts/regenerate-xcode-project.sh --wait 3600" >&2
     return 2
   fi
   status=0
   bash "${check}" >/dev/null 2>&1 || status=$?
   if [ "${status}" -ne 0 ]; then
     echo "REFUSED: the Xcode project is still out of date after regenerating (check answered ${status}), so nothing was built." >&2
-    echo "    Run: bash scripts/regenerate-xcode-project.sh, then bash scripts/check-xcode-project-current.sh" >&2
+    echo "    Run: bash scripts/regenerate-xcode-project.sh --wait 3600, then bash scripts/check-xcode-project-current.sh" >&2
     return 2
   fi
   return 0

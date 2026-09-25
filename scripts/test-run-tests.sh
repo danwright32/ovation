@@ -40,6 +40,7 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_PROJECT_CREATE_POLL OVATION_PROJECT_CREATE_TIMEOUT \
       OVATION_REPO_ROOT \
       OVATION_ONLY_TESTING OVATION_PROJECT_CURRENT_COMMAND OVATION_REGENERATE_COMMAND \
+      OVATION_REGENERATE_WAIT \
       OVATION_SHELL_SUITES OVATION_SHOT_DIR TEST_RUNNER_OVATION_SHOT_DIR \
       OVATION_APP_CHANGES_ROOT OVATION_APP_CHANGES_BASE OVATION_APP_BUILD_COMMAND
 
@@ -78,7 +79,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 291
+harness_begin "test runner lock tests" 294
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -2220,6 +2221,7 @@ CURRENT
 cat > "$REGEN/regenerate" <<REGENERATE
 #!/bin/bash
 echo "attempt \$OVATION_XCODE_PROJECT \$OVATION_DIR_LOCK" >> "$REGEN/attempts"
+echo "wait \${OVATION_REGENERATE_WAIT:-none}" >> "$REGEN/args"
 left="\$(cat "$REGEN/refusals" 2>/dev/null || echo 0)"
 if [ "\$left" -gt 0 ]; then
     printf '%s\n' "\$((left - 1))" > "$REGEN/refusals"
@@ -2232,7 +2234,7 @@ if [ -e "$REGEN/fails" ]; then echo "REFUSED: xcodegen is not at /nowhere/xcodeg
 echo "OK: regenerated the stand in project."
 REGENERATE
 chmod +x "$REGEN/current" "$REGEN/regenerate"
-reset_regen() { rm -f "$REGEN/regenerated" "$REGEN/attempts" "$REGEN/refusals" "$REGEN/stays-stale" "$REGEN/fails"; }
+reset_regen() { rm -f "$REGEN/regenerated" "$REGEN/attempts" "$REGEN/args" "$REGEN/refusals" "$REGEN/stays-stale" "$REGEN/fails"; }
 regen_run() { ONLY_CURRENT="'$REGEN/current'" ONLY_REGENERATE="'$REGEN/regenerate'" only_run "$@"; }
 PURE_MARKED='echo PURE-SUITE-RAN; echo "Test run with 3 tests in 1 suite passed"'
 
@@ -2243,10 +2245,43 @@ check "and it waited out the regeneration's refusals rather than stopping at the
     "$(grep -c attempt "$REGEN/attempts" 2>/dev/null)" "4"
 check "and it printed the refusal's own words once, when it first refused" \
     "$(count_of "$OUT321O" 'held by downbeat:4242')" "1"
+# AND EACH ATTEMPT HOLDS ITS PLACE IN THE QUEUE (ovation#542). A regeneration that
+# refuses and is called again joins at the back each time, and under sibling
+# traffic never gets a turn, so every attempt is asked to wait, for no longer than
+# this run has left of its own deadline (2s here, OVATION_LOCK_TIMEOUT in only_run).
+check "and every attempt was asked to wait in the queue, within this run's deadline" \
+    "$(grep -c -v -E '^wait [0-2]$' "$REGEN/args" 2>/dev/null):$(grep -c . "$REGEN/args" 2>/dev/null)" "0:4"
 check "and the regeneration was pointed at this run's project and build lock" \
     "$(sort -u "$REGEN/attempts" 2>/dev/null)" "attempt $STANDIN_PROJECT $DIR_LOCK"
 check "and the suite ran only after the project was regenerated" \
     "$([ "$(line_of "$OUT321O" 'OK: regenerated')" -lt "$(line_of "$OUT321O" 'PURE-SUITE-RAN')" ] 2>/dev/null && echo regenerated-first || echo ran-first)" "regenerated-first"
+
+# 321i2. AND ITS WAITING IS SAID AS IT HAPPENS (ovation#542). Each attempt now waits
+#       inside the regeneration for most of this run's deadline, so a runner that
+#       captured its words until it returned would be silent for up to half an
+#       hour, which cannot be told from a hang (L110). This stand in says it is
+#       waiting and then blocks until the case lets it go, so the line can only
+#       be seen here if it reached the run's output while the wait was going on.
+cat > "$REGEN/waits-live" <<WAITSLIVE
+#!/bin/bash
+echo "WAITING: $DIR_LOCK is held by overture:1717." >&2
+echo "         Holding this run's place in the queue, for up to 2s." >&2
+for _ in \$(seq 1 400); do [ -e "$REGEN/go" ] && break; sleep 0.05; done
+: > "$REGEN/regenerated"
+echo "OK: regenerated the stand in project."
+WAITSLIVE
+chmod +x "$REGEN/waits-live"
+reset_regen; rm -f "$REGEN/go"
+( ONLY_CURRENT="'$REGEN/current'" ONLY_REGENERATE="'$REGEN/waits-live'" ONLY_PURE="$PURE_MARKED" \
+    only_run --only OvationTests/BrandNewSuiteTests > "$REGEN/live-out" 2>&1
+  echo "$?" > "$REGEN/live-status" ) &
+LIVE_RUN=$!
+says_waiting_live() { grep -q "held by overture:1717" "$REGEN/live-out" 2>/dev/null; }
+harness_wait_for "the regeneration's waiting line to be shown while it still waits" 200 0.05 says_waiting_live
+: > "$REGEN/go"; wait "$LIVE_RUN"
+check "and once it has its turn the run goes on, saying the wait once" \
+    "$(cat "$REGEN/live-status"):$(grep -c "held by overture:1717" "$REGEN/live-out")" "0:1"
+rm -f "$REGEN/go"
 
 reset_regen; : > "$REGEN/stays-stale"
 OUT321P="$(ONLY_PURE="$PURE_MARKED" regen_run --only OvationTests/BrandNewSuiteTests)"; ST321P=$?

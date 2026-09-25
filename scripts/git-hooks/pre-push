@@ -452,7 +452,7 @@ gate_check check-app-icon-current.sh "the committed icon catalog is not what the
 # it; the runner asks the same script before its Swift suites for a direct run.
 # A tree with no generated project answers could not measure (2), which is
 # allowed: the next run generates one from these very directories.
-gate_check check-xcode-project-current.sh "the generated Xcode project does not list the Swift files on disk; run bash scripts/regenerate-xcode-project.sh."
+gate_check check-xcode-project-current.sh "the generated Xcode project does not list the Swift files on disk; run bash scripts/regenerate-xcode-project.sh --wait 3600."
 
 # ovation#421. The package resolution is committed, inside the generated project,
 # and a build on this Mac that resolved differently has rewritten it. Pushing

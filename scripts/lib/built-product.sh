@@ -120,7 +120,7 @@ built_product_absence() {
 built_product_remedy() {
     case "$1" in
         3) printf 'bash scripts/build-products.sh   (it generates the project, then builds Debug and Release)' ;;
-        4) printf 'bash scripts/regenerate-xcode-project.sh, then bash scripts/build-products.sh' ;;
+        4) printf 'bash scripts/regenerate-xcode-project.sh --wait 3600, then bash scripts/build-products.sh' ;;
         *) printf 'bash scripts/build-products.sh   (builds Debug and Release)' ;;
     esac
 }
