@@ -888,6 +888,47 @@ color: var(--faint); }
 .histbtn:hover { color: var(--ink); }
 .histbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .invhd .hdright { display: flex; align-items: baseline; gap: 14px; flex: none; }
+
+/* ---- recording a payment (ovation#510) ----
+
+   THE SHEET FLOATS, centred, every corner rounded (Dan, rounds 1 and 1b): one
+   hanging from the title bar leaves its top flat, "and it's ugly". THE AMOUNT
+   AND THE DATE ARE ONE WIDTH, ONE HEIGHT AND BOTH RIGHT ALIGNED (round 1c), and
+   a box holds its height empty or not. These three are standing rules (PRD 48a,
+   48b). */
+.app { position: relative; }
+.sheetdim { position: absolute; inset: 0; background: rgba(31,24,18,.18);
+            display: flex; justify-content: center; align-items: center; }
+.sheet { width: 360px; background: var(--bg); border-radius: 10px;
+         box-shadow: 0 14px 34px rgba(0,0,0,.28); padding: 16px 20px 16px; }
+.sheet h5 { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.payform { display: grid; grid-template-columns: auto auto; gap: 8px 12px; align-items: center; }
+.payform .plab { font-size: 12px; color: var(--quiet); }
+.payform .pval { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums;
+                 font-size: 13px; color: var(--ink); padding: 2px 6px; background: var(--sunk);
+                 border: 1px solid var(--rule); border-radius: 4px; white-space: nowrap;
+                 justify-self: start; width: 108px; height: 26px; line-height: 20px;
+                 box-sizing: border-box; text-align: right; }
+.payform .pamt:focus, .payform .pdate:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.payform .pmeth { display: flex; flex-wrap: wrap; gap: 4px; }
+.payform .pfoot { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 16px;
+                  align-items: center; padding-top: 4px; }
+.payform .pwhy { font-size: 12px; color: var(--quiet); margin-right: auto; }
+.payform .pdo, .payform .pno { font: inherit; padding: 0; border: 0; background: none; }
+.payform .pdo { font-size: 14.5px; font-weight: 600; color: var(--accent); }
+.payform .pdo.greyed { color: var(--faint); }
+.payform .pno { font-size: 13px; color: var(--quiet); }
+/* Asked in place of Cancel and Record when a changed sheet is closed by a click
+   outside it or by Escape. */
+.payform .pask { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; width: 100%;
+                 justify-content: flex-end; font-size: 13px; color: var(--ink); }
+.payform .pask span { flex: 1 0 100%; }
+.payform .pask button { white-space: nowrap; }
+/* A check waiting to clear, under the Total of a paid invoice (round 2). */
+.clearline { display: flex; justify-content: space-between; align-items: baseline; width: 318px;
+             padding-top: 6px; font-size: 12.5px; color: var(--quiet); }
+/* The payment just recorded, marked in the history it opened (round 6). */
+.hev.justnow { background: var(--selbg); }
 </style>
 <div class="frame">
   <p class="eyebrow">Ovation, the design record</p>
@@ -1662,6 +1703,52 @@ var QUIET = false;
 var HELD_TAKEN = false;      /* Use it here was pressed, in the two invoice case */
 var HELD_REMOVED = false;    /* Remove was pressed, in the one invoice case */
 
+/* ---- recording a payment (ovation#510), settled with Dan on 2026-09-25 ----
+
+   Six rounds, each moving one thing. Round 1: Record a payment opens a SHEET,
+   kept against a line in the foot and a form in the history pane. Round 1b: the
+   sheet FLOATS, centred, every corner rounded: hanging from the title bar left
+   its top flat, "and it's ugly", and that became a rule for every sheet in the
+   product (PRD 48a, ovation#547). Round 1c: the amount and the date are one
+   width and one height and both right aligned, rules for every form (PRD 48b).
+   Zelle is chosen to start with, the amount starts at what is owed (round 4)
+   and the date at today in Eastern Time. Round 2: a check that has not cleared
+   says so on a quiet line under the Total carrying Mark cleared; Zelle, Venmo
+   and PayPal are cleared the moment they are recorded, so only a check ever
+   asks (PRD 15). Round 3: a part payment is a line under the Total with
+   Outstanding beneath it carrying the weight, the treatment held money already
+   has (PRD 14m). Round 5: a part payment by a check that has not cleared says
+   so on its own line, "Check, not cleared", beside Mark cleared, and a check
+   covering the whole invoice uses the same words. Round 6: once Record is
+   pressed the history opens with the new payment marked.
+
+   `PAYMENTS` is what was recorded through the sheet, oldest first. `SHEET` is
+   the sheet while it is open. `JUST` marks the payment just recorded. */
+var PAYMENTS = [];           /* { amount, method, when, cleared, clearedWhen, held } */
+var SHEET = null;            /* { amount: the typed text, method } while open */
+var JUST = -1;               /* the index of the payment just recorded, marked in the history */
+/* TODAY IN THE FIXTURE, in Eastern Time, which is what the date starts at. It is
+   the date the history already gave this invoice's payment, 26 Sep, so the two
+   never disagree; the menu bar's clock is chrome and predates this. */
+var TODAY_TEXT = "26 Sep 2026", CLEARED_SHORT = "2 Oct";
+var METHODS = ["Check", "Zelle", "Venmo", "PayPal"];   /* PRD 15, and only these */
+/* A method named inside a sentence: "by check", as this history always said,
+   while the brand names keep their capitals. */
+function methodWord(m) { return m === "Check" ? "check" : m; }
+var NUMBER = "1042";         /* the header and the sheet read this one value */
+var LAST_TOTAL = 0;
+/* Marks the state switch above the window; set once the switch is built. */
+var markInvoiceStates = function () {};          /* the total the invoice last drew, which the sheet is opened over */
+
+function paidSoFar() {
+  return PAYMENTS.reduce(function (sum, p) { return sum + p.amount - p.held; }, 0);
+}
+/* What is still owed on this invoice: its total, less held money applied, less
+   what was paid. Never below zero; money beyond that is held on the client. */
+function owedOn(total) {
+  return Math.max(0, cents(total - heldApplied(total) - paidSoFar()));
+}
+
 /* WHAT IS ACTUALLY ON THIS INVOICE, derived from the invoice's own total rather
    than stored beside it: a second copy of a figure the screen computes is a
    second definition, and it drifts in whichever direction flatters the reading
@@ -1851,7 +1938,19 @@ function historyFor(state, total) {
   if (state !== "draft") {
     events.push({ when: "12 Sep", what: "Sent", more: "to office@cedarhillyo.example" });
   }
-  if (state === "paid") {
+  /* PAYMENTS RECORDED THROUGH THE SHEET are their own entries (ovation#510). The
+     paid state reached by the switch alone keeps the check that cleared, which
+     is the fixture this history was written against. */
+  if (PAYMENTS.length) {
+    PAYMENTS.forEach(function (p, i) {
+      var more = "$" + money(p.amount) + " by " + methodWord(p.method);
+      if (p.held > 0) more += ", $" + money(p.held) + " held on the client";
+      events.push({ when: p.when, what: "Payment recorded", more: more, just: i === JUST });
+      if (p.method === "Check" && p.cleared) {
+        events.push({ when: p.clearedWhen, what: "Cleared", more: null });
+      }
+    });
+  } else if (state === "paid") {
     events.push({ when: "26 Sep", what: "Payment recorded", more: "$" + money(total) + " by check" },
                  { when: "2 Oct", what: "Cleared", more: null });
   }
@@ -2252,6 +2351,7 @@ function buildInvoice() {
   var t = invoiceTotals((hours === null ? 0 : hours * RATE) + extrasTotal(), CREDIT, CREDIT_BALANCE,
                         DISCOUNT ? DISCOUNT.kind : null,
                         DISCOUNT ? DISCOUNT.value : null, rate);
+  LAST_TOTAL = t.total;
 
   var hd = el("div", "invhd");
   var who = el("div");
@@ -2286,7 +2386,7 @@ function buildInvoice() {
   who.append(ht);
 
   var right = el("div", "hdright");
-  right.append(el("div", "invstate", isDraft ? "Draft" : "Invoice 1042"));
+  right.append(el("div", "invstate", isDraft ? "Draft" : "Invoice " + NUMBER));
   var hb = el("button", "histbtn", PANE_OPEN ? "Hide history" : "History");
   hb.type = "button";
   hb.setAttribute("aria-expanded", String(PANE_OPEN));
@@ -2297,6 +2397,15 @@ function buildInvoice() {
      that is already there. */
   hb.addEventListener("click", function () {
     PANE_OPEN = !PANE_OPEN;
+    /* THE JUST RECORDED MARK LASTS UNTIL THE HISTORY IS CLOSED, so a payment is
+       not still marked new an hour of edits later (ovation#510). Cleared on the
+       element rather than by a redraw, which would lose the slide. */
+    if (!PANE_OPEN && JUST >= 0) {
+      JUST = -1;
+      [].forEach.call(document.querySelectorAll(".hev.justnow"), function (e) {
+        e.classList.remove("justnow");
+      });
+    }
     document.querySelector(".panewrap").classList.toggle("paneopen", PANE_OPEN);
     hb.textContent = PANE_OPEN ? "Hide history" : "History";
     hb.setAttribute("aria-expanded", String(PANE_OPEN));
@@ -2378,6 +2487,7 @@ function buildInvoice() {
          a price nobody has established asserts something the screen cannot
          support. */
       heldBlock(sumBox, line, t.total);
+      paymentsBlock(sumBox, line, t.total);
     }
 
     if (tl.saysWhy) {
@@ -2437,6 +2547,24 @@ function buildInvoice() {
       tip.id = "sendwhy";
       wrap.append(tip);
     }
+    if (f.main === "Record a payment") {
+      /* It opens the payment sheet, starting at what is owed (ovation#510). */
+      act.setAttribute("role", "button");
+      act.tabIndex = 0;
+      var openSheet = function () {
+        var opened = { amount: money(owedOn(t.total)), method: "Zelle", received: TODAY_TEXT };
+        SHEET = { amount: opened.amount, method: opened.method, received: opened.received,
+                  opened: opened, asking: false };
+        redraw(function () {
+          var first = document.querySelector(".sheet .pamt");
+          if (first) first.focus();
+        });
+      };
+      act.addEventListener("click", openSheet);
+      act.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSheet(); }
+      });
+    }
     wrap.append(act);
     acts.append(wrap);
   }
@@ -2463,7 +2591,7 @@ function besideItsHistory(inv, total) {
   pane.append(el("h6", null, "History"));
   var list = el("div", "hlist");
   historyFor(INVSTATE, total).forEach(function (e) {
-    var hrow = el("div", "hev");
+    var hrow = el("div", "hev" + (e.just ? " justnow" : ""));
     var what = el("div");
     what.append(el("span", "hwhat", e.what));
     if (e.more) what.append(el("span", "hmore", e.more));
@@ -2473,6 +2601,171 @@ function besideItsHistory(inv, total) {
   pane.append(list);
   panewrap.append(inv, pane);
   return panewrap;
+}
+
+/* ---- the payments block (ovation#510) ----
+
+   BELOW THE TOTAL, like held money and for its reason: a payment is not a price
+   reduction and must never reach the tax base (PRD 14k). A PART payment is a
+   line with Outstanding beneath it carrying the weight (round 3, PRD 14m). A
+   check that has not cleared says "Check, not cleared" beside Mark cleared, on
+   its own payment line when the invoice is still owed and on a quiet line under
+   the Total once it is paid in full (rounds 2 and 5). Only a check can be
+   uncleared: the other methods clear when recorded (PRD 15). */
+function paymentsBlock(sumBox, line, total) {
+  if (!PAYMENTS.length) return;
+  function clearButton(p) {
+    var b = el("button", "heldback", "Mark cleared");
+    b.type = "button";
+    b.addEventListener("click", function () {
+      p.cleared = true; p.clearedWhen = CLEARED_SHORT; redraw();
+    });
+    return b;
+  }
+  if (INVSTATE === "paid") {
+    PAYMENTS.forEach(function (p) {
+      if (p.cleared) return;
+      var quiet = el("div", "clearline");
+      quiet.append(el("span", null, "Check, not cleared"), clearButton(p));
+      sumBox.append(quiet);
+    });
+    return;
+  }
+  PAYMENTS.forEach(function (p) {
+    var row = el("div", "sline payline");
+    var paid = el("div", "heldlabel");
+    if (p.cleared) {
+      paid.append(el("span", null, "Paid " + p.when + " by " + methodWord(p.method)));
+    } else {
+      paid.append(el("span", null, "Check, not cleared"), clearButton(p));
+    }
+    row.append(paid, el("div", "fig", "-" + money(p.amount - p.held)));
+    sumBox.append(row);
+  });
+  sumBox.classList.add("hasout");
+  sumBox.append(line("Outstanding", money(owedOn(total)), "tot outline"));
+}
+
+/* ---- the payment sheet (ovation#510) ----
+
+   It floats, centred, over a dimmed window, every corner rounded (rounds 1 and
+   1b, PRD 48a). The amount starts at what is owed (round 4), the date at today
+   in Eastern Time, and Zelle is chosen (round 1c). An amount it cannot read, or
+   none, leaves Record unavailable and says why beside it rather than recording
+   a payment worth nothing. More than is owed is recorded, and the rest is held
+   on the client (PRD 14a). */
+function paymentSheet(total) {
+  var dim = el("div", "sheetdim");
+  var sheet = el("div", "sheet");
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-label", "Record a payment on invoice " + NUMBER);
+  sheet.append(el("h5", null, "Record a payment on invoice " + NUMBER));
+  var form = el("div", "payform");
+  var amount = el("input", "pval pamt");
+  amount.type = "text";
+  amount.value = SHEET.amount;
+  amount.setAttribute("aria-label", "Amount");
+  amount.addEventListener("input", function () { SHEET.amount = amount.value; markRecord(); });
+  /* THE DATE IS ASKED FOR, starting at today (PRD 51m): a check that arrived
+     yesterday is recorded on yesterday. It is read the way the due date is, so
+     a day the month does not have is refused rather than rolled forward. */
+  var date = el("input", "pval pdate");
+  date.type = "text";
+  date.value = SHEET.received;
+  date.setAttribute("aria-label", "Received");
+  date.addEventListener("input", function () { SHEET.received = date.value; markRecord(); });
+  var methods = el("div", "pmeth");
+  methods.setAttribute("role", "group");
+  methods.setAttribute("aria-label", "Paid by");
+  METHODS.forEach(function (m) {
+    var b = el("button", "dpick", m);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(SHEET.method === m));
+    b.addEventListener("click", function () { SHEET.method = m; redraw(); });
+    methods.append(b);
+  });
+  form.append(el("span", "plab", "Amount"), amount, el("span", "plab", "Received"), date,
+              el("span", "plab", "By"), methods);
+  var foot = el("div", "pfoot");
+  var why = el("span", "pwhy");
+  var cancel = el("button", "pno", "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", function () { SHEET = null; redraw(); });
+  var record = el("button", "pdo", "Record");
+  record.type = "button";
+  function typed() {
+    var n = parseFloat(String(SHEET.amount).replace(/[$,]/g, ""));
+    return isFinite(n) && n > 0 ? cents(n) : null;
+  }
+  function markRecord() {
+    var amountOk = typed() !== null, dateOk = readDate(SHEET.received) !== null;
+    var ok = amountOk && dateOk;
+    record.setAttribute("aria-disabled", String(!ok));
+    record.classList.toggle("greyed", !ok);
+    why.textContent = !amountOk ? "Needs an amount." : !dateOk ? "Needs a date like 26 Sep 2026." : "";
+  }
+  record.addEventListener("click", function () {
+    var n = typed(), on = readDate(SHEET.received);
+    if (n === null || on === null) return;
+    var when = new Date(on).getUTCDate() + " " + MONTHS[new Date(on).getUTCMonth()];
+    var owed = owedOn(total);
+    var held = Math.max(0, cents(n - owed));
+    PAYMENTS.push({ amount: n, method: SHEET.method, when: when,
+                    cleared: SHEET.method !== "Check", clearedWhen: null, held: held });
+    if (held > 0) HELD_ON_CLIENT = cents(HELD_ON_CLIENT + held);
+    if (n >= owed) { INVSTATE = "paid"; markInvoiceStates(); }
+    JUST = PAYMENTS.length - 1;
+    PANE_OPEN = true;
+    SHEET = null;
+    redraw();
+  });
+  foot.append(why, cancel, record);
+  form.append(foot);
+  sheet.append(form);
+  dim.append(sheet);
+  /* CLOSED THE WAY EVERY OTHER PANEL IN THIS FILE IS: Escape, or a click on the
+     dimmed window outside it. Nothing is lost by it, since the sheet opens at
+     what is owed each time. Enter in the amount records, as it saves in the due
+     panel. */
+  /* A CLICK OUTSIDE OR ESCAPE CLOSES IT ONLY IF NOTHING WAS CHANGED (Dan,
+     2026-09-25): "A click outside can close it but warn if I've changed
+     anything". Closing a panel by accident is not a decision to discard what is
+     in it (L628), so with a change it asks instead. Cancel is a decision, and
+     closes without asking. */
+  function changed() {
+    var o = SHEET.opened;
+    return SHEET.amount !== o.amount || SHEET.method !== o.method || SHEET.received !== o.received;
+  }
+  function closeIncidentally() {
+    if (!changed()) { SHEET = null; redraw(); return; }
+    SHEET.asking = true;
+    redraw();
+  }
+  dim.addEventListener("click", function (e) {
+    if (e.target === dim) closeIncidentally();
+  });
+  sheet.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { e.preventDefault(); closeIncidentally(); }
+  });
+  if (SHEET.asking) {
+    var ask = el("div", "pask");
+    ask.append(el("span", null, "Close without recording this payment?"));
+    var keep = el("button", "pno", "Keep editing");
+    keep.type = "button";
+    keep.addEventListener("click", function () { SHEET.asking = false; redraw(); });
+    var drop = el("button", "pdo", "Close");
+    drop.type = "button";
+    drop.addEventListener("click", function () { SHEET = null; redraw(); });
+    ask.append(keep, drop);
+    foot.replaceChildren(ask);
+  }
+  amount.addEventListener("keydown", function (e) {
+    /* Not while the sheet is asking whether to close: an Enter then is not a
+       decision to record. */
+    if (e.key === "Enter" && !SHEET.asking) { e.preventDefault(); record.click(); }
+  });
+  markRecord();
+  return dim;
 }
 
 /* ---- the held money block (ovation#109) ----
@@ -2495,6 +2788,11 @@ function heldBlock(sumBox, line, total) {
      control asking whether to put more money on it. PRD 14h turns on the
      client's OPEN invoices, and a paid one is not one of them. */
   if (INVSTATE === "paid") return;
+  /* A CLIENT HOLDING NOTHING GETS NOTHING HERE. Before ovation#510 this file only
+     ever drew a client holding money, and with nothing held it still offered
+     "holding $0.00, Use it", a state it could not reach until the switch above
+     gained "nothing". */
+  if (HELD_ON_CLIENT <= 0) return;
 
   var on = heldApplied(total);
 
@@ -2517,8 +2815,12 @@ function heldBlock(sumBox, line, total) {
        Outstanding line at all, and on that one Total IS what is owed. A rule
        that quietened Total everywhere would be judged on the rare invoice and
        would ship on the common one. */
-    sumBox.classList.add("hasout");
-    sumBox.append(line("Outstanding", money(total - on), "tot outline"));
+    /* Where payments were recorded too, their block draws the one Outstanding,
+       so the figure is stated once (ovation#510). */
+    if (!PAYMENTS.length) {
+      sumBox.classList.add("hasout");
+      sumBox.append(line("Outstanding", money(total - on), "tot outline"));
+    }
     /* WHAT IS LEFT IS SAID, never left as a subtraction. An invoice smaller than
        the balance uses part of it, and PRD 5.14e is explicit that a partial
        leaves exactly the rest held rather than driving both figures to zero. Two
@@ -2761,6 +3063,7 @@ function buildInvoiceScreen() {
   var main = el("div", "main");
   main.append(buildInvoice());
   app.append(side, tb, main);
+  if (SHEET) app.append(paymentSheet(LAST_TOTAL));
   win.append(app);
   screen.append(bar, win);
   if (PANEL) screen.append(newTypePanel());
@@ -2781,18 +3084,26 @@ function buildInvoiceScreen() {
     b.append(el("span", null, c[1]));
     if (c[2]) b.append(el("span", "share", c[2]));
     b.addEventListener("click", function () {
+      /* A NEW state starts with no payments recorded through the sheet; pressing
+         the state already chosen changes nothing. */
+      if (c[0] !== INVSTATE) { PAYMENTS = []; SHEET = null; JUST = -1; }
       INVSTATE = c[0];
       if (INVSTATE !== "draft") ensureIssued();
-      [].forEach.call(bar.querySelectorAll(".sbtn:not(.dbtn)"), function (o, i) {
-        o.setAttribute("aria-pressed", String(choices[i][0] === INVSTATE));
-      });
+      markInvoiceStates();
       redraw();
     });
     bar.append(b);
   });
-  [].forEach.call(bar.querySelectorAll(".sbtn:not(.dbtn)"), function (o, i) {
-    o.setAttribute("aria-pressed", String(i === 0));
-  });
+  /* ONE FUNCTION MARKS WHICH STATE IS PRESSED, called by these buttons and by
+     Record in the payment sheet, which moves the invoice to paid on its own. The
+     switch kept showing "sent" over a paid invoice until Record called it too
+     (ovation#510). */
+  markInvoiceStates = function () {
+    [].forEach.call(bar.querySelectorAll(".sbtn:not(.dbtn)"), function (o, i) {
+      o.setAttribute("aria-pressed", String(choices[i][0] === INVSTATE));
+    });
+  };
+  markInvoiceStates();
   anchor.parentNode.insertBefore(bar, anchor.nextSibling);
 
   /* TWO FIXTURE SWITCHES ON ONE ROW: how much of the invoice the balance covers,
@@ -2823,8 +3134,12 @@ function buildInvoiceScreen() {
   var held = el("div", "statebar");
   held.append(el("span", "lab", "Cedar Hill is holding"));
 
+  /* "nothing" is LAST, so the two buttons the checks press keep their places. It
+     is the client who simply pays, which is the case recording a payment is for
+     (ovation#510). */
   var sizes = [[150, "$150.00", "part of the invoice"],
-               [500, "$500.00", "all of it"]];
+               [500, "$500.00", "all of it"],
+               [0, "nothing", "a client who simply pays"]];
   function markSizes() {
     [].forEach.call(held.querySelectorAll(".cbtn"), function (o, i) {
       o.setAttribute("aria-pressed", String(sizes[i][0] === HELD_ON_CLIENT));
