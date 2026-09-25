@@ -1,0 +1,7 @@
+# Durable records written WITHOUT asking scripts/lib/durable-record.sh, each with
+# the reason nothing can stage its subject. ovation#368.
+#
+# scripts/check-durable-records.sh refuses an unrouted writer missing from here, a
+# line with no reason, and a line for a file that no longer has one. Two tab
+# separated columns: the script, relative to scripts/, and the reason.
+record-backup-grant-check.sh	Its subject is a person: Dan runs it by hand to write down what a relaunched installed build showed him, and nothing in it runs a browser, a command or a build that could be injected. Its suite points OVATION_GRANT_RECORD at a throwaway file on every case.
