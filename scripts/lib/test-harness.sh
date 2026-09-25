@@ -177,6 +177,30 @@ check() {
     fi
 }
 
+# AN EXIT STATUS CHECK KEEPS WHAT THE COMMAND SAID (ovation#539).
+#
+#     check_exit "what is checked" <expected status> <command> [args...]
+#
+# Suites judged a tool by its exit status through a helper that sent its output
+# to /dev/null, so a failure read "expected '0', got '1'" and nothing more. On
+# 2026-09-25 a design harness check failed that way on CI, once, and passed on
+# the rerun and locally, while the tool had printed which element it found drawn
+# differently: the only diagnosis that run would ever give was discarded (L148).
+# So the output is kept, and printed under the failure, and only the first 40
+# lines of it, because an answer longer than that buries the failure's own line
+# (L445).
+check_exit() {
+    local what="$1" expected="$2" said status lines
+    shift 2
+    said="$("$@" 2>&1)"; status=$?
+    check "$what" "$status" "$expected"
+    [ "$status" = "$expected" ] && return 0
+    lines="$(grep -c '' <<< "$said")"
+    head -n 40 <<< "$said" | sed 's/^/        /'
+    [ "$lines" -le 40 ] || echo "        and $((lines - 40)) more lines"
+    return 0
+}
+
 # A CONDITION WAIT IS AN ASSERTION, AND ONE THAT RUNS OUT FAILS BY NAME
 # (ovation#303).
 #

@@ -369,6 +369,50 @@ check "a condition wait that is met passes as one assertion" "$ST13B" "0"
 check "and it looked until the condition held, not once" \
     "$(wc -c < "$WORK/looks" 2>/dev/null | tr -d ' ')" "3"
 
+# AN EXIT STATUS CHECK THAT FAILS SAYS WHAT THE COMMAND SAID (ovation#539). A
+# suite that kept only a tool's exit status failed on CI with "expected '0', got
+# '1'" and nothing else, while the tool had printed which element differed and
+# the helper had thrown it away. The case passed on the next run and locally, so
+# the only diagnosis there would ever be was the one discarded (L148).
+suite exit_checks <<SUITE
+#!/bin/bash
+cd "$PWD" || exit 1
+. "$PWD/$HARNESS"
+harness_begin "exit checks" 3
+says_and_exits() { echo "the tool's own reason, line \$2"; return "\$1"; }
+check_exit "a command that exits as expected" 0 says_and_exits 0 1
+check_exit "a refusal that is expected" 3 says_and_exits 3 2
+check_exit "a command that exits otherwise" 0 says_and_exits 1 3
+harness_end
+SUITE
+OUT14="$(run exit_checks)"; ST14=$?
+check "an exit status that differs fails the suite" \
+    "$([ "$ST14" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+check "and names the case, with the status expected and the status got" \
+    "$(grep -c -e "^FAIL: a command that exits otherwise$" -e "expected '0', got '1'" <<< "$OUT14")" "2"
+check "and prints what the command said, indented under it" \
+    "$(grep -c "^        the tool's own reason, line 3$" <<< "$OUT14")" "1"
+check "but a status that matches prints none of its command's output" \
+    "$(grep -c -e "line 1$" -e "line 2$" <<< "$OUT14")" "0"
+check "and each check counts as one assertion, passed or failed" \
+    "$(grep -c "^exit checks: 2 passed, 1 failed$" <<< "$OUT14")" "1"
+
+# A long answer is cut, from the top, so the failure's own line is never buried
+# under the command's output (L445), and the cut says how much it left out.
+suite exit_long <<SUITE
+#!/bin/bash
+cd "$PWD" || exit 1
+. "$PWD/$HARNESS"
+harness_begin "long exit" 1
+talks() { for i in \$(seq 1 100); do echo "said \$i"; done; return 1; }
+check_exit "a command with a lot to say" 0 talks
+harness_end
+SUITE
+OUT15="$(run exit_long)"
+check "a long answer keeps its first lines" "$(grep -c "^        said 1$" <<< "$OUT15")" "1"
+check "and drops the rest, saying how many" \
+    "$(grep -c -e "^        said 100$" -e "^        and 60 more lines$" <<< "$OUT15")" "1"
+
 # A MATCH MUST NOT BE ABLE TO READ AS A MISS (L183). `printf "$text" | grep -q`
 # under pipefail: grep stops reading at its first match, the printf writing a long
 # text into the pipe then dies of SIGPIPE, pipefail reports the pipe as failed, and

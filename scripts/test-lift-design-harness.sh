@@ -33,7 +33,7 @@ harness_temp_dir WORK
 BEFORE="$(shasum -a 256 docs/design/invoice-pdf.html docs/design/invoice-list.html)"
 
 run() { python3 "$TARGET" "$@" 2>&1; }
-status() { python3 "$TARGET" "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+lift() { python3 "$TARGET" "$@"; }
 says() { grep -qF "$2" <<< "$1" && echo yes || echo no; }
 
 # ---------------------------------------------------------------------------
@@ -125,45 +125,45 @@ spec_for "$SPEC" "standin.html"
 #    because a spec with a typo in it and a spec that is not there need
 #    different remedies (L11).
 # ---------------------------------------------------------------------------
-check "no arguments at all is used wrongly" "$(status)" "2"
+check_exit "no arguments at all is used wrongly" 2 lift
 check "and it prints what it takes" "$(says "$(run)" "lift-design-harness.sh <spec.json> <out-dir>")" "yes"
-check "a spec that is not there is used wrongly" "$(status "$WORK/no-such.json" "$WORK/out")" "2"
+check_exit "a spec that is not there is used wrongly" 2 lift "$WORK/no-such.json" "$WORK/out"
 
 printf 'not json at all\n' > "$WORK/broken.json"
-check "a spec that is not JSON is refused as a spec" "$(status "$WORK/broken.json" "$WORK/out")" "4"
+check_exit "a spec that is not JSON is refused as a spec" 4 lift "$WORK/broken.json" "$WORK/out"
 
 spec_for "$WORK/no-screen.json" "standin.html" "screen=__DROP__"
-check "a spec missing a field is refused" "$(status "$WORK/no-screen.json" "$WORK/out")" "4"
+check_exit "a spec missing a field is refused" 4 lift "$WORK/no-screen.json" "$WORK/out"
 check "and the missing field is named" \
     "$(says "$(run "$WORK/no-screen.json" "$WORK/out")" "missing a field: screen")" "yes"
 
 spec_for "$WORK/no-moves.json" "standin.html" "moves=[]"
-check "a harness that moves nothing is refused" "$(status "$WORK/no-moves.json" "$WORK/out")" "4"
+check_exit "a harness that moves nothing is refused" 4 lift "$WORK/no-moves.json" "$WORK/out"
 check "and it says why, because every option would draw the same screen" \
     "$(says "$(run "$WORK/no-moves.json" "$WORK/out")" "draws every option identically")" "yes"
 
 spec_for "$WORK/bad-var.json" "standin.html" \
     'moves=[{"field": "heading", "variable": "not a name", "holds": "\"Needs you\"", "values": ["A", "B"]}]'
-check "a variable JavaScript cannot declare is refused" "$(status "$WORK/bad-var.json" "$WORK/out")" "4"
+check_exit "a variable JavaScript cannot declare is refused" 4 lift "$WORK/bad-var.json" "$WORK/out"
 
 # ovation#407. A move has to say which values the round gives it, because the only
 # way to prove a moved value MOVES something is to draw each one. Fewer than two,
 # or two the same, is a round with no question in it.
 spec_for "$WORK/no-values.json" "standin.html" \
     'moves=[{"field": "heading", "variable": "CARD_HEADING", "holds": "\"Needs you\""}]'
-check "a move that names no values is refused" "$(status "$WORK/no-values.json" "$WORK/out")" "4"
+check_exit "a move that names no values is refused" 4 lift "$WORK/no-values.json" "$WORK/out"
 check "and the refusal names what is missing" \
     "$(says "$(run "$WORK/no-values.json" "$WORK/out")" "move 1 must list the values")" "yes"
 spec_for "$WORK/one-value.json" "standin.html" \
     'moves=[{"field": "heading", "variable": "CARD_HEADING", "holds": "\"Needs you\"", "values": ["Needs you"]}]'
-check "a move with one value is refused" "$(status "$WORK/one-value.json" "$WORK/out")" "4"
+check_exit "a move with one value is refused" 4 lift "$WORK/one-value.json" "$WORK/out"
 spec_for "$WORK/twin-values.json" "standin.html" \
     'moves=[{"field": "heading", "variable": "CARD_HEADING", "holds": "\"Needs you\"", "values": ["A", "A"]}]'
-check "a move whose values repeat one is refused" "$(status "$WORK/twin-values.json" "$WORK/out")" "4"
+check_exit "a move whose values repeat one is refused" 4 lift "$WORK/twin-values.json" "$WORK/out"
 
 spec_for "$WORK/bad-tol.json" "standin.html" 'same={"tolerance": "loose", "ignore": []}'
-check "a tolerance that is not a whole number of pixels is refused" \
-    "$(status "$WORK/bad-tol.json" "$WORK/out")" "4"
+check_exit "a tolerance that is not a whole number of pixels is refused" \
+    4 lift "$WORK/bad-tol.json" "$WORK/out"
 
 # ---------------------------------------------------------------------------
 # 2. THE DESIGN FILE'S SHAPE. A marker matching nothing would lift the whole
@@ -171,8 +171,8 @@ check "a tolerance that is not a whole number of pixels is refused" \
 #    whichever came first with nothing saying a choice had been made (L100).
 # ---------------------------------------------------------------------------
 spec_for "$WORK/nowhere.json" "standin.html" 'builder_ends_before="var nothing = 1;"'
-check "a line the builder ends before that is on no line is refused" \
-    "$(status "$WORK/nowhere.json" "$WORK/out")" "5"
+check_exit "a line the builder ends before that is on no line is refused" \
+    5 lift "$WORK/nowhere.json" "$WORK/out"
 check "and it says how many lines carried it" \
     "$(says "$(run "$WORK/nowhere.json" "$WORK/out")" "is on 0 line(s)")" "yes"
 
@@ -185,7 +185,7 @@ assert text.count(mark) == 1, "the fixture change matched nothing, so this case 
 open(sys.argv[2], "w", encoding="utf-8").write(text.replace(mark, mark + "\n" + mark, 1))
 PY
 spec_for "$WORK/twice.json" "twice.html"
-check "one that is on two lines is refused too" "$(status "$WORK/twice.json" "$WORK/out")" "5"
+check_exit "one that is on two lines is refused too" 5 lift "$WORK/twice.json" "$WORK/out"
 
 TWOSTYLES="$WORK/twostyles.html"
 python3 - "$STANDIN" "$TWOSTYLES" <<'PY'
@@ -196,8 +196,8 @@ open(sys.argv[2], "w", encoding="utf-8").write(
     text.replace("</style>", "</style>\n<style>.late { color: red; }</style>", 1))
 PY
 spec_for "$WORK/twostyles.json" "twostyles.html"
-check "a design file carrying two stylesheets is refused" \
-    "$(status "$WORK/twostyles.json" "$WORK/out")" "5"
+check_exit "a design file carrying two stylesheets is refused" \
+    5 lift "$WORK/twostyles.json" "$WORK/out"
 
 NOSCRIPT="$WORK/noscript.html"
 python3 - "$STANDIN" "$NOSCRIPT" <<'PY'
@@ -208,32 +208,32 @@ assert "<script" not in out, "the fixture change left a script behind"
 open(sys.argv[2], "w", encoding="utf-8").write(out)
 PY
 spec_for "$WORK/noscript.json" "noscript.html"
-check "a design file with no script at all is refused" \
-    "$(status "$WORK/noscript.json" "$WORK/out")" "5"
+check_exit "a design file with no script at all is refused" \
+    5 lift "$WORK/noscript.json" "$WORK/out"
 
 # ---------------------------------------------------------------------------
 # 3. THE LIFT'S OWN REFUSALS. Each of these is a step the spec asked for that
 #    took no effect, and a step that took no effect still reads as taken.
 # ---------------------------------------------------------------------------
 spec_for "$WORK/norule.json" "standin.html" 'page_rules={"nav.side": ".screen"}'
-check "a page rule matching no rule in the stylesheet is refused" \
-    "$(status "$WORK/norule.json" "$WORK/out")" "6"
+check_exit "a page rule matching no rule in the stylesheet is refused" \
+    6 lift "$WORK/norule.json" "$WORK/out"
 check "and it says the inheritance is still lost" \
     "$(says "$(run "$WORK/norule.json" "$WORK/out")" "is still lost")" "yes"
 
 spec_for "$WORK/nostrip.json" "standin.html" 'strip=["var nothing = 1;"]'
-check "a stripped line matching nothing is refused" \
-    "$(status "$WORK/nostrip.json" "$WORK/out")" "6"
+check_exit "a stripped line matching nothing is refused" \
+    6 lift "$WORK/nostrip.json" "$WORK/out"
 
 spec_for "$WORK/nomove.json" "standin.html" \
     'moves=[{"field": "heading", "variable": "CARD_HEADING", "holds": "\"Not in the builder\"", "values": ["A", "B"]}]'
-check "a moved value that is not in the builder is refused" \
-    "$(status "$WORK/nomove.json" "$WORK/out")" "6"
+check_exit "a moved value that is not in the builder is refused" \
+    6 lift "$WORK/nomove.json" "$WORK/out"
 
 spec_for "$WORK/taken.json" "standin.html" \
     'moves=[{"field": "heading", "variable": "buildThing", "holds": "\"Needs you\"", "values": ["A", "B"]}]'
-check "a move whose variable name the builder already uses is refused" \
-    "$(status "$WORK/taken.json" "$WORK/out")" "6"
+check_exit "a move whose variable name the builder already uses is refused" \
+    6 lift "$WORK/taken.json" "$WORK/out"
 
 ALREADY="$WORK/already.html"
 python3 - "$STANDIN" "$ALREADY" <<'PY'
@@ -245,15 +245,15 @@ open(sys.argv[2], "w", encoding="utf-8").write(
     text.replace(mark, "function buildScreen() { return null; }\n" + mark, 1))
 PY
 spec_for "$WORK/already.json" "already.html"
-check "a builder that already defines buildScreen is refused" \
-    "$(status "$WORK/already.json" "$WORK/out")" "6"
+check_exit "a builder that already defines buildScreen is refused" \
+    6 lift "$WORK/already.json" "$WORK/out"
 
 # ---------------------------------------------------------------------------
 # 4. WHAT THE LIFT WRITES. Read from the files, because the tool's own summary
 #    is a claim about them rather than the thing anybody uses.
 # ---------------------------------------------------------------------------
 OUT="$WORK/out"
-check "the lift writes the harness" "$(status "$SPEC" "$OUT")" "0"
+check_exit "the lift writes the harness" 0 lift "$SPEC" "$OUT"
 check "both files it names are there" \
     "$([ -f "$OUT/screen.css" ] && [ -f "$OUT/builder.js" ] && echo both || echo missing)" "both"
 check "the lifted builder carries none of the file's own mounting code" \
@@ -277,7 +277,7 @@ STRIPPED="$WORK/stripped"
 spec_for "$WORK/strip.json" "standin.html" \
     'builder_ends_before="draw();"' \
     'strip=["var stage = document.getElementById(\"stage\");", "function draw() { stage.replaceChildren(buildThing(FIXTURES[0])); }"]'
-check "a strip line that is there takes it out" "$(status "$WORK/strip.json" "$STRIPPED")" "0"
+check_exit "a strip line that is there takes it out" 0 lift "$WORK/strip.json" "$STRIPPED"
 check "and the mounting code really is gone" \
     "$(grep -c 'getElementById\|replaceChildren' "$STRIPPED/builder.js")" "0"
 check "a cut that high still leaves a builder to lift" \
@@ -302,14 +302,14 @@ fi
 #    draws in the browser's default face, and it still looks like a screen,
 #    which is the whole reason this tool exists.
 # ---------------------------------------------------------------------------
-check "the lift it just wrote draws the same screen" "$(status --check "$SPEC" "$OUT")" "0"
+check_exit "the lift it just wrote draws the same screen" 0 lift --check "$SPEC" "$OUT"
 check "and it says how much it compared" \
     "$(says "$(run --check "$SPEC" "$OUT")" "element(s), tag, classes and box")" "yes"
 
 LOST="$WORK/lost"
 spec_for "$WORK/lost.json" "standin.html" "page_rules={}"
-check "a lift that retargets nothing is written all the same" "$(status "$WORK/lost.json" "$LOST")" "0"
-check "and the check finds the screen drawn differently" "$(status --check "$WORK/lost.json" "$LOST")" "1"
+check_exit "a lift that retargets nothing is written all the same" 0 lift "$WORK/lost.json" "$LOST"
+check_exit "and the check finds the screen drawn differently" 1 lift --check "$WORK/lost.json" "$LOST"
 check "it says DIFFERS rather than refusing for some other reason" \
     "$(says "$(run --check "$WORK/lost.json" "$LOST")" "DIFFERS:")" "yes"
 DIFFOUT="$(run --check "$WORK/lost.json" "$LOST")"
@@ -347,11 +347,11 @@ open(sys.argv[2], "w", encoding="utf-8").write(text)
 PY
 spec_for "$WORK/inert.json" "inert.html"
 INERTOUT="$WORK/inertout"
-check "a value held in a literal built at load still lifts" "$(status "$WORK/inert.json" "$INERTOUT")" "0"
+check_exit "a value held in a literal built at load still lifts" 0 lift "$WORK/inert.json" "$INERTOUT"
 INERTSAYS="$(run --check "$WORK/inert.json" "$INERTOUT")"
 check "and still draws option 1 the way the design file does" "$(says "$INERTSAYS" "SAME:")" "yes"
-check "but --check refuses it, because its values draw one screen" \
-    "$(status --check "$WORK/inert.json" "$INERTOUT")" "8"
+check_exit "but --check refuses it, because its values draw one screen" \
+    8 lift --check "$WORK/inert.json" "$INERTOUT"
 check "it names the move and the values that drew the same screen" \
     "$(says "$INERTSAYS" "INERT: variant.heading draws the same screen for values 1 and 2")" "yes"
 check "and it names the cause to look for" "$(says "$INERTSAYS" "evaluated once, when the script loads")" "yes"
@@ -359,8 +359,8 @@ check "it never prints a value, so no fixture's wording reaches the terminal" \
     "$(grep -c 'Waiting on you' <<< "$INERTSAYS")" "0"
 
 spec_for "$WORK/nolabel.json" "standin.html" 'option_one="Three"'
-check "an option 1 label on no fixture cannot be read" \
-    "$(status --check "$WORK/nolabel.json" "$OUT")" "7"
+check_exit "an option 1 label on no fixture cannot be read" \
+    7 lift --check "$WORK/nolabel.json" "$OUT"
 check "and it says how many carried it" \
     "$(says "$(run --check "$WORK/nolabel.json" "$OUT")" "0 of the 2 fixtures")" "yes"
 
@@ -376,27 +376,27 @@ PY
 spec_for "$WORK/both.json" "both.html"
 BOTHOUT="$WORK/bothout"
 python3 "$TARGET" "$WORK/both.json" "$BOTHOUT" >/dev/null 2>&1
-check "an option 1 label on two fixtures cannot be read either" \
-    "$(status --check "$WORK/both.json" "$BOTHOUT")" "7"
+check_exit "an option 1 label on two fixtures cannot be read either" \
+    7 lift --check "$WORK/both.json" "$BOTHOUT"
 
 spec_for "$WORK/manyscreens.json" "standin.html" 'screen=".row"'
-check "a screen selector matching several elements cannot be read" \
-    "$(status --check "$WORK/manyscreens.json" "$OUT")" "7"
+check_exit "a screen selector matching several elements cannot be read" \
+    7 lift --check "$WORK/manyscreens.json" "$OUT"
 
 spec_for "$WORK/ignorenothing.json" "standin.html" 'same={"tolerance": 0, "ignore": [".no-such-class"]}'
-check "an ignore selector matching nothing in either rendering is refused" \
-    "$(status --check "$WORK/ignorenothing.json" "$OUT")" "7"
+check_exit "an ignore selector matching nothing in either rendering is refused" \
+    7 lift --check "$WORK/ignorenothing.json" "$OUT"
 check "and it says an exemption matching nothing still reads as one" \
     "$(says "$(run --check "$WORK/ignorenothing.json" "$OUT")" "still reads as a deliberate")" "yes"
 
 spec_for "$WORK/ignorerail.json" "standin.html" 'same={"tolerance": 0, "ignore": [".rail"]}'
-check "an ignore selector that matches leaves the rest compared" \
-    "$(status --check "$WORK/ignorerail.json" "$OUT")" "0"
+check_exit "an ignore selector that matches leaves the rest compared" \
+    0 lift --check "$WORK/ignorerail.json" "$OUT"
 check "and the run says what it ignored, so a loosened rule is never silent" \
     "$(says "$(run --check "$WORK/ignorerail.json" "$OUT")" "ignoring     .rail")" "yes"
 
-check "a check with no harness written is used wrongly" \
-    "$(status --check "$SPEC" "$WORK/never-written")" "2"
+check_exit "a check with no harness written is used wrongly" \
+    2 lift --check "$SPEC" "$WORK/never-written"
 check "and with no browser to render in, nothing is measured" \
     "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" --check "$SPEC" "$OUT" \
         >/dev/null 2>&1; printf '%s' "$?")" "3"
@@ -423,8 +423,8 @@ json.dump({
     "same": {"tolerance": 0, "ignore": []}
 }, open(sys.argv[1], "w", encoding="utf-8"), indent=1)
 PY
-check "the invoice PDF design lifts" "$(status "$WORK/pdf.json" "$PDF")" "0"
-check "and the harness draws the screen it draws" "$(status --check "$WORK/pdf.json" "$PDF")" "0"
+check_exit "the invoice PDF design lifts" 0 lift "$WORK/pdf.json" "$PDF"
+check_exit "and the harness draws the screen it draws" 0 lift --check "$WORK/pdf.json" "$PDF"
 
 LIST="$WORK/list"
 python3 - "$WORK/list.json" "$PWD/docs/design/invoice-list.html" <<'PY'
@@ -443,8 +443,8 @@ json.dump({
     "same": {"tolerance": 0, "ignore": []}
 }, open(sys.argv[1], "w", encoding="utf-8"), indent=1)
 PY
-check "the invoice list design lifts too" "$(status "$WORK/list.json" "$LIST")" "0"
-check "and its harness draws the screen it draws" "$(status --check "$WORK/list.json" "$LIST")" "0"
+check_exit "the invoice list design lifts too" 0 lift "$WORK/list.json" "$LIST"
+check_exit "and its harness draws the screen it draws" 0 lift --check "$WORK/list.json" "$LIST"
 
 # ONE RULE DROPPED FROM THE LIFTED COPY. This is the loss the tool exists to
 # catch, staged on a real file: the stylesheet still parses, the builder still
@@ -460,8 +460,8 @@ assert old in text, "the plant matched nothing, so this case proves nothing"
 open(sys.argv[2], "w", encoding="utf-8").write(
     text.replace(old, ".no-such-thing {\n  background: var(--page-bg); color: var(--page-ink);", 1))
 PY
-check "one rule dropped from the lifted stylesheet is caught" \
-    "$(status --check "$WORK/list.json" "$DROPPED")" "1"
+check_exit "one rule dropped from the lifted stylesheet is caught" \
+    1 lift --check "$WORK/list.json" "$DROPPED"
 check "and the element it names is one a person can find in the screen" \
     "$(run --check "$WORK/list.json" "$DROPPED" | grep -c '^    the design file  div.screen at the screen')" "1"
 
@@ -491,8 +491,8 @@ json.dump({
 }, open(sys.argv[1], "w", encoding="utf-8"), indent=1)
 PY
 python3 "$TARGET" "$WORK/action.json" "$WORK/action" >/dev/null 2>&1
-check "the round that went wrong, on the committed file, moves the screen" \
-    "$(status --check "$WORK/action.json" "$WORK/action")" "0"
+check_exit "the round that went wrong, on the committed file, moves the screen" \
+    0 lift --check "$WORK/action.json" "$WORK/action"
 AGAIN="$WORK/list-at-load.html"
 python3 - docs/design/invoice-list.html "$AGAIN" <<'PY'
 import sys
@@ -512,8 +512,8 @@ spec["source"] = sys.argv[3]
 json.dump(spec, open(sys.argv[2], "w", encoding="utf-8"), indent=1)
 PY
 python3 "$TARGET" "$WORK/action-at-load.json" "$WORK/action-at-load" >/dev/null 2>&1
-check "and with its rows back in a literal built at load, the same round is refused" \
-    "$(status --check "$WORK/action-at-load.json" "$WORK/action-at-load")" "8"
+check_exit "and with its rows back in a literal built at load, the same round is refused" \
+    8 lift --check "$WORK/action-at-load.json" "$WORK/action-at-load"
 
 check "a harness page in quirks mode is caught, which is ovation#194" \
     "$(OVATION_HARNESS_QUIRKS=1 python3 "$TARGET" --check "$WORK/pdf.json" "$PDF" \
