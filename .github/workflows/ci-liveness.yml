@@ -145,8 +145,17 @@ jobs:
           STATUS: ${{ steps.judge.outputs.status }}
         run: |
           set -uo pipefail
+          # ONLY FAILING PASSES ITS VERDICT (ovation#512), so only FAILING is
+          # commented on just when its verdict changes. That verdict names the
+          # newest run's conclusion and the grace period and nothing that moves
+          # with the clock. BLOCKED's counts hours since the newest commit, which
+          # grow on every run, so its fingerprint would differ every time, and
+          # which part of it is the measurement is a judgement not made here.
+          # Unquoted where it is used, so an empty value passes nothing.
+          VERDICT_ARGS=""
           if [ "${STATUS}" = "3" ]; then
             TITLE="CI is failing on main"
+            VERDICT_ARGS="--verdict-file verdict.txt"
             {
               echo "Opened automatically by the CI liveness workflow (ovation#212)."
               echo
@@ -192,16 +201,18 @@ jobs:
             --body-file issue-body.md \
             --comment-file comment-body.md \
             --milestone Ungrouped \
-            --label priority-p1 --label ci-hygiene --label monitoring
+            --label priority-p1 --label ci-hygiene --label monitoring \
+            ${VERDICT_ARGS}
           reported=$?
           set -e
           # EVERY OUTCOME HAS ITS OWN CODE, so the ones that mean the finding is
           # where it should be are named rather than assumed: 0 filed the issue,
-          # 1 commented on the one already open. Anything else is a refusal the
-          # script has already explained, and it fails this job rather than
-          # passing quietly (L184).
+          # 1 commented on the one already open, 9 wrote nothing because the
+          # issue already says this verdict (FAILING only). Anything else is a
+          # refusal the script has already explained, and it fails this job
+          # rather than passing quietly (L184).
           case "${reported}" in
-            0|1) ;;
+            0|1|9) ;;
             *) exit "${reported}" ;;
           esac
 

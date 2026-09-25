@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "report finding tests" 98
+harness_begin "report finding tests" 110
 
 TARGET="scripts/report-finding.sh"
 require_target "$TARGET"
@@ -436,12 +436,66 @@ check "a verdict file that is not there is refused" "$STATUS" "7"
 run_report cleared --title "$TITLE" --comment-file "$CLOSE" --verdict-file "$VERDICT"
 check "and closing, which has no verdict to compare, refuses the option" "$STATUS" "7"
 
-# THE WORKFLOW ACCEPTS THE NEW OUTCOME. A caller that enumerates its accepted
-# codes and was not told about UNCHANGED would fail every quiet day (L184).
-check "the design record workflow passes its verdict to the reporter" \
-    "$(grep -c -- '--verdict-file verdict.txt' .github/workflows/design-record.yml)" "1"
-check "and accepts UNCHANGED as an outcome rather than failing on it" \
-    "$(grep -cE '^ *0\|1\|9\) ;;' .github/workflows/design-record.yml)" "1"
+# THE WORKFLOWS PASS THEIR VERDICT AND ACCEPT THE NEW OUTCOME. A caller that
+# enumerates its accepted codes and was not told about UNCHANGED would fail every
+# quiet day (L184), and one that never passes its verdict goes on commenting on
+# every run. Asserted by RUNNING each reporting step, not by searching its file:
+# a whole file search is satisfied by one occurrence anywhere in it, while a
+# second step beside it still comments on every run (L135). The step's script is
+# cut out of the workflow and run in a scratch directory whose
+# scripts/report-finding.sh is a stub recording what it was handed, so nothing
+# reaches the tracker (L2).
+step_script() {  # step_script <workflow> <step name>: prints the step's run script
+    awk -v want="      - name: $2" '
+        $0 == want { inside = 1; next }
+        inside && /^      - / { exit }
+        inside && /^        run: \|/ { body = 1; next }
+        inside && body { print }
+    ' "$1" | sed 's/^          //'
+}
+STEP_DIR="$WORK/step"; mkdir -p "$STEP_DIR/scripts"
+cat > "$STEP_DIR/scripts/report-finding.sh" <<'REPORTER'
+    for a in "$@"; do printf '%s\n' "$a" >> args.log; done
+    exit "${REPORTER_EXIT:?}"
+REPORTER
+printf '  a verdict line\nREFUSED: a verdict.\n' > "$STEP_DIR/verdict.txt"
+STEP_STATUS=""
+run_step() {  # run_step <workflow> <step name> <reporter exit> [VAR=value]...
+    local wf="$1" name="$2" code="$3"; shift 3
+    step_script "$wf" "$name" > "$STEP_DIR/step.sh"
+    : > "$STEP_DIR/args.log"
+    (cd "$STEP_DIR" && env GH_TOKEN=unused TITLE="A title" REPORTER_EXIT="$code" "$@" \
+        bash step.sh >/dev/null 2>&1)
+    STEP_STATUS=$?
+}
+handed_verdict() {
+    if grep -A1 -x -- '--verdict-file' "$STEP_DIR/args.log" | grep -qx 'verdict.txt'; then
+        echo yes; else echo no; fi
+}
+# every_stands_step <workflow> <label> <step name> [VAR=value]...: three checks
+every_stands_step() {
+    local wf="$1" label="$2" name="$3"; shift 3
+    run_step "$wf" "$name" 9 "$@"
+    check "$label passes its verdict to the reporter" "$(handed_verdict)" "yes"
+    check "$label accepts UNCHANGED rather than failing on it" "$STEP_STATUS" "0"
+    run_step "$wf" "$name" 5 "$@"
+    check "$label still fails the job on a refusal" "$STEP_STATUS" "5"
+}
+every_stands_step .github/workflows/design-record.yml "the design record step" "Say so, once"
+every_stands_step .github/workflows/runner-xcode.yml "the dropped Xcode step" \
+    "Say so when the image has dropped the pinned Xcode"
+every_stands_step .github/workflows/runner-xcode.yml "the newer Xcode step" \
+    "Say so when the image has gained a newer Xcode"
+every_stands_step .github/workflows/ci-liveness.yml "the CI FAILING step" "Say so, once" STATUS=3
+
+# BLOCKED IS LEFT AS IT WAS, and that is asserted rather than left to drift. Its
+# verdict counts hours since the newest commit, which grow on every run, so its
+# fingerprint would differ every time; which part of it is the measurement is a
+# judgement this change does not make.
+run_step .github/workflows/ci-liveness.yml "Say so, once" 1 STATUS=1
+check "the CI BLOCKED step passes no verdict, since its hour counts change every run" \
+    "$(handed_verdict)" "no"
+check "and still reports as before" "$STEP_STATUS" "0"
 
 # ---------------------------------------------------------------------------
 # 14. A CRASH IS NOT A COMMENT. Python exits 1 on an uncaught exception, and 1
