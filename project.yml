@@ -95,9 +95,15 @@ settings:
     # this setting. Measured against the real build log with BackstageGoogle
     # linked: `Ovation`'s own compile carries `-driver-batch-count 6`, which is
     # the control, and of the ELEVEN invocations compiling `BackstageGoogle` not
-    # one carries it. A package target is also not addressable as
-    # `xcodebuild -target <name>`, so it cannot be added to the read back list in
-    # scripts/test-project-configuration.sh either.
+    # one carries it. RE-MEASURED 2026-09-25 FROM COLD DerivedData, ViewInspector
+    # included (ovation#420): the driver command lines for Ovation, OvationTests
+    # and OvationHostedTests each carry the pin, and those for BackstageGoogle and
+    # ViewInspector do not. They split into the driver's default groups instead:
+    # BackstageGoogle's sixteen files made twelve Debug compile jobs on this
+    # 12 core Mac, where Ovation's files made six. A package target is also not
+    # addressable as `xcodebuild -target <name>`, and `xcodebuild -list` does not
+    # name one, so scripts/test-project-configuration.sh reads back every target
+    # that listing names, which is exactly the population this claim covers.
     #
     # THE RESIDUAL RISK, STATED RATHER THAN LEFT TO BE DISCOVERED. ovation#297's
     # defect was a Swift 6 non-Sendable capture diagnostic that appeared only at

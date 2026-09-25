@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "project configuration tests" 31
+harness_begin "project configuration tests" 30
 
 require_target "project.yml"
 
@@ -303,7 +303,10 @@ check "and every file in the hosted suite, which does keep a host, imports it" \
     "$(app_module_importers OvationHostedTests | wc -w | tr -d ' ')" "$(hosted_swift_count)"
 
 
-# EVERY MACHINE SPLITS EACH TARGET INTO THE SAME COMPILE JOBS (ovation#297).
+# EVERY MACHINE SPLITS EACH OF THIS PROJECT'S OWN TARGETS INTO THE SAME COMPILE
+# JOBS (ovation#297). NOT PACKAGE CODE, which is measured rather than assumed
+# (ovation#420): project.yml's header records the build log that shows no package
+# target inheriting the pin, and the residual risk that leaves.
 #
 # Commit ed13a42 passed the push gate on this Mac and failed to compile in CI on the
 # same Xcode (26.6, 17F113), with a non Sendable capture error at
@@ -327,10 +330,42 @@ target_setting() {
         -showBuildSettings 2>/dev/null \
         | awk -v k="$3" '$1 == k && $2 == "=" { $1=""; $2=""; sub(/^  */,""); print; exit }'
 }
-for batched_target in Ovation OvationTests OvationHostedTests; do
-    flags="$(target_setting "$batched_target" Debug OTHER_SWIFT_FLAGS)"
-    check "$batched_target compiles in the same six driver batches on every machine (ovation#297)" \
-        "$(printf '%s' "$flags" | grep -cE -- '(^| )-driver-batch-count 6( |$)')" "1"
+
+# THE TARGETS ARE READ FROM THE PROJECT, NOT LISTED HERE (ovation#420). This used to
+# be a hand written list of three, which checks only what it lists (L96): a fourth
+# target added to project.yml with its own OTHER_SWIFT_FLAGS and no $(inherited)
+# would have compiled in the driver's default groups while every line here passed.
+# `xcodebuild -list` names the project's own targets and no package target, which
+# is exactly the population the claim above now covers (measured 2026-09-25: it
+# lists Ovation, OvationHostedTests and OvationTests, and neither BackstageGoogle
+# nor ViewInspector).
+own_targets() {
+    xcodebuild -list -project Ovation.xcodeproj 2>/dev/null \
+        | awk '/^ *Targets:$/ { on = 1; next } on && /^ *$/ { exit } on { print $1 }'
+}
+OWN_TARGETS="$(own_targets)"
+# A listing that came back EMPTY or SHORT would make the next check pass over
+# nothing (L98), so the three targets known to exist are its floor.
+known_listed=""
+for known in Ovation OvationHostedTests OvationTests; do
+    case "
+$OWN_TARGETS
+" in
+        *"
+$known
+"*) known_listed="$known_listed $known" ;;
+    esac
 done
+check "the project's own targets were read, and include the three it is known to have" \
+    "$known_listed" " Ovation OvationHostedTests OvationTests"
+unpinned=""
+for batched_target in $OWN_TARGETS; do
+    flags="$(target_setting "$batched_target" Debug OTHER_SWIFT_FLAGS)"
+    if [ "$(printf '%s' "$flags" | grep -cE -- '(^| )-driver-batch-count 6( |$)')" != "1" ]; then
+        unpinned="$unpinned $batched_target"
+    fi
+done
+check "every one of the project's own targets compiles in the same six driver batches on every machine (ovation#297)" \
+    "${unpinned:-none}" "none"
 
 harness_end
