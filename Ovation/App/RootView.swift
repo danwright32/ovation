@@ -81,18 +81,24 @@ struct RootView: View {
 
     /// WHICH WINDOW DAN GETS, decided in ONE place.
     ///
-    /// The shell owns the window exactly while the roster is in the rail, and it
-    /// asks the RAIL rather than computing a second predicate beside it, so the
-    /// two can never disagree about whether there is anywhere to stand (L70).
+    /// The shell owns the window whenever this launch has one, which is every
+    /// launch that opened a store. While the roster is in the rail it always
+    /// does, asking the RAIL rather than a second predicate beside it (L70).
     ///
-    /// WHEN IT IS NOT SHOWING, THE WINDOW IS WHAT IT HAS ALWAYS BEEN. That is
-    /// deliberate rather than a fallback: the launch notices and the durable
-    /// problems list are the only surface several refusals have (ovation#59), so
-    /// they are never replaced by a screen with nothing on it. Inside the shell
-    /// they are carried at the foot of the rail instead.
+    /// ONCE THE ROSTER HAS SETTLED IT STILL DOES (ovation#564). This used to be
+    /// the roster clause alone, written when the roster was the only screen; once
+    /// the invoice list existed, a settled roster, which is every launch since
+    /// ovation#298, left Dan on the bare problems window with every screen
+    /// unreachable.
+    ///
+    /// AN UNREAD LAUNCH NOTICE COMES FIRST. The notice and the durable list are
+    /// the only surface several refusals have (ovation#59), and the rail's foot
+    /// names a problem without the notice's "I have read this", so a notice Dan
+    /// has not read is shown on its own and the shell follows once it is read.
     private var shellOwnsTheWindow: Bool {
         guard let shell, roster != nil else { return false }
-        return shell.destinations.contains(.roster)
+        if shell.destinations.contains(.roster) { return true }
+        return presenter.showing == nil
     }
 
     var body: some View {

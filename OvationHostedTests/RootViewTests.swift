@@ -140,12 +140,31 @@ struct RootViewTests {
         }
     }
 
+    /// ovation#564. THE SETTLED ROSTER IS THE COMMON CASE, and every launch since
+    /// ovation#298 is one. The rule above used to be the ONLY way into the shell,
+    /// written when the roster was the only screen; once the invoice list existed
+    /// it left Dan on the bare problems window with every screen unreachable.
+    @Test("the window is the shell when the roster is settled and nothing is waiting to be read")
+    func theWindowIsTheShellWhenSettled() throws {
+        let (store, presenter) = make()
+        let roster = Self.rosterNeeding(0)
+        let shell = ShellPresenter(selected: .invoices, rosterHasWork: { !roster.isSettled })
+
+        let view = RootView(presenter: presenter, store: store, now: { at(11) },
+                            roster: roster, shell: shell)
+
+        #expect(throws: Never.self) {
+            try view.inspect().find(ShellView.self)
+        }
+    }
+
     /// And the other direction, or the assertion above is satisfied by a window
-    /// that shows the shell unconditionally (L98, L159). With nothing blocking,
-    /// the window is what it has always been, so the launch notices and the
-    /// durable list are not quietly replaced by a screen with nothing on it.
-    @Test("the window is the problems surface when nothing blocks a send")
-    func theWindowIsTheProblemsSurfaceWhenSettled() throws {
+    /// that shows the shell unconditionally (L98, L159). A notice Dan has not read
+    /// yet is shown first, with its own "I have read this", because the rail's
+    /// foot names a problem without offering the notice's reading of it; the
+    /// shell follows as soon as it is read.
+    @Test("an unread launch notice is shown before the shell")
+    func theWindowIsTheProblemsSurfaceWhileANoticeIsUnread() throws {
         let (store, presenter) = make()
         store.raise(kind: .foreignStore, subject: "s",
                     sentence: "The database belongs to another app.", now: at(10))

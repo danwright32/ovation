@@ -146,6 +146,14 @@ extension ProblemKind {
     /// screen shows.
     static let clientImportBroughtClientsAcross = ProblemKind("client-import.brought-across")
 
+    /// Kinds that report something that HAPPENED, so reading them is the end of
+    /// them (ovation#564). A kind belongs here only when nothing is left for Dan
+    /// to do once he has read it; one that still needs him, like
+    /// `clientImportNeedsAnAnswer`, stays open until it is resolved.
+    static let closingOnceRead: Set<ProblemKind> = [.clientImportBroughtClientsAcross]
+
+    var closesOnceRead: Bool { Self.closingOnceRead.contains(self) }
+
     /// Rows that matched more than one client, or matched only by name, so the
     /// import left them alone (ovation#208). The one import outcome that needs
     /// Dan, which is why it speaks although nothing changed.
@@ -210,7 +218,16 @@ struct Problem: Identifiable, Equatable, Codable, Sendable {
     var resolvedAt: Date?
     var resolutionReason: String?
 
-    var isOpen: Bool { resolvedAt == nil }
+    /// Open until resolved, or, for a kind that reports what HAPPENED rather than
+    /// a standing condition, until Dan has read it (ovation#564). Decided here,
+    /// where it is read, rather than by writing a resolution on acknowledgement,
+    /// so a report read before this rule existed closes too and nothing has to
+    /// be rewritten in the journal (L559). Raising it again clears the
+    /// acknowledgement, so a new report reopens it.
+    var isOpen: Bool {
+        guard resolvedAt == nil else { return false }
+        return !(kind.closesOnceRead && acknowledgedAt != nil)
+    }
     var needsPresenting: Bool { resolvedAt == nil && acknowledgedAt == nil }
 
     static func identity(kind: ProblemKind, subject: String?) -> String {
