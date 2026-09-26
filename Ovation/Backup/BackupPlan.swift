@@ -138,6 +138,15 @@ enum BackupPlan {
               expectation: .presentSometimes(
                 reason: "absent until the first export has been run")),
 
+        // The launch backup record (ovation#557). NOT required, the same shape
+        // again: it is written by the first launch that backs up, so a data folder
+        // that has never been backed up at launch legitimately has none. Carried so
+        // the measurements the backup's own deadline is judged from outlive a lost
+        // disk along with everything else.
+        .init(path: LaunchBackupLog.filename, kind: .file,
+              expectation: .presentSometimes(
+                reason: "absent until the first launch that backs up")),
+
         // Its write ahead log and shared memory file. NOT required, because a
         // checkpointed store legitimately has neither, and requiring them would
         // refuse every healthy backup. Carried whenever they ARE there, because

@@ -117,10 +117,13 @@ struct BackupTests {
         // reminder that the archive is short.
         let absent = manifest.members.filter { $0.status == .legitimatelyAbsent }
         // The booking queue and Downbeat's record of it join this list (ovation#253):
-        // neither exists until Downbeat has queued its first booking.
+        // neither exists until Downbeat has queued its first booking. So does the
+        // launch backup record (ovation#557), which the first launch that backs up
+        // writes, and this backup is not one.
         #expect(absent.map(\.path).sorted()
                 == ["Ovation.store-shm", "Ovation.store-wal", "booking-queue",
-                    "downbeat-queued-bookings.json", "export-runs.jsonl"])
+                    "downbeat-queued-bookings.json", "export-runs.jsonl",
+                    "launch-backups.jsonl"])
         #expect(absent.allSatisfy { $0.issue == nil })
     }
 

@@ -15,6 +15,11 @@ import Foundation
 enum LaunchBackupOutcome {
 
     // MARK: how long the launch waits (ovation#507)
+    //
+    // RE-JUDGE THESE FROM REAL LAUNCHES, not from the synthetic folder below
+    // (ovation#557): every launch backup records its size, its elapsed time and
+    // the deadline it was given, and `bash scripts/report-launch-backups.sh`
+    // prints the tightest whole copy and any launch that gave up.
 
     /// The least any launch waits: `BlockingWork`'s own deadline, which is what
     /// every launch waited before the deadline was sized, and is still far above
@@ -73,13 +78,26 @@ enum LaunchBackupOutcome {
     /// launch that would upgrade the store each one is the reason it refused.
     ///
     /// `sleeping` is injected so a test can read the deadline each wait was given
-    /// without paying it.
+    /// without paying it, and `clock` so the elapsed time recorded is one a test
+    /// chose.
+    ///
+    /// EVERY RUN IS RECORDED, whichever way it came back (ovation#557). What was
+    /// measured, how long the wait took and the deadline it was given go to
+    /// `recording`, so the allowances above can be re-judged from real launches
+    /// rather than from the synthetic folder they were set on (L354). `recording`
+    /// is REQUIRED, with no default: a caller that forgot it would record nothing,
+    /// and the report would read as a folder nobody launched (L168).
     static func run(
+        at now: Date,
         measuring: @escaping @Sendable () throws -> BackupSize,
         sleeping: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        clock: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
+        recording: @escaping @Sendable (LaunchBackupTiming) -> Void,
         _ work: @escaping @Sendable () throws -> BackupService.Attempt
     ) async throws -> BackupService.Attempt {
-        let deadline = await measuredDeadline(measuring, sleeping: sleeping)
+        let size = await measuredSize(measuring, sleeping: sleeping)
+        let deadline = size.map(Self.deadline(for:)) ?? deadlineFloor
+        let started = clock()
         let outcome = await BlockingWork.run(deadline: deadline, sleeping: sleeping) {
             () throws -> Result<BackupService.Attempt, BackupError> in
             do {
@@ -88,6 +106,22 @@ enum LaunchBackupOutcome {
                 return .failure(refusal)
             }
         }
+        let elapsed = clock() - started
+
+        // ONE LINE, AND IT SAYS WHICH WAY THE STEP CAME BACK, because only a
+        // backup that was taken timed a whole copy (L331).
+        let recorded: LaunchBackupTiming.Outcome
+        switch outcome {
+        case .answered(.success(.taken)): recorded = .taken
+        case .answered(.success(.alreadyTakenToday)): recorded = .alreadyTakenToday
+        case .answered(.success(.folderUnreachable)): recorded = .folderUnreachable
+        case .answered(.failure): recorded = .refused
+        case .failed: recorded = .failed
+        case .gaveUp: recorded = .gaveUp
+        }
+        recording(LaunchBackupTiming(at: now, size: size, elapsed: elapsed,
+                                     deadline: deadline, outcome: recorded))
+
         switch outcome {
         case .answered(.success(let attempt)):
             return attempt
@@ -126,9 +160,18 @@ enum LaunchBackupOutcome {
         _ measuring: @escaping @Sendable () throws -> BackupSize,
         sleeping: @escaping @Sendable (Duration) async throws -> Void
     ) async -> Duration {
+        await measuredSize(measuring, sleeping: sleeping).map(deadline(for:)) ?? deadlineFloor
+    }
+
+    /// The measured size, or nil when it could not be read. Nil rather than an
+    /// empty size, because an empty folder is a measurement and this is not (L90).
+    private static func measuredSize(
+        _ measuring: @escaping @Sendable () throws -> BackupSize,
+        sleeping: @escaping @Sendable (Duration) async throws -> Void
+    ) async -> BackupSize? {
         let measured = await BlockingWork.run(deadline: deadlineFloor, sleeping: sleeping, measuring)
-        if case .answered(let size) = measured { return deadline(for: size) }
-        return deadlineFloor
+        if case .answered(let size) = measured { return size }
+        return nil
     }
 
     /// What the sequence's backup step should do with the answer.

@@ -6,6 +6,8 @@ import Testing
 /// here can compile.
 struct LaunchBackupOutcomeTests {
 
+    private static let launch = Date(timeIntervalSince1970: 1_800_000_000)
+
     @Test("a backup that answered is the answer")
     func answeredPassesThrough() throws {
         let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"))
@@ -93,8 +95,10 @@ struct LaunchBackupOutcomeTests {
         let size = BackupSize(files: 4_000, bytes: 1_000_000_000)
 
         let attempt = try await LaunchBackupOutcome.run(
+            at: Self.launch,
             measuring: { size },
-            sleeping: waits.sleep) { taken }
+            sleeping: waits.sleep,
+            recording: { _ in }) { taken }
 
         #expect(attempt == taken)
         #expect(waits.durations.last == LaunchBackupOutcome.deadline(for: size),
@@ -111,8 +115,10 @@ struct LaunchBackupOutcomeTests {
         let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"))
 
         let attempt = try await LaunchBackupOutcome.run(
+            at: Self.launch,
             measuring: { throw Unreadable() },
-            sleeping: waits.sleep) { taken }
+            sleeping: waits.sleep,
+            recording: { _ in }) { taken }
 
         #expect(attempt == taken)
         #expect(waits.durations.last == LaunchBackupOutcome.deadlineFloor, "\(waits.durations)")
@@ -127,8 +133,10 @@ struct LaunchBackupOutcomeTests {
 
         await #expect(throws: BackupError.stillRunning(after: LaunchBackupOutcome.deadlineFloor)) {
             try await LaunchBackupOutcome.run(
+                at: Self.launch,
                 measuring: { .init(files: 0, bytes: 0) },
-                sleeping: { _ in }) {
+                sleeping: { _ in },
+                recording: { _ in }) {
                     release.wait()
                     return .taken(URL(fileURLWithPath: "/tmp/a"))
                 }
@@ -187,7 +195,8 @@ struct LaunchBackupOutcomeTests {
                       .couldNotWrite("/Volumes/Backups: the disk is full")])
     func aBackupErrorArrivesIntact(error: BackupError) async {
         await #expect(throws: error) {
-            try await LaunchBackupOutcome.run(measuring: { .init(files: 0, bytes: 0) }) { throw error }
+            try await LaunchBackupOutcome.run(at: Self.launch, measuring: { .init(files: 0, bytes: 0) },
+                                              recording: { _ in }) { throw error }
         }
     }
 
@@ -197,7 +206,8 @@ struct LaunchBackupOutcomeTests {
             var description: String { "the volume went away" }
         }
         await #expect(throws: BackupError.couldNotWrite("the volume went away")) {
-            try await LaunchBackupOutcome.run(measuring: { .init(files: 0, bytes: 0) }) { throw Unexpected() }
+            try await LaunchBackupOutcome.run(at: Self.launch, measuring: { .init(files: 0, bytes: 0) },
+                                              recording: { _ in }) { throw Unexpected() }
         }
     }
 
@@ -205,7 +215,8 @@ struct LaunchBackupOutcomeTests {
     func workThatAnswersPassesThrough() async throws {
         let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"))
 
-        #expect(try await LaunchBackupOutcome.run(measuring: { .init(files: 0, bytes: 0) }) { taken } == taken)
+        #expect(try await LaunchBackupOutcome.run(at: Self.launch, measuring: { .init(files: 0, bytes: 0) },
+                                              recording: { _ in }) { taken } == taken)
     }
 
     @Test("a re-check that answered is the answer")

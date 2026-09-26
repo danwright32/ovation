@@ -1,0 +1,5 @@
+{"at":"2026-09-20T13:02:11Z","bytes":372000,"deadlineMilliseconds":5208,"elapsedMilliseconds":85,"files":19,"outcome":"taken"}
+{"at":"2026-09-20T17:40:03Z","bytes":372000,"deadlineMilliseconds":5208,"elapsedMilliseconds":3,"files":19,"outcome":"alreadyTakenToday"}
+{"at":"2026-09-22T09:15:47Z","bytes":1200000,"deadlineMilliseconds":5300,"elapsedMilliseconds":410,"files":24,"outcome":"taken"}
+{"at":"2026-09-23T08:59:30Z","deadlineMilliseconds":5000,"elapsedMilliseconds":5001,"outcome":"gaveUp"}
+{"at":"2026-09-24T10:20:05Z","bytes":1200000,"deadlineMilliseconds":5300,"elapsedMilliseconds":2,"files":24,"outcome":"refused"}

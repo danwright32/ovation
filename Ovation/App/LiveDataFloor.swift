@@ -58,6 +58,10 @@ enum LiveDataFloor {
               reaches: "the record of when the export last ran. A test written success "
                 + "makes the staleness report permanently unraisable",
               resolve: { ExportRunLog.liveExportRunRecord() }, issue: nil),
+        .init(name: "liveLaunchBackupRecord",
+              reaches: "the record of how long each launch backup took. A test written "
+                + "timing reads as one of Dan's backups and moves the headroom report",
+              resolve: { LaunchBackupLog.liveLaunchBackupRecord() }, issue: nil),
         .init(name: "liveExportDirectory",
               reaches: "the folder the CSVs are written to. A test naming it writes "
                 + "over whatever is there",
