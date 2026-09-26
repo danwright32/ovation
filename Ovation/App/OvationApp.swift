@@ -189,9 +189,10 @@ struct OvationApp: App {
                     //
                     // OFF THE MAIN ACTOR (ovation#246). Copying and hashing
                     // everything Ovation holds is the slowest thing a launch
-                    // does, and on a folder that syncs to a NAS it is one to two
-                    // orders of magnitude slower per file than the local disk the
-                    // only measurement was taken on (L522). Run on the main actor
+                    // does. The folder Dan chose is on this Mac's own disk and the
+                    // Synology uploads it afterwards, outside the backup, but a
+                    // folder on another volume would be a real copy rather than a
+                    // clone (L522). Run on the main actor
                     // it would leave the window up and frozen, which is a
                     // different defect from the one showing a window fixed.
                     //
@@ -211,7 +212,11 @@ struct OvationApp: App {
                     // the backup's own error carried out intact (ovation#505).
                     // Through BlockingWork alone, the throw below arrived as text
                     // and was read as a write failure.
-                    return try await LaunchBackupOutcome.run {
+                    //
+                    // FOR AS LONG AS WHAT IT COPIES CALLS FOR (ovation#507). The
+                    // data folder is measured first and the wait sized from it,
+                    // rather than inheriting a deadline chosen for keychain reads.
+                    @Sendable func service() throws -> BackupService {
                         // WHY THERE IS NO FOLDER IS THROWN AS THE REASON. Saying
                         // so through the Problems store is honest, where a silent
                         // no-op would leave the sequence reporting a backup it
@@ -220,14 +225,18 @@ struct OvationApp: App {
                         // (ovation#505), because on a launch about to upgrade the
                         // store the first refuses and the second does not.
                         let folder = try BackupFolderSetting.liveBackupDestination.get()
-                        let service = BackupService(
+                        return BackupService(
                             dataDirectory: storeURL.deletingLastPathComponent(),
                             backupsDirectory: folder,
                             dailyKeep: BackupService.defaultDailyKeep,
                             referencedDocuments: {
                                 try StoreDocumentReferences.read(storeURL: storeURL)
                             })
-                        return try service.takeBackupIfDueToday(now: now)
+                    }
+                    return try await LaunchBackupOutcome.run(
+                        measuring: { try service().sizeOfWhatIsBackedUp() }
+                    ) {
+                        try service().takeBackupIfDueToday(now: now)
                     }
                 },
                 // ovation#230. Whether the archives have kept up with the store,
@@ -259,20 +268,31 @@ struct OvationApp: App {
                     // above: re-verifying reads and hashes every file in an
                     // archive, which is the same cost over the same network
                     // volume (ovation#246).
-                    let checked = await BlockingWork.run {
+                    //
+                    // FOR AS LONG AS THE DATA FOLDER'S SIZE CALLS FOR (ovation#507),
+                    // like the backup: an archive is a copy of it.
+                    @Sendable func service() -> BackupService? {
                         guard let folder = BackupFolderSetting.liveBackupsDirectory else {
-                            return BackupService.Reverification.nothingToCheck
+                            return nil
                         }
-                        let service = BackupService(
+                        return BackupService(
                             dataDirectory: storeURL.deletingLastPathComponent(),
                             backupsDirectory: folder,
                             dailyKeep: BackupService.defaultDailyKeep,
                             referencedDocuments: {
                                 try StoreDocumentReferences.read(storeURL: storeURL)
                             })
+                    }
+                    return await LaunchBackupOutcome.reverify(
+                        measuring: {
+                            try service()?.sizeOfWhatIsBackedUp() ?? BackupSize(files: 0, bytes: 0)
+                        }
+                    ) {
+                        guard let service = service() else {
+                            return BackupService.Reverification.nothingToCheck
+                        }
                         return (try? service.reverifyOneArchive(now: now)) ?? .nothingToCheck
                     }
-                    return LaunchBackupOutcome.reverification(from: checked)
                 },
                 openContainer: { try OvationSchema.container(at: $0) },
                 identify: {

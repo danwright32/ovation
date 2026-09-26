@@ -57,6 +57,30 @@ struct BackupTests {
 
     // MARK: taking one
 
+    /// ovation#507. THE SIZE THE LAUNCH SETS ITS DEADLINE FROM IS WHAT THE BACKUP
+    /// THEN COPIES, asserted against the manifest the backup itself writes rather
+    /// than a count of the fixture (L63). A file in the data folder that is not a
+    /// member, and the credential store the plan excludes, are in the folder and
+    /// must not be counted, because the backup never touches them.
+    @Test("the size measured before a backup is exactly what that backup copies")
+    func theSizeIsWhatTheBackupCopies() throws {
+        let world = try World()
+        try Data(repeating: 7, count: 50_000).write(
+            to: world.dataDirectory.appendingPathComponent("installed-build.json"))
+        try Data(repeating: 8, count: 60_000).write(
+            to: world.dataDirectory.appendingPathComponent("gmail-tokens.json"))
+        try Data(repeating: 9, count: 40_000).write(
+            to: world.dataDirectory.appendingPathComponent("documents/scan.pdf"))
+
+        let size = try world.service.sizeOfWhatIsBackedUp()
+        let manifest = try world.manifest(of: try world.service.takeBackup(now: world.instant))
+
+        #expect(size.files == manifest.files.count)
+        #expect(size.bytes == manifest.files.reduce(0) { $0 + $1.byteCount })
+        #expect(size.bytes > 40_000)
+        #expect(size.bytes < 90_000)
+    }
+
     @Test("a backup copies every member that exists and records the ones that do not")
     func theArchiveSaysWhatItHolds() throws {
         let world = try World()

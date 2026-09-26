@@ -467,7 +467,13 @@ struct StoreLaunchSequence {
 
     /// The kinds a backup TAKEN has disproved (ovation#503), beside the no folder
     /// notice, which was already cleared the same way.
-    static let clearedByABackup: Set<ProblemKind> = [.backupCouldNotBeWritten, .backupFailed]
+    ///
+    /// A backup the launch stopped waiting for is among them (ovation#507): the
+    /// abandoned copy usually finishes, and the next launch finding today's archive
+    /// is that backup measured again and present.
+    static let clearedByABackup: Set<ProblemKind> = [
+        .backupCouldNotBeWritten, .backupFailed, .backupStillRunning,
+    ]
 
     /// What happens without a backup from today, which decides how the notice
     /// ends (ovation#505). The CAUSE is the same sentence either way; what differs
@@ -534,6 +540,15 @@ struct StoreLaunchSequence {
             // withdrew need three different actions and rendered one sentence
             // until now (L11).
             return (.backupCouldNotBeWritten, "The backup could not be written to \(detail).")
+        case BackupError.stillRunning(let after):
+            // WHAT WAS MEASURED, AND NOTHING ABOUT OPENING (ovation#507). Whether
+            // the launch then opened or refused is said by `sentence(for:then:)`,
+            // and it differs; this sentence used to say "and opened" on the launch
+            // that went on to say it had not.
+            return (.backupStillRunning,
+                    "Today's backup was still running after \(Self.seconds(after)), so "
+                        + "Ovation stopped waiting for it. It may still finish, and the next "
+                        + "launch will find it if it does.")
         case BackupError.requiredMemberMissing(let path):
             return (.backupCouldNotBeWritten,
                     "The backup was refused because \(path) is missing from the data folder.")
@@ -544,6 +559,12 @@ struct StoreLaunchSequence {
         default:
             return (.backupFailed, "The backup did not complete: \(error.localizedDescription).")
         }
+    }
+
+    /// A wait as Dan reads it: whole seconds, never "12.0 seconds".
+    static func seconds(_ duration: Duration) -> String {
+        let whole = duration.components.seconds
+        return whole == 1 ? "1 second" : "\(whole) seconds"
     }
 
     /// One verdict, one kind. The four already exist for exactly this, and a

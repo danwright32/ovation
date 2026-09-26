@@ -116,11 +116,27 @@ enum BackupError: Error, Equatable, Sendable {
     case noManifest(String)
     case couldNotRead(String)
     case couldNotWrite(String)
+    /// The launch stopped WAITING for the backup, which was still running
+    /// (ovation#507). Not a write that failed: nothing refused, and a blocking copy
+    /// reads no cancellation flag, so it may well finish after the launch has
+    /// moved on, and the next launch then finds it as today's.
+    case stillRunning(after: Duration)
     case verificationFailed([BackupReport.Failure])
     /// A restore that had begun changing the data folder and could not finish
     /// (ovation#258): what it had put back, what it was putting back when it
     /// stopped, and the pre restore snapshot that holds everything as it was.
     case restoredPartway(replaced: [String], failedAt: String, snapshot: String, cause: String)
+}
+
+/// What a backup will copy, counted before it starts (ovation#507).
+///
+/// TWO NUMBERS, because each is a cost of its own. Measured on this Mac, a backup
+/// of 40KB documents costs about 0.75ms per document whatever their total, and one
+/// of 300KB files is paid mostly per byte, so a deadline scaled by either alone is
+/// short for a folder shaped like the other (L391).
+struct BackupSize: Equatable, Sendable {
+    let files: Int
+    let bytes: Int
 }
 
 final class BackupService {
@@ -245,6 +261,37 @@ final class BackupService {
             total += (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
         }
         return total
+    }
+
+    /// Every file a backup of the data folder would copy, and their bytes, read
+    /// from the plan's members the way `takeBackup` reads them (ovation#507).
+    ///
+    /// THE SAME WALK THE MANIFEST IS BUILT FROM, so the number the launch sizes its
+    /// deadline from and the files the backup copies cannot drift apart. A walk of
+    /// the whole data folder would also count what is not a member, the credential
+    /// store included, which the backup never touches.
+    func sizeOfWhatIsBackedUp() throws -> BackupSize {
+        var files = 0
+        var bytes = 0
+        for member in BackupPlan.members {
+            let source = dataDirectory.appendingPathComponent(member.path)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+            let paths: [URL]
+            switch member.kind {
+            case .file:
+                paths = [source]
+            case .directory:
+                paths = try walk(source).map { source.appendingPathComponent($0) }
+            }
+            for path in paths {
+                guard let size = try? path.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+                    throw BackupError.couldNotRead(path.path)
+                }
+                files += 1
+                bytes += size
+            }
+        }
+        return BackupSize(files: files, bytes: bytes)
     }
 
     // MARK: are the backups behind the data (ovation#230)

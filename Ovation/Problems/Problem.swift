@@ -67,6 +67,12 @@ extension ProblemKind {
     /// is about reaching the folder, the other about what landed in it.
     static let backupCouldNotBeWritten = ProblemKind("backup.could-not-be-written")
 
+    /// The launch stopped waiting for a backup that was still running
+    /// (ovation#507). Its own kind, because nothing refused: the remedy for a
+    /// folder that is slow is not the remedy for one that cannot be written, and a
+    /// sentence about a write failure would send Dan to fix a folder that works.
+    static let backupStillRunning = ProblemKind("backup.still-running")
+
     /// No backup folder has been chosen yet (ovation#225). A STANDING condition,
     /// restated on every launch until it is answered, and RESOLVED when a folder
     /// is chosen: `ProblemsStore` never retracts on its own, `raise` clears

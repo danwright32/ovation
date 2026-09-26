@@ -456,6 +456,47 @@ struct StoreLaunchSequenceTests {
                 "\(failure.rawValue): \(sentences)")
     }
 
+    /// ovation#507. A BACKUP STILL RUNNING WHEN THE LAUNCH STOPPED WAITING is not a
+    /// backup that could not be written: nothing refused, and it may yet finish.
+    /// It has its own kind, and its sentence says what was measured and nothing
+    /// about opening, because the launch decides that part and it differs (L11).
+    @Test("a backup still running is its own notice, true whether the launch opened or refused")
+    func aStillRunningBackupSaysSo() async throws {
+        let refused = try World(recordedVersion: Schema.Version(1, 0, 0),
+                                runningVersion: Schema.Version(2, 0, 0),
+                                backup: { _ in throw BackupError.stillRunning(after: .seconds(12)) })
+        let opened = try World(backup: { _ in throw BackupError.stillRunning(after: .seconds(12)) })
+
+        _ = await refused.sequence.run(now: refused.instant)
+        _ = await opened.sequence.run(now: opened.instant)
+
+        for (world, path) in [(refused, "refused"), (opened, "opened")] {
+            let notices = world.store.open.filter { $0.kind == .backupStillRunning }
+            #expect(notices.count == 1, "\(path): \(world.store.open.map(\.kind))")
+            let sentence = notices.first?.sentence ?? ""
+            #expect(sentence.contains("12 seconds"), "\(path): \(sentence)")
+            #expect(!sentence.contains("could not be written"), "\(path): \(sentence)")
+            #expect(!world.store.open.contains { $0.kind == .backupCouldNotBeWritten })
+        }
+        let refusal = refused.store.open.first { $0.kind == .backupStillRunning }?.sentence ?? ""
+        #expect(!refusal.contains("and opened"), "\(refusal)")
+        #expect(refusal.contains("has not opened"), "\(refusal)")
+    }
+
+    /// AND THE LAUNCH THAT FINDS THAT BACKUP FINISHED CLEARS IT. The abandoned copy
+    /// usually completes, so the next launch reads today's archive as already
+    /// taken, which is the backup measured again and present (L152).
+    @Test("a still running notice is resolved by the launch that finds today's backup")
+    func aStillRunningNoticeClearsOnceTheBackupIsThere() async throws {
+        let world = try World(backup: { _ in .alreadyTakenToday(URL(fileURLWithPath: "/dev/null")) })
+        _ = world.store.raise(kind: .backupStillRunning, subject: world.storeURL.path,
+                              sentence: "an earlier launch stopped waiting", now: world.instant)
+
+        _ = await world.sequence.run(now: world.instant.addingTimeInterval(60))
+
+        #expect(!world.store.open.contains { $0.kind == .backupStillRunning })
+    }
+
     /// THE KIND IS THE CAUSE'S, so the notice ends when its cause does. A refusal
     /// under a kind of its own would be one nothing ever resolves, and the launch
     /// that finally backs up would leave it standing over a working app (L152).
