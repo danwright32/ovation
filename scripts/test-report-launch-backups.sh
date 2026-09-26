@@ -12,7 +12,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "launch backup report tests" 16
+harness_begin "launch backup report tests" 31
 
 TARGET="scripts/report-launch-backups.sh"
 SAMPLE="integration/launch-backups-sample.jsonl"
@@ -57,6 +57,25 @@ OUT="$(run_report)"; ST=$?
 check "a record with one damaged line is still reported" "$ST" "0"
 check "and the damaged line is counted, not dropped" \
     "$(says "$OUT" "1 line(s) that could not be read")" "yes"
+
+# 4b. A LINE WITH EVERY KEY BUT A WRONG TYPE is refused like a damaged one, by
+#     the field that is wrong, rather than passing the check and crashing the
+#     report later. Each numeric field is tried, and a boolean is not a number.
+for bad in \
+    '{"at":"2026-09-25T09:00:00Z","bytes":1,"deadlineMilliseconds":5000,"elapsedMilliseconds":"90","files":1,"outcome":"taken"}|elapsedMilliseconds' \
+    '{"at":"2026-09-25T09:00:00Z","bytes":1,"deadlineMilliseconds":5000,"elapsedMilliseconds":true,"files":1,"outcome":"taken"}|elapsedMilliseconds' \
+    '{"at":"2026-09-25T09:00:00Z","bytes":1,"deadlineMilliseconds":5000,"elapsedMilliseconds":90,"files":"19","outcome":"taken"}|files' \
+    '{"at":"2026-09-25T09:00:00Z","bytes":null,"deadlineMilliseconds":5000,"elapsedMilliseconds":90,"files":1,"outcome":"taken"}|bytes' \
+    '{"at":7,"bytes":1,"deadlineMilliseconds":5000,"elapsedMilliseconds":90,"files":1,"outcome":"taken"}|at'; do
+  cp "$SAMPLE" "$RECORD"
+  printf '%s\n' "${bad%|*}" >> "$RECORD"
+  OUT="$(run_report)"; ST=$?
+  check "a line whose ${bad#*|} has the wrong type is still reported around" "$ST" "0"
+  check "and it is refused by the field that is wrong (${bad#*|})" \
+      "$(says "$OUT" "1 line(s) that could not be read, which are not counted (${bad#*|} is not")" "yes"
+  check "and it does not move the tightest copy (${bad#*|})" \
+      "$(says "$OUT" "Tightest whole copy: 7.7%")" "yes"
+done
 
 # 5. NO RECORD cannot be measured, and is not a healthy report.
 rm -f "$RECORD"

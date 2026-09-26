@@ -72,25 +72,61 @@ def read(path):
     except OSError as error:
         cannot_measure("the record at " + path + " could not be read: " + str(error) + ".")
 
-    timings, skipped = [], 0
+    timings, skipped, reasons = [], 0, []
     for line in lines:
         try:
             timing = json.loads(line)
         except ValueError:
             skipped += 1
+            reasons.append("not JSON")
             continue
-        if (not isinstance(timing, dict)
-                or any(key not in timing for key in REQUIRED)
-                or timing["outcome"] not in OUTCOMES
-                or not isinstance(timing["deadlineMilliseconds"], int)
-                or timing["deadlineMilliseconds"] <= 0):
+        reason = refusal(timing)
+        if reason:
             skipped += 1
+            reasons.append(reason)
             continue
         timings.append(timing)
     if not timings:
         cannot_measure("the record at " + path + " holds " + str(len(lines))
                        + " line(s) and none of them could be read as a launch backup.")
-    return timings, skipped
+    return timings, skipped, reasons
+
+
+def whole_number(value):
+    """An integer, and not a boolean, which Python counts as one."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def refusal(timing):
+    """Why a decoded line is not a launch backup, naming the field, or None.
+
+    EVERY FIELD THE REPORT USES IS TYPE CHECKED HERE, not only the ones it
+    divides by. A line whose keys were all present with one of the wrong type
+    passed and then crashed the report, and a check that confirms a key EXISTS
+    says nothing about whether it can be used. The Swift reader refuses the same
+    lines by decoding into typed fields (LaunchBackupTiming), so the two agree.
+    """
+    if not isinstance(timing, dict):
+        return "the line is not an object"
+    for key in REQUIRED:
+        if key not in timing:
+            return key + " is not there"
+    if not isinstance(timing["at"], str):
+        return "at is not a date"
+    if timing["outcome"] not in OUTCOMES:
+        return "outcome is not one Ovation writes"
+    for key in ("elapsedMilliseconds", "deadlineMilliseconds"):
+        if not whole_number(timing[key]) or timing[key] < 0:
+            return key + " is not a whole number of milliseconds"
+    if timing["deadlineMilliseconds"] == 0:
+        return "deadlineMilliseconds is not a whole number of milliseconds above zero"
+    # The size is written as a pair or not at all, so half of one is damage.
+    if ("files" in timing) != ("bytes" in timing):
+        return ("files" if "files" not in timing else "bytes") + " is not there beside its pair"
+    for key in ("files", "bytes"):
+        if key in timing and (not whole_number(timing[key]) or timing[key] < 0):
+            return key + " is not a whole number"
+    return None
 
 
 def day(timing):
@@ -107,14 +143,18 @@ def size(timing):
 
 
 def main():
-    timings, skipped = read(RECORD)
+    timings, skipped, reasons = read(RECORD)
     print("Launch backups recorded in " + RECORD + ": " + str(len(timings)))
     for outcome, words in OUTCOMES.items():
         count = sum(1 for t in timings if t["outcome"] == outcome)
         if count:
             print("    {} {}".format(count, words))
     if skipped:
-        print("    and {} line(s) that could not be read, which are not counted".format(skipped))
+        # The first reason is named, so a writer that changed a field's type is
+        # found from this line rather than from a count alone.
+        print("    and {} line(s) that could not be read, which are not counted ({}{})".format(
+            skipped, reasons[0],
+            "" if skipped == 1 else ", and " + str(skipped - 1) + " more"))
 
     whole = [t for t in timings if t["outcome"] == "taken"]
     if whole:

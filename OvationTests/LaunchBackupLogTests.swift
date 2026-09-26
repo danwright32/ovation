@@ -135,12 +135,18 @@ struct LaunchBackupLogTests {
         let handle = try FileHandle(forWritingTo: world.url)
         try handle.seekToEnd()
         try handle.write(contentsOf: Data("{not a timing\n".utf8))
+        // EVERY KEY PRESENT, ONE OF THE WRONG TYPE. The report script once let
+        // this through its check and crashed on it later; the typed decode here
+        // must refuse it the same way it refuses damage.
+        let wrongType = #"{"at":"2026-09-25T09:00:00Z","bytes":1,"deadlineMilliseconds":5000,"#
+            + #""elapsedMilliseconds":"90","files":1,"outcome":"taken"}"#
+        try handle.write(contentsOf: Data((wrongType + "\n").utf8))
         try handle.close()
         try world.log.append(timing)
 
         let loaded = try world.log.load()
         #expect(loaded.timings == [timing, timing])
-        #expect(loaded.skipped == 1)
+        #expect(loaded.skipped == 2)
     }
 
     /// WHAT A LAUNCH DOES WITH ITS TIMING, both ways: written where there is a
