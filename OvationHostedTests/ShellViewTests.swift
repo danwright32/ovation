@@ -22,7 +22,7 @@ struct ShellViewTests {
             c.email = "c\(i)@example.example"
             clients.append(c)
         }
-        return RosterPresenter(clients: clients, save: {})
+        return RosterPresenter(clients: clients, write: { _, _ in })
     }
 
     @Test("the rail draws the three destinations that are not built yet")

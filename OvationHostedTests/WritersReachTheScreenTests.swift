@@ -92,7 +92,7 @@ struct WritersReachTheScreenTests {
         let store = ProblemsStore(journal: InMemoryProblemsJournal())
         let blocking = Client(name: "Client 0", taxStatus: .neverRecorded)
         blocking.email = "c0@example.example"
-        let roster = RosterPresenter(clients: [blocking], save: {})
+        let roster = RosterPresenter(clients: [blocking], write: { _, _ in })
         return RootView(
             presenter: LaunchPresenter(store: store), store: store,
             roster: roster,

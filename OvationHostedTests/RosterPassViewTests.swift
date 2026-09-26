@@ -39,7 +39,7 @@ struct RosterPassViewTests {
     }
 
     private static func presenter(_ clients: [Client]) -> RosterPresenter {
-        RosterPresenter(clients: clients, save: {})
+        RosterPresenter(clients: clients, write: { _, _ in })
     }
 
     @Test("the screen says the number it started with, at the real count")
@@ -62,10 +62,10 @@ struct RosterPassViewTests {
     /// figure that falls as you work is the standing nag, and saying the number
     /// it BEGAN with is what makes the pass read as a one time job.
     @Test("the starting figure does not move once a client has been answered")
-    func theStartingFigureDoesNotCountDown() throws {
+    func theStartingFigureDoesNotCountDown() async throws {
         let clients = Self.theRealRoster()
         let presenter = Self.presenter(clients)
-        try presenter.answer(clients[0], as: .exempt)
+        await presenter.answer(clients[0], as: .exempt)
 
         let view = RosterPassView(presenter: presenter)
 
@@ -136,12 +136,12 @@ struct RosterPassViewTests {
 
     /// L415. The failure path, which is the half a happy path render cannot see.
     @Test("a save that failed is said on the screen, not only recorded")
-    func aFailureReachesTheScreen() throws {
+    func aFailureReachesTheScreen() async throws {
         let clients = Self.theRealRoster()
-        let presenter = RosterPresenter(clients: clients, save: {
+        let presenter = RosterPresenter(clients: clients, write: { _, _ in
             throw RosterViewTestError.theStoreRefused
         })
-        try? presenter.answer(clients[0], as: .exempt)
+        await presenter.answer(clients[0], as: .exempt)
 
         let view = RosterPassView(presenter: presenter)
 
@@ -153,12 +153,12 @@ struct RosterPassViewTests {
     /// client's name reached the screen, which is the privacy floor applied to
     /// the one place it does not govern.
     @Test("the failure names the client on screen, so it can be acted on")
-    func theFailureNamesTheClientOnScreen() throws {
+    func theFailureNamesTheClientOnScreen() async throws {
         let clients = Self.theRealRoster()
-        let presenter = RosterPresenter(clients: clients, save: {
+        let presenter = RosterPresenter(clients: clients, write: { _, _ in
             throw RosterViewTestError.theStoreRefused
         })
-        try? presenter.answer(clients[0], as: .exempt)
+        await presenter.answer(clients[0], as: .exempt)
 
         let view = RosterPassView(presenter: presenter)
         let said = try view.inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }

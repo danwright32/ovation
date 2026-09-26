@@ -34,7 +34,7 @@ struct RosterLaunchTests {
     func itCapturesWhatThePassStartedWith() throws {
         let problems = Self.store()
         let made = RosterLaunch.presenters(
-            fetchClients: { Self.needing(3) }, save: {}, problems: problems, now: Date())
+            fetchClients: { Self.needing(3) }, write: { _, _ in }, problems: problems, now: Date())
 
         let pair = try #require(made)
         #expect(pair.roster.startedWith == 3)
@@ -44,8 +44,11 @@ struct RosterLaunchTests {
     /// Where the pass has work, that is where Dan lands.
     @Test("the shell starts on the roster when something blocks a send")
     func theShellStartsOnTheRosterWhenSomethingBlocks() throws {
-        let pair = try #require(RosterLaunch.presenters(
-            fetchClients: { Self.needing(3) }, save: {}, problems: Self.store(), now: Date()))
+        // Made OUTSIDE `#require`, whose expansion wants a Sendable closure and
+        // the write is main actor isolated rather than Sendable.
+        let made = RosterLaunch.presenters(
+            fetchClients: { Self.needing(3) }, write: { _, _ in }, problems: Self.store(), now: Date())
+        let pair = try #require(made)
 
         #expect(pair.shell.selected == .roster)
         #expect(pair.shell.destinations.contains(.roster))
@@ -56,8 +59,9 @@ struct RosterLaunchTests {
     /// never fire (PRD 5a).
     @Test("the shell does not start on the roster when nothing blocks")
     func theShellDoesNotStartOnAnEmptyRoster() throws {
-        let pair = try #require(RosterLaunch.presenters(
-            fetchClients: { [] }, save: {}, problems: Self.store(), now: Date()))
+        let made = RosterLaunch.presenters(
+            fetchClients: { [] }, write: { _, _ in }, problems: Self.store(), now: Date())
+        let pair = try #require(made)
 
         #expect(pair.shell.selected != .roster)
         #expect(!pair.shell.destinations.contains(.roster))
@@ -71,7 +75,7 @@ struct RosterLaunchTests {
 
         let made = RosterLaunch.presenters(
             fetchClients: { throw RosterLaunchTestError.storeUnreadable },
-            save: {}, problems: problems, now: Date())
+            write: { _, _ in }, problems: problems, now: Date())
 
         #expect(made == nil)
         #expect(problems.open.count == 1)
@@ -84,7 +88,7 @@ struct RosterLaunchTests {
         let problems = Self.store()
 
         _ = RosterLaunch.presenters(
-            fetchClients: { [] }, save: {}, problems: problems, now: Date())
+            fetchClients: { [] }, write: { _, _ in }, problems: problems, now: Date())
 
         #expect(problems.open.isEmpty)
     }
@@ -95,7 +99,7 @@ struct RosterLaunchTests {
 
         _ = RosterLaunch.presenters(
             fetchClients: { throw RosterLaunchTestError.storeUnreadable },
-            save: {}, problems: problems, now: Date())
+            write: { _, _ in }, problems: problems, now: Date())
 
         let said = problems.open.first?.sentence ?? ""
         #expect(said.contains("client"))

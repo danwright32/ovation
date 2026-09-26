@@ -30,7 +30,7 @@ enum RosterLaunch {
     /// pass has something in it.
     static func presenters(
         fetchClients: () throws -> [Client],
-        save: @escaping () throws -> Void,
+        write: @escaping RosterPresenter.TaxStatusWrite,
         problems: ProblemsStore,
         now: Date
     ) -> (roster: RosterPresenter, shell: ShellPresenter)? {
@@ -49,7 +49,7 @@ enum RosterLaunch {
             return nil
         }
 
-        let roster = RosterPresenter(clients: clients, save: save)
+        let roster = RosterPresenter(clients: clients, write: write)
         let shell = ShellPresenter(
             selected: roster.isSettled ? .invoices : .roster,
             // Re-read every time the rail is drawn, never copied in here, or it

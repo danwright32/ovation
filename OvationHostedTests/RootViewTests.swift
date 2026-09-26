@@ -191,7 +191,7 @@ struct RootViewTests {
             c.email = "c\(i)@example.example"
             clients.append(c)
         }
-        return RosterPresenter(clients: clients, save: {})
+        return RosterPresenter(clients: clients, write: { _, _ in })
     }
 }
 

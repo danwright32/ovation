@@ -264,10 +264,10 @@ struct RosterPassView: View {
         .padding(.vertical, 12)
     }
 
-    /// NO SILENT GUARD. The throw is already reported by the presenter, which
-    /// puts the client back and leaves a sentence on the screen, so there is
-    /// nothing for this to swallow.
+    /// NOTHING TO SWALLOW. The presenter shows the answer at once, and a write
+    /// that fails puts the client back and leaves a sentence on the screen, so
+    /// the press only has to start it (ovation#481).
     private func record(_ status: TaxStatus, on client: Client) {
-        try? presenter.answer(client, as: status)
+        Task { await presenter.answer(client, as: status) }
     }
 }

@@ -418,25 +418,25 @@ struct OvationApp: App {
         // the first screen asks what is wrong. Same ordering, and the same
         // reason, as the launch sequence above.
         //
-        // ONE CONTEXT, held by the closures it was made for. The fetch and the
-        // save must be the same context or a change is written back through a
-        // second one, which is two writers over one file (ovation#84).
+        // THE ROSTER READS THROUGH ONE CONTEXT AND NEVER WRITES THROUGH IT
+        // (ovation#481). Its answers are recorded by `ClientTaxStatusWriter`, the
+        // actor the invoice screen records the same fact with, so there is one
+        // writer for a client's tax status rather than two (ovation#84's two
+        // writers over one file, closed from the other side).
         var rosterPair: (roster: RosterPresenter, shell: ShellPresenter)?
         var list: InvoiceListSource?
         if let container = openedStore.container {
             let context = ModelContext(container)
             rosterPair = RosterLaunch.presenters(
                 fetchClients: { try context.fetch(FetchDescriptor<Client>()) },
-                save: { try context.save() },
+                write: RosterPresenter.writer(over: container),
                 problems: store,
                 now: Date())
-            // THE CONTAINER, NOT THIS CONTEXT, and that is the one place the
-            // invoice list differs from the roster beside it (ovation#451). The
-            // roster writes through the context above, so the context is dirty
-            // whenever Dan is part way through answering, and `SwiftDataBehaviourTests`
+            // THE CONTAINER, NOT A HELD CONTEXT (ovation#451). `SwiftDataBehaviourTests`
             // measures that a dirty context re-reading does NOT see another
-            // context's write. The list only ever reads, so it makes a fresh
-            // context per read and sees whatever is committed.
+            // context's write, and a held one is one change away from dirty. The
+            // list only ever reads, so it makes a fresh context per read and sees
+            // whatever is committed.
             list = InvoiceListSource(over: container, problems: store, now: Date.init)
         }
         opened = openedStore.container
