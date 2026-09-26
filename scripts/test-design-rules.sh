@@ -16,6 +16,8 @@
 #                  never recorded must never behave like "not exempt"
 #   money.js       the discount and the referral credit, which net to the same
 #                  tax and must never be merged (PRD 5.4b)
+#   hours-figure.js  the number a duration is written as, which the invoice
+#                  screen and the PDF both draw (PRD 51k, ovation#413)
 #
 # JUDGED BY EXIT CODE. And a missing node is a REFUSAL, never a pass: a suite
 # that reports success when it found nothing to run is indistinguishable from
@@ -37,7 +39,7 @@ if [ -z "$NODE" ]; then
 fi
 
 cat "${RULES}"/duration.js "${RULES}"/time-field.js "${RULES}"/tax-line.js "${RULES}"/money.js \
-    "${RULES}"/waiting.js "${RULES}"/pdf-text.js \
+    "${RULES}"/waiting.js "${RULES}"/hours-figure.js "${RULES}"/pdf-text.js \
     "${RULES}"/duration.cases.js "${RULES}"/time-field.cases.js "${RULES}"/typing.cases.js \
     "${RULES}"/tax-line.cases.js "${RULES}"/money.cases.js "${RULES}"/waiting.cases.js \
     "${RULES}"/suite-isolation.js \
@@ -65,6 +67,14 @@ function runPdfTextTests() {
     ran++;
     var got = hours(c.hundredths / 100);
     if (got !== c.text) failures.push(c.hundredths + " hundredths wrote " + got + ", expected " + c.text + " (" + c.why + ")");
+    /* THE SCREEN'S FIGURE AND THE PDF'S ARE ONE NUMBER (PRD 51k, ovation#413).
+       hoursFigure is the rule the invoice screen and the PDF both carry, held
+       in each by check-design-rules-inline.sh, and the PDF's text must be that
+       figure followed by its unit and nothing else. */
+    ran++;
+    var figure = hoursFigure(c.hundredths / 100);
+    if (figure !== c.figure) failures.push(c.hundredths + " hundredths is the figure " + figure + ", expected " + c.figure + " (" + c.why + ")");
+    if (got.split(" ")[0] !== figure) failures.push(c.hundredths + " hundredths: the PDF wrote " + got + " and the screen writes " + figure + ", two numbers for one duration");
   });
   /* PRD 50c: the hours AS PRINTED, read back by digits alone, times the rate
      must be the amount, which is what a one decimal quarter hour broke. */
@@ -110,8 +120,8 @@ if (bad.length) {
 /* The count is asserted, not just the absence of failures: a suite that runs
    half of itself and reports no failures reads exactly like a green one (L288,
    and ovation#106 filed for the same shape in the main suite). */
-if (ran < 151) {
-  console.log("only " + ran + " cases ran, which is fewer than the 151 these files carry.");
+if (ran < 185) {
+  console.log("only " + ran + " cases ran, which is fewer than the 185 these files carry.");
   process.exit(1);
 }
 console.log("design rules: " + ran + " cases pass across " + suites.length + " suites, isolation checked");

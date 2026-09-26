@@ -23,17 +23,20 @@ function discountAmount(kind, value, subtotal) {
   return cents(Math.min(value, subtotal));
 }
 
-/* creditHours is what the client has EARNED and not yet spent. A credit may
-   never exceed the balance, nor take an invoice below nothing: PRD 5.1b makes a
-   zero invoice legitimate, and nothing below it is. */
-function invoiceTotals(lineTotal, creditRequested, creditBalance, kind, value, taxRate) {
+/* creditBalance is what the client has EARNED and not yet spent, and zero where
+   no credit is applied. A credit may never exceed the balance, nor take an
+   invoice below nothing: PRD 5.1b makes a zero invoice legitimate, and nothing
+   below it is. NOBODY ASKS FOR AN AMOUNT (Dan, 2026-09-23, ovation#457, PRD 4c):
+   applying a credit spends the smaller of the balance and the charges, chosen
+   over a sheet asking how much to spend, so there is no requested figure to
+   take and none to refuse (ovation#500). */
+function invoiceTotals(lineTotal, creditBalance, kind, value, taxRate) {
   var lines = cents(lineTotal);
-  var credit = cents(Math.max(0, Math.min(creditRequested || 0, creditBalance || 0, lines)));
+  var credit = cents(Math.max(0, Math.min(creditBalance || 0, lines)));
   var sub = cents(lines - credit);
   var off = discountAmount(kind, value, sub);
   var taxable = cents(sub - off);
   var tax = cents(taxable * taxRate);
   return { lines: lines, credit: credit, subtotal: sub, discount: off,
-           taxable: taxable, tax: tax, total: cents(taxable + tax),
-           creditRefused: cents(Math.max(0, (creditRequested || 0) - credit)) };
+           taxable: taxable, tax: tax, total: cents(taxable + tax) };
 }

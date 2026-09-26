@@ -51,10 +51,11 @@ enum PDFText {
     /// The same number WITHOUT its unit, for a sentence that supplies its own.
     ///
     /// ONE DEFINITION, TWO RENDERINGS (ovation#457). The invoice screen writes
-    /// "billed as 1.50 hours" in running text, so it needs the figure and not the
+    /// "billed as 1.5 hours" in running text, so it needs the figure and not the
     /// abbreviation; deriving it a second time there would be two formatters for
     /// one number, and the quarter hour is exactly where they would disagree
-    /// (L370). The design record's own `writtenHours` is this rule.
+    /// (L370). The design record's own `hoursFigure` (docs/design/rules/hours-figure.js)
+    /// is this rule, and pdf-text.cases.json holds both to the same figure.
     static func hoursFigure(_ duration: Hours) -> String {
         let magnitude = duration.hundredths.magnitude
         let whole = magnitude / 100
