@@ -79,14 +79,7 @@ enum LaunchBackupOutcome {
         sleeping: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         _ work: @escaping @Sendable () throws -> BackupService.Attempt
     ) async throws -> BackupService.Attempt {
-        let measured = await BlockingWork.run(deadline: deadlineFloor, sleeping: sleeping, measuring)
-        let deadline: Duration
-        if case .answered(let size) = measured {
-            deadline = Self.deadline(for: size)
-        } else {
-            deadline = deadlineFloor
-        }
-
+        let deadline = await measuredDeadline(measuring, sleeping: sleeping)
         let outcome = await BlockingWork.run(deadline: deadline, sleeping: sleeping) {
             () throws -> Result<BackupService.Attempt, BackupError> in
             do {
@@ -105,6 +98,37 @@ enum LaunchBackupOutcome {
         case .gaveUp(let after):
             return try attempt(from: .gaveUp(after: after))
         }
+    }
+
+    /// Re-checks one older archive, for as long as the data folder's size calls
+    /// for, and hands back what it found (ovation#507).
+    ///
+    /// SIZED LIKE THE BACKUP, because it is the same work: it reads and hashes
+    /// every file in one archive, and an archive holds what the data folder held
+    /// on its day, so the folder's size today is the measure that grows the way
+    /// the archives do. It gives up
+    /// silently by design (see `reverification(from:)`), which is exactly why a
+    /// floor the archives had outgrown would be invisible: every launch would stop
+    /// waiting, say nothing, and no old archive would ever be checked again.
+    static func reverify(
+        measuring: @escaping @Sendable () throws -> BackupSize,
+        sleeping: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        _ work: @escaping @Sendable () throws -> BackupService.Reverification
+    ) async -> BackupService.Reverification {
+        let deadline = await measuredDeadline(measuring, sleeping: sleeping)
+        return reverification(
+            from: await BlockingWork.run(deadline: deadline, sleeping: sleeping, work))
+    }
+
+    /// The deadline the measured size calls for, or the floor when the size could
+    /// not be read. The walk runs under the floor, because it reads no contents.
+    private static func measuredDeadline(
+        _ measuring: @escaping @Sendable () throws -> BackupSize,
+        sleeping: @escaping @Sendable (Duration) async throws -> Void
+    ) async -> Duration {
+        let measured = await BlockingWork.run(deadline: deadlineFloor, sleeping: sleeping, measuring)
+        if case .answered(let size) = measured { return deadline(for: size) }
+        return deadlineFloor
     }
 
     /// What the sequence's backup step should do with the answer.

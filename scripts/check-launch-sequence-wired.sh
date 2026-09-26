@@ -83,7 +83,15 @@ RUNS_ONLY_ONCE = re.compile(r"\bhasLaunched\b")
 # thread per core and does not grow, so blocking work on it starves every other
 # await. `BlockingWork` is Downbeat's helper, ported for this, and it uses a
 # dispatch queue that DOES grow, under a deadline.
-HEAVY_WORK_LEAVES_THE_MAIN_ACTOR = re.compile(r"\bBlockingWork\.run\b")
+#
+# ovation#507: THE BACKUP'S OWN HELPERS COUNT. `LaunchBackupOutcome.run` and
+# `.reverify` are BlockingWork with the wait sized for what is copied, and they
+# are how the launch reaches it now. Until then the re-check's own direct call
+# was the only thing in the file this matched, so the backup had been passing
+# on a neighbour's line (L135). Their going through BlockingWork is proved by
+# LaunchBackupOutcomeTests, which reads back the deadline each wait was given.
+HEAVY_WORK_LEAVES_THE_MAIN_ACTOR = re.compile(
+    r"\b(?:BlockingWork\.run|LaunchBackupOutcome\.(?:run|reverify))\b")
 # ovation#231, ovation#247. BOTH SHIPPED WITH TESTS AND NOTHING PRESENTED EITHER.
 # BackupSettingsPresenter had seven passing cases and no window, so a backup
 # folder could not be chosen and no backup had ever been taken; RestorePresenter

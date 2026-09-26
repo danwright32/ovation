@@ -300,6 +300,20 @@ check "a launch whose heavy work stays on the main actor is refused" 6 \
 check "a guarded launch that sends the heavy work away passes" 0 \
     "$(run_on "${WORK}/task-guarded.swift")"
 
+# ovation#507. THE BACKUP'S OWN HELPERS SEND IT AWAY TOO. The launch reaches
+# BlockingWork through LaunchBackupOutcome, which sizes the wait for what is
+# copied, so a launch written that way sends the heavy work away as surely as
+# one calling BlockingWork itself, and refusing it would be the guard firing on
+# the correct wiring.
+sed 's/_ = await BlockingWork.run { true }/_ = try await LaunchBackupOutcome.run(measuring: { .init(files: 0, bytes: 0) }) { .taken(storeURL) }/' \
+    "${WORK}/task-guarded.swift" > "${WORK}/through-the-backup-helper.swift"
+check "a launch whose backup goes through LaunchBackupOutcome passes" 0 \
+    "$(run_on "${WORK}/through-the-backup-helper.swift")"
+sed 's/_ = await BlockingWork.run { true }/_ = await LaunchBackupOutcome.reverify(measuring: { .init(files: 0, bytes: 0) }) { .nothingToCheck }/' \
+    "${WORK}/task-guarded.swift" > "${WORK}/through-the-recheck-helper.swift"
+check "a launch whose re-check goes through LaunchBackupOutcome passes" 0 \
+    "$(run_on "${WORK}/through-the-recheck-helper.swift")"
+
 # ---------------------------------------------------------------------------
 # THE SETTINGS PANE IS REACHABLE (ovation#231, ovation#247). Both presenters
 # shipped with passing tests and nothing presented either, so a folder could not

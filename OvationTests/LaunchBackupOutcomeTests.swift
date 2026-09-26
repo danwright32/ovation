@@ -135,6 +135,24 @@ struct LaunchBackupOutcomeTests {
         }
     }
 
+    /// THE RE-CHECK OF AN OLD ARCHIVE IS SIZED THE SAME WAY. It reads and hashes
+    /// every file in one archive, which is a copy of the data folder, and it gives
+    /// up SILENTLY by design, so on a floor the archives had outgrown it would stop
+    /// checking anything, for ever, with nothing said (L30, L98).
+    @Test("the re-check of an old archive waits for the deadline the data folder's size calls for")
+    func theRecheckWaitsForTheMeasuredDeadline() async {
+        let waits = RecordedWaits()
+        let size = BackupSize(files: 4_000, bytes: 1_000_000_000)
+
+        let checked = await LaunchBackupOutcome.reverify(
+            measuring: { size },
+            sleeping: waits.sleep) { .nothingToCheck }
+
+        #expect(checked == .nothingToCheck)
+        #expect(waits.durations.last == LaunchBackupOutcome.deadline(for: size),
+                "\(waits.durations)")
+    }
+
     /// Records every deadline a wait was given, then waits far longer than any
     /// test, so the work always answers first and the timer is cancelled.
     private final class RecordedWaits: @unchecked Sendable {

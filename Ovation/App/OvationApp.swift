@@ -268,20 +268,31 @@ struct OvationApp: App {
                     // above: re-verifying reads and hashes every file in an
                     // archive, which is the same cost over the same network
                     // volume (ovation#246).
-                    let checked = await BlockingWork.run {
+                    //
+                    // FOR AS LONG AS THE DATA FOLDER'S SIZE CALLS FOR (ovation#507),
+                    // like the backup: an archive is a copy of it.
+                    @Sendable func service() -> BackupService? {
                         guard let folder = BackupFolderSetting.liveBackupsDirectory else {
-                            return BackupService.Reverification.nothingToCheck
+                            return nil
                         }
-                        let service = BackupService(
+                        return BackupService(
                             dataDirectory: storeURL.deletingLastPathComponent(),
                             backupsDirectory: folder,
                             dailyKeep: BackupService.defaultDailyKeep,
                             referencedDocuments: {
                                 try StoreDocumentReferences.read(storeURL: storeURL)
                             })
+                    }
+                    return await LaunchBackupOutcome.reverify(
+                        measuring: {
+                            try service()?.sizeOfWhatIsBackedUp() ?? BackupSize(files: 0, bytes: 0)
+                        }
+                    ) {
+                        guard let service = service() else {
+                            return BackupService.Reverification.nothingToCheck
+                        }
                         return (try? service.reverifyOneArchive(now: now)) ?? .nothingToCheck
                     }
-                    return LaunchBackupOutcome.reverification(from: checked)
                 },
                 openContainer: { try OvationSchema.container(at: $0) },
                 identify: {
