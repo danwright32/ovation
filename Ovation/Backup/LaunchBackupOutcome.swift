@@ -14,8 +14,51 @@ import Foundation
 
 enum LaunchBackupOutcome {
 
-    /// Runs the launch's backup off the main actor, and hands back what it did or
-    /// THE ERROR IT THREW, unchanged (ovation#505).
+    // MARK: how long the launch waits (ovation#507)
+
+    /// The least any launch waits: `BlockingWork`'s own deadline, which is what
+    /// every launch waited before the deadline was sized, and is still far above
+    /// today's data folder (19 files, 372KB, measured 2026-09-26).
+    static let deadlineFloor: Duration = BlockingWork.defaultDeadline
+
+    /// What each file adds. MEASURED: 4,000 documents of 40KB were backed up and
+    /// verified in 3.07s on this Mac (BackupCostTests, 2026-09-08), about 0.75ms a
+    /// document. Ten milliseconds is thirteen times that.
+    static let allowancePerFile: Duration = .milliseconds(10)
+
+    /// What each byte adds, as a rate the backup is allowed to be as slow as.
+    /// MEASURED: 1,000 files of 300KB (300MB) were copied, hashed and read again in
+    /// 0.75s on this Mac's own disk, about 400MB a second, 2026-09-26. Twenty
+    /// megabytes a second is twenty times slower, which leaves room for a folder
+    /// Dan might later choose on an external drive or a network share, where the
+    /// copy is a real copy rather than the disk's own clone.
+    static let allowedBytesPerSecond = 20_000_000
+
+    /// How long a launch waits for a backup of this size before it stops waiting.
+    ///
+    /// SIZED FOR THE WORK, NOT FOR A KEYCHAIN READ. The five seconds this used to
+    /// inherit were chosen for reads that cost microseconds, and past them a launch
+    /// that would upgrade the store REFUSES to open (ovation#505), so a deadline
+    /// the data outgrows turns a working backup into a refusal nobody can explain.
+    /// A number fixed today would be outgrown by the receipts silently (L354), so it
+    /// grows with what is copied, from a floor that is the old deadline.
+    static func deadline(for size: BackupSize) -> Duration {
+        deadlineFloor
+            + allowancePerFile * size.files
+            + .nanoseconds(size.bytes * (1_000_000_000 / allowedBytesPerSecond))
+    }
+
+    /// Runs the launch's backup off the main actor, for as long as its size calls
+    /// for, and hands back what it did or THE ERROR IT THREW, unchanged
+    /// (ovation#505, ovation#507).
+    ///
+    /// `measuring` is REQUIRED, with no default: a caller that forgot it would get
+    /// the floor for every size, which is the defect this exists to end (L168).
+    ///
+    /// A SIZE THAT CANNOT BE READ LEAVES THE FLOOR. Whatever stopped the walk will
+    /// stop the backup too, and the backup is what says so, in its own words; the
+    /// walk failing is not a reason to skip the attempt (L93). The walk itself runs
+    /// under the floor, because it reads no file contents.
     ///
     /// `BlockingWork` can only carry a failure as text, because it serves work of
     /// every kind. So a `BackupError` thrown inside it came out as a string, and
@@ -28,11 +71,23 @@ enum LaunchBackupOutcome {
     /// only something that is not a backup error at all travels as text. The
     /// launch can then say which of them happened, and it has to, because on a
     /// launch that would upgrade the store each one is the reason it refused.
+    ///
+    /// `sleeping` is injected so a test can read the deadline each wait was given
+    /// without paying it.
     static func run(
-        deadline: Duration = BlockingWork.defaultDeadline,
+        measuring: @escaping @Sendable () throws -> BackupSize,
+        sleeping: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         _ work: @escaping @Sendable () throws -> BackupService.Attempt
     ) async throws -> BackupService.Attempt {
-        let outcome = await BlockingWork.run(deadline: deadline) {
+        let measured = await BlockingWork.run(deadline: deadlineFloor, sleeping: sleeping, measuring)
+        let deadline: Duration
+        if case .answered(let size) = measured {
+            deadline = Self.deadline(for: size)
+        } else {
+            deadline = deadlineFloor
+        }
+
+        let outcome = await BlockingWork.run(deadline: deadline, sleeping: sleeping) {
             () throws -> Result<BackupService.Attempt, BackupError> in
             do {
                 return .success(try work())
@@ -55,8 +110,10 @@ enum LaunchBackupOutcome {
     /// What the sequence's backup step should do with the answer.
     ///
     /// A FAILURE AND AN ABANDONED WAIT BOTH THROW, and they throw DIFFERENT
-    /// sentences, because the remedies differ: one is a folder that refused, the
-    /// other is a folder that is slow enough to be a problem of its own.
+    /// errors, because the remedies differ: one is a folder that refused, the
+    /// other is a folder that is slow enough to be a problem of its own. The
+    /// abandoned wait was a write failure carrying a sentence until ovation#507,
+    /// which filed a slow folder under the notice for a broken one.
     static func attempt(
         from outcome: BlockingWorkOutcome<BackupService.Attempt>
     ) throws -> BackupService.Attempt {
@@ -66,9 +123,7 @@ enum LaunchBackupOutcome {
         case .failed(let detail):
             throw BackupError.couldNotWrite(detail)
         case .gaveUp(let after):
-            throw BackupError.couldNotWrite(
-                "the backup was still running after \(after), so Ovation stopped "
-                    + "waiting for it and opened")
+            throw BackupError.stillRunning(after: after)
         }
     }
 

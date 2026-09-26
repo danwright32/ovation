@@ -89,6 +89,10 @@ nonisolated enum BlockingWork {
     /// anything healthy and still short enough that nobody sits in front of a row
     /// that says nothing: past it the surface says it gave up and offers the
     /// person something to do.
+    ///
+    /// NOT SIZED FOR COPYING FILES. The launch backup waits this long at the least
+    /// and longer as the data folder grows, from `LaunchBackupOutcome.deadline(for:)`
+    /// (ovation#507), because a copy is paid per file and per byte and this is not.
     static let defaultDeadline: Duration = .seconds(5)
 
     /// Runs `body` off the calling thread and answers within `deadline`.
