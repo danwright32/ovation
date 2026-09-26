@@ -79,7 +79,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 294
+harness_begin "test runner lock tests" 300
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -339,6 +339,82 @@ wait_for_line() {
     harness_wait_for "'$2' in $(basename "$1")" 200 0.05 file_mentions "$1" "$2"
 }
 
+# 6b-0. THE STOP IS JUDGED THE WAY A PERSON STOPS A RUN, and the judge is
+#       tested first (ovation#554).
+#
+#       Case 6b-i failed once in the push gate, still running, and passed on two
+#       reruns. It was already waiting on the condition rather than a fixed
+#       interval, for ten seconds, so the run really had not stopped. Reproduced
+#       on this Mac, 2026-09-26, against a bare bash 3.2 loop of short commands
+#       with an INT trap that exits: a Ctrl+C style INT to the whole group was
+#       LOST in 3 of 1000 trials, and the shell ran on as though nothing had been
+#       sent, while a second INT stopped every one of those three. The signal
+#       lands in the moment a command has been forked but not yet exec'd, when
+#       the child still carries the shell's own handler: the child records the
+#       signal, exec discards it, the command exits normally, and bash then
+#       takes that as the command having dealt with the interrupt. Nothing in the
+#       runner can reach a signal the shell never delivers to its trap.
+#
+#       So a case that sends ONE interrupt is measuring bash's fork window, and
+#       the honest stop is the one a person uses: press Ctrl+C again. Up to three
+#       interrupts are sent, each followed by a condition wait. That still fails
+#       the defect #274 was about, because a trap that cleans up and RETURNS
+#       carries on after every one of them, which is what the second stub below
+#       stages. How many it took is printed whenever it was more than one, so a
+#       recurrence is counted where somebody reads it rather than retried away
+#       (L293).
+#
+#       Sets STOPPED (the status, or `still-running`) and INTERRUPTS. Like
+#       stopped_status it sets variables and is never called inside `$(...)`.
+interrupt_until_stopped() {
+    local pid="$1" polls_each="${2:-200}" polls
+    INTERRUPTS=0
+    while [ "$INTERRUPTS" -lt 3 ]; do
+        kill -INT -- "-$pid" 2>/dev/null
+        INTERRUPTS=$((INTERRUPTS+1))
+        polls=0
+        while kill -0 "$pid" 2>/dev/null && [ "$polls" -lt "$polls_each" ]; do
+            polls=$((polls+1)); sleep 0.05
+        done
+        kill -0 "$pid" 2>/dev/null || break
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+        STOPPED=still-running
+        return
+    fi
+    wait "$pid" 2>/dev/null
+    STOPPED=$?
+    if [ "$INTERRUPTS" -gt 1 ]; then
+        echo "NOTE: the run needed $INTERRUPTS interrupts to stop; bash lost the first (ovation#554)."
+    fi
+}
+# The stubs are written from inside a function for the reason case 1 of the
+# argument scan records: its `$1` belongs to the stub, not to this suite.
+start_interrupt_stub() {
+    printf '#!/bin/bash\n%s\ntouch "%s"\nwhile :; do sleep 0.02; done\n' "$2" "$1.ready" > "$1"
+    chmod +x "$1"
+    rm -f "$1.ready"
+    python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.setpgrp(); os.execv(sys.argv[1], sys.argv[1:])' \
+        "$1" > /dev/null 2>&1 &
+    STUB_PID=$!
+}
+    STUB_ONCE="$WORK/stub-swallows-first-int.sh"
+    start_interrupt_stub "$STUB_ONCE" 'n=0; trap '"'"'n=$((n+1)); [ "$n" -ge 2 ] && exit 130'"'"' INT'
+    harness_wait_for "the stub that loses its first interrupt to be ready" 200 0.05 test -e "$STUB_ONCE.ready"
+    interrupt_until_stopped "$STUB_PID" 10 > /dev/null
+    check "a run that lost its first interrupt is stopped by the next one, with status 130" \
+        "$STOPPED" "130"
+    check "and it took more than one interrupt to stop it" \
+        "$([ "$INTERRUPTS" -gt 1 ] && echo more || echo "$INTERRUPTS")" "more"
+    STUB_CARRIES_ON="$WORK/stub-trap-returns.sh"
+    start_interrupt_stub "$STUB_CARRIES_ON" 'trap '"'"'true'"'"' INT'
+    harness_wait_for "the stub whose INT trap returns to be ready" 200 0.05 test -e "$STUB_CARRIES_ON.ready"
+    interrupt_until_stopped "$STUB_PID" 10 > /dev/null
+    check "a run whose INT trap only cleans up and carries on is still reported as running (ovation#274)" \
+        "$STOPPED" "still-running"
+    check "after every interrupt it was allowed" "$INTERRUPTS" "3"
+
 # 6b-i. INT while WAITING on Overture's held lock: the case the issue saw.
 #        Indented like every other holder in this file, because the suite level
 #        argument scan below reads unindented lines and the holder's inner `$1`
@@ -352,9 +428,9 @@ wait_for_line() {
     OUT274A="$WORK/run-274a.out"
     start_stoppable_runner "$OUT274A" "$HOSTED_PASSES"
     wait_for_line "$OUT274A" 'Waiting for both test locks'
-    # To the whole group, as Ctrl+C does: the runner and whatever it is waiting on.
-    kill -INT -- "-$STOPPABLE_PID"
-    stopped_status "$STOPPABLE_PID"
+    # To the whole group, as Ctrl+C does: the runner and whatever it is waiting on,
+    # and again if bash lost it, as a person would (6b-0, ovation#554).
+    interrupt_until_stopped "$STOPPABLE_PID"
     check "a run interrupted while waiting for a lock exits, with status 130" \
         "$STOPPED" "130"
     check "and it left Downbeat's lock free behind it" \
