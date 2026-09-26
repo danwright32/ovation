@@ -53,6 +53,19 @@ struct InvoiceListView: View {
     /// closing it leaves Dan here. Nil where nothing can review.
     var review: ((PersistentIdentifier) -> Void)?
 
+    /// ovation#110. How wide the list is drawn, read back from layout, because the
+    /// row changes shape with it. Zero until the first layout pass, and zero is
+    /// read as unknown rather than as narrow, so the list does not open in its
+    /// narrow shape and then jump.
+    @State private var width: CGFloat = 0
+
+    /// BELOW A 900 POINT WINDOW THE SHOOT GOES UNDERNEATH (Dan, 2026-09-26,
+    /// PRD 47c). The rule is `OvationWindow`'s, stated for the window, and the
+    /// design record switches at the same width.
+    private var shootUnderneath: Bool {
+        width > 0 && OvationWindow.putsShootUnderneath(listWidth: width)
+    }
+
     /// The column widths, from the design record's own `--cols`. Named here once
     /// so the header and every row are laid out by one declaration and cannot
     /// drift apart (L553).
@@ -76,6 +89,7 @@ struct InvoiceListView: View {
             }
         }
         .background(OvationPalette.background)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
         .ovationAppearance()
     }
 
@@ -256,21 +270,62 @@ struct InvoiceListView: View {
     /// THE SHOOT CARRIES THE WEIGHT, NOT THE CLIENT (Dan, 2026-09-09, settled
     /// against three alternatives and shown to him on a client holding three
     /// separate invoices for three shoots).
+    ///
+    /// ON ONE LINE THE CLIENT GIVES WAY AND THE SHOOT ENDS ON THE COLUMN'S RIGHT
+    /// EDGE (Dan, 2026-09-26, ovation#110, PRD 47c), at every width, so the shoots
+    /// read as one column down the list. The client keeps the head of the line and
+    /// is the part that shortens; the shoot is laid out first.
+    ///
+    /// AND BELOW A 900 POINT WINDOW EACH PART TAKES A LINE: the client, then the
+    /// shoot, then any further shoots, as the design record draws it. At the half
+    /// screen minimum the column is 180 points, too narrow for both on one line.
+    @ViewBuilder
     private func who(_ row: InvoiceListPresenter.Row, idle: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 9) {
-            Text(row.client)
-                .font(.system(size: 13))
-                .foregroundStyle(idle ? OvationPalette.quiet : OvationPalette.soft)
-            Text(row.shoot)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(idle ? OvationPalette.quiet : OvationPalette.ink)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            if row.otherShoots > 0 {
-                Text(Self.moreShoots(row.otherShoots))
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(OvationPalette.faint)
+        if shootUnderneath {
+            VStack(alignment: .leading, spacing: 1) {
+                client(row, idle: idle)
+                shoot(row, idle: idle)
+                furtherShoots(row)
             }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                client(row, idle: idle)
+                    .frame(minWidth: Self.clientFloor, alignment: .leading)
+                Spacer(minLength: 0)
+                // THE SHOOT IS SIZED FIRST, so it is the client that shortens.
+                shoot(row, idle: idle).layoutPriority(1)
+                furtherShoots(row).layoutPriority(1)
+            }
+        }
+    }
+
+    /// The least of a client name a one line row keeps, about five letters, as the
+    /// design record's `min-width: 5ch`, so a long shoot never takes the whole name.
+    private static let clientFloor: CGFloat = 36
+
+    private func client(_ row: InvoiceListPresenter.Row, idle: Bool) -> some View {
+        Text(row.client)
+            .font(.system(size: 13))
+            .foregroundStyle(idle ? OvationPalette.quiet : OvationPalette.soft)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private func shoot(_ row: InvoiceListPresenter.Row, idle: Bool) -> some View {
+        Text(row.shoot)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(idle ? OvationPalette.quiet : OvationPalette.ink)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    @ViewBuilder
+    private func furtherShoots(_ row: InvoiceListPresenter.Row) -> some View {
+        if row.otherShoots > 0 {
+            Text(Self.moreShoots(row.otherShoots))
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(OvationPalette.faint)
+                .fixedSize()
         }
     }
 

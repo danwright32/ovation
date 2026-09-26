@@ -139,7 +139,9 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 
 
 .win {
-  width: 1064px; margin: 22px auto 0; border-radius: 10px; overflow: hidden;
+  --win-width: 1064px;
+  width: var(--win-width); margin: 22px auto 0; border-radius: 10px; overflow: hidden;
+  container: win / inline-size;
   box-shadow: 0 1px 1px rgba(0,0,0,.18), 0 20px 44px rgba(0,0,0,.28);
 }
 /* FULL HEIGHT SIDEBAR. The rail runs to the top of the window and the traffic
@@ -284,8 +286,33 @@ color: var(--faint); }
     HIS RULE, NOT THE CASE HE WAS SHOWN: "this is always, not just when they
     have several shoots." So it is not a run treatment, it is the row.
     The client keeps its place at the head of the line and goes quiet. */
- .row .client { font-weight: 400; color: var(--faint); letter-spacing: -.005em; white-space: nowrap; }
-.row .sub { font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* THE CLIENT GIVES WAY AND EVERY SHOOT ENDS ON ONE RIGHT EDGE, at every width
+   (Dan, 2026-09-26, ovation#110 rounds 3 and 4, PRD 47c). The client keeps its
+   place at the head of the line and is the part that shortens, down to five
+   letters, before the shoot does; the shoot is pushed to the right hand edge of
+   the column, so the shoots read as one column down the list. His objection to
+   the version where the shoot sat right after the client: "i dont like that the
+   shoot names arent all right aligned", which it was not wherever a client was
+   short. It replaces, at full width too and by his choice, the 2026-09-09 layout
+   in which the shoot followed the client: at 1064 it shortens 1 client name
+   where that layout cut the shoot "Uncle Vanya, opening night". */
+ .row .client { font-weight: 400; color: var(--faint); letter-spacing: -.005em; white-space: nowrap; flex: 1 1 0; min-width: 5ch; overflow: hidden; text-overflow: ellipsis; }
+.row .sub { font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+/* BELOW A 900 POINT WINDOW THE SHOOT GOES UNDERNEATH (Dan, 2026-09-26,
+   ovation#110, PRD 47c). At the app's minimum, 860, which is half his screen,
+   this column is 180 points; on one line the shoot was squeezed to nothing in 8
+   of 16 rows. Round 1 chose the shoot on a line of its own under the client,
+   over the client shortening first on one line, which at 860 cut every client
+   to a few letters. Rows go from 40 points to 65.
+   WHERE IT SWITCHES IS HIS, from a round drawing the one line rule above at 900,
+   940, 980, 1020 and 1064: 900 is the narrowest he judged still right, where it
+   shortens every client name and cuts 2 of 16 shoots. It had first been set at
+   1020, the width where the one line row with the shoot giving way still held,
+   and that rule is gone. The app switches at the same window width
+   (`OvationWindow.shootUnderneathBelow`).
+   UNDERNEATH, NOTHING STRETCHES: the one line rule's flex would size the client's
+   height from zero in a column, so the stack resets it. */
+@container win (max-width: 899px) { .row .who { flex-direction: column; align-items: flex-start; gap: 1px; } .row .who > * { max-width: 100%; flex: none; } .row .client, .row .sub { overflow: hidden; text-overflow: ellipsis; max-width: 100%; } }
 .row .when, .row .num, .row .amt { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--soft); white-space: nowrap; }
 .row .amt { text-align: right; color: var(--ink); font-weight: 500; font-size: 13.5px; }
  /* A WORD WHERE A FIGURE WOULD BE, settled 2026-09-09 (ovation#117).

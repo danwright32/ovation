@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 71
+harness_begin "design rendering checks" 84
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -208,6 +208,61 @@ judge "$EMPTY"
 check_rendered_status "a page that drew almost nothing is refused" "$(case_of "$EMPTY")" "1"
 check_rendered_count "and the claim that fired says so" \
     "$(case_of "$EMPTY")" 'the page drew something' "1"
+
+# ---------------------------------------------------------------------------
+# 7. EVERY WINDOW IS ALSO DRAWN AT THE APP'S MINIMUM WIDTH (ovation#110). Dan
+#    works at half screen, so 860 is a width these screens are really seen at,
+#    and until this they were only ever judged at 1064. The number is read from
+#    the app's own constant, so the check and the window cannot disagree.
+# ---------------------------------------------------------------------------
+check "the committed record passes at the app's minimum window" \
+    "$(grep -c "at the 860 point minimum window" "$WORK/healthy.txt")" "1"
+
+# A WINDOW THAT IGNORES THE WIDTH it is asked for is the positive control: a
+# pass at the minimum means nothing if the window was never drawn at it (L159).
+FIXED="$WORK/fixed-window.html"
+check "the window's width is where the mutation expects it" \
+    "$(mutate "$FIXED" 's|width: var(--win-width);|width: 1064px;|' '^ *width: 1064px;' clients.html)" "1"
+judge "$FIXED"
+check_rendered_status "a window that will not draw at the minimum is refused" "$(case_of "$FIXED")" "1"
+check_rendered_count "and the claim that fired names the minimum width" \
+    "$(case_of "$FIXED")" 'the window draws at the minimum width' "1"
+
+# THE CLIENTS SCREEN WITHOUT ITS NARROW RULE is the fault this was filed for:
+# the right hand pane scrolled sideways and every shoot was squeezed to nothing.
+SIDEWAYS="$WORK/clients-sideways.html"
+check "the Clients narrow rule is where the mutation expects it" \
+    "$(grep -c '^@container win' docs/design/clients.html):$(sed '/^@container win (max-width: 1019px) { \.drow /d' docs/design/clients.html > "$SIDEWAYS"; grep -c '^@container win' "$SIDEWAYS")" "1:0"
+judge "$SIDEWAYS"
+check_rendered_status "a pane that scrolls sideways at the minimum is refused" "$(case_of "$SIDEWAYS")" "1"
+check_rendered_count "and one claim names the sideways scroll inside the window" \
+    "$(case_of "$SIDEWAYS")" 'nothing in the window scrolls sideways' "1"
+check_rendered_count "and another names the squeezed names" \
+    "$(case_of "$SIDEWAYS")" 'no name is squeezed to nothing' "1"
+
+# THE INVOICE LIST AS IT WAS BEFORE ovation#110: a client that never gives way
+# and no narrow rule. At the minimum it squeezes the shoot to nothing in half
+# its rows while nothing scrolls, which only the squeeze claim can see. Both
+# halves are needed: since the client gives way, removing the narrow rule alone
+# cuts shoots short without squeezing any to nothing.
+SQUEEZED="$WORK/list-squeezed.html"
+check "the invoice list's client rule and narrow rule are where the mutation expects them" \
+    "$(grep -c -e '^ \.row \.client { .* flex: 1 1 0; min-width: 5ch;' -e '^@container win (max-width: 899px) { \.row \.who ' docs/design/invoice-list.html):$(sed -e '/^@container win (max-width: 899px) { \.row \.who /d' -e 's/^\( \.row \.client { .*white-space: nowrap;\) flex: 1 1 0; min-width: 5ch; overflow: hidden; text-overflow: ellipsis; }/\1 }/' docs/design/invoice-list.html > "$SQUEEZED"; grep -c -e '^ \.row \.client { .* flex: 1 1 0;' -e '^@container win' "$SQUEEZED")" "2:0"
+judge "$SQUEEZED"
+check_rendered_status "a list whose shoots vanish at the minimum is refused" "$(case_of "$SQUEEZED")" "1"
+check_rendered_count "and the claim that fired names the squeezed names" \
+    "$(case_of "$SQUEEZED")" 'no name is squeezed to nothing' "1"
+
+# THE MINIMUM COMES FROM THE APP, and a source that does not say it is not a
+# pass at some default (L168).
+printf 'enum OvationWindow {}\n' > "$WORK/no-minimum.swift"
+# AND NEVER AS "CANNOT MEASURE", which is exit 3, the answer this suite reads as
+# no browser at all: a tree missing the source then skipped every case and
+# reported healthy nothing (L11).
+check "a window source with no minimum is used wrongly, never a missing browser" \
+    "$(OVATION_WINDOW_SOURCE="$WORK/no-minimum.swift" python3 "$TARGET" docs/design/clients.html >/dev/null 2>&1; printf '%s' "$?")" "2"
+check "and it names the file it read" \
+    "$(OVATION_WINDOW_SOURCE="$WORK/no-minimum.swift" python3 "$TARGET" docs/design/clients.html 2>&1 | grep -c 'no-minimum.swift')" "1"
 
 # ---------------------------------------------------------------------------
 # NOTHING TO MEASURE IS NOT A PASS, and each way of having nothing is its own
