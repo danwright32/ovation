@@ -241,7 +241,7 @@ shared_record() {
 
 BOTH="$WORK/both"
 shared_record "$BOTH" "$SHARED_INLINED" "$SHARED_INLINED"
-check "a rule carried verbatim by every file it names passes" "$(status_on "$BOTH")" "0"
+check_exit "a rule carried verbatim by every file it names passes" 0 status_on "$BOTH"
 
 # invoice-pdf.html sorts first and carries the rule exactly, so a guard that
 # stops at the first verbatim copy never reads invoice.html at all.
@@ -251,8 +251,8 @@ shared_record "$SCREENDRIFT" '  /* CARRIED BY: invoice.html, invoice-pdf.html */
     return Math.round(hours / 0.5) * 0.5;
   }
 ' "$SHARED_INLINED"
-check "one named file drifting is refused although another carries it exactly" \
-    "$(status_on "$SCREENDRIFT")" "1"
+check_exit "one named file drifting is refused although another carries it exactly" \
+    1 status_on "$SCREENDRIFT"
 check "and the refusal names the file that drifted" \
     "$(run_on "$SCREENDRIFT" | grep 'DRIFTED' | grep -c 'invoice.html')" "1"
 check "and does not blame the file that is right" \
@@ -261,8 +261,8 @@ check "and does not blame the file that is right" \
 SCREENMISSING="$WORK/screenmissing"
 shared_record "$SCREENMISSING" '  var unrelated = 1;
 ' "$SHARED_INLINED"
-check "a named file carrying none of the rule is refused" \
-    "$(status_on "$SCREENMISSING")" "1"
+check_exit "a named file carrying none of the rule is refused" \
+    1 status_on "$SCREENMISSING"
 check "and says the named file does not carry it" \
     "$(run_on "$SCREENMISSING" | grep 'NOT INLINE' | grep -c 'invoice.html')" "1"
 
@@ -271,8 +271,8 @@ check "and says the named file does not carry it" \
 NOSUCH="$WORK/nosuch"
 shared_record "$NOSUCH" "$SHARED_INLINED" "$SHARED_INLINED"
 rm "$NOSUCH/invoice-pdf.html"
-check "a rule naming a design file that does not exist is refused" \
-    "$(status_on "$NOSUCH")" "1"
+check_exit "a rule naming a design file that does not exist is refused" \
+    1 status_on "$NOSUCH"
 check "and says that file is not in the record" \
     "$(run_on "$NOSUCH" | grep -c 'invoice-pdf.html is not in the design record')" "1"
 
