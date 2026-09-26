@@ -51,7 +51,10 @@ actor InvoiceSender {
         if let waiting = ReviewGate.refusal(for: invoice, footer: footer) {
             return .refused(waiting)
         }
-        let recipients = settings.destination.recipients(forClient: invoice.client?.recipientsForInvoices ?? [])
+        // Bound first rather than read as `invoice.client?.member`: that form trips a
+        // compiler fault that depends on how files are batched (ovation#497).
+        let client = invoice.client
+        let recipients = settings.destination.recipients(forClient: client?.recipientsForInvoices ?? [])
         guard !recipients.isEmpty else {
             return .refused("This client has no address to send to, so nothing was sent.")
         }

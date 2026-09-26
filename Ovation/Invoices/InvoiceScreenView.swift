@@ -115,6 +115,32 @@ struct InvoiceScreenView: View {
     /// duplicate, so a name names exactly one type.
     @State private var awaitingType: String?
 
+    /// ovation#510. Everything the screen needs to record a payment and clear a
+    /// check, or nil where the caller has nowhere for either to go, in which case
+    /// the foot draws Record a payment quiet rather than pressable (L678) and no
+    /// Mark cleared is offered.
+    ///
+    /// ONE VALUE RATHER THAN SIX ARGUMENTS, because they are one arrangement: the
+    /// host owns whether the sheet is open and whether a press is in flight, and
+    /// the screen only asks for those things.
+    var payment: PaymentControls?
+
+    struct PaymentControls {
+        var isOpen = false
+        var isRecording = false
+        /// Why the last press was not recorded, in the recorder's own words.
+        var refused: String?
+        /// Why the last Mark cleared did nothing, said beside the Total (L109).
+        var refusedClearing: String?
+        var open: () -> Void
+        var record: (PaymentEntry) -> Void
+        var close: () -> Void
+        var markCleared: (PersistentIdentifier) -> Void
+        /// The sheet's form changed, so a refusal of the last press no longer
+        /// answers anything.
+        var edited: () -> Void = {}
+    }
+
     /// Opening the review, or nil where the caller has nowhere for it to go yet.
     /// NIL DRAWS THE WORD QUIET RATHER THAN HIDING IT, so the foot does not change
     /// shape depending on what is wired (L678).
@@ -152,6 +178,15 @@ struct InvoiceScreenView: View {
         }
         .background(OvationPalette.background)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay {
+            // FLOATING OVER THE SCREEN, never a system sheet, which would hang
+            // from the title bar (PRD 48a).
+            if let payment, payment.isOpen, let starts = presenter.paymentStarts {
+                PaymentSheet(number: starts.number, starts: starts, refused: payment.refused,
+                             isRecording: payment.isRecording, record: payment.record,
+                             close: payment.close, edited: payment.edited)
+            }
+        }
         .ovationAppearance()
     }
 
@@ -643,13 +678,21 @@ struct InvoiceScreenView: View {
 
     private var money: some View {
         VStack(alignment: .trailing, spacing: 0) {
-            ForEach(presenter.money, id: \.label) { row in
+            ForEach(presenter.money, id: \.id) { row in
                 HStack(spacing: Column.gap) {
                     Spacer(minLength: 0)
                     Text(row.label)
-                        .font(.system(size: row.isTotal ? 14 : 13,
+                        .font(.system(size: row.isTotal ? 14 : (row.isQuiet ? 12.5 : 13),
                                       weight: row.isTotal ? .semibold : .regular))
                         .foregroundStyle(row.isTotal ? OvationPalette.ink : OvationPalette.quiet)
+                    // BESIDE THE WORDS IT ACTS ON, the way held money carries
+                    // Remove (PRD 51n, rounds 2 and 5). Only a check that has not
+                    // cleared carries one, and only where something can clear it.
+                    // ActionWord, the one underlined control (ovation#450).
+                    if let check = row.clears, let payment {
+                        ActionWord(word: "Mark cleared", size: 12,
+                                   press: { payment.markCleared(check) }, notYet: nil)
+                    }
                     Text(row.value)
                         .font(.system(size: row.isTotal ? 15 : 13.5, design: .monospaced))
                         .monospacedDigit()
@@ -821,19 +864,44 @@ struct InvoiceScreenView: View {
             // THE FOOT DOES NOT REPEAT WHAT THE BODY IS ALREADY ANSWERING, which
             // the presenter decides, because a view deciding it could only be
             // checked by rendering (L605).
-            if let refusal = presenter.refusalAtTheFoot {
-                Text(refusal)
-                    .font(.system(size: 13))
+            switch presenter.footAction {
+            case .review:
+                // Review's refusal belongs to Review, so a sent invoice, which
+                // offers no Review, does not carry it beside its payment.
+                if let refusal = presenter.refusalAtTheFoot {
+                    Text(refusal)
+                        .font(.system(size: 13))
+                        .foregroundStyle(OvationPalette.quiet)
+                        .multilineTextAlignment(.trailing)
+                }
+                if let refusedReview {
+                    Text(refusedReview)
+                        .font(.system(size: 13))
+                        .foregroundStyle(OvationPalette.soft)
+                        .multilineTextAlignment(.trailing)
+                }
+                reviewWord
+            case .recordPayment:
+                if let refusedClearing = payment?.refusedClearing {
+                    Text(refusedClearing)
+                        .font(.system(size: 13))
+                        .foregroundStyle(OvationPalette.soft)
+                        .multilineTextAlignment(.trailing)
+                }
+                ActionWord(word: "Record a payment", size: 14, press: payment?.open, notYet: nil)
+            case .paidInFull:
+                if let refusedClearing = payment?.refusedClearing {
+                    Text(refusedClearing)
+                        .font(.system(size: 13))
+                        .foregroundStyle(OvationPalette.soft)
+                        .multilineTextAlignment(.trailing)
+                }
+                Text("Paid in full")
+                    .font(.system(size: 12.5))
                     .foregroundStyle(OvationPalette.quiet)
-                    .multilineTextAlignment(.trailing)
+            case .none:
+                EmptyView()
             }
-            if let refusedReview {
-                Text(refusedReview)
-                    .font(.system(size: 13))
-                    .foregroundStyle(OvationPalette.soft)
-                    .multilineTextAlignment(.trailing)
-            }
-            reviewWord
         }
         .padding(.horizontal, Column.sideMargin)
         .padding(.vertical, 12)

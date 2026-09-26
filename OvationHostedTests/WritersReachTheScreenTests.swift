@@ -82,8 +82,13 @@ struct WritersReachTheScreenTests {
     /// The window the app builds once the shell owns it, with every writer either a
     /// spy that says its own name or, with `spying` false, absent as on a launch
     /// with no store.
-    private static func window(_ draft: Draft, heard: Heard, edits: InvoiceEditCommand,
-                               spying: Bool) -> RootView {
+    /// `writePayment` and `writeCleared` replace the spy for one case, a double
+    /// optional so a case can hand over an explicit nil.
+    private static func window(
+        _ draft: Draft, heard: Heard, edits: InvoiceEditCommand, spying: Bool,
+        writePayment: ((PersistentIdentifier, PaymentEntry) async -> String?)?? = nil,
+        writeCleared: ((PersistentIdentifier) async -> String?)?? = nil
+    ) -> RootView {
         let store = ProblemsStore(journal: InMemoryProblemsJournal())
         let blocking = Client(name: "Client 0", taxStatus: .neverRecorded)
         blocking.email = "c0@example.example"
@@ -104,6 +109,10 @@ struct WritersReachTheScreenTests {
             writeServiceType: spying ? { _, _ in heard.record("writeServiceType"); return nil } : nil,
             writeDiscount: spying ? { _, _ in heard.record("writeDiscount"); return nil } : nil,
             writeReferralCredit: spying ? { _, _ in heard.record("writeReferralCredit"); return nil } : nil,
+            writePayment: writePayment
+                ?? (spying ? { _, _ in heard.record("writePayment"); return nil } : nil),
+            writeCleared: writeCleared
+                ?? (spying ? { _ in heard.record("writeCleared"); return nil } : nil),
             edits: edits)
     }
 
@@ -171,6 +180,13 @@ struct WritersReachTheScreenTests {
             ("setDiscount", "writeDiscount",
              screen.setDiscount.map { set in { set(InvoiceEditCommand.whatItAdds) } }),
         ]
+        // ovation#510. The payment sheet's Record, and Mark cleared on a check.
+        let entry = PaymentEntry(amount: Money(dollars: 100), method: .zelle,
+                                 received: Self.today, press: UUID())
+        presses.append(("payment sheet: Record", "writePayment",
+                        screen.payment.map { payment in { payment.record(entry) } }))
+        presses.append(("Mark cleared", "writeCleared",
+                        screen.payment.map { payment in { payment.markCleared(invoice) } }))
         presses.append(("Edit menu: add a discount", "writeDiscount",
                         edits.addDiscount.map { add in { add(invoice, InvoiceEditCommand.whatItAdds) } }))
         presses.append(("Edit menu: apply the referral credit", "writeReferralCredit",
@@ -203,6 +219,64 @@ struct WritersReachTheScreenTests {
     /// THE OTHER DIRECTION, or the test above is satisfied by a shell that offers
     /// every control unconditionally (L98, L159). A launch with no store is given no
     /// writers, and then the screen draws no control and the menu has no action.
+    /// The screen as the shell draws it now, read again rather than kept, because
+    /// the shell rebuilds it after every write.
+    private static func current(in shell: ShellView) async throws -> InvoiceScreenView? {
+        let found = Found()
+        try await shell.inspection.inspect { view in
+            found.screen = try? view.find(InvoiceScreenView.self).actualView()
+        }
+        return found.screen
+    }
+
+    /// ovation#510. The payment controls offer Record AND Mark cleared, so they
+    /// need both writers: one without the other would draw a word that does
+    /// nothing (L109).
+    @Test("with a payment writer and no clearing writer, no payment controls are offered")
+    func halfTheWritersOffersNoPayment() async throws {
+        let draft = try Self.draft()
+        let shell = try Self.shell(of: Self.window(
+            draft, heard: Heard(), edits: InvoiceEditCommand(), spying: false,
+            writePayment: .some({ _, _ in nil }), writeCleared: .some(nil)))
+        ViewHosting.host(view: shell)
+        defer { ViewHosting.expel() }
+        let screen = try await Self.open(draft, in: shell)
+        #expect(screen.payment == nil)
+    }
+
+    /// A refused Mark cleared is said beside the foot, and opening the payment sheet
+    /// clears it, so an old refusal never sits beside a new action (L680).
+    @Test("a refused Mark cleared is said, and opening the sheet clears it")
+    func arefusedClearingIsClearedOnOpen() async throws {
+        let draft = try Self.draft()
+        let refusal = PaymentRecordingRefusal.hasNoClearedStep.sentence
+        let shell = try Self.shell(of: Self.window(
+            draft, heard: Heard(), edits: InvoiceEditCommand(), spying: false,
+            writePayment: .some({ _, _ in nil }), writeCleared: .some({ _ in refusal })))
+        ViewHosting.host(view: shell)
+        defer { ViewHosting.expel() }
+        let screen = try await Self.open(draft, in: shell)
+        let controls = try #require(screen.payment)
+
+        controls.markCleared(draft.invoice.persistentModelID)
+        var said: String?
+        for _ in 0..<200 {
+            said = try await Self.current(in: shell)?.payment?.refusedClearing
+            if said != nil { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(said == refusal)
+
+        try #require(try await Self.current(in: shell)?.payment).open()
+        var after: String? = refusal
+        for _ in 0..<200 {
+            after = try await Self.current(in: shell)?.payment?.refusedClearing
+            if after == nil { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(after == nil)
+    }
+
     @Test("with no writers given, the screen offers no write and the menu no action")
     func noWriterNoControl() async throws {
         let draft = try Self.draft()
@@ -219,6 +293,7 @@ struct WritersReachTheScreenTests {
         #expect(screen.addLine == nil)
         #expect(screen.createType == nil)
         #expect(screen.setDiscount == nil)
+        #expect(screen.payment == nil, "no payment writer, so no Record a payment and no Mark cleared")
         #expect(edits.addDiscount == nil)
         #expect(edits.applyReferralCredit == nil)
         #expect(edits.removeReferralCredit == nil)

@@ -298,9 +298,12 @@ final class InvoiceListPresenter {
     private static func row(for invoice: Invoice, standing: InvoiceStanding,
                             band: InvoiceBand, today: BusinessDate) -> Row {
         let shoots = invoice.orderedShoots
+        // Bound first rather than read as `invoice.client?.member`: that form trips a
+        // compiler fault that depends on how files are batched (ovation#497).
+        let client = invoice.client
         return Row(
             invoiceID: invoice.persistentModelID,
-            client: invoice.client?.name ?? "",
+            client: client?.name ?? "",
             shoot: shoots.last?.name ?? "",
             otherShoots: max(shoots.count - 1, 0),
             shootDate: span(of: shoots)

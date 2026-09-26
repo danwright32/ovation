@@ -602,6 +602,37 @@ struct OvationApp: App {
                              }
                          }
                      },
+                     // ovation#510, PRD 51m and 51n. Recording a payment and
+                     // clearing a check. THE DAY A CHECK CLEARS IS READ HERE AND
+                     // NOWHERE DEEPER, the one place that asks the clock (L524).
+                     writePayment: opened.map { container in
+                         { invoice, entry in
+                             let recorder = PaymentAllocator(modelContainer: container)
+                             do {
+                                 try await recorder.record(entry.amount, method: entry.method,
+                                                           receivedOn: entry.received,
+                                                           onto: invoice, press: entry.press)
+                                 return nil
+                             } catch let refusal as PaymentRecordingRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That payment could not be recorded: \(error)"
+                             }
+                         }
+                     },
+                     writeCleared: opened.map { container in
+                         { check in
+                             let recorder = PaymentAllocator(modelContainer: container)
+                             do {
+                                 try await recorder.markCleared(check, on: .stamping(Date()))
+                                 return nil
+                             } catch let refusal as PaymentRecordingRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That check could not be marked cleared: \(error)"
+                             }
+                         }
+                     },
                      edits: edits,
                      // ovation#42. The review of a real invoice, and its send. The
                      // sending settings file is nil in a Debug build and a test run,
