@@ -90,8 +90,43 @@ RUNS_ONLY_ONCE = re.compile(r"\bhasLaunched\b")
 # was the only thing in the file this matched, so the backup had been passing
 # on a neighbour's line (L135). Their going through BlockingWork is proved by
 # LaunchBackupOutcomeTests, which reads back the deadline each wait was given.
+#
+# ovation#559: AND EACH ONE IN ITS OWN CLOSURE. One match anywhere in the file
+# is satisfied by any single heavy step, so a change moving the backup back onto
+# the main actor stayed green while the re-check's line answered for it. Each
+# closure the sequence is given is found by its label, `takeBackup:` as the
+# entry point passes it or `.takeBackup =` as a fixture assigns it, its body is
+# read to its own closing brace, and the match must be inside that body. Both
+# are required by StoreLaunchSequence's initializer, so a closure this cannot
+# find is refused rather than passed: it has moved somewhere this does not read.
 HEAVY_WORK_LEAVES_THE_MAIN_ACTOR = re.compile(
     r"\b(?:BlockingWork\.run|LaunchBackupOutcome\.(?:run|reverify))\b")
+HEAVY_CLOSURES = ("takeBackup", "reverifyAnArchive")
+
+
+def closure_bodies(code, label):
+    """Every closure body given for `label`, from its opening brace to the
+    brace that closes it. Braces inside string literals are not counted."""
+    bodies = []
+    for found in re.finditer(r"\b%s\s*[:=]\s*\{" % re.escape(label), code):
+        start = found.end()
+        depth, i, in_string = 1, start, False
+        while i < len(code) and depth:
+            c = code[i]
+            if in_string:
+                if c == "\\":
+                    i += 1
+                elif c == '"':
+                    in_string = False
+            elif c == '"':
+                in_string = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+            i += 1
+        bodies.append(code[start:i - 1] if depth == 0 else code[start:])
+    return bodies
 # ovation#231, ovation#247. BOTH SHIPPED WITH TESTS AND NOTHING PRESENTED EITHER.
 # BackupSettingsPresenter had seven passing cases and no window, so a backup
 # folder could not be chosen and no backup had ever been taken; RestorePresenter
@@ -167,11 +202,20 @@ def main():
                 "writers of Dan's invoices: the thing the second copy check exists "
                 "to prevent, arriving from inside one process (ovation#84)." % ENTRY)
 
-    if not HEAVY_WORK_LEAVES_THE_MAIN_ACTOR.search(code):
-        fail(6, "%s runs the launch from a task and keeps the heavy work on the main "
-                "actor, so a slow backup leaves the window up and frozen. Copying "
-                "and hashing everything Ovation holds is the slowest thing a launch "
-                "does, and the folder may be on a NAS (ovation#246)." % ENTRY)
+    for label in HEAVY_CLOSURES:
+        bodies = closure_bodies(code, label)
+        if not bodies:
+            fail(6, "%s gives the launch sequence no %s closure this guard can find, "
+                    "so whether that step leaves the main actor was not judged. The "
+                    "sequence requires one, so it has moved somewhere this does not "
+                    "read, and that is not a pass (ovation#559)." % (ENTRY, label))
+        for body in bodies:
+            if not HEAVY_WORK_LEAVES_THE_MAIN_ACTOR.search(body):
+                fail(6, "%s keeps the heavy work of its %s closure on the main actor: "
+                        "nothing in that closure reaches BlockingWork or a "
+                        "LaunchBackupOutcome helper, so a slow copy leaves the window "
+                        "up and frozen. Another step leaving the main actor does not "
+                        "answer for this one (ovation#246, ovation#559)." % (ENTRY, label))
 
     if not OFFERS_SETTINGS.search(code):
         fail(7, "%s has no Settings scene, so there is nowhere to choose a backup "

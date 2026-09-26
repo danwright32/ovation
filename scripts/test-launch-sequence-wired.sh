@@ -177,6 +177,10 @@ struct OvationApp: App {
                             _ = await BlockingWork.run { true }
                             return .taken(storeURL)
                         }
+                        sequence.reverifyAnArchive = { now in
+                            _ = await BlockingWork.run { true }
+                            return .nothingToCheck
+                        }
                         await sequence.run(now: Date())
                     }
                 }
@@ -259,6 +263,10 @@ struct OvationApp: App {
                             _ = await BlockingWork.run { true }
                             return .taken(storeURL)
                         }
+                        sequence.reverifyAnArchive = { now in
+                            _ = await BlockingWork.run { true }
+                            return .nothingToCheck
+                        }
                         await sequence.run(now: Date())
                     }
                 }
@@ -305,14 +313,62 @@ check "a guarded launch that sends the heavy work away passes" 0 \
 # copied, so a launch written that way sends the heavy work away as surely as
 # one calling BlockingWork itself, and refusing it would be the guard firing on
 # the correct wiring.
-sed 's/_ = await BlockingWork.run { true }/_ = try await LaunchBackupOutcome.run(measuring: { .init(files: 0, bytes: 0) }) { .taken(storeURL) }/' \
+sed '/takeBackup = /,/}/ s/_ = await BlockingWork.run { true }/_ = try await LaunchBackupOutcome.run(measuring: { .init(files: 0, bytes: 0) }) { .taken(storeURL) }/' \
     "${WORK}/task-guarded.swift" > "${WORK}/through-the-backup-helper.swift"
 check "a launch whose backup goes through LaunchBackupOutcome passes" 0 \
     "$(run_on "${WORK}/through-the-backup-helper.swift")"
-sed 's/_ = await BlockingWork.run { true }/_ = await LaunchBackupOutcome.reverify(measuring: { .init(files: 0, bytes: 0) }) { .nothingToCheck }/' \
+sed '/reverifyAnArchive = /,/}/ s/_ = await BlockingWork.run { true }/_ = await LaunchBackupOutcome.reverify(measuring: { .init(files: 0, bytes: 0) }) { .nothingToCheck }/' \
     "${WORK}/task-guarded.swift" > "${WORK}/through-the-recheck-helper.swift"
 check "a launch whose re-check goes through LaunchBackupOutcome passes" 0 \
     "$(run_on "${WORK}/through-the-recheck-helper.swift")"
+
+# EACH HEAVY STEP IS JUDGED IN ITS OWN CLOSURE (ovation#559). The rule was one
+# match anywhere in the file, so from ovation#505 until ovation#507 the backup
+# passed on the re-check's BlockingWork line rather than its own (L135). Each
+# closure the sequence is given must now reach BlockingWork or a
+# LaunchBackupOutcome helper inside its own body, and the refusal names which.
+said_on() {
+  OVATION_ENTRY_POINT="$1" python3 "${GUARD}" 2>&1 >/dev/null
+}
+mentions() {
+  if grep -q -- "$2" <<< "$1"; then echo yes; else echo no; fi
+}
+sed '/takeBackup = /,/}/ s/_ = await BlockingWork.run { true }/let attempt = try service().takeBackupIfDueToday(now: now)/' \
+    "${WORK}/task-guarded.swift" > "${WORK}/backup-on-the-main-actor.swift"
+check "a backup kept on the main actor is refused though the re-check leaves it" 6 \
+    "$(run_on "${WORK}/backup-on-the-main-actor.swift")"
+check "and the refusal names the backup (1 = yes)" 1 \
+    "$(mentions "$(said_on "${WORK}/backup-on-the-main-actor.swift")" "takeBackup" | grep -c yes)"
+sed '/reverifyAnArchive = /,/}/ s/_ = await BlockingWork.run { true }/let result = service.reverifyOneArchive(now: now)/' \
+    "${WORK}/task-guarded.swift" > "${WORK}/recheck-on-the-main-actor.swift"
+check "a re-check kept on the main actor is refused though the backup leaves it" 6 \
+    "$(run_on "${WORK}/recheck-on-the-main-actor.swift")"
+check "and the refusal names the re-check (1 = yes)" 1 \
+    "$(mentions "$(said_on "${WORK}/recheck-on-the-main-actor.swift")" "reverifyAnArchive" | grep -c yes)"
+# AND ON THE REAL ENTRY POINT, which is the state ovation#505 left: its backup
+# no longer reaching the helper while the re-check still does. The whole file
+# rule passed exactly this.
+sed 's/return try await LaunchBackupOutcome\.run(/return try await backupOnTheMainActor(/' \
+    "${REPO_ROOT}/Ovation/App/OvationApp.swift" > "${WORK}/real-backup-on-the-main-actor.swift"
+check "the real entry point with its backup moved onto the main actor is refused" 6 \
+    "$(run_on "${WORK}/real-backup-on-the-main-actor.swift")"
+# A HEAVY CALL AFTER THE CLOSURE DOES NOT COUNT FOR IT. The closure ends at its
+# own closing brace, so BlockingWork written just below it is a neighbour.
+sed '/takeBackup = /,/}/ s/_ = await BlockingWork.run { true }/let attempt = try service().takeBackupIfDueToday(now: now)/' \
+    "${WORK}/task-guarded.swift" \
+  | sed 's/^                        await sequence.run(now: Date())$/                        _ = await BlockingWork.run { true }\
+                        await sequence.run(now: Date())/' > "${WORK}/heavy-call-beside-the-closure.swift"
+check "a BlockingWork call beside the backup closure does not stand in for it" 6 \
+    "$(run_on "${WORK}/heavy-call-beside-the-closure.swift")"
+# A CLOSURE THAT CANNOT BE FOUND IS NOT JUDGED CLEAN. Both are required by the
+# sequence's initializer, so an entry point that gives neither where this can
+# see it has moved them somewhere this guard does not read (L98).
+sed '/reverifyAnArchive = /,/^                        }$/d' "${WORK}/task-guarded.swift" \
+    > "${WORK}/no-recheck-given.swift"
+check "an entry point whose re-check closure cannot be found is refused" 6 \
+    "$(run_on "${WORK}/no-recheck-given.swift")"
+check "and the refusal says it was not found (1 = yes)" 1 \
+    "$(mentions "$(said_on "${WORK}/no-recheck-given.swift")" "reverifyAnArchive" | grep -c yes)"
 
 # ---------------------------------------------------------------------------
 # THE SETTINGS PANE IS REACHABLE (ovation#231, ovation#247). Both presenters
@@ -341,6 +397,10 @@ struct OvationApp: App {
                         sequence.takeBackup = { now in
                             _ = await BlockingWork.run { true }
                             return .taken(storeURL)
+                        }
+                        sequence.reverifyAnArchive = { now in
+                            _ = await BlockingWork.run { true }
+                            return .nothingToCheck
                         }
                         await sequence.run(now: Date())
                     }
@@ -374,6 +434,10 @@ struct OvationApp: App {
                         sequence.takeBackup = { now in
                             _ = await BlockingWork.run { true }
                             return .taken(storeURL)
+                        }
+                        sequence.reverifyAnArchive = { now in
+                            _ = await BlockingWork.run { true }
+                            return .nothingToCheck
                         }
                         await sequence.run(now: Date())
                     }
