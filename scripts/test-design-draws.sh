@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 84
+harness_begin "design rendering checks" 93
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -19,15 +19,13 @@ harness_temp_dir WORK
 
 # The check answers 3 when it has nothing to render in, and that is the first
 # thing to establish: every assertion below would otherwise be measuring the
-# absence of a browser rather than the presence of a defect. The status is
-# captured on its own line, because `if ! cmd` makes `$?` the negation's status.
-python3 "$TARGET" docs/design/invoice-pdf.html >/dev/null 2>&1
-BROWSER_PROBE=$?
-if [ "$BROWSER_PROBE" = "3" ]; then
-    harness_cannot_measure \
-        "no headless browser, so nothing can be rendered and no claim here proves anything" \
-        "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
-fi
+# absence of a browser rather than the presence of a defect.
+# It skips only when the check names the browser as missing; any other 3 is a
+# fault and refuses the suite (harness_require_browser, ovation#561).
+harness_require_browser \
+    "no headless browser, so nothing can be rendered and no claim here proves anything" \
+    "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER" \
+    python3 "$TARGET" docs/design/invoice-pdf.html
 
 # ONE WIDTH FOR THE PLANTED CASES, so a mutation reports one failure rather than
 # one per width and the count below stays readable. The committed record is run
@@ -467,6 +465,24 @@ check "the screenshot tool answers cannot measure when no browser can be found" 
 # job reads as a warning (L259, L11).
 check "and the refusal names the narrowed lookup as the reason" \
     "$(grep -c 'OVATION_BROWSER_GLOBS' "$WORK/no-browser-check-design-draws.txt")" "1"
+
+# AND EVERY RENDERING SUITE READS THAT ANSWER AS A MISSING BROWSER (ovation#561).
+# A suite's probe now skips only on the words the tools print for a missing
+# browser, which the harness matches, so each suite is driven here with no browser
+# to find and must answer CANNOT MEASURE, exit 2. A tool whose wording drifted
+# from the harness's would REFUSE its suite instead, and that is named here
+# rather than found on the first machine without a browser (L246). The suites are
+# found from the tree, not listed, so the next one is covered too (L41); this one
+# is left out, since it is the one running.
+said_with_status() { cat "$1"; return "$2"; }
+for suite_file in $(grep -l '^harness_require_browser \\$' scripts/test-*.sh); do
+    [ "$suite_file" = "scripts/test-design-draws.sh" ] && continue
+    OVATION_BROWSER_GLOBS="$NOWHERE" OVATION_HEADLESS_BROWSER= \
+        bash "$suite_file" > "$WORK/no-browser-suite.txt" 2>&1
+    suite_status=$?
+    check_exit "${suite_file##*/} reads no browser to find as cannot measure, not a fault" \
+        2 said_with_status "$WORK/no-browser-suite.txt" "$suite_status"
+done
 
 # A COMPLAINT THAT COULD NOT BE READ IS NOT SILENCE (L11). The browser's own
 # output is the diagnosis every refusal above quotes, and when reading it fails

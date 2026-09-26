@@ -29,15 +29,12 @@ harness_temp_dir WORK
 
 # The check answers 3 when it has nothing to render in. Established first, or
 # every assertion below measures the absence of a browser rather than a defect.
-# The status is captured on its own line: written as `if ! cmd; then [ "$?" = 3 ]`
-# the `$?` is the NEGATION's status and the branch could never be taken.
-"./$TARGET" >/dev/null 2>&1
-BROWSER_PROBE=$?
-if [ "$BROWSER_PROBE" = "3" ]; then
-    harness_cannot_measure \
-        "no headless browser, so nothing can be rendered and no claim here proves anything" \
-        "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
-fi
+# It skips only when the check names the browser as missing; any other 3 is a
+# fault and refuses the suite (harness_require_browser, ovation#561).
+harness_require_browser \
+    "no headless browser, so nothing can be rendered and no claim here proves anything" \
+    "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER" \
+    "./$TARGET"
 
 # EDIT IN PLACE, PORTABLY. `sed -i ''` is the BSD form and GNU sed reads the
 # empty string as a FILE, so the intended edit silently never happens on Linux

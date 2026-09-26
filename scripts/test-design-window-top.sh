@@ -32,13 +32,10 @@ harness_temp_dir WORK
 
 # No browser is established FIRST, or every assertion below would be measuring
 # the absence of a browser rather than the presence of a defect (L411).
-OVATION_DESIGN_ROOT="$WORK/nothing-here" "./$TARGET" >/dev/null 2>&1
-BROWSER_PROBE=$?
-if [ "$BROWSER_PROBE" = "3" ]; then
-    harness_cannot_measure \
-        "no headless browser, so nothing can be rendered and no claim here proves anything" \
-        "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
-fi
+harness_require_browser \
+    "no headless browser, so nothing can be rendered and no claim here proves anything" \
+    "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER" \
+    env OVATION_DESIGN_ROOT="$WORK/nothing-here" "./$TARGET"
 
 # THE PROBE ABOVE ONLY WORKS IF THE CHECK LOOKS FOR A BROWSER FIRST. It points
 # the check at a record that is not there, and the check used to answer that

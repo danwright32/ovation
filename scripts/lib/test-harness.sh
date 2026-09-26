@@ -16,6 +16,8 @@
 #     harness_temp_dir WORK                  # created, guarded and cleaned up for you
 #     harness_on_exit 'some other cleanup'   # never `trap ... EXIT` yourself
 #     harness_cannot_measure "why" "remedy"   # exits 2: proved nothing either way
+#     harness_require_browser "why" "remedy" <probe command>   # exits 2 only on a missing browser
+#     check_exit "description" <status> <command> [args...]
 #     check "description" "$actual" "$expected"
 #     harness_end
 #
@@ -199,6 +201,54 @@ check_exit() {
     head -n 40 <<< "$said" | sed 's/^/        /'
     [ "$lines" -le 40 ] || echo "        and $((lines - 40)) more lines"
     return 0
+}
+
+# A RENDERING SUITE SKIPS ONLY WHEN THE BROWSER IS REALLY MISSING (ovation#561).
+#
+#     harness_require_browser "why nothing here proves anything" "remedy" \
+#         [--or "<ERE for one more missing tool>"] <probe command> [args...]
+#
+# Every rendering suite ran its tool once and, on exit 3, declared "no headless
+# browser" and skipped every case. But a tool answers 3 for faults as well:
+# "reported no claim at all, which is not a pass" and "nothing was claimed about
+# any file" are refusals about the page, not about the machine. On 2026-09-26 a
+# missing minimum window source answered 3 that way, the suite said there was no
+# browser, and a fault planted to prove the suites judge the committed files went
+# unjudged (ovation#110). A skip is a claim that nothing could be measured, and
+# it may claim only what the tool actually said (L11, L98).
+#
+# So the probe skips only when the tool's own output names the browser as
+# missing, in the words lib/design_render.py's open_browser and find_browser
+# raise, which test-design-draws.sh asserts every rendering tool prints, with
+# or without the name of the file it was about to render in front. Any
+# other 3 REFUSES the suite, quoting what the tool said, because the cases after
+# it would be judging a tool that already declined to answer. Any other status
+# goes on to the cases, which is where a real fault is judged.
+#
+# --or names one more tool whose absence is also no answer (the screenshot tool
+# needs Pillow as well as a browser), and widens the skip to that and no further.
+HARNESS_NO_BROWSER_SAID='^CANNOT MEASURE: ([^:]*: )?(no headless browser found|OVATION_HEADLESS_BROWSER names .*, which is not there)'
+harness_require_browser() {
+    local why="$1" remedy="$2" also="" said status lines
+    shift 2
+    if [ "${1:-}" = "--or" ]; then
+        also="$2"
+        shift 2
+    fi
+    said="$("$@" 2>&1)"; status=$?
+    [ "$status" = "3" ] || return 0
+    if grep -qE "$HARNESS_NO_BROWSER_SAID" <<< "$said" \
+        || { [ -n "$also" ] && grep -qE "^CANNOT MEASURE: .*($also)" <<< "$said"; }; then
+        harness_cannot_measure "$why" "$remedy"
+    fi
+    _HARNESS_ENDED=1
+    echo "REFUSED: $_HARNESS_NAME"
+    echo "    Its probe answered 3, CANNOT MEASURE, for a reason that is not a missing"
+    echo "    browser, so this is a fault in what it judges and it is not skipped:"
+    lines="$(grep -c '' <<< "$said")"
+    head -n 40 <<< "$said" | sed 's/^/        /'
+    [ "$lines" -le 40 ] || echo "        and $((lines - 40)) more lines"
+    exit 1
 }
 
 # A CONDITION WAIT IS AN ASSERTION, AND ONE THAT RUNS OUT FAILS BY NAME

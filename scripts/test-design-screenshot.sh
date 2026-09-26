@@ -18,16 +18,13 @@ harness_temp_dir WORK
 
 # It answers 3 when it has nothing to render in or nothing to crop with, and
 # that is the first thing to establish: every assertion below would otherwise be
-# measuring the absence of a tool rather than the presence of a defect. The
-# status is captured on its own line, because `if ! cmd` makes `$?` the
-# negation's status.
-python3 "$TARGET" --check >/dev/null 2>&1
-PROBE=$?
-if [ "$PROBE" = "3" ]; then
-    harness_cannot_measure \
-        "no headless browser or no Pillow, so nothing can be rendered or cropped" \
-        "npx playwright install chromium, and python3 -m pip install Pillow"
-fi
+# measuring the absence of a tool rather than the presence of a defect.
+# It skips only when the check names the browser as missing; any other 3 is a
+# fault and refuses the suite (harness_require_browser, ovation#561).
+harness_require_browser \
+    "no headless browser or no Pillow, so nothing can be rendered or cropped" \
+    "npx playwright install chromium, and python3 -m pip install Pillow" \
+    --or "Pillow is not installed" python3 "$TARGET" --check
 
 fresh() {
     local at="$WORK/$1"

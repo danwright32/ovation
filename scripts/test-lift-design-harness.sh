@@ -287,13 +287,10 @@ check "a cut that high still leaves a builder to lift" \
 # Everything below renders. With no browser there is no answer to give, and
 # giving one would be a green tick over an unrun check.
 # ---------------------------------------------------------------------------
-python3 "$TARGET" --check "$SPEC" "$OUT" >/dev/null 2>&1
-PROBE=$?
-if [ "$PROBE" = "3" ]; then
-    harness_cannot_measure \
-        "no headless browser, so no lift can be rendered beside the file it came from" \
-        "npx playwright install chromium"
-fi
+harness_require_browser \
+    "no headless browser, so no lift can be rendered beside the file it came from" \
+    "npx playwright install chromium" \
+    python3 "$TARGET" --check "$SPEC" "$OUT"
 
 # ---------------------------------------------------------------------------
 # 5. THE FAITHFULNESS CHECK, on the stand in. The pair that matters is here:

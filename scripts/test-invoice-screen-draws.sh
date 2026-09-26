@@ -31,18 +31,15 @@ harness_temp_dir WORK
 # thing to establish: every assertion below would otherwise be measuring the
 # absence of a browser rather than the presence of a defect.
 #
-# THE STATUS IS CAPTURED ON ITS OWN LINE. Written as `if ! cmd; then [ "$?" = 3 ]`
-# the `$?` is the NEGATION's status, which is 0, so the branch could never be
-# taken and the suite would report a missing browser as a failing design file.
+# It skips only when the check names the browser as missing; any other 3 is a
+# fault and refuses the suite (harness_require_browser, ovation#561).
+#
 # Prove this guard by running the suite with OVATION_HEADLESS_BROWSER naming a
 # path that is not there: it must say CANNOT MEASURE and exit 2.
-"./$TARGET" >/dev/null 2>&1
-BROWSER_PROBE=$?
-if [ "$BROWSER_PROBE" = "3" ]; then
-    harness_cannot_measure \
-        "no headless browser, so nothing can be rendered and no claim here proves anything" \
-        "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
-fi
+harness_require_browser \
+    "no headless browser, so nothing can be rendered and no claim here proves anything" \
+    "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER" \
+    "./$TARGET"
 
 # ---------------------------------------------------------------------------
 # The real file, which is the case that proves the claims are not simply always

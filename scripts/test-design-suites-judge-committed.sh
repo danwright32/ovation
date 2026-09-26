@@ -44,13 +44,10 @@ harness_begin "rendering suites judge the committed design record" 15
 require_target "docs/design"
 harness_temp_dir WORK
 
-env -u OVATION_DESIGN_ROOT python3 scripts/check-design-window-top.sh docs/design/invoice-pdf.html \
-    >/dev/null 2>&1
-if [ "$?" = "3" ]; then
-    harness_cannot_measure \
-        "no headless browser, so the rendering suites cannot judge anything and neither can this" \
-        "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
-fi
+harness_require_browser \
+    "no headless browser, so the rendering suites cannot judge anything and neither can this" \
+    "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER" \
+    env -u OVATION_DESIGN_ROOT python3 scripts/check-design-window-top.sh docs/design/invoice-pdf.html
 
 # A copy of everything a rendering suite reads: its scripts, the design record,
 # and the workflow the draws suite holds against its checks, and the app's
