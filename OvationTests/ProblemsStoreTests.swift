@@ -75,6 +75,38 @@ struct ProblemsStoreTests {
         #expect(store.open.first?.acknowledgedAt == at(11))
     }
 
+    /// ovation#564. A report of something that HAPPENED is not a standing fault,
+    /// so once Dan has read it, it leaves the open list. Left open, it sat red at
+    /// the foot of the rail on every launch, reading as something wrong. It stays
+    /// in `all`, because reading a report is not the same as it never happening.
+    @Test("a report of what happened leaves the open list once it has been read")
+    func aReportClosesOnceRead() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        store.raise(kind: .clientImportBroughtClientsAcross, subject: "downbeat-roster",
+                    sentence: "brought across", now: at(10))
+        let id = try! #require(store.open.first?.id)
+
+        store.acknowledge(id, now: at(11))
+
+        #expect(store.open.isEmpty)
+        #expect(store.all.map(\.id) == [id])
+    }
+
+    /// The other direction (L159): a condition that still needs Dan stays open
+    /// after he has read it, so the rule above cannot be satisfied by acknowledging
+    /// closing everything.
+    @Test("a condition that still needs Dan stays open after it has been read")
+    func aStandingConditionStaysOpenOnceRead() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        store.raise(kind: .clientImportNeedsAnAnswer, subject: "downbeat-roster-unmatched",
+                    sentence: "needs you", now: at(10))
+        let id = try! #require(store.open.first?.id)
+
+        store.acknowledge(id, now: at(11))
+
+        #expect(store.open.map(\.id) == [id])
+    }
+
     @Test("resolving records WHY, because a problem that vanished without a reason is not resolved")
     func resolvingCarriesItsReason() {
         let store = ProblemsStore(journal: InMemoryProblemsJournal())
