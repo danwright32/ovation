@@ -30,10 +30,9 @@ fresh() {
 }
 
 write_in() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}" 2>&1; }
-write_status() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}" >/dev/null 2>&1; printf '%s' "$?"; }
+write_status() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}"; }
 check_status() {
-    OVATION_DESIGN_ROOT="$1" python3 "$CHECKER" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_DESIGN_ROOT="$1" python3 "$CHECKER"
 }
 
 damage() {
@@ -55,8 +54,8 @@ ON_RED=".item.on { background: #FF0000; color: var(--ink); font-weight: 600; }"
 # The committed record, which must already be in step and must stay untouched.
 # ---------------------------------------------------------------------------
 CLEAN="$(fresh clean)"
-check "the committed record is already in step" "$(check_status "$CLEAN")" "0"
-check "so the writer changes nothing" "$(write_status "$CLEAN")" "0"
+check_exit "the committed record is already in step" 0 check_status "$CLEAN"
+check_exit "so the writer changes nothing" 0 write_status "$CLEAN"
 check "and says how many copies it found in step" \
     "$(write_in "$CLEAN" | grep -c '20 copy(s) already in step, 0 rewritten')" "1"
 check "and every file is byte for byte what it was" \
@@ -67,7 +66,7 @@ check "and every file is byte for byte what it was" \
 # ---------------------------------------------------------------------------
 DRIFTED="$(fresh drifted)"
 damage "$DRIFTED" invoice-list.html "$ON_PLAIN" "$ON_RED"
-check "a damaged copy is refused by the checker first" "$(check_status "$DRIFTED")" "1"
+check_exit "a damaged copy is refused by the checker first" 1 check_status "$DRIFTED"
 # THE RUN IS CAPTURED ONCE. Calling the writer again to read its message would
 # read a SECOND run, on a tree the first one already repaired, which reports
 # nothing rewritten and is the check answering about the wrong event.
@@ -76,7 +75,7 @@ DRIFTED_STATUS=$?
 check "the writer repairs it" "$DRIFTED_STATUS" "0"
 check "and says which file and which part" \
     "$(printf '%s' "$DRIFTED_SAID" | grep -c 'invoice-list.html: window.css REWRITTEN')" "1"
-check "and the checker then passes" "$(check_status "$DRIFTED")" "0"
+check_exit "and the checker then passes" 0 check_status "$DRIFTED"
 check "and the file is byte for byte the committed one again" \
     "$(diff -q docs/design/invoice-list.html "$DRIFTED/invoice-list.html" >/dev/null && echo same)" "same"
 check "and no other file was touched" \
@@ -115,8 +114,8 @@ damage "$ADDED" shell/window.css \
 .dot.focused { outline: 1px solid var(--accent); }"
 check "a rule added to the shell leaves four copies drifted" \
     "$(OVATION_DESIGN_ROOT="$ADDED" python3 "$CHECKER" 2>&1 | grep -c DRIFTED)" "4"
-check "the writer puts it into all of them" "$(write_status "$ADDED")" "0"
-check "and the checker then passes" "$(check_status "$ADDED")" "0"
+check_exit "the writer puts it into all of them" 0 write_status "$ADDED"
+check_exit "and the checker then passes" 0 check_status "$ADDED"
 check "and it landed beside the rule it follows in the part" \
     "$(grep -A1 '^\.dot { width' "$ADDED/invoice-list.html" | grep -c 'dot.focused')" "1"
 
@@ -127,8 +126,8 @@ REMOVED="$(fresh removed)"
 damage "$REMOVED" shell/window.css \
     ".dot.r { background: #ED6A5E; } .dot.y { background: #F4BF50; } .dot.g { background: #61C454; }
 " ""
-check "the writer removes it everywhere" "$(write_status "$REMOVED")" "0"
-check "and the checker passes" "$(check_status "$REMOVED")" "0"
+check_exit "the writer removes it everywhere" 0 write_status "$REMOVED"
+check_exit "and the checker passes" 0 check_status "$REMOVED"
 check "and the rule is gone from the file" \
     "$(grep -c 'dot.r' "$REMOVED/invoice-list.html")" "0"
 
@@ -148,8 +147,8 @@ check "and so does the reasoning about the date column" \
 # ---------------------------------------------------------------------------
 ASKED="$(fresh asked)"
 damage "$ASKED" invoice-list.html "$ON_PLAIN" "$ON_RED"
-check "--check answers with its own code rather than a pass or a failure" \
-    "$(write_status "$ASKED" --check)" "3"
+check_exit "--check answers with its own code rather than a pass or a failure" \
+    3 write_status "$ASKED" --check
 check "and it wrote nothing" \
     "$(grep -c "$ON_RED" "$ASKED/invoice-list.html")" "1"
 
@@ -180,7 +179,7 @@ check "and it never writes the part in at a guessed place" \
 # ---------------------------------------------------------------------------
 # NOTHING TO WRITE IS NOT A PASS (L98).
 # ---------------------------------------------------------------------------
-check "no shell at all cannot write" \
-    "$(OVATION_DESIGN_ROOT="$WORK/nowhere" python3 "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "no shell at all cannot write" \
+    2 env OVATION_DESIGN_ROOT="$WORK/nowhere" python3 "$TARGET"
 
 harness_end

@@ -60,22 +60,22 @@ record_file() {
 }
 
 run_check() { OVATION_BOOKING_QUEUE="$1" "./$TARGET" 2>&1; }
-status_of() { run_check "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+status_of() { run_check "$1"; }
 says() { if grep -qF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. NOTHING TO READ. Two different causes, two different sentences, and NEITHER
 #    is a pass. This is the state the real queue is in today.
 # ---------------------------------------------------------------------------
-check "a queue directory that does not exist cannot be measured" \
-    "$(status_of "$WORK/never-created")" "2"
+check_exit "a queue directory that does not exist cannot be measured" \
+    2 status_of "$WORK/never-created"
 OUT_NONE="$(run_check "$WORK/never-created")"
 check "and it says the directory is absent rather than that it was empty" \
     "$(says "$OUT_NONE" "has never")" "yes"
 
 EMPTY="$(queue empty)"
-check "a queue directory that exists and is empty cannot be measured either" \
-    "$(status_of "$EMPTY")" "2"
+check_exit "a queue directory that exists and is empty cannot be measured either" \
+    2 status_of "$EMPTY"
 OUT_EMPTY="$(run_check "$EMPTY")"
 check "and THAT says it is empty, which is a different fact" \
     "$(says "$OUT_EMPTY" "empty")" "yes"
@@ -86,14 +86,14 @@ check "the two causes do not share one message" \
 # 2. A REAL RECORD. This is what step 4 of ovation#3 is waiting to see.
 # ---------------------------------------------------------------------------
 ONE="$(queue one)"; record_file "$ONE" "$UUID_A" 3 - yes
-check "one well formed record is a pass" "$(status_of "$ONE")" "0"
+check_exit "one well formed record is a pass" 0 status_of "$ONE"
 OUT_ONE="$(run_check "$ONE")"
 check "and it reports how many it found" "$(says "$OUT_ONE" "1 record")" "yes"
 
 TWO="$(queue two)"; record_file "$TWO" "$UUID_A" 3 - yes; record_file "$TWO" "$UUID_B" 3 - no
 check "two records are counted as two" "$(says "$(run_check "$TWO")" "2 record")" "yes"
-check "and a record with no venue is fine, because an ad hoc venue has no roster entry" \
-    "$(status_of "$TWO")" "0"
+check_exit "and a record with no venue is fine, because an ad hoc venue has no roster entry" \
+    0 status_of "$TWO"
 
 # ---------------------------------------------------------------------------
 # 3. THE PRIVACY FLOOR. These records carry the client and venue names that were
@@ -110,10 +110,10 @@ check "no venue name reaches the output" "$(says "$OUT_ONE" "Nowhere Hall")" "no
 #    happened and the file says it was handed over.
 # ---------------------------------------------------------------------------
 BAD="$(queue malformed)"; printf 'not json at all\n' > "$BAD/$UUID_A.json"
-check "a record that is not JSON is BLOCKED, never skipped" "$(status_of "$BAD")" "1"
+check_exit "a record that is not JSON is BLOCKED, never skipped" 1 status_of "$BAD"
 
 V2="$(queue oldversion)"; record_file "$V2" "$UUID_A" 2 - yes
-check "a record BELOW the accepted minimum is BLOCKED" "$(status_of "$V2")" "1"
+check_exit "a record BELOW the accepted minimum is BLOCKED" 1 status_of "$V2"
 check "and it names the version it found" "$(says "$(run_check "$V2")" "2")" "yes"
 check "and the minimum it wanted, because that is the half that says what to do" \
     "$(says "$(run_check "$V2")" "3")" "yes"
@@ -130,11 +130,11 @@ check "and the minimum it wanted, because that is the half that says what to do"
 # behaviour test ties the decoder to. One derivation, so this reader and the
 # decoder cannot come to different answers about the same file (L70, L263).
 V4="$(queue newversion)"; record_file "$V4" "$UUID_A" 4 - yes
-check "a record ABOVE the minimum is a PASS, which is the whole point of a floor" \
-    "$(status_of "$V4")" "0"
+check_exit "a record ABOVE the minimum is a PASS, which is the whole point of a floor" \
+    0 status_of "$V4"
 
 V3="$(queue atthefloor)"; record_file "$V3" "$UUID_A" 3 - yes
-check "and the minimum itself is still accepted" "$(status_of "$V3")" "0"
+check_exit "and the minimum itself is still accepted" 0 status_of "$V3"
 
 # A DECLARATION IT CANNOT READ IS NOT A PASS. The floor is the whole judgement,
 # so a reader that fell back to a built in number would answer confidently from a
@@ -142,19 +142,19 @@ check "and the minimum itself is still accepted" "$(status_of "$V3")" "0"
 # (L98, L11).
 MISSING_DECL="$WORK/no-declaration.json"
 rm -f "$MISSING_DECL"
-check "a missing declaration cannot be measured, rather than defaulting" \
-    "$(OVATION_HANDOFF_DECLARATION="$MISSING_DECL" run_check "$V3" >/dev/null 2>&1; printf '%s' "$?")" "2"
+OVATION_HANDOFF_DECLARATION="$MISSING_DECL" check_exit "a missing declaration cannot be measured, rather than defaulting" \
+    2 run_check "$V3"
 check "and it says which file it could not read" \
     "$(says "$(OVATION_HANDOFF_DECLARATION="$MISSING_DECL" run_check "$V3")" "no-declaration.json")" "yes"
 
 BAD_DECL="$WORK/malformed-declaration.json"
 printf 'not json\n' > "$BAD_DECL"
-check "a declaration that is present and malformed cannot be measured either" \
-    "$(OVATION_HANDOFF_DECLARATION="$BAD_DECL" run_check "$V3" >/dev/null 2>&1; printf '%s' "$?")" "2"
+OVATION_HANDOFF_DECLARATION="$BAD_DECL" check_exit "a declaration that is present and malformed cannot be measured either" \
+    2 run_check "$V3"
 
 for field in committedAt booking client; do
     D="$(queue "missing-$field")"; record_file "$D" "$UUID_A" 3 "$field" yes
-    check "a record with no $field is BLOCKED" "$(status_of "$D")" "1"
+    check_exit "a record with no $field is BLOCKED" 1 status_of "$D"
 done
 
 # ---------------------------------------------------------------------------
@@ -165,11 +165,11 @@ done
 #    are genuinely not the queue's business.
 # ---------------------------------------------------------------------------
 LITTER="$(queue litter)"; record_file "$LITTER" "$UUID_A" 3 - yes; printf '\0' > "$LITTER/.DS_Store"
-check "a .DS_Store beside a good record does not spoil the run" "$(status_of "$LITTER")" "0"
+check_exit "a .DS_Store beside a good record does not spoil the run" 0 status_of "$LITTER"
 
 STRAY="$(queue stray)"; record_file "$STRAY" "$UUID_A" 3 - yes
 printf '{"version":3}\n' > "$STRAY/notes.json"
-check "a .json whose name is not a booking id is BLOCKED rather than ignored" \
-    "$(status_of "$STRAY")" "1"
+check_exit "a .json whose name is not a booking id is BLOCKED rather than ignored" \
+    1 status_of "$STRAY"
 
 harness_end

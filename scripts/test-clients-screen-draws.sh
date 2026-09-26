@@ -251,8 +251,8 @@ plant "roster-vanishes" \
 #    sentence, so a run that measured nothing read like one that found nothing
 #    (L11, L98).
 # ---------------------------------------------------------------------------
-check "a browser that is named and not there answers cannot measure" \
-    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "a browser that is named and not there answers cannot measure" \
+    3 env OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET"
 check "and it says so in the words the other rendering checks use" \
     "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" 2>&1 | grep -ci 'cannot measure')" "1"
 

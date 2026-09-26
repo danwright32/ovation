@@ -23,7 +23,7 @@ SETTLED="$WORK/settled.css"
 ROUND="$WORK/round.css"
 
 run() { python3 "$TARGET" "$@" 2>&1; }
-status() { python3 "$TARGET" "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+status() { python3 "$TARGET" "$@"; }
 
 cat > "$SETTLED" <<'CSS'
 /* The settled stylesheet. The comment names .fromacomment, which is not a
@@ -40,8 +40,8 @@ cat > "$ROUND" <<'CSS'
 .nrow { padding: 0; }
 .myown { color: red; }
 CSS
-check "a class the settled sheet already defines is refused" \
-    "$(status "$SETTLED" "$ROUND")" "1"
+check_exit "a class the settled sheet already defines is refused" \
+    1 status "$SETTLED" "$ROUND"
 check "and it is named" "$(run "$SETTLED" "$ROUND" | grep -c '^  \.nrow$')" "1"
 check "and the round's own class is not accused" \
     "$(run "$SETTLED" "$ROUND" | grep -c '^  \.myown$')" "0"
@@ -52,8 +52,8 @@ check "and the refusal says what to do about it" \
 # 2. THE SAME CLASS, DECLARED. Reusing the settled design on purpose is how a
 #    round inherits it.
 # ---------------------------------------------------------------------------
-check "the same collision declared as deliberate is accepted" \
-    "$(status "$SETTLED" "$ROUND" --reuse nrow)" "0"
+check_exit "the same collision declared as deliberate is accepted" \
+    0 status "$SETTLED" "$ROUND" --reuse nrow
 check "and the count says how many were shared and declared" \
     "$(run "$SETTLED" "$ROUND" --reuse nrow | grep -c '1 shared and every one of them declared')" "1"
 
@@ -61,16 +61,16 @@ check "and the count says how many were shared and declared" \
 # 3. A REUSE ENTRY THAT EXCUSES NOTHING. The long list this script's header
 #    warns about, one entry at a time (L96, L233).
 # ---------------------------------------------------------------------------
-check "a reuse entry naming a class neither sheet defines is refused" \
-    "$(status "$SETTLED" "$ROUND" --reuse nrow,neverheardofit)" "3"
+check_exit "a reuse entry naming a class neither sheet defines is refused" \
+    3 status "$SETTLED" "$ROUND" --reuse nrow,neverheardofit
 check "and it has its own exit code, not the collision one" \
-    "$([ "$(status "$SETTLED" "$ROUND" --reuse nrow,neverheardofit)" != "1" ] && echo different)" "different"
+    "$(said="$(status "$SETTLED" "$ROUND" --reuse nrow,neverheardofit 2>&1)"; [ "$?" != "1" ] && echo different || echo "the collision code: $said")" "different"
 check "and the stale entry is named" \
     "$(run "$SETTLED" "$ROUND" --reuse nrow,neverheardofit | grep -c '^  \.neverheardofit$')" "1"
-check "an entry the ROUND defines but the settled sheet does not is stale too" \
-    "$(status "$SETTLED" "$ROUND" --reuse nrow,myown)" "3"
-check "a collision is reported BEFORE a stale entry, because it is what stops the round" \
-    "$(status "$SETTLED" "$ROUND" --reuse neverheardofit)" "1"
+check_exit "an entry the ROUND defines but the settled sheet does not is stale too" \
+    3 status "$SETTLED" "$ROUND" --reuse nrow,myown
+check_exit "a collision is reported BEFORE a stale entry, because it is what stops the round" \
+    1 status "$SETTLED" "$ROUND" --reuse neverheardofit
 
 # ---------------------------------------------------------------------------
 # 4. A ROUND WITH NO COLLISIONS AT ALL, and it says how much it compared,
@@ -80,7 +80,7 @@ cat > "$ROUND" <<'CSS'
 .mine { color: red; }
 .alsomine { color: blue; }
 CSS
-check "a round that collides with nothing is accepted" "$(status "$SETTLED" "$ROUND")" "0"
+check_exit "a round that collides with nothing is accepted" 0 status "$SETTLED" "$ROUND"
 check "and says how many classes were on each side" \
     "$(run "$SETTLED" "$ROUND" | grep -c '2 class(es) in the round against 3 in the settled')" "1"
 
@@ -96,25 +96,25 @@ check "and a settled sheet defining nothing says that too, rather than reading a
 cat > "$ROUND" <<'CSS'
 .fromacomment { color: red; }
 CSS
-check "a class named only in the settled sheet's comments is not a collision" \
-    "$(status "$SETTLED" "$ROUND")" "0"
+check_exit "a class named only in the settled sheet's comments is not a collision" \
+    0 status "$SETTLED" "$ROUND"
 
 # ---------------------------------------------------------------------------
 # 5. A STYLESHEET THAT IS NOT THERE. An absent sheet defines nothing, so it
 #    collides with nothing, and a mistyped path would report exactly what a
 #    clean round reports (L98, L320).
 # ---------------------------------------------------------------------------
-check "a settled sheet that is not there is refused, never read as empty" \
-    "$(status "$WORK/nowhere.css" "$ROUND")" "2"
-check "and so is a round that is not there" \
-    "$(status "$SETTLED" "$WORK/nowhere.css")" "2"
+check_exit "a settled sheet that is not there is refused, never read as empty" \
+    2 status "$WORK/nowhere.css" "$ROUND"
+check_exit "and so is a round that is not there" \
+    2 status "$SETTLED" "$WORK/nowhere.css"
 check "and the refusal names the path" \
     "$(run "$WORK/nowhere.css" "$ROUND" | grep -c 'no stylesheet at')" "1"
 check "and says why that is not a clean round" \
     "$(run "$WORK/nowhere.css" "$ROUND" | grep -c 'That is not a clean round')" "1"
 
-check "called with no arguments it says how to call it" "$(status)" "2"
-check "and --reuse with nothing after it is used wrongly rather than empty" \
-    "$(status "$SETTLED" "$ROUND" --reuse)" "2"
+check_exit "called with no arguments it says how to call it" 2 status
+check_exit "and --reuse with nothing after it is used wrongly rather than empty" \
+    2 status "$SETTLED" "$ROUND" --reuse
 
 harness_end

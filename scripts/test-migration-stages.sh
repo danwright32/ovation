@@ -21,8 +21,7 @@ harness_temp_dir WORK
 
 run_on() { OVATION_SCHEMA_FILE="$1" "./$TARGET" 2>&1; }
 status_on() {
-    OVATION_SCHEMA_FILE="$1" "./$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_SCHEMA_FILE="$1" "./$TARGET"
 }
 
 # ONE VERSION, NO STAGES: correct while it lasts, and it must not be reported as
@@ -36,7 +35,7 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
     static var stages: [MigrationStage] { [] }
 }
 SWIFT
-check "one version with no stages passes" "$(status_on "$ONE")" "0"
+check_exit "one version with no stages passes" 0 status_on "$ONE"
 check "and it says there was no chain to check, rather than implying one was verified" \
     "$(run_on "$ONE" | grep -c 'no chain to check')" "1"
 
@@ -53,7 +52,7 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
     }
 }
 SWIFT
-check "two versions with the step between them covered passes" "$(status_on "$TWO")" "0"
+check_exit "two versions with the step between them covered passes" 0 status_on "$TWO"
 check "and it says WHICH chain it verified" \
     "$(run_on "$TWO" | grep -c 'OvationSchemaV1 to OvationSchemaV2')" "1"
 
@@ -67,7 +66,7 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
     static var stages: [MigrationStage] { [] }
 }
 SWIFT
-check "a version added with no stage is refused" "$(status_on "$UNCOVERED")" "1"
+check_exit "a version added with no stage is refused" 1 status_on "$UNCOVERED"
 check "and the refusal names the step nothing carries" \
     "$(run_on "$UNCOVERED" | grep -c 'OvationSchemaV1 to OvationSchemaV2')" "1"
 check "and says what the symptom would be, which is not a crash" \
@@ -91,7 +90,7 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
     }
 }
 SWIFT
-check "three versions with both steps covered passes" "$(status_on "$THREE")" "0"
+check_exit "three versions with both steps covered passes" 0 status_on "$THREE"
 
 # Three versions, only the first step carried. The count alone catches this, and
 # it is a different fixture from the two version one so the count and the pairing
@@ -108,7 +107,7 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
     }
 }
 SWIFT
-check "a chain missing its last step is refused" "$(status_on "$GAP")" "1"
+check_exit "a chain missing its last step is refused" 1 status_on "$GAP"
 check "and it names the step that is missing, not the one that is there" \
     "$(run_on "$GAP" | grep -c 'OvationSchemaV2 to OvationSchemaV3')" "1"
 
@@ -130,7 +129,7 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
     }
 }
 SWIFT
-check "a stage that jumps a version is its own outcome" "$(status_on "$SKIPPING")" "3"
+check_exit "a stage that jumps a version is its own outcome" 3 status_on "$SKIPPING"
 check "and it is NOT reported as a missing stage" \
     "$(run_on "$SKIPPING" | grep -c 'UNCOVERED')" "0"
 
@@ -148,10 +147,10 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
     }
 }
 SWIFT
-check "a stage written in the wrong direction is refused" "$(status_on "$BACKWARDS")" "3"
+check_exit "a stage written in the wrong direction is refused" 3 status_on "$BACKWARDS"
 
 # Nothing to scan is not a pass.
-check "a missing schema file cannot measure" "$(status_on "$WORK/nowhere.swift")" "2"
+check_exit "a missing schema file cannot measure" 2 status_on "$WORK/nowhere.swift"
 
 NOPLAN="$WORK/noplan.swift"
 cat > "$NOPLAN" <<'SWIFT'
@@ -159,7 +158,7 @@ enum OvationSchema {
     static let models: [any PersistentModel.Type] = [Invoice.self]
 }
 SWIFT
-check "a file with no migration plan in it cannot measure" "$(status_on "$NOPLAN")" "2"
+check_exit "a file with no migration plan in it cannot measure" 2 status_on "$NOPLAN"
 
 EMPTY="$WORK/empty.swift"
 cat > "$EMPTY" <<'SWIFT'
@@ -168,10 +167,10 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
     static var stages: [MigrationStage] { [] }
 }
 SWIFT
-check "a plan naming no versions at all cannot measure" "$(status_on "$EMPTY")" "2"
+check_exit "a plan naming no versions at all cannot measure" 2 status_on "$EMPTY"
 
 # The real file, so the seam is not the only thing ever exercised.
-check "the real schema file passes" "$(OVATION_SCHEMA_FILE= "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+check_exit "the real schema file passes" 0 env OVATION_SCHEMA_FILE= "./$TARGET"
 # DERIVED FROM THE FILE, never a number written here. This used to assert the
 # literal "1 schema version" against the real schema, so the day a second version
 # arrived the case failed while nothing was wrong: its premise was that the change

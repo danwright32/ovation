@@ -49,7 +49,7 @@ run_select() {
     OVATION_XCODEBUILD="${XCODEBUILD_OVERRIDE:-$WORK/xcodebuild}" \
         "./$TARGET" 2>&1
 }
-status_select() { run_select >/dev/null 2>&1; printf '%s' "$?"; }
+status_select() { run_select; }
 says() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ unset PIN_OVERRIDE
 # 3. THE PIN ITSELF CANNOT BE READ. Nothing to select is not a selection (L98).
 # ---------------------------------------------------------------------------
 PIN_OVERRIDE="$WORK/no-such-pin"
-check "a pin file that is not there cannot be measured" "$(status_select)" "2"
+check_exit "a pin file that is not there cannot be measured" 2 status_select
 check "and it names the file it looked for" \
     "$(says "$(run_select)" "$WORK/no-such-pin")" "yes"
 unset PIN_OVERRIDE
@@ -112,7 +112,7 @@ exit 0
 SH
 chmod +x "$WORK/select-noop"
 SELECT_OVERRIDE="$WORK/select-noop"
-check "a selection xcodebuild does not report is refused" "$(status_select)" "1"
+check_exit "a selection xcodebuild does not report is refused" 1 status_select
 unset SELECT_OVERRIDE
 
 cat > "$WORK/select-fails" <<'SH'

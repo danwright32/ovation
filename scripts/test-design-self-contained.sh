@@ -21,8 +21,7 @@ harness_temp_dir WORK
 
 run_on() { OVATION_DESIGN_ROOT="$1" "./$TARGET" 2>&1; }
 status_on() {
-    OVATION_DESIGN_ROOT="$1" "./$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_DESIGN_ROOT="$1" "./$TARGET"
 }
 
 # A base64 blob shaped like a real font payload: the base64 alphabet only, long
@@ -50,7 +49,7 @@ HTML
 CLEAN="$WORK/clean"
 mkdir -p "$CLEAN"
 design_file "$CLEAN/invoice-list.html" ""
-check "a file whose typefaces are embedded passes" "$(status_on "$CLEAN")" "0"
+check_exit "a file whose typefaces are embedded passes" 0 status_on "$CLEAN"
 check "and it says how many files it actually looked at" \
     "$(run_on "$CLEAN" | grep -c 'scanned 1')" "1"
 
@@ -61,7 +60,7 @@ FONTS="$WORK/fonts"
 mkdir -p "$FONTS"
 design_file "$FONTS/invoice-list.html" \
     '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo">'
-check "a stylesheet link to a font service is refused" "$(status_on "$FONTS")" "1"
+check_exit "a stylesheet link to a font service is refused" 1 status_on "$FONTS"
 check "and the refusal says it stops rendering offline" \
     "$(run_on "$FONTS" | grep -c 'stops rendering offline')" "1"
 check "and it names the file and the line" \
@@ -71,26 +70,26 @@ check "and it names the file and the line" \
 # answer for the others.
 SCRIPT="$WORK/script"; mkdir -p "$SCRIPT"
 design_file "$SCRIPT/a.html" '<script src="https://cdn.example.com/chart.js"></script>'
-check "a script from a CDN is refused" "$(status_on "$SCRIPT")" "1"
+check_exit "a script from a CDN is refused" 1 status_on "$SCRIPT"
 
 IMG="$WORK/img"; mkdir -p "$IMG"
 design_file "$IMG/a.html" '<img src="https://example.com/logo.png" alt="">'
-check "a remote image is refused" "$(status_on "$IMG")" "1"
+check_exit "a remote image is refused" 1 status_on "$IMG"
 
 IMPORTS="$WORK/imports"; mkdir -p "$IMPORTS"
 design_file "$IMPORTS/a.html" '<style>@import "https://example.com/x.css";</style>'
-check "an @import is refused" "$(status_on "$IMPORTS")" "1"
+check_exit "an @import is refused" 1 status_on "$IMPORTS"
 
 FETCH="$WORK/fetch"; mkdir -p "$FETCH"
 design_file "$FETCH/a.html" '<script>fetch("/api/invoices").then(r => r.json());</script>'
-check "a fetch at render time is refused" "$(status_on "$FETCH")" "1"
+check_exit "a fetch at render time is refused" 1 status_on "$FETCH"
 check "and it is named as a request rather than as a missing file" \
     "$(run_on "$FETCH" | grep -c 'makes a request at render time')" "1"
 
 PROTOCOL="$WORK/protocol"; mkdir -p "$PROTOCOL"
 design_file "$PROTOCOL/a.html" '<script src="//cdn.example.com/x.js"></script>'
-check "a protocol relative URL is refused, which is the one a naive scan misses" \
-    "$(status_on "$PROTOCOL")" "1"
+check_exit "a protocol relative URL is refused, which is the one a naive scan misses" \
+    1 status_on "$PROTOCOL"
 
 # ---------------------------------------------------------------------------
 # A LOCAL file reference is its own failure with its own sentence. It renders
@@ -100,7 +99,7 @@ check "a protocol relative URL is refused, which is the one a naive scan misses"
 SHARED="$WORK/shared"; mkdir -p "$SHARED"
 design_file "$SHARED/a.html" '<link rel="stylesheet" href="shell.css">'
 printf 'body { margin: 0; }\n' > "$SHARED/shell.css"
-check "a link to a sibling file is refused" "$(status_on "$SHARED")" "1"
+check_exit "a link to a sibling file is refused" 1 status_on "$SHARED"
 check "and it is NOT reported as a network reference" \
     "$(run_on "$SHARED" | grep -c 'reaches the network')" "0"
 check "it is reported as no longer being one document" \
@@ -112,26 +111,26 @@ check "it is reported as no longer being one document" \
 ALLOWED="$WORK/allowed"; mkdir -p "$ALLOWED"
 design_file "$ALLOWED/a.html" \
     '<a href="#totals">Totals</a><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="">'
-check "a fragment link and a data image are fine" "$(status_on "$ALLOWED")" "0"
+check_exit "a fragment link and a data image are fine" 0 status_on "$ALLOWED"
 
 PROSE="$WORK/prose"; mkdir -p "$PROSE"
 design_file "$PROSE/a.html" ""
 printf 'See https://example.com/type for the licence.\n' > "$PROSE/README.md"
-check "a URL in the README is not refused, because prose is not the record" \
-    "$(status_on "$PROSE")" "0"
+check_exit "a URL in the README is not refused, because prose is not the record" \
+    0 status_on "$PROSE"
 
 # ---------------------------------------------------------------------------
 # Nothing to scan is not a pass.
 # ---------------------------------------------------------------------------
-check "a missing design root cannot measure" "$(status_on "$WORK/nowhere")" "2"
+check_exit "a missing design root cannot measure" 2 status_on "$WORK/nowhere"
 EMPTY="$WORK/empty"; mkdir -p "$EMPTY"
 printf 'Only prose here.\n' > "$EMPTY/README.md"
-check "a root holding no design files cannot measure" "$(status_on "$EMPTY")" "2"
+check_exit "a root holding no design files cannot measure" 2 status_on "$EMPTY"
 check "and says so rather than reporting a self contained record" \
     "$(run_on "$EMPTY" | grep -c 'CANNOT SCAN')" "1"
 
 # The real record, so the seam is not the only thing ever exercised.
-check "the real design record passes" \
-    "$(OVATION_DESIGN_ROOT= "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+check_exit "the real design record passes" \
+    0 env OVATION_DESIGN_ROOT= "./$TARGET"
 
 harness_end

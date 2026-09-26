@@ -16,15 +16,15 @@ require_target "$RECORDER"
 harness_temp_dir WORK
 
 check_with() { OVATION_GRANT_RECORD="$1" bash "$CHECK" 2>&1; }
-status_with() { OVATION_GRANT_RECORD="$1" bash "$CHECK" >/dev/null 2>&1; printf '%s' "$?"; }
+status_with() { OVATION_GRANT_RECORD="$1" bash "$CHECK"; }
 record_with() { OVATION_GRANT_RECORD="$1" bash "$RECORDER" "${@:2}" 2>&1; }
-record_status() { OVATION_GRANT_RECORD="$1" bash "$RECORDER" "${@:2}" >/dev/null 2>&1; printf '%s' "$?"; }
+record_status() { OVATION_GRANT_RECORD="$1" bash "$RECORDER" "${@:2}"; }
 
 # 1. NOTHING RECORDED IS NOT A PASS. This is the state the repository is in
 #    today, and it must stay visible until somebody answers it (L98).
 MISSING="$WORK/no-such-record.tsv"
-check "an unanswered question is CANNOT MEASURE, never a pass" \
-    "$(status_with "$MISSING")" "2"
+check_exit "an unanswered question is CANNOT MEASURE, never a pass" \
+    2 status_with "$MISSING"
 check "and it says nobody has confirmed it" \
     "$(check_with "$MISSING" | grep -ci 'has ever been recorded')" "1"
 check "and it names where the steps are" \
@@ -34,22 +34,22 @@ check "and it names where the steps are" \
 #    reads exactly like one holding a pass, unless something says otherwise.
 EMPTY="$WORK/empty.tsv"
 printf '# a header and no records\n' > "$EMPTY"
-check "a record file holding nothing is CANNOT MEASURE" "$(status_with "$EMPTY")" "2"
+check_exit "a record file holding nothing is CANNOT MEASURE" 2 status_with "$EMPTY"
 check "and it says the file is there and empty" \
     "$(check_with "$EMPTY" | grep -ci 'holds no record')" "1"
 
 # 3. THE ANSWER THAT MATTERS.
 SURVIVED="$WORK/survived.tsv"
-check "recording a survived check succeeds" "$(record_status "$SURVIVED" survived)" "0"
-check "and the check then passes" "$(status_with "$SURVIVED")" "0"
+check_exit "recording a survived check succeeds" 0 record_status "$SURVIVED" survived
+check_exit "and the check then passes" 0 status_with "$SURVIVED"
 check "and it says WHEN, because a stored verification that carries no date is one nobody can age" \
     "$(check_with "$SURVIVED" | grep -c "$(date '+%Y-%m-%d')")" "1"
 
 # 4. AND THE ONE THAT IS A FINDING.
 LAPSED="$WORK/lapsed.tsv"
-check "recording a lapsed check succeeds too" "$(record_status "$LAPSED" lapsed)" "0"
-check "and the check then REFUSES, because backups would stop silently" \
-    "$(status_with "$LAPSED")" "1"
+check_exit "recording a lapsed check succeeds too" 0 record_status "$LAPSED" lapsed
+check_exit "and the check then REFUSES, because backups would stop silently" \
+    1 status_with "$LAPSED"
 check "and it says what it means rather than only what happened" \
     "$(check_with "$LAPSED" | grep -ci 'stop silently')" "1"
 
@@ -57,21 +57,21 @@ check "and it says what it means rather than only what happened" \
 BOTH="$WORK/both.tsv"
 record_with "$BOTH" lapsed >/dev/null 2>&1
 record_with "$BOTH" survived >/dev/null 2>&1
-check "the newest record is the one that counts" "$(status_with "$BOTH")" "0"
+check_exit "the newest record is the one that counts" 0 status_with "$BOTH"
 
 # 6. A VERDICT NOTHING CAN READ IS NOT A PASS (L98, L257). A file edited by hand,
 #    or written by a later version, must not fall through to the good answer.
 STRANGE="$WORK/strange.tsv"
 printf '# header\n2026-09-12\tprobably-fine\tby hand\n' > "$STRANGE"
-check "a verdict this does not know is CANNOT MEASURE" "$(status_with "$STRANGE")" "2"
+check_exit "a verdict this does not know is CANNOT MEASURE" 2 status_with "$STRANGE"
 check "and it quotes the verdict it could not read" \
     "$(check_with "$STRANGE" | grep -c 'probably-fine')" "1"
 
 # 7. THE RECORDER REFUSES ANYTHING ELSE, rather than writing a verdict the reader
 #    will not understand.
-check "the recorder refuses a verdict it does not offer" \
-    "$(record_status "$WORK/refused.tsv" maybe)" "2"
-check "and refuses no verdict at all" "$(record_status "$WORK/refused.tsv")" "2"
+check_exit "the recorder refuses a verdict it does not offer" \
+    2 record_status "$WORK/refused.tsv" maybe
+check_exit "and refuses no verdict at all" 2 record_status "$WORK/refused.tsv"
 check "and wrote nothing when it refused" \
     "$([ -f "$WORK/refused.tsv" ] && echo wrote || echo nothing)" "nothing"
 

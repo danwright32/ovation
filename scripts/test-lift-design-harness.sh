@@ -394,9 +394,8 @@ check "and the run says what it ignored, so a loosened rule is never silent" \
 
 check_exit "a check with no harness written is used wrongly" \
     2 lift --check "$SPEC" "$WORK/never-written"
-check "and with no browser to render in, nothing is measured" \
-    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" --check "$SPEC" "$OUT" \
-        >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "and with no browser to render in, nothing is measured" \
+    3 env OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" --check "$SPEC" "$OUT"
 
 # ---------------------------------------------------------------------------
 # 6. THE COMMITTED DESIGN FILES. A tool proved only against a fixture is one
@@ -512,9 +511,8 @@ python3 "$TARGET" "$WORK/action-at-load.json" "$WORK/action-at-load" >/dev/null 
 check_exit "and with its rows back in a literal built at load, the same round is refused" \
     8 lift --check "$WORK/action-at-load.json" "$WORK/action-at-load"
 
-check "a harness page in quirks mode is caught, which is ovation#194" \
-    "$(OVATION_HARNESS_QUIRKS=1 python3 "$TARGET" --check "$WORK/pdf.json" "$PDF" \
-        >/dev/null 2>&1; printf '%s' "$?")" "1"
+check_exit "a harness page in quirks mode is caught, which is ovation#194" \
+    1 env OVATION_HARNESS_QUIRKS=1 python3 "$TARGET" --check "$WORK/pdf.json" "$PDF"
 
 check "and every one of those runs left the committed design files untouched" \
     "$(shasum -a 256 docs/design/invoice-pdf.html docs/design/invoice-list.html)" "$BEFORE"

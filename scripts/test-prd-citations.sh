@@ -195,6 +195,6 @@ cp "$REAL_PRD" "$SAME_NUMBER_PRD"
 printf '\n## 99. An appendix\n\n14a. The same number in a DIFFERENT section, which is legitimate.\n' >> "$SAME_NUMBER_PRD"
 OUT="$(run_on "$(fixture other-section "Cited: ${C} 14a." "$SAME_NUMBER_PRD")")"; RC=$?
 check "the same number in a different section is not a duplicate" "$RC" "0"
-check "and the committed PRD declares every number once" "$("$CHECK" >/dev/null 2>&1; echo $?)" "0"
+check_exit "and the committed PRD declares every number once" 0 "$CHECK"
 
 harness_end

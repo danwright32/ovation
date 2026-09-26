@@ -531,5 +531,37 @@ LIVE_PROBES="$(hand_probes scripts/test-*.sh)"
 check "no suite in this tree reads a bare exit 3 as a missing browser" \
     "$(grep -c . <<< "$LIVE_PROBES" || true)" "0"
 
+# AN EXIT STATUS IS NEVER JUDGED WITH ITS COMMAND'S WORDS THROWN AWAY (ovation#540).
+# Suites judged a tool through a helper that sent its output to /dev/null and
+# printed only `$?`, so a failure read "expected '0', got '1'" and nothing else,
+# which is why main's one-off red on 2026-09-25 could not be diagnosed (ovation#539).
+# check_exit keeps the output and prints it under a failure, and every suite was
+# converted to it, so the shape that discards is refused here, in both its forms:
+# on one line, and as a redirect whose next line prints the status (L613).
+discarding_status_helpers() {
+    awk '
+        /^[[:space:]]*#/ { prev = ""; next }
+        /\/dev\/null 2>&1; *(printf .%s. "\$\?"|echo \$\?)/ { print FILENAME ":" FNR ": " $0 }
+        prev ~ /\/dev\/null 2>&1[[:space:]]*$/ && /^[[:space:]]*(printf .%s. "\$\?"|echo \$\?)[[:space:]]*$/ {
+            print FILENAME ":" FNR ": " $0
+        }
+        { prev = $0 }
+    ' "$@"
+}
+# Written through %s, so this file never holds the shape it refuses.
+printf 'status_of() { run_check "$1" >/dev/null 2>&1; printf %s; }\n' "'%s' \"\$?\"" > "$WORK/discards-one-line.sh"
+printf 'status_on() {\n    run_on "$1" >/dev/null 2>&1\n    %s\n}\n' 'echo $?' > "$WORK/discards-two-lines.sh"
+printf 'status_on() { run_on "$1"; }\n# a helper once did >/dev/null 2>&1; %s\n' 'echo $?' > "$WORK/keeps-output.sh"
+check "a status helper that discards its command's output on one line is caught" \
+    "$(discarding_status_helpers "$WORK/discards-one-line.sh" | grep -c .)" "1"
+check "and one that redirects on one line and prints the status on the next" \
+    "$(discarding_status_helpers "$WORK/discards-two-lines.sh" | grep -c .)" "1"
+check "but a helper that keeps the output, and a comment about the old shape, are not" \
+    "$(discarding_status_helpers "$WORK/keeps-output.sh" | grep -c .)" "0"
+LIVE_DISCARDS="$(discarding_status_helpers scripts/test-*.sh)"
+[ -z "$LIVE_DISCARDS" ] || printf '    discards what the command said:\n%s\n' "$LIVE_DISCARDS" >&2
+check "no suite in this tree judges an exit status with its command's output thrown away" \
+    "$(grep -c . <<< "$LIVE_DISCARDS" || true)" "0"
+
 echo "test harness tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

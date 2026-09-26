@@ -58,7 +58,7 @@ run_it() {
     OVATION_REGENERATE_POLL="${POLL_FOR_TEST:-0.05}" \
         "./$TARGET" "$@" 2>&1
 }
-status_of() { run_it "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+status_of() { run_it "$@"; }
 
 # 1. THE ORDINARY CASE: nothing holds the lock, so it regenerates and says so.
 fresh_tree; stub_generator 0
@@ -288,7 +288,7 @@ check "and the refusal left neither of its locks behind" \
 rm -f "$PURE_HOLD"; wait "$PURE_PID"; PURE_ST=$?
 rm -rf "$SIBLING_DIR_LOCK"
 check "the pure suite then finishes green" "$PURE_ST" "0"
-check "and once it has, a regeneration goes ahead" "$(status_of)" "0"
+check_exit "and once it has, a regeneration goes ahead" 0 status_of
 
 # 8b. A REGISTRATION LEFT BY A RUN THAT DIED does not refuse for ever. A pure
 #     suite killed with -9 runs no trap, and a pid that is no longer running is
@@ -297,7 +297,7 @@ fresh_tree; stub_generator 0
 READERS="$(readers_of "$TREE_PROJECT")"
 bash -c 'exit 0' & DEAD_PID=$!; wait "$DEAD_PID"
 mkdir -p "$READERS"; printf 'tree pure suite:%s\n' "$DEAD_PID" > "$READERS/$DEAD_PID"
-check "a registration left by a pure suite that died does not refuse" "$(status_of)" "0"
+check_exit "a registration left by a pure suite that died does not refuse" 0 status_of
 check "and it is cleared rather than left for the next one" \
     "$([ -e "$READERS/$DEAD_PID" ] && echo left || echo cleared)" "cleared"
 
@@ -306,7 +306,7 @@ check "and it is cleared rather than left for the next one" \
 fresh_tree; stub_generator 0
 OTHER_READERS="$(readers_of "$WORK/other/Ovation.xcodeproj")"
 mkdir -p "$OTHER_READERS"; printf 'other pure suite:%s\n' "$$" > "$OTHER_READERS/$$"
-check "a pure suite reading a different tree's project does not refuse this one" "$(status_of)" "0"
+check_exit "a pure suite reading a different tree's project does not refuse this one" 0 status_of
 rm -rf "$OTHER_READERS"
 
 # 8d. AND THE OTHER DIRECTION. A regeneration holds the project's create lock
@@ -407,7 +407,7 @@ check "and it left the queue, and the earlier waiter's ticket stands" \
 # every regeneration until somebody emptied the queue by hand.
 kill "$EARLIER" 2>/dev/null; wait "$EARLIER" 2>/dev/null
 fresh_tree; stub_generator 0
-check "a dead earlier waiter does not stop it regenerating" "$(status_of)" "0"
+check_exit "a dead earlier waiter does not stop it regenerating" 0 status_of
 check "and the queue is empty afterwards, its ticket and the dead one both gone" \
     "$(ls "$QUEUE" | wc -l | tr -d ' ')" "0"
 
@@ -482,14 +482,14 @@ OUT="$(OVATION_REGENERATE_WAIT=0 run_it)"; RC=$?
 check "OVATION_REGENERATE_WAIT waits as --wait does, and gives up by name" \
     "$RC:$(grep -c "gave up after .* of 0s" <<< "$OUT")" "1:1"
 rm -rf "$WORK/lock"
-check "and a bad OVATION_REGENERATE_WAIT is used wrongly" \
-    "$(OVATION_REGENERATE_WAIT=soon status_of)" "4"
+OVATION_REGENERATE_WAIT=soon check_exit "and a bad OVATION_REGENERATE_WAIT is used wrongly" \
+    4 status_of
 
 # USED WRONGLY is its own outcome: a deadline that is not a whole number of
 # seconds, or an argument it does not know, touches nothing.
 fresh_tree; stub_generator 0
-check "a --wait that is not a whole number of seconds is used wrongly" "$(status_of --wait soon)" "4"
-check "and so is an argument it does not know" "$(status_of --nope)" "4"
+check_exit "a --wait that is not a whole number of seconds is used wrongly" 4 status_of --wait soon
+check_exit "and so is an argument it does not know" 4 status_of --nope
 check "and neither generated" "$([ -f "$WORK/generated.txt" ] && echo generated || echo no)" "no"
 
 harness_end

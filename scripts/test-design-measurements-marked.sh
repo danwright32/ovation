@@ -38,8 +38,7 @@ run_on() {
         python3 "$TARGET" 2>&1
 }
 status_on() {
-    run_on "$1" >/dev/null 2>&1
-    printf '%s' "$?"
+    run_on "$1"
 }
 
 record() {
@@ -59,7 +58,7 @@ GOOD="$WORK/good"
 record "$GOOD" 'The five figures keep the edge at 1246px, `asserted by check-real.sh`.
 
 A third statebar cost 40px above the window, `measured 2026-09-10`.'
-check "a record whose markings are all well formed passes" "$(status_on "$GOOD")" "0"
+check_exit "a record whose markings are all well formed passes" 0 status_on "$GOOD"
 check "and it says how many markings it read" \
     "$(run_on "$GOOD" | grep -c 'read 2 marking')" "1"
 check "and it names the check the owned number hangs on" \
@@ -77,7 +76,7 @@ GONE="$WORK/gone"
 record "$GONE" 'The row stays 318px, `asserted by check-vanished.sh`.
 
 And 40px above the window, `measured 2026-09-10`.'
-check "a marking naming a script that is not there is refused" "$(status_on "$GONE")" "1"
+check_exit "a marking naming a script that is not there is refused" 1 status_on "$GONE"
 check "and the missing script is named" \
     "$(run_on "$GONE" | grep -c 'NO SUCH SCRIPT.*check-vanished.sh')" "1"
 check "with the line it is on" \
@@ -91,7 +90,7 @@ check "and the well formed marking beside it is not accused" \
 # ---------------------------------------------------------------------------
 UNLISTED="$WORK/unlisted"
 record "$UNLISTED" 'The rail keeps its edge at 1246px, `asserted by check-unlisted.sh`.'
-check "a marking naming an unregistered script is refused" "$(status_on "$UNLISTED")" "1"
+check_exit "a marking naming an unregistered script is refused" 1 status_on "$UNLISTED"
 check "and it is named as unregistered rather than as missing" \
     "$(run_on "$UNLISTED" | grep -c 'NOT REGISTERED.*check-unlisted.sh')" "1"
 check "and it is not reported as missing from the tree as well" \
@@ -103,19 +102,19 @@ check "and it is not reported as missing from the tree as well" \
 # ---------------------------------------------------------------------------
 BADDAY="$WORK/badday"
 record "$BADDAY" 'Contrast cleared 4.5 to 1 on 72 pairs, `measured 2026-13-45`.'
-check "a date that is not a day is refused" "$(status_on "$BADDAY")" "1"
+check_exit "a date that is not a day is refused" 1 status_on "$BADDAY"
 check "and it is named as a date nothing can read" \
     "$(run_on "$BADDAY" | grep -c 'UNREADABLE DATE.*2026-13-45')" "1"
 
 SHORTDAY="$WORK/shortday"
 record "$SHORTDAY" 'The window starts 437px down, `measured 2026-9-1`.'
-check "a date that is not written out in full is refused too" "$(status_on "$SHORTDAY")" "1"
+check_exit "a date that is not written out in full is refused too" 1 status_on "$SHORTDAY"
 check "and it is the date outcome rather than a marking nobody recognised" \
     "$(run_on "$SHORTDAY" | grep -c 'UNREADABLE DATE')" "1"
 
 WORDDAY="$WORK/wordday"
 record "$WORDDAY" 'It was 318px wide, `measured last Tuesday`.'
-check "a marking whose day is not a date at all is refused" "$(status_on "$WORDDAY")" "1"
+check_exit "a marking whose day is not a date at all is refused" 1 status_on "$WORDDAY"
 check "and it says so rather than passing over a marking it could not read" \
     "$(run_on "$WORDDAY" | grep -c 'UNREADABLE DATE')" "1"
 
@@ -143,7 +142,7 @@ record "$PLAIN" 'The row stays 318px and the five figures keep the edge at 1246p
 A screen identical at 1440, 1280, 1180 and 1024, and one marking so this is read.
 
 The rail, `asserted by check-real.sh`.'
-check "a record full of unmarked numbers still passes" "$(status_on "$PLAIN")" "0"
+check_exit "a record full of unmarked numbers still passes" 0 status_on "$PLAIN"
 check "and the unmarked ones are counted rather than refused" \
     "$(run_on "$PLAIN" | grep -c 'UNMARKED: 6 number')" "1"
 check "and the paragraphs holding them are named so the gap can be found" \
@@ -168,26 +167,26 @@ check "and a number inside a code span is not one either" \
 # ---------------------------------------------------------------------------
 BARE="$WORK/bare"
 record "$BARE" 'The row stays 318px and the edge is at 1246px, and nothing says which.'
-check "a record carrying no marking at all cannot measure" "$(status_on "$BARE")" "2"
+check_exit "a record carrying no marking at all cannot measure" 2 status_on "$BARE"
 check "and it says the convention reached nothing rather than reporting a pass" \
     "$(run_on "$BARE" | grep -c 'carries no marking')" "1"
 
-check "no README at all cannot measure" "$(status_on "$WORK/nowhere")" "2"
+check_exit "no README at all cannot measure" 2 status_on "$WORK/nowhere"
 check "and says which cause it hit" \
     "$(run_on "$WORK/nowhere" | grep -c 'so nothing was read')" "1"
 
 MISSINGROLES="$WORK/missing-roles"
 record "$MISSINGROLES" 'The rail, `asserted by check-real.sh`.'
-check "no inventory to check a named script against cannot measure" \
-    "$(OVATION_DESIGN_ROOT="$MISSINGROLES" OVATION_SCRIPTS_ROOT="$WORK/nowhere" \
-        python3 "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "no inventory to check a named script against cannot measure" \
+    2 env OVATION_DESIGN_ROOT="$MISSINGROLES" OVATION_SCRIPTS_ROOT="$WORK/nowhere" \
+        python3 "$TARGET"
 check "and it says the inventory is what it could not read" \
     "$(OVATION_DESIGN_ROOT="$MISSINGROLES" OVATION_SCRIPTS_ROOT="$WORK/nowhere" \
         python3 "$TARGET" 2>&1 | grep -c 'script-roles.tsv')" "1"
 
-check "used with an argument it does not take, it says so" \
-    "$(OVATION_DESIGN_ROOT="$GOOD" OVATION_SCRIPTS_ROOT="$SCRIPTS" \
-        python3 "$TARGET" something >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "used with an argument it does not take, it says so" \
+    3 env OVATION_DESIGN_ROOT="$GOOD" OVATION_SCRIPTS_ROOT="$SCRIPTS" \
+        python3 "$TARGET" something
 
 # ---------------------------------------------------------------------------
 # A WRONG MARKING OUTRANKS THE REPORT. The count is still printed, because a
@@ -198,8 +197,8 @@ BOTH="$WORK/both"
 record "$BOTH" 'The row stays 318px, `asserted by check-vanished.sh`.
 
 An unmarked 1246px sits here with nothing behind it.'
-check "a record with a wrong marking and an unmarked number is refused" \
-    "$(status_on "$BOTH")" "1"
+check_exit "a record with a wrong marking and an unmarked number is refused" \
+    1 status_on "$BOTH"
 check "and the unmarked count is still reported" \
     "$(run_on "$BOTH" | grep -c 'UNMARKED: 1 number')" "1"
 check "and the refusal names the wrong marking as the reason" \

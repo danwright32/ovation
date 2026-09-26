@@ -17,8 +17,7 @@ run_on() {
     OVATION_KINDS_SCAN_ROOT="$1" "./$TARGET" 2>&1
 }
 status_on() {
-    OVATION_KINDS_SCAN_ROOT="$1" "./$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_KINDS_SCAN_ROOT="$1" "./$TARGET"
 }
 
 # One problem kind, declared the way the app declares them.
@@ -45,7 +44,7 @@ resolve_kind "$CLEAN"
 cat > "$CLEAN/Launch.swift" <<'SWIFT'
 problems.raise(kind: .folderMissing, subject: "backups", sentence: "No folder.", now: now)
 SWIFT
-check "a kind that is resolved and raised passes" "$(status_on "$CLEAN")" "0"
+check_exit "a kind that is resolved and raised passes" 0 status_on "$CLEAN"
 check "and it says how many matched kinds it checked" \
     "$(run_on "$CLEAN" | grep -c '1 problem kind(s) matched on')" "1"
 
@@ -55,7 +54,7 @@ check "and it says how many matched kinds it checked" \
 UNRAISED="$WORK/unraised"
 declare_kind "$UNRAISED"
 resolve_kind "$UNRAISED"
-check "a kind that is resolved and never raised is refused" "$(status_on "$UNRAISED")" "1"
+check_exit "a kind that is resolved and never raised is refused" 1 status_on "$UNRAISED"
 check "the refusal names the file, the line and the kind" \
     "$(run_on "$UNRAISED" | grep -c 'Settings.swift:1: folderMissing')" "1"
 check "the refusal does NOT print the source line" \
@@ -65,7 +64,7 @@ check "the refusal does NOT print the source line" \
 NOTEQUAL="$WORK/notequal"
 declare_kind "$NOTEQUAL"
 printf 'let others = problems.open.filter { $0.kind != .folderMissing }\n' > "$NOTEQUAL/Panel.swift"
-check "a kind matched with != and raised nowhere is refused too" "$(status_on "$NOTEQUAL")" "1"
+check_exit "a kind matched with != and raised nowhere is refused too" 1 status_on "$NOTEQUAL"
 
 # ---------------------------------------------------------------------------
 # What counts as raised.
@@ -80,21 +79,21 @@ func condition() -> (ProblemKind, String) {
     (.folderMissing, "No backup folder has been chosen yet.")
 }
 SWIFT
-check "a kind raised through a returned tuple counts as raised" "$(status_on "$TUPLE")" "0"
+check_exit "a kind raised through a returned tuple counts as raised" 0 status_on "$TUPLE"
 
 # A comment naming the kind is not the kind happening (L245).
 COMMENT="$WORK/comment"
 declare_kind "$COMMENT"
 resolve_kind "$COMMENT"
 printf '// A launch with no folder raises .folderMissing, eventually.\n' > "$COMMENT/Notes.swift"
-check "a kind mentioned only in a comment is still refused" "$(status_on "$COMMENT")" "1"
+check_exit "a kind mentioned only in a comment is still refused" 1 status_on "$COMMENT"
 
 # Nor is a sentence that happens to spell it.
 STRING="$WORK/string"
 declare_kind "$STRING"
 resolve_kind "$STRING"
 printf 'let hint = "raise .folderMissing when the folder is gone"\n' > "$STRING/Hint.swift"
-check "a kind spelled only inside a string is still refused" "$(status_on "$STRING")" "1"
+check_exit "a kind spelled only inside a string is still refused" 1 status_on "$STRING"
 
 # ---------------------------------------------------------------------------
 # Scope.
@@ -104,8 +103,8 @@ check "a kind spelled only inside a string is still refused" "$(status_on "$STRI
 OTHER="$WORK/other"
 declare_kind "$OTHER"
 printf 'let folders = members.filter { $0.kind == .directory }\n' > "$OTHER/Plan.swift"
-check "a comparison on something that is not a problem kind is not a finding" \
-    "$(status_on "$OTHER")" "0"
+check_exit "a comparison on something that is not a problem kind is not a finding" \
+    0 status_on "$OTHER"
 
 # Kinds are declared in extensions in more than one file, so a declaration away
 # from Problem.swift must still be a subject.
@@ -117,28 +116,28 @@ extension ProblemKind {
 }
 SWIFT
 printf 'let gone = problems.open.first { $0.kind == .rosterGone }\n' > "$ELSEWHERE/Shell.swift"
-check "a kind declared outside Problem.swift is held to the rule too" \
-    "$(status_on "$ELSEWHERE")" "1"
+check_exit "a kind declared outside Problem.swift is held to the rule too" \
+    1 status_on "$ELSEWHERE"
 
 # ---------------------------------------------------------------------------
 # NOTHING SCANNED IS NOT A PASS (L98).
 # ---------------------------------------------------------------------------
 EMPTY="$WORK/empty"
 mkdir -p "$EMPTY"
-check "a root holding no Swift files refuses rather than passing" "$(status_on "$EMPTY")" "2"
-check "a root that is not there refuses with the same exit code" \
-    "$(status_on "$WORK/not-here")" "2"
+check_exit "a root holding no Swift files refuses rather than passing" 2 status_on "$EMPTY"
+check_exit "a root that is not there refuses with the same exit code" \
+    2 status_on "$WORK/not-here"
 
 NOKINDS="$WORK/no-kinds"
 mkdir -p "$NOKINDS"
 printf 'struct Money { let cents: Int64 }\n' > "$NOKINDS/Money.swift"
-check "a tree declaring no problem kinds refuses, since nothing could be held to the rule" \
-    "$(status_on "$NOKINDS")" "2"
+check_exit "a tree declaring no problem kinds refuses, since nothing could be held to the rule" \
+    2 status_on "$NOKINDS"
 
 # ---------------------------------------------------------------------------
 # The real root, once, so the seam is not the only thing ever measured (L246).
 # ---------------------------------------------------------------------------
-check "Ovation's own sources pass, scanned at the real default root" \
-    "$("./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+check_exit "Ovation's own sources pass, scanned at the real default root" \
+    0 "./$TARGET"
 
 harness_end

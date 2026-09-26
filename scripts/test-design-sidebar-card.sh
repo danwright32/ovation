@@ -238,10 +238,10 @@ check_rendered_status "a record whose files all draw no window cannot be compare
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.
 # ---------------------------------------------------------------------------
-check "a file that is not there is refused rather than passed" \
-    "$("./$TARGET" "$WORK/no-such-file.html" >/dev/null 2>&1; printf '%s' "$?")" "2"
-check "and a browser that is not there answers cannot measure" \
-    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "a file that is not there is refused rather than passed" \
+    2 "./$TARGET" "$WORK/no-such-file.html"
+check_exit "and a browser that is not there answers cannot measure" \
+    3 env OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET"
 
 # ---------------------------------------------------------------------------
 # THE CARD IS A ROLLUP AND ITS FIGURES ARE COUNTED (ovation#198, PRD 46a). The

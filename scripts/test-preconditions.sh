@@ -48,14 +48,14 @@ stub "$BIN/blocked" 1 BLOCKED
 stub "$BIN/unmeasurable" 2 "CANNOT MEASURE"
 
 run_pre() { OVATION_PRECONDITION_CHECKS="$1" "./$TARGET" 2>&1; }
-status_of() { run_pre "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+status_of() { run_pre "$1"; }
 says() { if grep -qF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. All clear.
 # ---------------------------------------------------------------------------
 OUT_OK="$(run_pre "$BIN/pass1 $BIN/pass2")"
-check "every check passing is a pass" "$(status_of "$BIN/pass1 $BIN/pass2")" "0"
+check_exit "every check passing is a pass" 0 status_of "$BIN/pass1 $BIN/pass2"
 check "and it names how many it ran, so a run of none cannot read as a run of all" \
     "$(says "$OUT_OK" "2 check")" "yes"
 # Dan's decision 2026-09-06: nothing is stored. A recorded pass is the stale fact
@@ -77,11 +77,11 @@ check "a run holding all three outcomes reports each one separately" \
 check "and it names the check each outcome belongs to" \
     "$(says "$OUT_MIX" "unmeasurable")" "yes"
 
-check "one blocked check blocks the run" "$(status_of "$BIN/pass1 $BIN/blocked")" "1"
-check "one unmeasurable check is NOT reported as blocked" \
-    "$(status_of "$BIN/pass1 $BIN/unmeasurable")" "2"
-check "and blocked outranks unmeasurable, because it is the one with a real finding" \
-    "$(status_of "$BIN/blocked $BIN/unmeasurable")" "1"
+check_exit "one blocked check blocks the run" 1 status_of "$BIN/pass1 $BIN/blocked"
+check_exit "one unmeasurable check is NOT reported as blocked" \
+    2 status_of "$BIN/pass1 $BIN/unmeasurable"
+check_exit "and blocked outranks unmeasurable, because it is the one with a real finding" \
+    1 status_of "$BIN/blocked $BIN/unmeasurable"
 
 # EVERY check runs even after one fails. Stopping at the first would hide the
 # rest, and a person running this wants the whole picture in one go, not one
@@ -93,12 +93,12 @@ check "a failing check does not stop the ones after it" \
 # 3. REFUSALS. A run that checked nothing must never read as a run that passed
 #    (L98), and a named check that is not there is its own outcome.
 # ---------------------------------------------------------------------------
-check "an empty check list is refused, not reported as all clear" \
-    "$(status_of "")" "2"
+check_exit "an empty check list is refused, not reported as all clear" \
+    2 status_of ""
 check "and it says so rather than claiming success" \
     "$(says "$(run_pre "")" "nothing")" "yes"
-check "a check that is not on disk is refused by name" \
-    "$(status_of "$BIN/pass1 $WORK/no-such-check")" "2"
+check_exit "a check that is not on disk is refused by name" \
+    2 status_of "$BIN/pass1 $WORK/no-such-check"
 check "and the missing one is named" \
     "$(says "$(run_pre "$BIN/pass1 $WORK/no-such-check")" "no-such-check")" "yes"
 

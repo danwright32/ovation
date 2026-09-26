@@ -36,8 +36,7 @@ run_on() {
         python3 "$TARGET" 2>&1
 }
 status_on() {
-    run_on "$1" >/dev/null 2>&1
-    printf '%s' "$?"
+    run_on "$1"
 }
 
 record() {
@@ -65,7 +64,7 @@ MD
 OPEN="$(mkdir -p "$WORK/open" && printf '%s' "$WORK/open")"
 record "$OPEN" 'The receptor queue is `ovation#100`, and `ovation#95` is where the times live.'
 printf '95 OPEN\n100 OPEN\n999 CLOSED\n' > "$STATES"
-check "a record naming only open issues passes" "$(status_on "$OPEN")" "0"
+check_exit "a record naming only open issues passes" 0 status_on "$OPEN"
 check "and it says how many it asked about" \
     "$(run_on "$OPEN" | grep -c 'every one of the 2 issue')" "1"
 check "and an issue outside the section is never looked up" \
@@ -77,7 +76,7 @@ check "and an issue outside the section is never looked up" \
 STALE="$(mkdir -p "$WORK/stale" && printf '%s' "$WORK/stale")"
 record "$STALE" 'The invoice screen (`ovation#111`) is not designed yet. `ovation#95` is open.'
 printf '95 OPEN\n111 CLOSED\n' > "$STATES"
-check "a record calling a closed issue still open is refused" "$(status_on "$STALE")" "1"
+check_exit "a record calling a closed issue still open is refused" 1 status_on "$STALE"
 check "and the closed one is named" \
     "$(run_on "$STALE" | grep -c 'CLOSED  ovation#111')" "1"
 check "with the line it is on" \
@@ -93,7 +92,7 @@ check "and the verdict counts both" \
 # ---------------------------------------------------------------------------
 printf '95 OPEN\n' > "$STATES"
 record "$STALE" '`ovation#95` is open and `ovation#111` cannot be looked up.'
-check "an issue that could not be looked up is not a pass" "$(status_on "$STALE")" "2"
+check_exit "an issue that could not be looked up is not a pass" 2 status_on "$STALE"
 check "and it is named as unknown rather than as open" \
     "$(run_on "$STALE" | grep -c 'UNKNOWN ovation#111')" "1"
 check "and the message says a failed lookup and an open issue are not the same" \
@@ -104,26 +103,26 @@ check "an answer that is neither OPEN nor CLOSED is unknown, never open" \
     "$(run_on "$STALE" | grep -c 'UNKNOWN ovation#111')" "1"
 
 printf '95 OPEN\n111 CLOSED\n' > "$STATES"
-check "a closed issue still refuses even when another cannot be read" \
-    "$(status_on "$STALE")" "1"
+check_exit "a closed issue still refuses even when another cannot be read" \
+    1 status_on "$STALE"
 
 # ---------------------------------------------------------------------------
 # NOTHING TO MEASURE IS NOT A PASS, and each way of having nothing is its own
 # outcome (L98, L11).
 # ---------------------------------------------------------------------------
-check "no README at all cannot measure" "$(status_on "$WORK/nowhere")" "2"
+check_exit "no README at all cannot measure" 2 status_on "$WORK/nowhere"
 check "and says which cause it hit" \
     "$(run_on "$WORK/nowhere" | grep -c 'no .*README.md, so nothing was read')" "1"
 
 RENAMED="$(mkdir -p "$WORK/renamed" && printf '%s' "$WORK/renamed")"
 printf '# The design record\n\n## Outstanding\n\n`ovation#95`\n' > "$RENAMED/README.md"
-check "a renamed heading cannot measure" "$(status_on "$RENAMED")" "2"
+check_exit "a renamed heading cannot measure" 2 status_on "$RENAMED"
 check "and is told apart from a section with nothing in it" \
     "$(run_on "$RENAMED" | grep -c 'has no .* heading')" "1"
 
 EMPTYSEC="$(mkdir -p "$WORK/emptysec" && printf '%s' "$WORK/emptysec")"
 record "$EMPTYSEC" 'Nothing is outstanding today.'
-check "a section naming no issue cannot measure" "$(status_on "$EMPTYSEC")" "2"
+check_exit "a section naming no issue cannot measure" 2 status_on "$EMPTYSEC"
 check "and says so in its own words" \
     "$(run_on "$EMPTYSEC" | grep -c 'names no issue')" "1"
 
@@ -188,8 +187,8 @@ FILEOPEN="$WORK/fileopen"
 record "$FILEOPEN" 'The record itself names `ovation#100`.'
 design_file "$FILEOPEN" "invoice-list.html" '<ol><li>Where the times live, ovation#95.</li></ol>'
 printf '95 OPEN\n100 OPEN\n998 CLOSED\n' > "$STATES"
-check "a design file whose own open list names an open issue passes" \
-    "$(status_on "$FILEOPEN")" "0"
+check_exit "a design file whose own open list names an open issue passes" \
+    0 status_on "$FILEOPEN"
 # The ISSUE line, not merely the file name: the file is also named on its own
 # "carries a list" line, which says nothing about whether the list was read.
 check "and the file's list is actually read, not just the record's" \
@@ -200,8 +199,8 @@ FILECLOSED="$WORK/fileclosed"
 record "$FILECLOSED" 'The record itself names `ovation#100`.'
 design_file "$FILECLOSED" "clients.html" '<ol><li>The pane scrolls sideways, ovation#110.</li></ol>'
 printf '100 OPEN\n110 CLOSED\n998 CLOSED\n' > "$STATES"
-check "a design file calling a closed issue still open is refused" \
-    "$(status_on "$FILECLOSED")" "1"
+check_exit "a design file calling a closed issue still open is refused" \
+    1 status_on "$FILECLOSED"
 check "and the refusal names the file it is in" \
     "$(run_on "$FILECLOSED" | grep -cE 'CLOSED +ovation#110, named on line [0-9]+ of clients.html')" "1"
 
@@ -228,8 +227,8 @@ var x = 1;
 </script>
 HTML
 printf '95 OPEN\n100 OPEN\n997 CLOSED\n' > "$STATES"
-check "a settled issue named in a script comment is not read as still open" \
-    "$(status_on "$SCRIPTED")" "0"
+check_exit "a settled issue named in a script comment is not read as still open" \
+    0 status_on "$SCRIPTED"
 check "and that issue is never asked about at all" \
     "$(run_on "$SCRIPTED" | grep -c 'ovation#997')" "0"
 
@@ -239,7 +238,7 @@ record "$NOLIST" 'The record itself names `ovation#100`.'
 mkdir -p "$NOLIST"
 printf '<meta charset="utf-8">\n<h1>The invoice screen</h1>\n' > "$NOLIST/invoice.html"
 printf '100 OPEN\n' > "$STATES"
-check "a design file carrying no open list does not refuse" "$(status_on "$NOLIST")" "0"
+check_exit "a design file carrying no open list does not refuse" 0 status_on "$NOLIST"
 check "and it is named, so a list that disappeared is visible" \
     "$(run_on "$NOLIST" | grep -c 'invoice.html carries no')" "1"
 
@@ -264,7 +263,7 @@ design_file "$CITED" "clients.html" '<ol>
 PRD 5a). The citation is on the second line of the item.</li>
 </ol>'
 printf '100 OPEN\n110 OPEN\n' > "$STATES"
-check "a list whose every item cites an issue or a requirement passes" "$(status_on "$CITED")" "0"
+check_exit "a list whose every item cites an issue or a requirement passes" 0 status_on "$CITED"
 check "and a PRD citation on an item's second line counts" \
     "$(run_on "$CITED" | grep -c 'UNCITED')" "0"
 
@@ -275,7 +274,7 @@ design_file "$UNCITED" "clients.html" '<ol>
 <li><b>Nothing here refuses a term the invoice would not offer.</b> Two copies,
 and nothing yet compares them.</li>
 </ol>'
-check "an item that cites nothing is refused" "$(status_on "$UNCITED")" "1"
+check_exit "an item that cites nothing is refused" 1 status_on "$UNCITED"
 check "and the refusal names the file and the line the item starts on" \
     "$(run_on "$UNCITED" | grep -cE 'UNCITED +line 7 of clients.html')" "1"
 check "and the cited item beside it is not accused" \
@@ -284,8 +283,8 @@ check "and the cited item beside it is not accused" \
 LOOSE="$WORK/loose"
 record "$LOOSE" 'The record itself names `ovation#100`.'
 design_file "$LOOSE" "review-send.html" '<p>Every outbound sentence owes its cold read (PRD 41a).</p>'
-check "prose outside any list item is refused, even when it cites something" \
-    "$(status_on "$LOOSE")" "1"
+check_exit "prose outside any list item is refused, even when it cites something" \
+    1 status_on "$LOOSE"
 check "and it is told apart from an uncited item, naming the line" \
     "$(run_on "$LOOSE" | grep -cE 'NOT AN ENTRY +line 5 of review-send.html')" "1"
 
@@ -293,8 +292,8 @@ EMPTYITEMS="$WORK/emptyitems"
 record "$EMPTYITEMS" 'The record itself names `ovation#100`.'
 design_file "$EMPTYITEMS" "clients.html" '<ol>
 </ol>'
-check "a list heading with no items in it is refused rather than read as nothing open" \
-    "$(status_on "$EMPTYITEMS")" "1"
+check_exit "a list heading with no items in it is refused rather than read as nothing open" \
+    1 status_on "$EMPTYITEMS"
 check "and says the list is empty" \
     "$(run_on "$EMPTYITEMS" | grep -cE 'EMPTY +clients.html')" "1"
 
@@ -317,7 +316,7 @@ cat > "$WRAPPED/clients.html" <<'HTML'
 <script>var x = 1;</script>
 HTML
 printf '100 OPEN\n110 OPEN\n' > "$STATES"
-check "the markup that closes the section is not read as an entry" "$(status_on "$WRAPPED")" "0"
+check_exit "the markup that closes the section is not read as an entry" 0 status_on "$WRAPPED"
 check "and nothing in it is reported" \
     "$(run_on "$WRAPPED" | grep -cE 'NOT AN ENTRY|UNCITED')" "0"
 

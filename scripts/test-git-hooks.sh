@@ -160,10 +160,11 @@ check "and it announces itself rather than being silent" \
 #    change its own counts, because hook() strips it. If that stripping were ever
 #    dropped, this assertion goes red rather than the suite quietly measuring a
 #    hook with its checks switched off (downbeat#433, L259).
-SELF="$(SKIP_TEST_RUN=1 env OVATION_HOOK_TEST_COMMAND="exit 1" bash -c '
-    env -u SKIP_TEST_RUN "'"$REPO_ROOT/$HOOK"'" < /dev/null >/dev/null 2>&1; echo $?')"
+# What the hook said is kept and shown on a failure, never discarded (ovation#540).
+SELF_SAID="$(SKIP_TEST_RUN=1 env OVATION_HOOK_TEST_COMMAND="exit 1" bash -c '
+    env -u SKIP_TEST_RUN "'"$REPO_ROOT/$HOOK"'" < /dev/null' 2>&1)"; SELF=$?
 check "the escape hatch is stripped before the hook is measured" \
-    "$([ "$SELF" -ne 0 ] && echo refused || echo allowed)" "refused"
+    "$([ "$SELF" -ne 0 ] && echo refused || printf 'allowed, and the hook said:\n%s' "$SELF_SAID")" "refused"
 
 # ---------------------------------------------------------------------------
 # THE GATE JUDGES THE TREE BEING PUSHED, NOT THE TREE THE HOOK FILE LIVES IN

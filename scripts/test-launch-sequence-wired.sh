@@ -18,6 +18,11 @@ FAILED=0
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
+# WHAT THE GUARD SAID IS KEPT (ovation#540). run_on answers with the status and
+# leaves the guard's own words in a file, because it runs inside `$(...)` and a
+# variable set there never reaches this shell; a failing check prints them, so a
+# red case carries the guard's reason rather than two numbers.
+SAID="${WORK}/guard-said.txt"
 check() {
   local name="$1" expected="$2" actual="$3"
   if [[ "${expected}" == "${actual}" ]]; then
@@ -25,11 +30,13 @@ check() {
   else
     FAILED=$((FAILED + 1))
     echo "  FAIL: ${name}: expected exit ${expected}, got ${actual}"
+    [[ -s "${SAID}" ]] && sed 's/^/        /' "${SAID}" | head -n 40
   fi
+  : > "${SAID}"
 }
 
 run_on() {
-  OVATION_ENTRY_POINT="$1" python3 "${GUARD}" >/dev/null 2>&1
+  OVATION_ENTRY_POINT="$1" python3 "${GUARD}" > "${SAID}" 2>&1
   echo $?
 }
 

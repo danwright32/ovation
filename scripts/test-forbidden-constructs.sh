@@ -42,8 +42,7 @@ run_on() {
     OVATION_CONSTRUCT_SCAN_ROOT="$1" OVATION_CONSTRUCT_ALLOWLIST="${2-}" "./$TARGET" 2>&1
 }
 status_on() {
-    OVATION_CONSTRUCT_SCAN_ROOT="$1" OVATION_CONSTRUCT_ALLOWLIST="${2-}" "./$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_CONSTRUCT_SCAN_ROOT="$1" OVATION_CONSTRUCT_ALLOWLIST="${2-}" "./$TARGET"
 }
 
 # ---------------------------------------------------------------------------
@@ -77,8 +76,8 @@ while IFS= read -r SNIPPET; do
         "$SNIPPET" > "$INBODY/Pane.swift"
     printf 'import SwiftUI\nstruct Pane: View {\n    var body: some View {\n        Button("Go") {\n            _ = %s\n        }\n    }\n}\n' \
         "$SNIPPET" > "$INACTION/Pane.swift"
-    check "$SNIPPET in a view's body is refused" "$(status_on "$INBODY")" "1"
-    check "$SNIPPET in a Button's action is allowed" "$(status_on "$INACTION")" "0"
+    check_exit "$SNIPPET in a view's body is refused" 1 status_on "$INBODY"
+    check_exit "$SNIPPET in a Button's action is allowed" 0 status_on "$INACTION"
 done <<< "$DRAWING"
 
 # The two real instances, in the shapes they were written in.
@@ -95,7 +94,7 @@ struct Settings: View {
     }
 }
 SWIFT
-check "the archive list read while drawing is refused" "$(status_on "$LISTED")" "1"
+check_exit "the archive list read while drawing is refused" 1 status_on "$LISTED"
 check "and the refusal names the file and the line" \
     "$(run_on "$LISTED" | grep -c 'Settings.swift:5')" "1"
 check "and names the rule, which forbids something the others do not" \
@@ -137,7 +136,7 @@ struct Pane: View {
     }
 }
 SWIFT
-check "a computed property the body reads is part of drawing" "$(status_on "$COMPUTED")" "1"
+check_exit "a computed property the body reads is part of drawing" 1 status_on "$COMPUTED"
 
 BUILDER="$WORK/drawing-builder"
 mkdir -p "$BUILDER"
@@ -150,7 +149,7 @@ struct Pane: View {
     }
 }
 SWIFT
-check "a function that returns some View is part of drawing" "$(status_on "$BUILDER")" "1"
+check_exit "a function that returns some View is part of drawing" 1 status_on "$BUILDER"
 
 LABEL="$WORK/drawing-label"
 mkdir -p "$LABEL"
@@ -181,15 +180,15 @@ struct Pane: View {
     }
 }
 SWIFT
-check "a brace inside a string does not end the body early" "$(status_on "$BRACE")" "1"
+check_exit "a brace inside a string does not end the body early" 1 status_on "$BRACE"
 
 for MODIFIER in 'task' 'onAppear' 'onChange(of: tick)'; do
     SAFE="$WORK/drawing-$(printf '%s' "$MODIFIER" | tr -cd 'A-Za-z')"
     mkdir -p "$SAFE"
     printf 'import SwiftUI\nstruct Pane: View {\n    var tick: Int\n    var restore: Restore\n    var body: some View {\n        Text("pane")\n            .%s {\n                _ = try? restore.archives()\n            }\n    }\n}\n' \
         "$MODIFIER" > "$SAFE/Pane.swift"
-    check "the same read inside .$MODIFIER runs once, not per redraw, so it is allowed" \
-        "$(status_on "$SAFE")" "0"
+    check_exit "the same read inside .$MODIFIER runs once, not per redraw, so it is allowed" \
+        0 status_on "$SAFE"
 done
 
 SERVICE="$WORK/drawing-service"
@@ -200,8 +199,8 @@ struct Reader {
     var body: Data? { try? Data(contentsOf: URL(fileURLWithPath: "/tmp")) }
 }
 SWIFT
-check "a file declaring no view is not drawing, whatever its members are called" \
-    "$(status_on "$SERVICE")" "0"
+check_exit "a file declaring no view is not drawing, whatever its members are called" \
+    0 status_on "$SERVICE"
 
 MENTION="$WORK/drawing-mention"
 mkdir -p "$MENTION"
@@ -214,7 +213,7 @@ struct Pane: View {
     }
 }
 SWIFT
-check "a comment inside a body naming a reader is not a finding" "$(status_on "$MENTION")" "0"
+check_exit "a comment inside a body naming a reader is not a finding" 0 status_on "$MENTION"
 
 # ---------------------------------------------------------------------------
 # A clean tree.
@@ -247,7 +246,7 @@ check "the send gate rule is still declared" \
 check "the batched client read rule is still declared (ovation#497)" \
     "$(printf '%s\n' "$FORBIDDEN" | grep -c -F -x '.client?.')" "1"
 
-check "a tree with no floating point types passes" "$(status_on "$CLEAN")" "0"
+check_exit "a tree with no floating point types passes" 0 status_on "$CLEAN"
 check "and it says how many files it actually looked at" \
     "$(run_on "$CLEAN" | grep -c 'scanned 2')" "1"
 
@@ -259,7 +258,7 @@ for TYPE in $FORBIDDEN; do
     BAD="$WORK/bad-$TYPE"
     mkdir -p "$BAD"
     printf 'struct Charge {\n    let amount: %s\n}\n' "$TYPE" > "$BAD/Charge.swift"
-    check "a $TYPE in the sources is refused" "$(status_on "$BAD")" "1"
+    check_exit "a $TYPE in the sources is refused" 1 status_on "$BAD"
 done
 
 # ---------------------------------------------------------------------------
@@ -276,16 +275,16 @@ PUNCT="$WORK/bad-multiline-call"
 mkdir -p "$PUNCT"
 printf 'enum Sneaky {\n    static func make() throws -> GmailAuthManager {\n        try GmailAuthManager(\n            credentialsDirectory: URL(filePath: "/tmp"), scopes: ["s"])\n    }\n}\n' \
     > "$PUNCT/Sneaky.swift"
-check "a construction whose opening paren ends the line is still refused" \
-    "$(status_on "$PUNCT")" "1"
+check_exit "a construction whose opening paren ends the line is still refused" \
+    1 status_on "$PUNCT"
 check "and the refusal names the Gmail rule rather than another" \
     "$(run_on "$PUNCT" | grep -c '^a second Gmail call site: ')" "1"
 
 ALLOWED="$WORK/allowed-gmail-call-site"
 mkdir -p "$ALLOWED/Mail"
 cp "$PUNCT/Sneaky.swift" "$ALLOWED/Mail/OvationGmail.swift"
-check "and the one call site named in the allowlist is not refused" \
-    "$(status_on "$ALLOWED" "Mail/OvationGmail.swift : a second Gmail call site # the one call site")" "0"
+check_exit "and the one call site named in the allowlist is not refused" \
+    0 status_on "$ALLOWED" "Mail/OvationGmail.swift : a second Gmail call site # the one call site"
 
 BAD="$WORK/bad-Double"
 check "the refusal names the file and the line" \
@@ -315,31 +314,31 @@ struct Money {
     let cents: Int64 // never a Double
 }
 SWIFT
-check "a mention in a line comment is not a finding" "$(status_on "$COMMENTS")" "0"
+check_exit "a mention in a line comment is not a finding" 0 status_on "$COMMENTS"
 
 TRAILING="$WORK/trailing"
 mkdir -p "$TRAILING"
 printf 'let amount: Double = 1 // a comment\n' > "$TRAILING/Bad.swift"
-check "code before a comment on the same line is still scanned" \
-    "$(status_on "$TRAILING")" "1"
+check_exit "code before a comment on the same line is still scanned" \
+    1 status_on "$TRAILING"
 
 IDENT="$WORK/identifiers"
 mkdir -p "$IDENT"
 printf 'struct DoubleEntryLedger {\n    let myDoubleCheck: Int64\n    let floatingDock: Int64\n}\n' \
     > "$IDENT/Ledger.swift"
-check "a longer identifier that merely contains the word is not a finding" \
-    "$(status_on "$IDENT")" "0"
+check_exit "a longer identifier that merely contains the word is not a finding" \
+    0 status_on "$IDENT"
 
 # ---------------------------------------------------------------------------
 # NOTHING SCANNED IS NOT A PASS (L98).
 # ---------------------------------------------------------------------------
 EMPTY="$WORK/empty"
 mkdir -p "$EMPTY"
-check "a root holding no Swift files refuses rather than passing" "$(status_on "$EMPTY")" "2"
+check_exit "a root holding no Swift files refuses rather than passing" 2 status_on "$EMPTY"
 check "and says that it scanned nothing" \
     "$(run_on "$EMPTY" | grep -c 'no Swift files')" "1"
-check "a root that is not there refuses with its own exit code" \
-    "$(status_on "$WORK/not-here")" "2"
+check_exit "a root that is not there refuses with its own exit code" \
+    2 status_on "$WORK/not-here"
 
 # ---------------------------------------------------------------------------
 # The allowlist. An entry names a FILE AND THE RULE it is exempt from
@@ -356,22 +355,22 @@ ALLOWED="$WORK/allowed"
 mkdir -p "$ALLOWED"
 printf 'let progress: Double = 0\n' > "$ALLOWED/Animation.swift"
 printf 'struct Money { let cents: Int64 }\n' > "$ALLOWED/Money.swift"
-check "an allowlisted file and rule with a written reason is not reported" \
-    "$(status_on "$ALLOWED" "Animation.swift : floating point money # a SwiftUI animation fraction, never money")" "0"
-check "an allowlist entry with no reason is refused" \
-    "$(status_on "$ALLOWED" "Animation.swift : floating point money")" "3"
-check "an allowlist entry naming a file that is not there is refused" \
-    "$(status_on "$ALLOWED" "Gone.swift : floating point money # a reason for a file that no longer exists")" "3"
+check_exit "an allowlisted file and rule with a written reason is not reported" \
+    0 status_on "$ALLOWED" "Animation.swift : floating point money # a SwiftUI animation fraction, never money"
+check_exit "an allowlist entry with no reason is refused" \
+    3 status_on "$ALLOWED" "Animation.swift : floating point money"
+check_exit "an allowlist entry naming a file that is not there is refused" \
+    3 status_on "$ALLOWED" "Gone.swift : floating point money # a reason for a file that no longer exists"
 
 # AN ENTRY NAMING NO RULE IS REFUSED, rather than read as covering every rule,
 # which is the reading this issue was filed against.
-check "an allowlist entry naming a file but no rule is refused" \
-    "$(status_on "$ALLOWED" "Animation.swift # a SwiftUI animation fraction, never money")" "3"
+check_exit "an allowlist entry naming a file but no rule is refused" \
+    3 status_on "$ALLOWED" "Animation.swift # a SwiftUI animation fraction, never money"
 check "and the refusal says the entry names no rule" \
     "$(run_on "$ALLOWED" "Animation.swift # a SwiftUI animation fraction, never money" \
         | grep -c "^  the allowlist entry 'Animation.swift' names no rule")" "1"
-check "an allowlist entry naming a rule that does not exist is refused" \
-    "$(status_on "$ALLOWED" "Animation.swift : floating money # a misspelt rule")" "3"
+check_exit "an allowlist entry naming a rule that does not exist is refused" \
+    3 status_on "$ALLOWED" "Animation.swift : floating money # a misspelt rule"
 check "and the refusal lists the rules an entry can name" \
     "$(run_on "$ALLOWED" "Animation.swift : floating money # a misspelt rule" \
         | grep -c '^  the rules are: floating point money, ')" "1"
@@ -381,8 +380,8 @@ check "and the refusal lists the rules an entry can name" \
 MIXED="$WORK/allowed-mixed"
 mkdir -p "$MIXED"
 printf 'let progress: Double = 0\nlet zone = TimeZone.current\n' > "$MIXED/Animation.swift"
-check "an exemption from one rule does not exempt the file from another" \
-    "$(status_on "$MIXED" "Animation.swift : floating point money # a SwiftUI animation fraction, never money")" "1"
+check_exit "an exemption from one rule does not exempt the file from another" \
+    1 status_on "$MIXED" "Animation.swift : floating point money # a SwiftUI animation fraction, never money"
 check "and the rule still applying is the one reported" \
     "$(run_on "$MIXED" "Animation.swift : floating point money # a SwiftUI animation fraction, never money" \
         | grep -c '^  Animation.swift:2: TimeZone.current (ambient calendar)$')" "1"
@@ -399,8 +398,8 @@ mkdir -p "$EVERYTHING"
 printf 'let progress: Double = 0\n' > "$EVERYTHING/Animation.swift"
 EVERY_RULE="$([ -x "./$TARGET" ] && "./$TARGET" --list-rules 2>/dev/null \
     | sed 's/^\(.*\)$/Animation.swift : \1 # the only file, and it is exempt from this rule/')"
-check "an allowlist covering every rule for every file refuses rather than passing" \
-    "$(status_on "$EVERYTHING" "$EVERY_RULE")" "2"
+check_exit "an allowlist covering every rule for every file refuses rather than passing" \
+    2 status_on "$EVERYTHING" "$EVERY_RULE"
 
 check "a refused allowlist says which entry it refused" \
     "$(OVATION_CONSTRUCT_SCAN_ROOT="$ALLOWED" \
@@ -422,8 +421,8 @@ check "a refused allowlist says which entry it refused" \
 PALETTE="$WORK/palette"
 mkdir -p "$PALETTE"
 cp "Ovation/Roster/OvationPalette.swift" "$PALETTE/"
-check "the exempted palette is genuinely found, so this case measures something" \
-    "$(status_on "$PALETTE" "")" "1"
+check_exit "the exempted palette is genuinely found, so this case measures something" \
+    1 status_on "$PALETTE" ""
 check "and it trips no OTHER rule, which is what its exemption silently covers" \
     "$(OVATION_CONSTRUCT_SCAN_ROOT="$PALETTE" OVATION_CONSTRUCT_ALLOWLIST="" \
         "./$TARGET" 2>&1 | grep -cE 'ambient calendar|cooperative pool')" "0"
@@ -463,11 +462,11 @@ while IFS= read -r SNIPPET; do
         "$SNIPPET" > "$VSACTION/Pane.swift"
     printf 'import SwiftData\n@ModelActor actor Allocator {\n    func write() {\n        _ = %s\n    }\n}\n' \
         "$SNIPPET" > "$VSPLAIN/Allocator.swift"
-    check "$SNIPPET in a view's body is refused" "$(status_on "$VSBODY")" "1"
-    check "$SNIPPET in a Button's ACTION is refused too, where the drawing rule allows it" \
-        "$(status_on "$VSACTION")" "1"
-    check "$SNIPPET in an actor, which is where it belongs, is allowed" \
-        "$(status_on "$VSPLAIN")" "0"
+    check_exit "$SNIPPET in a view's body is refused" 1 status_on "$VSBODY"
+    check_exit "$SNIPPET in a Button's ACTION is refused too, where the drawing rule allows it" \
+        1 status_on "$VSACTION"
+    check_exit "$SNIPPET in an actor, which is where it belongs, is allowed" \
+        0 status_on "$VSPLAIN"
 done <<< "$VIEWSTORE"
 
 # The shape ovation#133 is actually about, written out whole: a press that
@@ -489,8 +488,8 @@ struct InvoiceScreen: View {
     }
 }
 SWIFT
-check "a press that writes the invoice through its own context is refused" \
-    "$(status_on "$ISSUING")" "1"
+check_exit "a press that writes the invoice through its own context is refused" \
+    1 status_on "$ISSUING"
 check "and the refusal names the file and the line the context was made on" \
     "$(run_on "$ISSUING" | grep -c 'InvoiceScreen.swift:8')" "1"
 check "and names the rule, which forbids something the others do not" \
@@ -514,13 +513,13 @@ actor InvoiceNumberAllocator {
     }
 }
 SWIFT
-check "an actor doing exactly this work is not refused, so the scope is real" \
-    "$(status_on "$NOTAVIEW")" "0"
+check_exit "an actor doing exactly this work is not refused, so the scope is real" \
+    0 status_on "$NOTAVIEW"
 
 # ---------------------------------------------------------------------------
 # The real root, once, so the seam is not the only thing ever measured (L246).
 # ---------------------------------------------------------------------------
-check "Ovation's own sources pass, scanned at the real default root" \
-    "$("./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+check_exit "Ovation's own sources pass, scanned at the real default root" \
+    0 "./$TARGET"
 
 harness_end

@@ -23,7 +23,7 @@ harness_temp_dir WORK
 export OVATION_FONT_OFFLINE=1
 run_on() { "./$TARGET" "$1" 2>&1; }
 out_of() { "./$TARGET" "$1" 2>/dev/null; }
-status_on() { "./$TARGET" "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+status_on() { "./$TARGET" "$1"; }
 
 # A real woff2 file begins `wOF2`. These fixtures are that magic followed by
 # filler, which is everything the script actually verifies.
@@ -57,8 +57,8 @@ cat > "$WORK/two-subsets.css" <<CSS
   unicode-range: U+0000-00FF;
 }
 CSS
-check "a stylesheet with several subsets embeds successfully" \
-    "$(status_on "$WORK/two-subsets.css")" "0"
+check_exit "a stylesheet with several subsets embeds successfully" \
+    0 status_on "$WORK/two-subsets.css"
 check "and emits exactly one face, not one per alphabet" \
     "$(out_of "$WORK/two-subsets.css" | grep -c '@font-face')" "1"
 check "and the face it emitted is a data URL, not a link" \
@@ -109,7 +109,7 @@ cat > "$WORK/no-latin.css" <<CSS
   src: url($WORK/archivo-cyrillic.woff2) format('woff2');
 }
 CSS
-check "a stylesheet with no latin subset is refused" "$(status_on "$WORK/no-latin.css")" "1"
+check_exit "a stylesheet with no latin subset is refused" 1 status_on "$WORK/no-latin.css"
 check "and it says nothing was emitted rather than embedding another alphabet" \
     "$(run_on "$WORK/no-latin.css" | grep -c 'another alphabet')" "1"
 check "and it emits no font-face at all" \
@@ -125,8 +125,8 @@ cat > "$WORK/unlabelled.css" <<CSS
   src: url($WORK/archivo-latin.woff2) format('woff2');
 }
 CSS
-check "faces with no subset comment at all are refused" \
-    "$(status_on "$WORK/unlabelled.css")" "1"
+check_exit "faces with no subset comment at all are refused" \
+    1 status_on "$WORK/unlabelled.css"
 check "and NOT as a family with no latin subset, which is different work" \
     "$(run_on "$WORK/unlabelled.css" | grep -c 'not one carries a subset comment')" "1"
 
@@ -143,7 +143,7 @@ cat > "$WORK/not-woff2.css" <<CSS
   src: url($WORK/archivo-truetype.bin) format('woff2');
 }
 CSS
-check "a payload that is not woff2 is refused" "$(status_on "$WORK/not-woff2.css")" "1"
+check_exit "a payload that is not woff2 is refused" 1 status_on "$WORK/not-woff2.css"
 check "and the refusal says WHY it is not merely emitted" \
     "$(run_on "$WORK/not-woff2.css" | grep -c 'still looks finished')" "1"
 
@@ -163,8 +163,8 @@ cat > "$WORK/two-files.css" <<CSS
   src: url($WORK/plex-latin.woff2) format('woff2');
 }
 CSS
-check "one family, weight and style served by two files is refused" \
-    "$(status_on "$WORK/two-files.css")" "1"
+check_exit "one family, weight and style served by two files is refused" \
+    1 status_on "$WORK/two-files.css"
 check "and it says to narrow the request rather than choosing one" \
     "$(run_on "$WORK/two-files.css" | grep -c 'nobody chose')" "1"
 
@@ -186,11 +186,11 @@ CSS
 # 1, because the fetch then really happens and can fail on its own. A test
 # satisfied by any failure is satisfied by its own fixture failing (L140), so the
 # refusal is identified by what it SAYS.
-check "a remote payload is REFUSED offline rather than downloaded" \
-    "$(status_on "$WORK/remote.css")" "1"
+check_exit "a remote payload is REFUSED offline rather than downloaded" \
+    1 status_on "$WORK/remote.css"
 check "and it names the reason it refused rather than a network error" \
     "$(run_on "$WORK/remote.css" | grep -c 'OVATION_FONT_OFFLINE is set')" "1"
 
-check "a stylesheet that is not there cannot be read" "$(status_on "$WORK/nowhere.css")" "2"
+check_exit "a stylesheet that is not there cannot be read" 2 status_on "$WORK/nowhere.css"
 
 harness_end

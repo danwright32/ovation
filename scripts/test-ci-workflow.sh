@@ -25,7 +25,7 @@ require_target "$TARGET"
 harness_temp_dir WORK
 
 run_check() { OVATION_WORKFLOW_DIR="$1" "./$TARGET" 2>&1; }
-status_of() { run_check "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+status_of() { run_check "$1"; }
 
 # EDIT IN PLACE, PORTABLY. `sed -i ''` is the BSD form and GNU sed reads the
 # empty string as a FILE to edit, so on Linux it fails with "can't read : No such
@@ -77,12 +77,12 @@ YML
 # 1. THE PASSING CASE HAS TO BE PRODUCED FIRST, or every refusal below is
 #    satisfied by a check that refuses everything (L159).
 G="$WORK/good"; good_workflow "$G"
-check "a workflow carrying all three passes" "$(status_of "$G")" "0"
+check_exit "a workflow carrying all three passes" 0 status_of "$G"
 
 # 2. No workflow directory at all. This is the state ovation#143 was filed about,
 #    and it is a refusal rather than a cannot measure: the repository decided to
 #    have CI, so its absence is a fault and not an unanswerable question.
-check "no workflow directory is refused" "$(status_of "$WORK/nothing")" "1"
+check_exit "no workflow directory is refused" 1 status_of "$WORK/nothing"
 check "and it says there is no CI rather than naming a file" \
     "$(run_check "$WORK/nothing" | grep -ci 'no workflow')" "1"
 
@@ -90,14 +90,14 @@ check "and it says there is no CI rather than naming a file" \
 #    holds a runner slot for all of it.
 B1="$WORK/notimeout"; good_workflow "$B1"
 sed_in_place "$B1/ci.yml" '/timeout-minutes: 20/d' 
-check "a job with no timeout is refused" "$(status_of "$B1")" "1"
+check_exit "a job with no timeout is refused" 1 status_of "$B1"
 check "and it names the job that has none" \
     "$(run_check "$B1" | grep -c 'shell-suites')" "1"
 
 # 4. An action on a moving tag rather than a commit.
 B2="$WORK/unpinned"; good_workflow "$B2"
 sed_in_place "$B2/ci.yml" 's|actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683|actions/checkout@v4|' 
-check "an action pinned to a tag rather than a commit is refused" "$(status_of "$B2")" "1"
+check_exit "an action pinned to a tag rather than a commit is refused" 1 status_of "$B2"
 # BOTH uses, not the first one. A guard that reports the first instance teaches
 # whoever fixes it that there was one (L30).
 check "and it names every unpinned use, not just the first" \
@@ -107,7 +107,7 @@ check "and it names every unpinned use, not just the first" \
 #    it is the one failure that leaves a green tick on the board (L400).
 B3="$WORK/nobuild"; good_workflow "$B3"
 sed_in_place "$B3/ci.yml" 's|bash scripts/build-products.sh && bash scripts/run-tests.sh|bash scripts/run-tests.sh|' 
-check "a workflow that never builds both configurations is refused" "$(status_of "$B3")" "1"
+check_exit "a workflow that never builds both configurations is refused" 1 status_of "$B3"
 check "and it quotes the command it expected to find" \
     "$(run_check "$B3" | grep -c 'build-products.sh')" "1"
 
@@ -126,7 +126,7 @@ awk '!done && /bash scripts\/select-xcode.sh/ { done = 1; next } { print }' "$B4
     && mv "$B4/ci.yml.tmp" "$B4/ci.yml"
 check "the fixture really lost one job's selection" \
     "$(grep -c 'select-xcode.sh' "$B4/ci.yml")" "1"
-check "a macOS job that does not select the pinned Xcode is refused" "$(status_of "$B4")" "1"
+check_exit "a macOS job that does not select the pinned Xcode is refused" 1 status_of "$B4"
 check "and it names that job" \
     "$(run_check "$B4" | grep -c 'NO PINNED XCODE: shell-suites')" "1"
 # A COMMENT NAMING THE SELECTOR IS NOT A STEP RUNNING IT: comment lines are
@@ -139,7 +139,7 @@ check "a selection that is only a comment is refused in every Mac job" \
 
 # 6. AND THE REAL WORKFLOW PASSES ITS OWN CHECK. Everything above is a fixture;
 #    this is the assertion that goes red the day the real file drifts.
-check "this repository's own workflow passes" "$(status_of ".github/workflows")" "0"
+check_exit "this repository's own workflow passes" 0 status_of ".github/workflows"
 
 # 7. It reports what it examined, so a run over an empty directory cannot read
 #    like a thorough one (L98).
@@ -150,7 +150,7 @@ check "and how many workflow files" "$(printf '%s' "$OUT" | grep -cE '[0-9]+ wor
 # 8. A workflow directory that exists and holds no workflow is its own refusal,
 #    not a pass over zero files.
 E="$WORK/empty"; mkdir -p "$E"
-check "a workflow directory holding no workflow is refused" "$(status_of "$E")" "1"
+check_exit "a workflow directory holding no workflow is refused" 1 status_of "$E"
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +166,7 @@ cat >> "$BAD/ci.yml" <<'YML'
           echo "inside the block"
 this line is not indented and is not a key
 YML
-check "a workflow file that does not parse is refused" "$(status_of "$BAD")" "1"
+check_exit "a workflow file that does not parse is refused" 1 status_of "$BAD"
 check "and it says so in those words, rather than as a missing job or timeout" \
     "$(run_check "$BAD" | grep -ci 'does not parse')" "1"
 check "and it says what an unparseable workflow actually does" \
@@ -229,7 +229,7 @@ inventory_with() {
 run_with_inventory() {
     OVATION_SCRIPT_ROLES_TSV="$2" OVATION_WORKFLOW_DIR="$1" "./$TARGET" 2>&1
 }
-status_with_inventory() { run_with_inventory "$1" "$2" >/dev/null 2>&1; printf '%s' "$?"; }
+status_with_inventory() { run_with_inventory "$1" "$2"; }
 
 WF_NAMES="$WORK/wf-names-a-check"; workflow_naming "$WF_NAMES" "check-design-draws.sh"
 
@@ -237,15 +237,15 @@ WF_NAMES="$WORK/wf-names-a-check"; workflow_naming "$WF_NAMES" "check-design-dra
 # refuses everything it is shown (L159).
 INV_WORKFLOW="$WORK/inv-workflow.tsv"
 inventory_with "$INV_WORKFLOW" "check-design-draws.sh" "workflow"
-check "a check a workflow runs, declared as run by a workflow, passes" \
-    "$(status_with_inventory "$WF_NAMES" "$INV_WORKFLOW")" "0"
+check_exit "a check a workflow runs, declared as run by a workflow, passes" \
+    0 status_with_inventory "$WF_NAMES" "$INV_WORKFLOW"
 
 # The divergence itself: the same workflow, the same check, declared as
 # something a PERSON runs when a workflow is running it.
 INV_TOOL="$WORK/inv-tool.tsv"
 inventory_with "$INV_TOOL" "check-design-draws.sh" "tool"
-check "the same check declared as run by a person on demand is refused" \
-    "$(status_with_inventory "$WF_NAMES" "$INV_TOOL")" "1"
+check_exit "the same check declared as run by a person on demand is refused" \
+    1 status_with_inventory "$WF_NAMES" "$INV_TOOL"
 check "and the refusal names the script and the role it carries" \
     "$(run_with_inventory "$WF_NAMES" "$INV_TOOL" | grep -c "check-design-draws\.sh.*'tool'")" "1"
 
@@ -253,16 +253,16 @@ check "and the refusal names the script and the role it carries" \
 # different fact from a wrong role and gets its own sentence (L11).
 INV_SILENT="$WORK/inv-silent.tsv"
 printf '# A fixture inventory that declares something else entirely.\nrun-tests.sh\ttool\tA staged reason.\n' > "$INV_SILENT"
-check "a check a workflow runs that no inventory entry declares is refused" \
-    "$(status_with_inventory "$WF_NAMES" "$INV_SILENT")" "1"
+check_exit "a check a workflow runs that no inventory entry declares is refused" \
+    1 status_with_inventory "$WF_NAMES" "$INV_SILENT"
 check "and it says there is no entry, rather than quoting a role it did not find" \
     "$(run_with_inventory "$WF_NAMES" "$INV_SILENT" | grep -ci 'no inventory entry')" "1"
 
 # ONE SIDE OF A COMPARISON MISSING IS NOT A PASS (L345, L98). An inventory that
 # cannot be read leaves the question unanswered, and answering it anyway is a
 # tick over a comparison that never happened.
-check "an inventory that is not there is refused rather than passed over" \
-    "$(status_with_inventory "$WF_NAMES" "$WORK/no-such-inventory.tsv")" "1"
+check_exit "an inventory that is not there is refused rather than passed over" \
+    1 status_with_inventory "$WF_NAMES" "$WORK/no-such-inventory.tsv"
 
 # A NAME IN A COMMENT IS NOT A CHECK BEING RUN (L135). Both workflow files
 # explain themselves at length and name scripts while doing it, so a rule reading
@@ -272,8 +272,8 @@ WF_COMMENT="$WORK/wf-comment"; mkdir -p "$WF_COMMENT"
 good_workflow "$WF_COMMENT"
 sed_in_place "$WF_COMMENT/ci.yml" \
     's|^name: CI$|# Why check-design-draws.sh is not run here, at length.\nname: CI|'
-check "a check named only in a comment is not treated as one a workflow runs" \
-    "$(status_with_inventory "$WF_COMMENT" "$INV_SILENT")" "0"
+check_exit "a check named only in a comment is not treated as one a workflow runs" \
+    0 status_with_inventory "$WF_COMMENT" "$INV_SILENT"
 
 # IT SAYS HOW MANY IT COMPARED, because a comparison that found nothing to
 # compare passes exactly like one that compared eight and agreed (L100, L98).
@@ -316,7 +316,7 @@ twice_workflow "$T1" "on:
   push:
     branches: ['**']
   pull_request:"
-check "a workflow on pull requests and on push to every branch is refused" "$(status_of "$T1")" "1"
+check_exit "a workflow on pull requests and on push to every branch is refused" 1 status_of "$T1"
 check "and it names the file that runs twice" \
     "$(run_check "$T1" | grep -c 'RUNS TWICE PER PULL REQUEST COMMIT: ci.yml')" "1"
 
@@ -324,11 +324,11 @@ T2="$WORK/twice-unfiltered"
 twice_workflow "$T2" "on:
   push:
   pull_request:"
-check "a push with no branch filter beside pull requests is refused" "$(status_of "$T2")" "1"
+check_exit "a push with no branch filter beside pull requests is refused" 1 status_of "$T2"
 
 T3="$WORK/twice-inline"
 twice_workflow "$T3" "on: [push, pull_request]"
-check "the one line spelling of the same two triggers is refused" "$(status_of "$T3")" "1"
+check_exit "the one line spelling of the same two triggers is refused" 1 status_of "$T3"
 
 T4="$WORK/once-block-list"
 twice_workflow "$T4" "on:
@@ -336,6 +336,6 @@ twice_workflow "$T4" "on:
     branches:
       - main
   pull_request:"
-check "push to main written as a block list, beside pull requests, passes" "$(status_of "$T4")" "0"
+check_exit "push to main written as a block list, beside pull requests, passes" 0 status_of "$T4"
 
 harness_end

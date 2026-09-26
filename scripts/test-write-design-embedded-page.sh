@@ -29,8 +29,8 @@ fresh() {
     rm -rf "$at" && mkdir -p "$at" && cp -R docs/design/. "$at/"
     printf '%s' "$at"
 }
-write_status() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}" >/dev/null 2>&1; printf '%s' "$?"; }
-check_status() { OVATION_DESIGN_ROOT="$1" python3 "$CHECKER" >/dev/null 2>&1; printf '%s' "$?"; }
+write_status() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}"; }
+check_status() { OVATION_DESIGN_ROOT="$1" python3 "$CHECKER"; }
 check_output() { OVATION_DESIGN_ROOT="$1" python3 "$CHECKER" 2>&1; }
 
 # The page inside the host, decoded independently of the scripts under test.
@@ -59,21 +59,21 @@ PYDAMAGE
 
 # 1. THE COMMITTED RECORD IS IN STEP. The case that goes red the day somebody
 #    edits invoice-pdf.html and does not run the writer.
-check "the committed review-send.html carries the committed invoice PDF design" \
-    "$(check_status docs/design)" "0"
+check_exit "the committed review-send.html carries the committed invoice PDF design" \
+    0 check_status docs/design
 
 # 2. DRIFT IS FOUND, AND THE WRITER IS THE REMEDY.
 D2="$(fresh drift)"
 damage "$D2" invoice-pdf.html 'settled ? "Paid in full" : "Amount due"' 'settled ? "Paid in full" : "Amount owed"'
-check "a change to the design's page builder is drift in the host" "$(check_status "$D2")" "1"
-write_status "$D2" >/dev/null
-check "and after the writer runs, the checker passes" "$(check_status "$D2")" "0"
+check_exit "a change to the design's page builder is drift in the host" 1 check_status "$D2"
+write_status "$D2" >/dev/null 2>&1
+check_exit "and after the writer runs, the checker passes" 0 check_status "$D2"
 check "and the change is really inside the embedded page" "$(count_in_page "$D2" 'Amount owed')" "1"
 
 # 3. A DECLARATION BELONGS TO THE FILE THAT MAKES IT. invoice-pdf.html says it
 #    carries none of the shell; carried into the host, that sentence would read as
 #    review-send.html declaring it, and the shell check would judge the wrong file.
-D3="$(fresh markers)"; write_status "$D3" >/dev/null
+D3="$(fresh markers)"; write_status "$D3" >/dev/null 2>&1
 check "no declaration marker is carried into the embedded page" \
     "$(count_in_page "$D3" 'NOT SHELLED:')" "0"
 
@@ -93,10 +93,10 @@ check "the builder that tolerates a line with no hours is the one the preview ru
 # 7. EACH ANCHOR THAT CANNOT BE FOUND IS REFUSED BY NAME (L100, L11).
 D7A="$(fresh noliteral)"
 damage "$D7A" review-send.html 'var PDF_PAGE = ' 'var PDF_PAGE_GONE = '
-check "a host with no embedded page is nothing to compare, not a pass" "$(check_status "$D7A")" "2"
+check_exit "a host with no embedded page is nothing to compare, not a pass" 2 check_status "$D7A"
 D7B="$(fresh nocut)"
 damage "$D7B" invoice-pdf.html 'var bar = document.getElementById("fixbar");' 'var bar = null;'
-check "a design whose chooser cannot be found is refused, not guessed at" "$(write_status "$D7B")" "1"
+check_exit "a design whose chooser cannot be found is refused, not guessed at" 1 write_status "$D7B"
 D7C="$(fresh notail)"
 python3 - "$D7C/review-send.html" <<'PYTAIL'
 import json, sys
@@ -109,13 +109,13 @@ for i, line in enumerate(lines):
         lines[i] = "var PDF_PAGE = " + json.dumps(page).replace("</", "<\\/") + ";"
 open(path, "w", encoding="utf-8").write("\n".join(lines))
 PYTAIL
-check "a host whose own invoice cannot be found is refused, never dropped" "$(write_status "$D7C")" "1"
+check_exit "a host whose own invoice cannot be found is refused, never dropped" 1 write_status "$D7C"
 
 # 8. --check REPORTS DRIFT WITHOUT WRITING.
 D8="$(fresh checkonly)"
 damage "$D8" invoice-pdf.html 'settled ? "Paid in full" : "Amount due"' 'settled ? "Paid in full" : "Amount owed"'
 BEFORE8="$(shasum -a 256 "$D8/review-send.html")"
-check "--check exits 3 on drift" "$(write_status "$D8" --check)" "3"
+check_exit "--check exits 3 on drift" 3 write_status "$D8" --check
 check "and writes nothing" "$([ "$BEFORE8" = "$(shasum -a 256 "$D8/review-send.html")" ] && echo unchanged || echo changed)" "unchanged"
 
 harness_end

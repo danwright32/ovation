@@ -343,8 +343,8 @@ check "and the claim that fired names the invoice with no Outstanding line" \
 judge "$WORK/no-such-file.html"
 check_rendered_status "a file that is not there is refused rather than passed" \
     "$(case_of "$WORK/no-such-file.html")" "2"
-check "and a browser that is not there answers cannot measure" \
-    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "and a browser that is not there answers cannot measure" \
+    3 env OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET"
 # AND IT SAYS SO IN THE WORDS, not only in its exit code (ovation#214). Every
 # other rendering check prints CANNOT MEASURE on this branch and this one printed
 # a bare sentence, so a reader of the output could not tell a run that measured

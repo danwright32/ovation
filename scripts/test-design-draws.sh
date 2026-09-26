@@ -257,8 +257,8 @@ printf 'enum OvationWindow {}\n' > "$WORK/no-minimum.swift"
 # AND NEVER AS "CANNOT MEASURE", which is exit 3, the answer this suite reads as
 # no browser at all: a tree missing the source then skipped every case and
 # reported healthy nothing (L11).
-check "a window source with no minimum is used wrongly, never a missing browser" \
-    "$(OVATION_WINDOW_SOURCE="$WORK/no-minimum.swift" python3 "$TARGET" docs/design/clients.html >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "a window source with no minimum is used wrongly, never a missing browser" \
+    2 env OVATION_WINDOW_SOURCE="$WORK/no-minimum.swift" python3 "$TARGET" docs/design/clients.html
 check "and it names the file it read" \
     "$(OVATION_WINDOW_SOURCE="$WORK/no-minimum.swift" python3 "$TARGET" docs/design/clients.html 2>&1 | grep -c 'no-minimum.swift')" "1"
 
@@ -266,17 +266,17 @@ check "and it names the file it read" \
 # NOTHING TO MEASURE IS NOT A PASS, and each way of having nothing is its own
 # outcome (L98, L11).
 # ---------------------------------------------------------------------------
-check "a named file that is not there is refused, never skipped" \
-    "$(python3 "$TARGET" "$WORK/nowhere.html" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "a named file that is not there is refused, never skipped" \
+    2 python3 "$TARGET" "$WORK/nowhere.html"
 check "and it says which file" \
     "$(python3 "$TARGET" "$WORK/nowhere.html" 2>&1 | grep -c 'no such design file')" "1"
-check "an empty design root cannot measure" \
-    "$(OVATION_DESIGN_ROOT="$WORK/nothing-here" python3 "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
-check "a width list that is not a list of widths is used wrongly" \
-    "$(OVATION_DESIGN_WIDTHS='wide' python3 "$TARGET" docs/design/invoice-pdf.html >/dev/null 2>&1; printf '%s' "$?")" "2"
-check "a browser that is not there cannot measure, and is not a pass" \
-    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" \
-        docs/design/invoice-pdf.html >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "an empty design root cannot measure" \
+    2 env OVATION_DESIGN_ROOT="$WORK/nothing-here" python3 "$TARGET"
+check_exit "a width list that is not a list of widths is used wrongly" \
+    2 env OVATION_DESIGN_WIDTHS='wide' python3 "$TARGET" docs/design/invoice-pdf.html
+check_exit "a browser that is not there cannot measure, and is not a pass" \
+    3 env OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" \
+        docs/design/invoice-pdf.html
 check "and says so rather than reporting health" \
     "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" \
         docs/design/invoice-pdf.html 2>&1 | grep -c 'CANNOT MEASURE')" "1"
@@ -336,9 +336,9 @@ check "a NAMED browser that is not there is refused, never fallen back from" \
 BAD_BROWSER="$WORK/refuses.sh"
 printf '#!/bin/sh\necho "the browser is unhappy about something" >&2\nexit 6\n' > "$BAD_BROWSER"
 chmod +x "$BAD_BROWSER"
-check "a browser that renders nothing cannot measure" \
-    "$(OVATION_HEADLESS_BROWSER="$BAD_BROWSER" python3 "$TARGET" \
-        docs/design/invoice-pdf.html >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "a browser that renders nothing cannot measure" \
+    3 env OVATION_HEADLESS_BROWSER="$BAD_BROWSER" python3 "$TARGET" \
+        docs/design/invoice-pdf.html
 check "and the browser's own complaint is in the message" \
     "$(OVATION_HEADLESS_BROWSER="$BAD_BROWSER" python3 "$TARGET" \
         docs/design/invoice-pdf.html 2>&1 | grep -c 'the browser is unhappy about something')" "1"
@@ -349,9 +349,9 @@ check "and so is the exit code it left" \
 SILENT_BROWSER="$WORK/silent.sh"
 printf '#!/bin/sh\nexit 0\n' > "$SILENT_BROWSER"
 chmod +x "$SILENT_BROWSER"
-check "a browser that says nothing at all still cannot measure" \
-    "$(OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
-        docs/design/invoice-pdf.html >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "a browser that says nothing at all still cannot measure" \
+    3 env OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
+        docs/design/invoice-pdf.html
 check "and the message says it said nothing rather than leaving a blank" \
     "$(OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
         docs/design/invoice-pdf.html 2>&1 | grep -c 'and said nothing')" "1"

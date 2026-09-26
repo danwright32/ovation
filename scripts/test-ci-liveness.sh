@@ -31,28 +31,28 @@ judge() {
     OVATION_CI_NEWEST_RUN="${4:-success}" \
         "./$TARGET" 2>&1
 }
-status_of() { judge "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+status_of() { judge "$@"; }
 says() { if grep -qiF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. THE HEALTHY CASE. Everything that landed has been judged.
 # ---------------------------------------------------------------------------
-check "a commit followed by a successful run passes" \
-    "$(status_of "2026-09-09T11:00:00Z" "2026-09-09T10:00:00Z")" "0"
+check_exit "a commit followed by a successful run passes" \
+    0 status_of "2026-09-09T11:00:00Z" "2026-09-09T10:00:00Z"
 
 # AND A QUIET FORTNIGHT IS STILL HEALTHY. This is the case that makes the whole
 # check worth having rather than noise: nobody has pushed for two weeks, so there
 # is nothing for CI to have run, and a rule keyed on "no run for N days" would be
 # raising an alarm about a person taking a holiday.
-check "two quiet weeks after a judged commit is not a problem" \
-    "$(status_of "2026-08-26T11:00:00Z" "2026-08-26T10:00:00Z")" "0"
+check_exit "two quiet weeks after a judged commit is not a problem" \
+    0 status_of "2026-08-26T11:00:00Z" "2026-08-26T10:00:00Z"
 
 # ---------------------------------------------------------------------------
 # 2. THE CASE IT EXISTS FOR. Work has landed and nothing has judged it.
 # ---------------------------------------------------------------------------
 OUT3="$(judge "2026-09-01T10:00:00Z" "2026-09-05T10:00:00Z")"
-check "a commit no successful run has followed is BLOCKED" \
-    "$(status_of "2026-09-01T10:00:00Z" "2026-09-05T10:00:00Z")" "1"
+check_exit "a commit no successful run has followed is BLOCKED" \
+    1 status_of "2026-09-01T10:00:00Z" "2026-09-05T10:00:00Z"
 check "and it says how old the unjudged commit is" "$(says "$OUT3" "hour(s) old")" "yes"
 check "and it names both possibilities rather than asserting one" \
     "$(says "$OUT3" "may have stopped triggering")" "yes"
@@ -62,10 +62,10 @@ check "and it names both possibilities rather than asserting one" \
 #    the minutes between landing and going green, which is an alarm on the normal
 #    case (L36, L144).
 # ---------------------------------------------------------------------------
-check "a commit inside the grace period passes, because a run may be in flight" \
-    "$(status_of "2026-09-08T10:00:00Z" "2026-09-09T06:00:00Z")" "0"
-check "and the same commit past the grace period is blocked" \
-    "$(status_of "2026-09-08T10:00:00Z" "2026-09-09T06:00:00Z" 4)" "1"
+check_exit "a commit inside the grace period passes, because a run may be in flight" \
+    0 status_of "2026-09-08T10:00:00Z" "2026-09-09T06:00:00Z"
+check_exit "and the same commit past the grace period is blocked" \
+    1 status_of "2026-09-08T10:00:00Z" "2026-09-09T06:00:00Z" 4
 
 # ---------------------------------------------------------------------------
 # 4. NO SUCCESSFUL RUN AT ALL is the strongest form of the same fact, and it is
@@ -73,44 +73,44 @@ check "and the same commit past the grace period is blocked" \
 #    too rather than firing the moment CI is added.
 # ---------------------------------------------------------------------------
 OUT5="$(judge "" "2026-09-01T10:00:00Z" 24 none)"
-check "commits with no successful run ever is BLOCKED" \
-    "$(status_of "" "2026-09-01T10:00:00Z" 24 none)" "1"
+check_exit "commits with no successful run ever is BLOCKED" \
+    1 status_of "" "2026-09-01T10:00:00Z" 24 none
 check "and it says that none exists rather than naming a stale one" \
     "$(says "$OUT5" "no successful CI run exists at all")" "yes"
-check "a brand new commit with no run yet is inside the grace period" \
-    "$(status_of "" "2026-09-09T11:30:00Z" 24 none)" "0"
+check_exit "a brand new commit with no run yet is inside the grace period" \
+    0 status_of "" "2026-09-09T11:30:00Z" 24 none
 
 # ---------------------------------------------------------------------------
 # 5. CANNOT MEASURE IS NOT A PASS, and each cause has its own sentence, because
 #    a missing input and a stopped CI need opposite work (L11, L98).
 # ---------------------------------------------------------------------------
 OUT6="$(OVATION_CI_NOW="" OVATION_CI_LAST_SUCCESS="x" OVATION_CI_LAST_COMMIT="y" "./$TARGET" 2>&1)"
-check "no current time cannot be measured" \
-    "$(OVATION_CI_NOW="" OVATION_CI_LAST_COMMIT="y" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "no current time cannot be measured" \
+    2 env OVATION_CI_NOW="" OVATION_CI_LAST_COMMIT="y" "./$TARGET"
 check "and it says so rather than passing" "$(says "$OUT6" "CANNOT MEASURE")" "yes"
 
-check "no commit date cannot be measured either" \
-    "$(OVATION_CI_NOW="$NOW" OVATION_CI_LAST_COMMIT="" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "no commit date cannot be measured either" \
+    2 env OVATION_CI_NOW="$NOW" OVATION_CI_LAST_COMMIT="" "./$TARGET"
 
 OUT7="$(judge "2026-09-01T10:00:00Z" "not a date")"
-check "a commit date that will not parse cannot be measured" \
-    "$(status_of "2026-09-01T10:00:00Z" "not a date")" "2"
+check_exit "a commit date that will not parse cannot be measured" \
+    2 status_of "2026-09-01T10:00:00Z" "not a date"
 check "and it quotes the value it could not read" "$(says "$OUT7" "not a date")" "yes"
-check "a successful run date that will not parse cannot be measured" \
-    "$(status_of "gibberish" "2026-09-05T10:00:00Z")" "2"
+check_exit "a successful run date that will not parse cannot be measured" \
+    2 status_of "gibberish" "2026-09-05T10:00:00Z"
 
 # A date that will not parse must never be treated as very old, which is the
 # shape that turns an unreadable value into a confident alarm (L50).
 check "an unparseable run date does not become a BLOCKED verdict" \
-    "$([ "$(status_of "gibberish" "2026-09-05T10:00:00Z")" = "1" ] && echo blocked || echo not-blocked)" \
+    "$(said="$(status_of "gibberish" "2026-09-05T10:00:00Z" 2>&1)"; [ "$?" = "1" ] && echo "blocked: $said" || echo not-blocked)" \
     "not-blocked"
 
 # ---------------------------------------------------------------------------
 # 6. THE OFFSETS ARE READ, not assumed to be Z. A workflow reading a local time
 #    from git would otherwise be judged as if it were UTC and land hours out.
 # ---------------------------------------------------------------------------
-check "an offset date is understood rather than refused" \
-    "$(status_of "2026-09-09T07:00:00-04:00" "2026-09-09T06:00:00-04:00")" "0"
+check_exit "an offset date is understood rather than refused" \
+    0 status_of "2026-09-09T07:00:00-04:00" "2026-09-09T06:00:00-04:00"
 
 # ---------------------------------------------------------------------------
 # 7. A RED BUILD IS NOT A LATE BUILD (ovation#212). Measured 2026-09-11: this
@@ -129,8 +129,8 @@ YOUNG="2026-09-09T10:00:00Z"
 # the grace still applies is satisfied by a fixture where FAILING could not fire
 # (L159).
 OUT_RED="$(judge "$LAST_OK" "$YOUNG" 24 failure)"
-check "a newest run that FAILED is reported at once, inside the grace period" \
-    "$(status_of "$LAST_OK" "$YOUNG" 24 failure)" "3"
+check_exit "a newest run that FAILED is reported at once, inside the grace period" \
+    3 status_of "$LAST_OK" "$YOUNG" 24 failure
 check "and it says FAILING, a fourth outcome, not BLOCKED" \
     "$(says "$OUT_RED" "FAILING")" "yes"
 check "and it does not borrow BLOCKED's sentence about CI having stopped" \
@@ -140,44 +140,44 @@ check "and it names the conclusion it read, so the log says what was measured" \
 
 # A run can end red without the word failure. A timeout and a run that could not
 # start have answered as surely as a failed test.
-check "a newest run that timed out is FAILING too" \
-    "$(status_of "$LAST_OK" "$YOUNG" 24 timed_out)" "3"
-check "and so is one that could not start" \
-    "$(status_of "$LAST_OK" "$YOUNG" 24 startup_failure)" "3"
+check_exit "a newest run that timed out is FAILING too" \
+    3 status_of "$LAST_OK" "$YOUNG" 24 timed_out
+check_exit "and so is one that could not start" \
+    3 status_of "$LAST_OK" "$YOUNG" 24 startup_failure
 
 # THE GRACE IS KEPT FOR WHAT IT WAS BUILT FOR: a run that has not answered yet.
-check "a newest run still in progress keeps the grace period" \
-    "$(status_of "$LAST_OK" "$YOUNG" 24 in_progress)" "0"
-check "and so does one still queued" \
-    "$(status_of "$LAST_OK" "$YOUNG" 24 queued)" "0"
+check_exit "a newest run still in progress keeps the grace period" \
+    0 status_of "$LAST_OK" "$YOUNG" 24 in_progress
+check_exit "and so does one still queued" \
+    0 status_of "$LAST_OK" "$YOUNG" 24 queued
 # A CANCELLED RUN ANSWERED NOTHING. On main it is almost always a run a newer
 # push superseded, and calling it red would raise an alarm about ordinary use
 # (L36).
-check "a newest run that was cancelled is not a failure" \
-    "$(status_of "$LAST_OK" "$YOUNG" 24 cancelled)" "0"
+check_exit "a newest run that was cancelled is not a failure" \
+    0 status_of "$LAST_OK" "$YOUNG" 24 cancelled
 
 # AND A FAILURE STILL OUTRANKS AGE. Past the grace a failing run is FAILING, not
 # BLOCKED, because the second would send somebody looking for a workflow that has
 # stopped triggering when it is triggering fine and going red.
-check "a failing newest run past the grace period is still FAILING, not BLOCKED" \
-    "$(status_of "2026-09-01T10:00:00Z" "2026-09-05T10:00:00Z" 24 failure)" "3"
+check_exit "a failing newest run past the grace period is still FAILING, not BLOCKED" \
+    3 status_of "2026-09-01T10:00:00Z" "2026-09-05T10:00:00Z" 24 failure
 
 # THE INPUT IS REQUIRED, NOT DEFAULTED. An unset newest run silently switching
 # the new outcome off would put this back exactly where ovation#212 found it,
 # with a green verdict over a red build (L168, L98).
 OUT_NONE="$(OVATION_CI_NOW="$NOW" OVATION_CI_LAST_SUCCESS="$LAST_OK" \
     OVATION_CI_LAST_COMMIT="$YOUNG" "./$TARGET" 2>&1)"
-check "no newest run given cannot be measured" \
-    "$(OVATION_CI_NOW="$NOW" OVATION_CI_LAST_SUCCESS="$LAST_OK" \
-        OVATION_CI_LAST_COMMIT="$YOUNG" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "no newest run given cannot be measured" \
+    2 env OVATION_CI_NOW="$NOW" OVATION_CI_LAST_SUCCESS="$LAST_OK" \
+        OVATION_CI_LAST_COMMIT="$YOUNG" "./$TARGET"
 check "and it names the newest run as the missing input" \
     "$(says "$OUT_NONE" "newest CI run")" "yes"
 
 # A STATE NOBODY LISTED IS NOT A PASS. Validity by a list of failures would admit
 # every value GitHub adds tomorrow as healthy (L257).
 OUT_ODD="$(judge "$LAST_OK" "$YOUNG" 24 something_new)"
-check "a newest run state this does not know cannot be measured" \
-    "$(status_of "$LAST_OK" "$YOUNG" 24 something_new)" "2"
+check_exit "a newest run state this does not know cannot be measured" \
+    2 status_of "$LAST_OK" "$YOUNG" 24 something_new
 check "and it quotes the state it did not know" \
     "$(says "$OUT_ODD" "something_new")" "yes"
 

@@ -32,12 +32,12 @@ fresh() {
     printf '%s' "$at"
 }
 run_in() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}" 2>&1; }
-status_in() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}" >/dev/null 2>&1; printf '%s' "$?"; }
+status_in() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}"; }
 
 # ---------------------------------------------------------------------------
 # The committed picture, which must be current.
 # ---------------------------------------------------------------------------
-check "the committed picture is the layout the file draws" "$(status_in "$(pwd)/docs/design" --check)" "0"
+check_exit "the committed picture is the layout the file draws" 0 status_in "$(pwd)/docs/design" --check
 check "and the answer says how much it compared" \
     "$(run_in "$(pwd)/docs/design" --check | grep -c 'element(s) inside the screen')" "1"
 
@@ -56,13 +56,13 @@ open(path, "w").write(text.replace(
     old, ".row { display: grid; grid-template-columns: var(--cols); gap: 14px; "
          "align-items: baseline; padding: 18px 24px;", 1))
 PYEOF
-check "a screen drawn differently makes the picture stale" "$(status_in "$MOVED" --check)" "1"
+check_exit "a screen drawn differently makes the picture stale" 1 status_in "$MOVED" --check
 check "and the answer says STALE rather than refusing for some other reason" \
     "$(run_in "$MOVED" --check | grep -c '^STALE: ')" "1"
 check "and it names the remedy" \
     "$(run_in "$MOVED" --check | grep -c 'Re-render with')" "1"
-check "re-rendering makes it current again" "$(status_in "$MOVED")" "0"
-check "and the check then passes" "$(status_in "$MOVED" --check)" "0"
+check_exit "re-rendering makes it current again" 0 status_in "$MOVED"
+check_exit "and the check then passes" 0 status_in "$MOVED" --check
 
 # ---------------------------------------------------------------------------
 # EDITING THE RECORD'S PROSE IS NOT STALENESS. This is what makes the check
@@ -80,7 +80,7 @@ assert old in text, "the mutation matched nothing, so this case tests nothing"
 open(path, "w").write(text.replace(
     old, "<p>A sentence added to the record, outside the screen.</p>\n" + old, 1))
 PYEOF
-check "editing the record's prose leaves the picture current" "$(status_in "$PROSE" --check)" "0"
+check_exit "editing the record's prose leaves the picture current" 0 status_in "$PROSE" --check
 
 # ---------------------------------------------------------------------------
 # THE PICTURE AND ITS SIDECAR ARE TWO FILES, and nothing else would notice one
@@ -88,14 +88,14 @@ check "editing the record's prose leaves the picture current" "$(status_in "$PRO
 # ---------------------------------------------------------------------------
 NOPIC="$(fresh nopic)"
 rm -f "$NOPIC/invoice-list.png"
-check "a picture that is not there at all is stale" "$(status_in "$NOPIC" --check)" "1"
+check_exit "a picture that is not there at all is stale" 1 status_in "$NOPIC" --check
 check "and says so in its own words" \
     "$(run_in "$NOPIC" --check | grep -c 'is not there at all')" "1"
 
 NOSIDE="$(fresh noside)"
 rm -f "$NOSIDE/invoice-list.png.layout"
-check "a picture with nothing recording what it came from is stale" \
-    "$(status_in "$NOSIDE" --check)" "1"
+check_exit "a picture with nothing recording what it came from is stale" \
+    1 status_in "$NOSIDE" --check
 check "and that cause has its own sentence" \
     "$(run_in "$NOSIDE" --check | grep -c 'nothing records which layout')" "1"
 
@@ -107,8 +107,8 @@ path = sys.argv[1] + "/invoice-list.png"
 with Image.open(path) as image:
     image.resize((image.width // 2, image.height // 2)).save(path)
 PYEOF
-check "a picture replaced by one of a different size is stale" \
-    "$(status_in "$RESIZED" --check)" "1"
+check_exit "a picture replaced by one of a different size is stale" \
+    1 status_in "$RESIZED" --check
 check "and the size is the cause it names" \
     "$(run_in "$RESIZED" --check | grep -c 'one of the two was replaced without the other')" "1"
 
@@ -126,17 +126,16 @@ old = ".screen { width: 1120px;"
 assert old in text, "the mutation matched nothing"
 open(path, "w").write(text.replace(old, ".screen { width: 900px;", 1))
 PYEOF
-check "a narrower screen renders a narrower picture" "$(status_in "$NARROW")" "0"
+check_exit "a narrower screen renders a narrower picture" 0 status_in "$NARROW"
 check "at twice the width the page reported, with nothing typed" \
     "$(run_in "$NARROW" | sed -n 's/.*at \([0-9]*\)x.*/\1/p')" "1800"
 
 # ---------------------------------------------------------------------------
 # NOTHING TO RENDER IS NOT A PASS (L98).
 # ---------------------------------------------------------------------------
-check "a design root with no such file cannot measure" \
-    "$(OVATION_DESIGN_ROOT="$WORK/nowhere" python3 "$TARGET" --check >/dev/null 2>&1; printf '%s' "$?")" "2"
-check "and a browser that is not there cannot measure either" \
-    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" --check \
-        >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "a design root with no such file cannot measure" \
+    2 env OVATION_DESIGN_ROOT="$WORK/nowhere" python3 "$TARGET" --check
+check_exit "and a browser that is not there cannot measure either" \
+    3 env OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" --check
 
 harness_end
