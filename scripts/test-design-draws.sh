@@ -472,11 +472,14 @@ check "and the refusal names the narrowed lookup as the reason" \
 # to find and must answer CANNOT MEASURE, exit 2. A tool whose wording drifted
 # from the harness's would REFUSE its suite instead, and that is named here
 # rather than found on the first machine without a browser (L246). The suites are
-# found from the tree, not listed, so the next one is covered too (L41); this one
-# is left out, since it is the one running.
+# found from the tree, not listed, so the next one is covered too (L41), however
+# the call is laid out. This one is left out, since it is the one running, and so
+# is the harness's own self test, whose calls are fixtures it writes out.
 said_with_status() { cat "$1"; return "$2"; }
-for suite_file in $(grep -l '^harness_require_browser \\$' scripts/test-*.sh); do
-    [ "$suite_file" = "scripts/test-design-draws.sh" ] && continue
+for suite_file in $(grep -l -E '^[[:space:]]*harness_require_browser([[:space:]]|$)' scripts/test-*.sh); do
+    case "$suite_file" in
+        scripts/test-design-draws.sh|scripts/test-test-harness.sh) continue ;;
+    esac
     OVATION_BROWSER_GLOBS="$NOWHERE" OVATION_HEADLESS_BROWSER= \
         bash "$suite_file" > "$WORK/no-browser-suite.txt" 2>&1
     suite_status=$?

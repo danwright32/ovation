@@ -536,28 +536,52 @@ check "no suite in this tree reads a bare exit 3 as a missing browser" \
 # printed only `$?`, so a failure read "expected '0', got '1'" and nothing else,
 # which is why main's one-off red on 2026-09-25 could not be diagnosed (ovation#539).
 # check_exit keeps the output and prints it under a failure, and every suite was
-# converted to it, so the shape that discards is refused here, in both its forms:
-# on one line, and as a redirect whose next line prints the status (L613).
+# converted to it, so the shape that discards is refused here (L613).
+#
+# THE SHAPE IS THE STATE REACHED, NOT ONE SPELLING OF IT (L247). The first version
+# of this ban knew one spelling, output to /dev/null then `printf '%s' "$?"` or
+# `echo $?`, and a review found eighteen live sites it could not see: the status
+# saved (`>/dev/null 2>&1; ST=$?`), stdout alone discarded (`>/dev/null; echo $?`),
+# the status read straight into a check, and a redirect on one line whose status
+# the next line reads. So any redirect of stdout to /dev/null whose status is read
+# at once, by echo, printf, an assignment or a check, is refused. A redirect of
+# stderr alone (`wait "$pid" 2>/dev/null`) is not: its command's words are kept.
 discarding_status_helpers() {
     awk '
         /^[[:space:]]*#/ { prev = ""; next }
-        /\/dev\/null 2>&1; *(printf .%s. "\$\?"|echo \$\?)/ { print FILENAME ":" FNR ": " $0 }
-        prev ~ /\/dev\/null 2>&1[[:space:]]*$/ && /^[[:space:]]*(printf .%s. "\$\?"|echo \$\?)[[:space:]]*$/ {
+        /(^|[^0-9&])>[[:space:]]*\/dev\/null( 2>&1)?[)'"'"']?; *(echo \$\?|printf .%s. "\$\?"|[A-Za-z_][A-Za-z0-9_]*=\$\?|check .*"\$\?")/ {
+            print FILENAME ":" FNR ": " $0; prev = $0; next
+        }
+        prev ~ /(^|[^0-9&])>[[:space:]]*\/dev\/null( 2>&1)?[)]?[[:space:]]*$/ &&
+            /^[[:space:]]*(echo \$\?|printf .%s. "\$\?"|[A-Za-z_][A-Za-z0-9_]*=\$\?|check .*"\$\?")/ {
             print FILENAME ":" FNR ": " $0
         }
         { prev = $0 }
     ' "$@"
 }
-# Written through %s, so this file never holds the shape it refuses.
-printf 'status_of() { run_check "$1" >/dev/null 2>&1; printf %s; }\n' "'%s' \"\$?\"" > "$WORK/discards-one-line.sh"
-printf 'status_on() {\n    run_on "$1" >/dev/null 2>&1\n    %s\n}\n' 'echo $?' > "$WORK/discards-two-lines.sh"
-printf 'status_on() { run_on "$1"; }\n# a helper once did >/dev/null 2>&1; %s\n' 'echo $?' > "$WORK/keeps-output.sh"
-check "a status helper that discards its command's output on one line is caught" \
-    "$(discarding_status_helpers "$WORK/discards-one-line.sh" | grep -c .)" "1"
-check "and one that redirects on one line and prints the status on the next" \
-    "$(discarding_status_helpers "$WORK/discards-two-lines.sh" | grep -c .)" "1"
-check "but a helper that keeps the output, and a comment about the old shape, are not" \
-    "$(discarding_status_helpers "$WORK/keeps-output.sh" | grep -c .)" "0"
+# Every fixture is written with its status read passed in through %s, so this
+# file never holds the shape it refuses.
+S='$?'
+mkdir -p "$WORK/discards"
+printf 'status_of() { run_check "$1" >/dev/null 2>&1; printf %s; }\n' "'%s' \"$S\"" > "$WORK/discards/printf-one-line.sh"
+printf 'status_on() {\n    run_on "$1" >/dev/null 2>&1\n    echo %s\n}\n' "$S" > "$WORK/discards/echo-next-line.sh"
+printf 'bash "$RULE" maybe X "" >/dev/null 2>&1; ST=%s\n' "$S" > "$WORK/discards/saved-status.sh"
+printf 'check "passes" "$(run_check >/dev/null; echo %s)" "0"\n' "$S" > "$WORK/discards/stdout-only-echo.sh"
+printf 'run_on "$D" >/dev/null; check "resolves" "%s" "0"\n' "$S" > "$WORK/discards/status-into-check.sh"
+printf '( cd "$COPY" && bash scripts/check.sh ) >/dev/null 2>&1; ST=%s\n' "$S" > "$WORK/discards/subshell-saved.sh"
+printf 'python3 "$TARGET" >/dev/null 2>&1\nREAL=%s\n' "$S" > "$WORK/discards/saved-next-line.sh"
+printf 'run_check "$ONE" >/dev/null\ncheck "may read it" "%s" "0"\n' "$S" > "$WORK/discards/check-next-line.sh"
+for shape in printf-one-line echo-next-line saved-status stdout-only-echo status-into-check \
+        subshell-saved saved-next-line check-next-line; do
+    check "a status read with its command's output discarded is caught: $shape" \
+        "$(discarding_status_helpers "$WORK/discards/$shape.sh" | grep -c .)" "1"
+done
+mkdir -p "$WORK/keeps"
+printf 'status_on() { run_on "$1"; }\n# a helper once did >/dev/null 2>&1; echo %s\n' "$S" > "$WORK/keeps/output.sh"
+printf 'wait "$pid" 2>/dev/null\nSTOPPED=%s\n' "$S" > "$WORK/keeps/stderr-only.sh"
+printf 'git commit -qm x >/dev/null 2>&1\nOUT="$(run_check)"; ST=%s\n' "$S" > "$WORK/keeps/next-line-keeps.sh"
+check "but a helper that keeps the output, a comment, a stderr only redirect and a kept capture after a redirect are not" \
+    "$(discarding_status_helpers "$WORK/keeps/output.sh" "$WORK/keeps/stderr-only.sh" "$WORK/keeps/next-line-keeps.sh" | grep -c .)" "0"
 LIVE_DISCARDS="$(discarding_status_helpers scripts/test-*.sh)"
 [ -z "$LIVE_DISCARDS" ] || printf '    discards what the command said:\n%s\n' "$LIVE_DISCARDS" >&2
 check "no suite in this tree judges an exit status with its command's output thrown away" \

@@ -217,8 +217,7 @@ check "and it says the occurrence reached nobody" \
 # flattened, so a caller reading the code can tell them apart (L184).
 D10="$(stage reporter-broke)"
 printf '4\n' > "$D10/reporter.status"
-run "$D10" >/dev/null; ST10=$?
-check "another refusal from the reporter is carried out, not flattened" "$ST10" "4"
+check_exit "another refusal from the reporter is carried out, not flattened" 4 run "$D10"
 
 # AND THE ONE CODE THAT MEANS IT WAS COMMENTED IS THE ONLY SUCCESS. A reporter
 # that exits 0, which it never does, must not read as a comment that happened.

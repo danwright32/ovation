@@ -54,14 +54,14 @@ check "a declaration made for ANOTHER record does not reach this one" \
 
 # A caller that cannot say what its subject is has not been judged, and silence
 # would read as "write nothing" or "write", whichever it happened to fall into.
-bash "$RULE" maybe OVATION_SUITE_RECORD_STAGED "" "$WORK/default.tsv" >/dev/null 2>&1; ST=$?
-check "a subject that is neither real nor staged is refused" "$ST" "2"
+check_exit "a subject that is neither real nor staged is refused" \
+    2 bash "$RULE" maybe OVATION_SUITE_RECORD_STAGED "" "$WORK/default.tsv"
 OUT="$(bash "$RULE" maybe OVATION_SUITE_RECORD_STAGED "" "$WORK/default.tsv" 2>&1)"
 check "and the refusal names the two it accepts" "$(says "$OUT" "real or staged")" "yes"
-bash "$RULE" staged "not a name" "" "$WORK/default.tsv" >/dev/null 2>&1; ST=$?
-check "a declaration that is not a variable name is refused" "$ST" "2"
-bash "$RULE" real OVATION_SUITE_RECORD_STAGED "" "" >/dev/null 2>&1; ST=$?
-check "a record with no default is refused" "$ST" "2"
+check_exit "a declaration that is not a variable name is refused" \
+    2 bash "$RULE" staged "not a name" "" "$WORK/default.tsv"
+check_exit "a record with no default is refused" \
+    2 bash "$RULE" real OVATION_SUITE_RECORD_STAGED "" ""
 
 # SOURCED, the same function answers the same way: run-tests.sh sources it and
 # design_render.py executes it, and the two routes must be one rule.
@@ -153,8 +153,7 @@ check "and it says to remove that line" "$(says "$OUT" "remove it from")" "yes"
 
 # 8. NOTHING TO JUDGE is its own answer, never a pass (L98).
 rm -rf "$TREE"; mkdir -p "$TREE"
-run_check >/dev/null 2>&1; ST=$?
-check "a tree with no scripts directory cannot be judged" "$ST" "2"
+check_exit "a tree with no scripts directory cannot be judged" 2 run_check
 
 # 9. THE REAL TREE, which is the case the scan exists for.
 OUT="$(bash "$TARGET" 2>&1)"; ST=$?

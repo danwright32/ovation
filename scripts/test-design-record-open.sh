@@ -132,9 +132,8 @@ check "and says so in its own words" \
 # than a particular one: an issue closed while this suite runs is a finding
 # about the record, not about the suite.
 # ---------------------------------------------------------------------------
-python3 "$TARGET" >/dev/null 2>&1
-REAL=$?
-KNOWN="no, it exited $REAL"
+REAL_SAID="$(python3 "$TARGET" 2>&1)"; REAL=$?
+KNOWN="no, it exited $REAL and said: $(head -n 20 <<< "$REAL_SAID")"
 if [ "$REAL" = "0" ] || [ "$REAL" = "1" ] || [ "$REAL" = "2" ]; then KNOWN="yes"; fi
 check "the committed record answers with one of this check's own outcomes" "$KNOWN" "yes"
 

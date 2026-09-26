@@ -391,6 +391,10 @@ interrupt_until_stopped() {
 }
 # The stubs are written from inside a function for the reason case 1 of the
 # argument scan records: its `$1` belongs to the stub, not to this suite.
+# Counted over the real runner's stops only, not the stubs, which lose their first
+# interrupt on purpose, and said on one fixed line at the end of every run, so a
+# recurrence can be counted by searching run output for it (L293).
+LOST_INTERRUPT_RUNS=0
 start_interrupt_stub() {
     printf '#!/bin/bash\n%s\ntouch "%s"\nwhile :; do sleep 0.02; done\n' "$2" "$1.ready" > "$1"
     chmod +x "$1"
@@ -431,6 +435,7 @@ start_interrupt_stub() {
     # To the whole group, as Ctrl+C does: the runner and whatever it is waiting on,
     # and again if bash lost it, as a person would (6b-0, ovation#554).
     interrupt_until_stopped "$STOPPABLE_PID"
+    [ "$INTERRUPTS" -gt 1 ] && LOST_INTERRUPT_RUNS=$((LOST_INTERRUPT_RUNS+1))
     check "a run interrupted while waiting for a lock exits, with status 130" \
         "$STOPPED" "130"
     check "and it left Downbeat's lock free behind it" \
@@ -1755,8 +1760,7 @@ check "and the lock is gone afterwards" "$([ -e "$CREATE_LOCK" ] && echo held ||
 # 207d. A generator that fails still gives the lock back, or every later run on
 #       this tree would wait on a create that is not happening.
 reset_create; rm -f "$CREATE/hold"; stage_generator gen-fail fail
-create_now gen-fail >/dev/null; ST207D=$?
-check "a generator that failed is refused" "$ST207D" "2"
+check_exit "a generator that failed is refused" 2 create_now gen-fail
 check "and the create lock is released anyway" "$([ -e "$CREATE_LOCK" ] && echo held || echo free)" "free"
 
 # 207e. A create by a LIVE run that does not finish is a refusal naming it, not a
@@ -2630,4 +2634,5 @@ PYSEAMS
 )" ""
 
 
+echo "interrupted runs that needed more than one interrupt: $LOST_INTERRUPT_RUNS (ovation#554)"
 harness_end

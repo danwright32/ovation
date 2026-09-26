@@ -18,6 +18,7 @@
 #     harness_cannot_measure "why" "remedy"   # exits 2: proved nothing either way
 #     harness_require_browser "why" "remedy" <probe command>   # exits 2 only on a missing browser
 #     check_exit "description" <status> <command> [args...]
+#     status_or_words <status> <command> [args...]   # a status inside a composed value
 #     check "description" "$actual" "$expected"
 #     harness_end
 #
@@ -201,6 +202,25 @@ check_exit() {
     head -n 40 <<< "$said" | sed 's/^/        /'
     [ "$lines" -le 40 ] || echo "        and $((lines - 40)) more lines"
     return 0
+}
+
+# A STATUS INSIDE A LARGER ANSWER KEEPS ITS WORDS TOO (ovation#540).
+#
+#     "$(says "$OUT" "remedy"):$(status_or_words 0 run_check)"   # "yes:0" when it holds
+#
+# For the case check_exit cannot serve: a status that is one part of a composed
+# value. It prints the expected status alone when the command gave it, and
+# otherwise the status it gave followed by what it said, so a mismatch carries
+# the command's own reason into the failure rather than a bare number.
+status_or_words() {
+    local expected="$1" said status
+    shift
+    said="$("$@" 2>&1)"; status=$?
+    if [ "$status" = "$expected" ]; then
+        printf '%s' "$status"
+    else
+        printf '%s, and it said: %s' "$status" "$(head -n 20 <<< "$said")"
+    fi
 }
 
 # A RENDERING SUITE SKIPS ONLY WHEN THE BROWSER IS REALLY MISSING (ovation#561).

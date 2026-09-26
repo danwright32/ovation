@@ -128,7 +128,7 @@ check "resolve_sibling finds a checkout by its origin, whatever its folder is ca
     "$(bash -c '. "$1"; resolve_sibling danwright32/overture "$2"' _ "$PWD/scripts/lib/repo-git.sh" "$LOOKUP")" \
     "$LOOKUP/Not-Named-After-It"
 check "and refuses a repository that is not there, rather than naming a nearby one" \
-    "$(bash -c '. "$1"; resolve_sibling danwright32/downbeat "$2" >/dev/null; echo $?' _ "$PWD/scripts/lib/repo-git.sh" "$LOOKUP")" "1"
+    "$(bash -c '. "$1"; said="$(resolve_sibling danwright32/downbeat "$2" 2>&1)"; st=$?; [ "$st" = 1 ] && echo 1 || printf "%s, and it said: %s" "$st" "$said"' _ "$PWD/scripts/lib/repo-git.sh" "$LOOKUP")" "1"
 
 # 3. THE GUARD. Locating a sibling by a typed folder name or by the parent of the
 # running checkout, or clearing git's inherited environment by hand, belongs in

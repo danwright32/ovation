@@ -243,8 +243,7 @@ unset WORKFLOW_OVERRIDE
 # carry two Mac jobs, and both name macos-26, which is the ordinary case.
 WORKFLOW_OVERRIDE="$(workflow_on ci-same.yml macos-26 macos-26)"
 manifest_offering macos-26-arm64-Readme.md 26.6
-run_watch >/dev/null
-check "two Mac jobs on the same runner are one answer, not a disagreement" "$?" "0"
+check_exit "two Mac jobs on the same runner are one answer, not a disagreement" 0 run_watch
 unset WORKFLOW_OVERRIDE
 
 # ---------------------------------------------------------------------------
