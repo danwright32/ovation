@@ -44,9 +44,17 @@ struct RosterPass {
     /// one time job and a nag.
     let startedWith: Int
 
-    init(clients: [Client]) {
+    /// Each client's sales tax status as the pass should read it. The object's
+    /// own field unless a caller says otherwise, and the roster says otherwise
+    /// (ovation#481): its answers are recorded by `ClientTaxStatusWriter` in a
+    /// context of the writer's own, so the object the roster holds is never
+    /// written to and the answer given is carried beside it.
+    private let taxStatus: (Client) -> TaxStatus
+
+    init(clients: [Client], taxStatus: @escaping (Client) -> TaxStatus = { $0.taxStatus }) {
         self.clients = clients
-        self.startedWith = RosterPass.blocking(in: clients).count
+        self.taxStatus = taxStatus
+        self.startedWith = RosterPass.blocking(in: clients, taxStatus: taxStatus).count
     }
 
     /// The clients whose address cannot be sent to at all. First on the screen,
@@ -57,12 +65,12 @@ struct RosterPass {
 
     /// The clients requirement 5 refuses to send for.
     var needingTaxStatus: [Client] {
-        clients.filter { $0.taxStatus == .neverRecorded }
+        clients.filter { taxStatus($0) == .neverRecorded }
     }
 
     /// How many are still blocked. Derived, so it falls as questions are
     /// answered while `startedWith` does not move.
-    var remaining: Int { RosterPass.blocking(in: clients).count }
+    var remaining: Int { RosterPass.blocking(in: clients, taxStatus: taxStatus).count }
 
     /// Nothing is blocked. The screen that shows this pass goes away when it is
     /// true, and says so rather than vanishing under whoever is standing on it.
@@ -74,7 +82,8 @@ struct RosterPass {
     /// THE ONE PREDICATE. Both sections and both counts read this, so a client
     /// in both sections is one client here, and the number the screen shows can
     /// never disagree with the rows under it.
-    private static func blocking(in clients: [Client]) -> [Client] {
-        clients.filter { $0.taxStatus == .neverRecorded || !$0.contactProblems.isEmpty }
+    private static func blocking(in clients: [Client],
+                                 taxStatus: (Client) -> TaxStatus) -> [Client] {
+        clients.filter { taxStatus($0) == .neverRecorded || !$0.contactProblems.isEmpty }
     }
 }

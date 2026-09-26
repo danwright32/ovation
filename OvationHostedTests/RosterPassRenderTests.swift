@@ -80,7 +80,7 @@ struct RosterPassRenderTests {
 
     @Test("the first product screen rasterises at the real count")
     func itRasterisesAtTheRealCount() throws {
-        let roster = RosterPresenter(clients: Self.theRealRoster(), save: {})
+        let roster = RosterPresenter(clients: Self.theRealRoster(), write: { _, _ in })
         #expect(roster.startedWith == 25)
         #expect(roster.rosterSize == 31)
 
