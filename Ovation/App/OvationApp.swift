@@ -233,8 +233,14 @@ struct OvationApp: App {
                                 try StoreDocumentReferences.read(storeURL: storeURL)
                             })
                     }
+                    //
+                    // AND EVERY RUN LEAVES A LINE saying how big it was, how long
+                    // it took and the deadline it was given (ovation#557), so the
+                    // allowances can be re-judged from these launches.
                     return try await LaunchBackupOutcome.run(
-                        measuring: { try service().sizeOfWhatIsBackedUp() }
+                        at: now,
+                        measuring: { try service().sizeOfWhatIsBackedUp() },
+                        recording: { LaunchBackupLog.record($0) }
                     ) {
                         try service().takeBackupIfDueToday(now: now)
                     }

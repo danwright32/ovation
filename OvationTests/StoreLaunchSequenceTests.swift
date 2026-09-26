@@ -375,6 +375,14 @@ struct StoreLaunchSequenceTests {
         // THE SECOND LAUNCH HAS TO HAVE OPENED for the last line to mean anything.
         // It was discarded, so a launch that REFUSED before it reached the backup
         // left the notice open and read as the notice failing to clear.
+        //
+        // AND IT IS A LATER LAUNCH, so the first one's container has let go
+        // (ovation#279). Reproduced 2026-09-26, the whole suite repeated under a
+        // load average of about 46: the second launch refused at CHECKPOINT with
+        // "database is locked", on repetition 8, because the container the first
+        // launch opened was still releasing the file. A real second launch is a
+        // new process, and the old one's hold ended with it.
+        #expect(await world.waitUntilTheStoreIsLetGo() == .checkpointed)
         let second = await world.sequence.run(now: world.instant.addingTimeInterval(86_400))
         #expect(second == .opened)
         #expect(!world.store.open.contains { $0.kind == .backupFolderNotChosen })
@@ -514,6 +522,10 @@ struct StoreLaunchSequenceTests {
         #expect(first != .opened)
         #expect(world.store.open.contains { $0.kind == .backupFolderNotChosen })
 
+        // A later launch, for the same reason as the no folder test (ovation#279).
+        // The first refused before opening anything, so nothing should be held,
+        // and asking costs one checkpoint.
+        #expect(await world.waitUntilTheStoreIsLetGo() == .checkpointed)
         let second = await world.sequence.run(now: world.instant.addingTimeInterval(86_400))
         #expect(second == .opened)
         #expect(!world.store.open.contains { $0.kind == .backupFolderNotChosen })
@@ -1101,6 +1113,29 @@ struct StoreLaunchSequenceTests {
                     recorder.record("import-clients")
                     return importClients?(container) ?? []
                 })
+        }
+
+        /// Waits until nothing in this process still holds the store, which is
+        /// what a LATER launch can take for granted and a second run in one test
+        /// cannot (ovation#279).
+        ///
+        /// A container the sequence opened is released when the last reference
+        /// goes, and Core Data finishes letting go of the file after that, so a
+        /// second run straight after the first can find it "locked" by the first.
+        /// A real second launch is a new process. So this waits on THE CONDITION,
+        /// a checkpoint that completes, never on a duration (L290), up to a bound
+        /// so a file that is genuinely stuck fails the test rather than hanging it
+        /// (L110). It suspends between attempts rather than spinning, because
+        /// the release may need this actor to run.
+        func waitUntilTheStoreIsLetGo() async -> StoreCheckpoint.Outcome {
+            let clock = ContinuousClock()
+            let giveUpAt = clock.now.advanced(by: .seconds(30))
+            var outcome = StoreCheckpoint.run(storeURL: storeURL)
+            while outcome != .checkpointed, clock.now < giveUpAt {
+                try? await Task.sleep(for: .milliseconds(20))
+                outcome = StoreCheckpoint.run(storeURL: storeURL)
+            }
+            return outcome
         }
 
         /// A database that is plainly somebody else's: real SQLite, carrying
