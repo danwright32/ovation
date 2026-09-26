@@ -13,7 +13,7 @@ import Testing
 struct PDFTextTests {
 
     private struct MoneyCase: Decodable { let cents: Int64; let text: String; let why: String }
-    private struct HoursCase: Decodable { let hundredths: Int64; let text: String; let why: String }
+    private struct HoursCase: Decodable { let hundredths: Int64; let figure: String; let text: String; let why: String }
     private struct HourlyCase: Decodable {
         let hundredths: Int64; let rateCents: Int64; let amountCents: Int64; let why: String
     }
@@ -66,6 +66,19 @@ struct PDFTextTests {
     func hoursAreWrittenAsTheDesignWritesThem() throws {
         for item in try Self.cases().hours {
             #expect(PDFText.hours(Hours(hundredths: item.hundredths)) == item.text, "\(item.why)")
+        }
+    }
+
+    /// PRD 51k, ovation#413: the invoice screen writes a duration as the same
+    /// NUMBER the PDF does. Each hours case carries that figure, which the
+    /// design's `hoursFigure` is held to by `scripts/test-design-rules.sh`, and
+    /// the app's screen draws `PDFText.hoursFigure`, so both are held to one list.
+    @Test("the screen's hours figure is the design's, and the PDF's hours are that figure and a unit")
+    func theHoursFigureIsTheDesignsFigure() throws {
+        for item in try Self.cases().hours {
+            let duration = Hours(hundredths: item.hundredths)
+            #expect(PDFText.hoursFigure(duration) == item.figure, "\(item.why)")
+            #expect(PDFText.hours(duration).hasPrefix(item.figure + " "), "\(item.why)")
         }
     }
 

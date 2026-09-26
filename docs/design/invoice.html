@@ -2377,7 +2377,7 @@ function buildInvoice() {
        was on the page nowhere. `durationBetween` has returned `atMinimum` since
        it was written and nothing had ever read it (L46). */
     der.append(el("span", null, elapsedText(d.minutes) + ", billed as "),
-               el("b", null, writtenHours(d.billedHours)),
+               el("b", null, hoursFigure(d.billedHours)),
                el("span", null, d.atMinimum ? " hours, the one hour minimum"
                                             : " hours, rounded to the nearest quarter"));
   } else if (waiting && waiting.says) {
@@ -2431,7 +2431,7 @@ function buildInvoice() {
      arithmetic. Caught by reading the rendered rows back, not by looking. */
   else amt.textContent = money(hours * RATE);
   row.append(el("div", "ldesc", "Concert photography"),
-             el("div", "fig" + (hours === null ? " pending" : ""), hours === null ? "" : writtenHours(hours)),
+             el("div", "fig" + (hours === null ? " pending" : ""), hours === null ? "" : hoursFigure(hours)),
              el("div", "fig", "250.00"), amt);
   lines.append(lhd, row);
   EXTRA.forEach(function (x) { lines.append(extraRow(x)); });
@@ -2968,24 +2968,27 @@ function buildMenu() {
   return menu;
 }
 
-/* HOW THIS SCREEN SPELLS A DURATION (Dan, 2026-09-19, ovation#322, PRD 51k).
+/* THE NUMBER A DURATION IS WRITTEN AS, ON THE SCREEN AND ON THE PDF (Dan,
+   2026-09-19, ovation#322, PRD 51k; held together by ovation#413).
 
-   THE SAME NUMBER AS THE PDF: one decimal unless the quarter hour needs two, so
-   1.5 and 1.25 rather than 1.50 and 1.25. It was `toFixed(2)` written out twice,
-   in the line's Hours cell and again in the sentence under the times, while the
-   PDF the client receives wrote the same duration as `1.5 hrs`
-   (docs/design/rules/pdf-text.js, PRD 50c). Dan reads the screen and then the PDF
-   of one invoice one after the other, and one fact in two spellings reads as two
-   different numbers, which a unit or a qualifier cannot separate (L118).
+   ONE DECIMAL UNLESS THE QUARTER HOUR NEEDS TWO, so 1.5 and 1.25 rather than
+   1.50 and 1.3. The invoice screen wrote `toFixed(2)` in two places while the
+   PDF the client receives wrote its own rule, and Dan reads the screen and then
+   the PDF of one invoice one after the other, so one fact in two spellings reads
+   as two different numbers, which a unit or a qualifier cannot separate (L118).
+   A quarter hour written to one decimal printed 1.3, and the hours times the rate
+   stopped adding up to the amount beside them (PRD 50c).
 
-   THE UNIT IS NOT REPEATED ON THE ROW. Chosen over the PDF's spelling entire,
-   `1.5 hrs`, with all three drawn: the column is already headed Hours, so the
-   unit on every row would be the same fact twice on one surface (L605). The PDF
-   keeps its unit because a client reads one line without a column header above
-   it in the same way.
+   THE UNIT IS NOT PART OF THE FIGURE. The screen's column is already headed
+   Hours, so a unit on every row would be the same fact twice on one surface
+   (L605), chosen with all three spellings drawn. The PDF adds its unit in
+   `hours` (rules/pdf-text.js), because a client reads one line there without a
+   column header above it.
 
-   ONE PLACE, because it is written in two and was drifting already. */
-function writtenHours(h) {
+   ONE RULE, TWO SCREENS, so each is held to it on its own rather than the
+   better copy answering for both:
+   CARRIED BY: invoice.html, invoice-pdf.html */
+function hoursFigure(h) {
   var hundredths = Math.round(h * 100);
   return hundredths % 10 === 0 ? h.toFixed(1) : h.toFixed(2);
 }

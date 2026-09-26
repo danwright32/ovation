@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rule inlining tests" 27
+harness_begin "design rule inlining tests" 35
 
 TARGET="scripts/check-design-rules-inline.sh"
 require_target "$TARGET"
@@ -212,6 +212,70 @@ record "$STRIPPED" '  function roundToQuarter(hours) {
 check "a copy that drops the reasoning altogether is refused" "$(status_on "$STRIPPED")" "1"
 check "and named the same way, because it is the same loss" \
     "$(run_on "$STRIPPED" | grep -c 'REASONING DRIFTED')" "1"
+
+# ---------------------------------------------------------------------------
+# A RULE TWO SCREENS RUN (ovation#413). The invoice screen and the invoice PDF
+# write one duration with one rule, and the agreement between the two is the
+# whole of the decision. "Carried verbatim by at least one design file" cannot
+# hold that: the PDF's copy would answer for the screen's, and the screen could
+# drift with the guard green. So a rule NAMES the files that run it, and each
+# named file is held to it on its own.
+# ---------------------------------------------------------------------------
+SHARED_RULE='/* CARRIED BY: invoice.html, invoice-pdf.html */
+
+function roundToQuarter(hours) {
+  return Math.round(hours / 0.25) * 0.25;
+}
+'
+SHARED_INLINED='  /* CARRIED BY: invoice.html, invoice-pdf.html */
+  function roundToQuarter(hours) {
+    return Math.round(hours / 0.25) * 0.25;
+  }
+'
+shared_record() {
+    # $1 root, $2 invoice.html's script, $3 invoice-pdf.html's script
+    mkdir -p "$1/rules"
+    printf '%s' "$SHARED_RULE" > "$1/rules/duration.js"
+    { printf '<meta charset="utf-8">\n<script>\n%s</script>\n' "$2"; } > "$1/invoice.html"
+    { printf '<meta charset="utf-8">\n<script>\n%s</script>\n' "$3"; } > "$1/invoice-pdf.html"
+}
+
+BOTH="$WORK/both"
+shared_record "$BOTH" "$SHARED_INLINED" "$SHARED_INLINED"
+check "a rule carried verbatim by every file it names passes" "$(status_on "$BOTH")" "0"
+
+# invoice-pdf.html sorts first and carries the rule exactly, so a guard that
+# stops at the first verbatim copy never reads invoice.html at all.
+SCREENDRIFT="$WORK/screendrift"
+shared_record "$SCREENDRIFT" '  /* CARRIED BY: invoice.html, invoice-pdf.html */
+  function roundToQuarter(hours) {
+    return Math.round(hours / 0.5) * 0.5;
+  }
+' "$SHARED_INLINED"
+check "one named file drifting is refused although another carries it exactly" \
+    "$(status_on "$SCREENDRIFT")" "1"
+check "and the refusal names the file that drifted" \
+    "$(run_on "$SCREENDRIFT" | grep 'DRIFTED' | grep -c 'invoice.html')" "1"
+check "and does not blame the file that is right" \
+    "$(run_on "$SCREENDRIFT" | grep 'DRIFTED' | grep -c 'invoice-pdf.html')" "0"
+
+SCREENMISSING="$WORK/screenmissing"
+shared_record "$SCREENMISSING" '  var unrelated = 1;
+' "$SHARED_INLINED"
+check "a named file carrying none of the rule is refused" \
+    "$(status_on "$SCREENMISSING")" "1"
+check "and says the named file does not carry it" \
+    "$(run_on "$SCREENMISSING" | grep 'NOT INLINE' | grep -c 'invoice.html')" "1"
+
+# A DECLARATION NAMING A FILE THAT IS NOT THERE holds nothing, and reading as a
+# declaration it would be believed (L1004).
+NOSUCH="$WORK/nosuch"
+shared_record "$NOSUCH" "$SHARED_INLINED" "$SHARED_INLINED"
+rm "$NOSUCH/invoice-pdf.html"
+check "a rule naming a design file that does not exist is refused" \
+    "$(status_on "$NOSUCH")" "1"
+check "and says that file is not in the record" \
+    "$(run_on "$NOSUCH" | grep -c 'invoice-pdf.html is not in the design record')" "1"
 
 # ---------------------------------------------------------------------------
 # The real record, so the seam is not the only thing ever exercised.

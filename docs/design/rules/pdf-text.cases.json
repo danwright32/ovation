@@ -1,5 +1,5 @@
 {
-  "about": "How money and hours are WRITTEN on the invoice PDF (ovation#167, PRD 50c). Read by scripts/test-design-rules.sh against docs/design/rules/pdf-text.js and by OvationTests/PDFTextTests.swift against the app, so the settled design and the rendered PDF cannot write one figure two ways (L26). The invoice screen writes figures differently on purpose and has its own formatter.",
+  "about": "How money and hours are WRITTEN on the invoice PDF (ovation#167, PRD 50c). Read by scripts/test-design-rules.sh against docs/design/rules/pdf-text.js and by OvationTests/PDFTextTests.swift against the app, so the settled design and the rendered PDF cannot write one figure two ways (L26). The invoice screen writes MONEY differently on purpose and has its own formatter for it, but writes a duration as the same figure the PDF does (PRD 51k, ovation#413): each hours case carries that figure, which docs/design/rules/hours-figure.js and PDFText.hoursFigure are both held to, and the PDF text is the figure followed by its unit.",
   "money": [
     {"cents": 0, "text": "$0.00", "why": "a comped invoice totals nothing, and nothing is still drawn (PRD 5.1b)"},
     {"cents": 5, "text": "$0.05", "why": "a single digit of cents keeps its leading zero"},
@@ -11,15 +11,15 @@
     {"cents": 100000000, "text": "$1,000,000.00", "why": "every group of three is separated, not only the first"}
   ],
   "hours": [
-    {"hundredths": 100, "text": "1.0 hr", "why": "the one hour shoot, 16 of 19 real bookings, keeps its settled spelling"},
-    {"hundredths": 50, "text": "0.5 hrs", "why": "under an hour is plural"},
-    {"hundredths": 150, "text": "1.5 hrs", "why": "a half hour needs one decimal"},
-    {"hundredths": 200, "text": "2.0 hrs", "why": "whole hours keep one decimal, as the design writes them"},
-    {"hundredths": 125, "text": "1.25 hrs", "why": "a quarter needs two decimals; one decimal printed 1.3 and the arithmetic stopped adding up"},
-    {"hundredths": 175, "text": "1.75 hrs", "why": "the commonest quarter in Dan's history, eleven lines"},
-    {"hundredths": 215, "text": "2.15 hrs", "why": "on neither a quarter nor a tenth, and in the history"},
-    {"hundredths": 625, "text": "6.25 hrs", "why": "the longest line Dan has ever billed"},
-    {"hundredths": 1000, "text": "10.0 hrs", "why": "two digits of whole hours"}
+    {"hundredths": 100, "figure": "1.0", "text": "1.0 hr", "why": "the one hour shoot, 16 of 19 real bookings, keeps its settled spelling"},
+    {"hundredths": 50, "figure": "0.5", "text": "0.5 hrs", "why": "under an hour is plural"},
+    {"hundredths": 150, "figure": "1.5", "text": "1.5 hrs", "why": "a half hour needs one decimal"},
+    {"hundredths": 200, "figure": "2.0", "text": "2.0 hrs", "why": "whole hours keep one decimal, as the design writes them"},
+    {"hundredths": 125, "figure": "1.25", "text": "1.25 hrs", "why": "a quarter needs two decimals; one decimal printed 1.3 and the arithmetic stopped adding up"},
+    {"hundredths": 175, "figure": "1.75", "text": "1.75 hrs", "why": "the commonest quarter in Dan's history, eleven lines"},
+    {"hundredths": 215, "figure": "2.15", "text": "2.15 hrs", "why": "on neither a quarter nor a tenth, and in the history"},
+    {"hundredths": 625, "figure": "6.25", "text": "6.25 hrs", "why": "the longest line Dan has ever billed"},
+    {"hundredths": 1000, "figure": "10.0", "text": "10.0 hrs", "why": "two digits of whole hours"}
   ],
   "hourly": [
     {"hundredths": 125, "rateCents": 25000, "amountCents": 31250, "why": "a quarter hour line reconstructs from what is printed"},

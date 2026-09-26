@@ -45,6 +45,15 @@ reading `NOT RENDERED:` followed by why. `rules/money.js` is in that state today
 it holds the discount and referral credit arithmetic that PRD 5.4a and 5.8
 settled, and no screen draws either yet.
 
+A RULE MORE THAN ONE SCREEN RUNS NAMES THEM (ovation#413). Otherwise a rule is
+held to its best copy anywhere, and the best copy answers for every other: the
+invoice PDF carrying the duration figure exactly would say nothing about whether
+the invoice screen still did, and the agreement between those two is the whole
+of PRD 51k. So a line in the rule reading `CARRIED BY:` followed by design file
+names holds each named file to the rule on its own, and a named file that is not
+in the record is a refusal, because a declaration pointing at nothing checks
+nothing while reading as a check (L1004).
+
 Exit codes, so a caller can tell the outcomes apart without parsing text:
 
     0  every rule is inlined verbatim or declares why it is not rendered
@@ -77,6 +86,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 from design_inline import comparable_tokens, html_files, longest_run, significant_lines  # noqa: E402
 
 DECLARES_UNRENDERED = "NOT RENDERED:"
+DECLARES_CARRIERS = "CARRIED BY:"
 
 
 def unrendered_reason(text):
@@ -85,6 +95,39 @@ def unrendered_reason(text):
             said = raw.split(DECLARES_UNRENDERED, 1)[1]
             return " ".join(said.replace("*/", " ").split())
     return None
+
+
+def declared_carriers(text):
+    """The design files a rule says run it, in the order it names them.
+
+    ovation#413. `CARRIED BY:` followed by file names on one line. Absent, the
+    rule is held to its best copy anywhere, which is enough for a rule only one
+    screen runs.
+    """
+    for raw in text.splitlines():
+        if DECLARES_CARRIERS in raw:
+            said = raw.split(DECLARES_CARRIERS, 1)[1].replace("*/", " ")
+            return [n for n in re.split(r"[,\s]+", said) if n]
+    return []
+
+
+def judged(design, code_length, token_length, run, token_run):
+    """One copy against its rule: None when verbatim, else (kind, why, None)."""
+    if run == code_length and token_run == token_length:
+        return None
+    if run == code_length:
+        return ("REASONING DRIFTED",
+                f"{design} runs this rule's code exactly and does not "
+                f"say the same thing about it. The comment is where the "
+                f"decision and its measurement are recorded, so the two "
+                f"copies now give different reasons for one rule", None)
+    if run == 0:
+        return ("NOT INLINE",
+                f"{design} is named as a file that runs it and carries none of it",
+                None)
+    return ("DRIFTED",
+            f"{design} carries it as far as line {run + 1} "
+            f"of {code_length} and then disagrees", None)
 
 
 def main():
@@ -143,6 +186,29 @@ def main():
             faults.append((name, "NOT INLINE", "the rule file holds no code at all", None))
             continue
 
+        # A RULE NAMING ITS CARRIERS is held in each of them on its own
+        # (ovation#413), because the best copy anywhere answers for none of the
+        # others: the PDF carrying the duration rule exactly says nothing about
+        # whether the screen still does.
+        carriers = declared_carriers(text)
+        if carriers:
+            before = len(faults)
+            for design in carriers:
+                if design not in designs:
+                    faults.append((name, "NOT INLINE",
+                                   f"it names {design} as a file that runs it, and "
+                                   f"{design} is not in the design record", None))
+                    continue
+                file_code, file_tokens = designs[design]
+                fault = judged(design, len(rule_code), len(rule_tokens),
+                               longest_run(rule_code, file_code),
+                               longest_run(rule_tokens, file_tokens))
+                if fault:
+                    faults.append((name,) + fault)
+            if len(faults) == before:
+                inlined.append((name, ", ".join(carriers)))
+            continue
+
         best_file, best_run, best_tokens = None, 0, 0
         for design, (file_code, file_tokens) in designs.items():
             run = longest_run(rule_code, file_code)
@@ -152,22 +218,16 @@ def main():
             if best_run == len(rule_code) and best_tokens == len(rule_tokens):
                 break
 
-        if best_run == len(rule_code) and best_tokens == len(rule_tokens):
-            inlined.append((name, best_file))
-        elif best_run == len(rule_code):
-            faults.append((name, "REASONING DRIFTED",
-                           f"{best_file} runs this rule's code exactly and does not "
-                           f"say the same thing about it. The comment is where the "
-                           f"decision and its measurement are recorded, so the two "
-                           f"copies now give different reasons for one rule", None))
-        elif best_run == 0:
+        if best_run == 0:
             faults.append((name, "NOT INLINE",
                            "no design file carries any of it, so no screen runs this rule",
                            None))
+            continue
+        fault = judged(best_file, len(rule_code), len(rule_tokens), best_run, best_tokens)
+        if fault:
+            faults.append((name,) + fault)
         else:
-            faults.append((name, "DRIFTED",
-                           f"{best_file} carries it as far as line {best_run + 1} "
-                           f"of {len(rule_code)} and then disagrees", None))
+            inlined.append((name, best_file))
 
     for name, design in inlined:
         print(f"  {name}: inlined verbatim in {design}")

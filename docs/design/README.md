@@ -1309,6 +1309,15 @@ outcome**, because comparing the comments alone reports "no design file carries 
 rule whose first line is a comment somebody reworded, which is the wrong diagnosis for a rule that is
 inlined and running.
 
+**A rule more than one design file runs names them** (ovation#413, 2026-09-26). Held to its best
+copy anywhere, the PDF carrying a rule exactly would answer for the screen's copy too. So a rule
+whose comment reads `CARRIED BY:` and a list of design files is held in each of them on its own, and
+a named file that is not in the record is a refusal. `rules/hours-figure.js` is the first: the
+number a duration is written as, which `invoice.html` draws in its Hours cell and `invoice-pdf.html`
+draws before the unit (PRD 51k), so the two cannot write one duration as two numbers. Its figures
+are in `rules/pdf-text.cases.json` beside the PDF's text, which the app's `PDFText.hoursFigure` is
+held to as well.
+
 The page prints its own verdict line above the window, and it reports the same 150 across the same 6
 suites that `scripts/test-design-rules.sh` reports (`asserted by check-design-rules-inline.sh`,
 which is what makes the two copies one). Two numbers that must agree, from two places,
