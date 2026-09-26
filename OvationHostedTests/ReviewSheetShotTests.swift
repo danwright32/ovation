@@ -159,7 +159,7 @@ struct ReviewSheetShotTests {
         context.insert(client)
         let issued = BusinessDate.stamping(day)
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: issued,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         // DUE TODAY is judged against the real clock, which is what the warning reads.
         invoice.dueDate = BusinessDate.stamping(dueToday ? Date() : day.addingTimeInterval(14 * 86_400))

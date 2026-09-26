@@ -45,7 +45,7 @@ struct InvoiceListViewTests {
                      due: BusinessDate? = nil, number: Int64? = nil, sent: Bool = false,
                      amount: Int64 = 1_240) -> Invoice {
             let i = Invoice(client: c, kind: .photography, invoiceDate: day,
-                            hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                            hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
             i.dueDate = due
             i.number = number
             if sent {
@@ -241,7 +241,7 @@ struct InvoiceListViewTests {
         let client = Client(name: "Marlowe Early Music", taxStatus: .notExempt)
         context.insert(client)
         let ready = Invoice(client: client, kind: .photography, invoiceDate: day(-3),
-                            hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                            hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         let shoot = Shoot(name: "Candlemas", when: .dayOnly(day(-3)), venue: nil)
         shoot.shotFrom = ClockTime("19:00")
         shoot.shotUntil = ClockTime("21:00")
@@ -471,7 +471,7 @@ struct InvoiceListViewTests {
         let client = Client(name: "A company", taxStatus: .notExempt)
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: today,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         return invoice.persistentModelID
     }

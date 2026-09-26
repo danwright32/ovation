@@ -97,7 +97,7 @@ struct InvoiceListShotTests {
         func invoice(_ owner: Client, _ shoot: String, on day: BusinessDate,
                      hours: Hours?, number: Int64? = nil) -> Invoice {
             let made = Invoice(client: owner, kind: .photography, invoiceDate: day,
-                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
             made.dueDate = Self.day(14)
             context.insert(made)
             let event = Shoot(name: shoot, when: .dayOnly(day), venue: "St Anne's")

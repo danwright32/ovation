@@ -23,7 +23,7 @@ struct InvoiceDueDateWriterTests {
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography,
                               invoiceDate: BusinessCalendar.day(forKey: "2026-11-12"),
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         invoice.dueDate = BusinessCalendar.day(forKey: "2026-11-26")
         context.insert(invoice)
         try context.save()

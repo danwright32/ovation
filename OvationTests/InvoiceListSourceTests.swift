@@ -63,7 +63,7 @@ struct InvoiceListSourceTests {
         let invoice = Invoice(client: client, kind: .photography,
                               invoiceDate: .stamping(noon),
                               hourlyRate: Money(dollars: 250),
-                              taxRate: TaxRate(thousandthsOfAPercent: 0))
+                              taxRate: TaxRate(thousandthsOfAPercent: 0), createdOn: nil)
         invoice.dueDate = due
         invoice.add(LineItem.flat(Money(dollars: dollars), describedAs: "Photography"))
         if sent {

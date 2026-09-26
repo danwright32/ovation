@@ -32,7 +32,7 @@ enum OvationSchema {
         ReferralLedgerEntry.self,
     ]
 
-    static var schema: Schema { Schema(models, version: OvationSchemaV3.versionIdentifier) }
+    static var schema: Schema { Schema(models, version: OvationSchemaV4.versionIdentifier) }
 
     /// Today's shape, with a NAME (ovation#105).
     ///
@@ -46,7 +46,7 @@ enum OvationSchema {
     ///
     /// It delegates to `models` rather than repeating the list, so the two
     /// cannot drift into disagreement about what the store holds (L41).
-    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV3.self }
+    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV4.self }
 
     /// A container over a store file, or an in memory one for tests.
     ///
@@ -181,23 +181,60 @@ enum OvationSchemaV2: VersionedSchema {
 /// The value types shared by every version are the stated limitation both frozen
 /// shapes carry: a change to one of THEM changes what they describe.
 ///
-/// ITS TYPES ARE THE APP'S OWN, in `Ovation/Domain`, declared in extensions of
-/// THIS version with a `typealias` in each file pointing the bare name here. That
-/// is what makes "the shape in force" and "version 3" one thing rather than two
-/// that can drift.
-///
-/// WHAT THE NEXT VERSION COSTS, said here so it is not rediscovered. Version 4
-/// means taking a frozen copy of these ten classes the way the two shape files
-/// hold versions 1 and 2, because a version cannot reuse another's types for
-/// anything it is related to. That is measured rather than assumed; the
-/// measurement and its error message are on `OvationSchemaV1.models`.
+/// ITS CLASSES ARE IN `OvationSchemaV3Shape.swift`, frozen, moved there the day
+/// version 4 existed (ovation#510), for the reason versions 1 and 2 were: a
+/// version cannot reuse another's types for anything it is related to. VERSION 3
+/// WAS WRITTEN TO DISK by the installed app, so its frozen copy is held to the
+/// fingerprint `SchemaFingerprintTests` pinned rather than to anybody's reading.
 enum OvationSchemaV3: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
 
     /// What version 3 holds, said by version 3.
     ///
+    /// NOT `OvationSchema.models`, for the reason version 1's list records.
+    static var models: [any PersistentModel.Type] { [
+        Client.self,
+        Invoice.self,
+        Shoot.self,
+        LineItem.self,
+        ServiceType.self,
+        Payment.self,
+        PaymentAllocation.self,
+        Refund.self,
+        Expense.self,
+        ReferralLedgerEntry.self,
+    ] }
+}
+
+/// Version 4: version 3 plus the day each invoice was created (ovation#510).
+///
+/// THE ONE DIFFERENCE IS ONE ADDED OPTIONAL FIELD, `Invoice.createdOn`, which is
+/// why the stage below can be lightweight, measured for version 3's own additive
+/// change in `SchemaMigrationTests`. An invoice written before it arrives with no
+/// creation day, and that is the truth rather than a gap to fill: the day was
+/// never recorded, and a date standing in for one nobody recorded is L192.
+///
+/// WHY IT HAD TO BE STORED is PRD 51d. The invoice's history opens with `Draft
+/// created`, and Dan chose on 2026-09-25 to record the day rather than have the
+/// history begin at `Sent`.
+///
+/// ITS TYPES ARE THE APP'S OWN, in `Ovation/Domain`, declared in extensions of
+/// THIS version with a `typealias` in each file pointing the bare name here. That
+/// is what makes "the shape in force" and "version 4" one thing rather than two
+/// that can drift.
+///
+/// WHAT THE NEXT VERSION COSTS, said here so it is not rediscovered. Version 5
+/// means taking a frozen copy of these ten classes the way the three shape files
+/// hold versions 1 to 3, because a version cannot reuse another's types for
+/// anything it is related to. That is measured rather than assumed; the
+/// measurement and its error message are on `OvationSchemaV1.models`.
+enum OvationSchemaV4: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(4, 0, 0) }
+
+    /// What version 4 holds, said by version 4.
+    ///
     /// NOT `OvationSchema.models`, for the reason version 1's list records. This
-    /// one and the app's list DO agree today, because version 3 is the shape in
+    /// one and the app's list DO agree today, because version 4 is the shape in
     /// force, and `check-schema-registered.sh` holds the NEWEST version to the app
     /// for exactly that reason.
     static var models: [any PersistentModel.Type] { [
@@ -238,7 +275,7 @@ enum OvationSchemaV3: VersionedSchema {
 /// whatever OS is current (L82).
 enum OvationMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [OvationSchemaV1.self, OvationSchemaV2.self, OvationSchemaV3.self]
+        [OvationSchemaV1.self, OvationSchemaV2.self, OvationSchemaV3.self, OvationSchemaV4.self]
     }
 
     /// LIGHTWEIGHT, AND THAT IS A MEASUREMENT RATHER THAN A HOPE. The only
@@ -252,6 +289,7 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
         [
             .lightweight(fromVersion: OvationSchemaV1.self, toVersion: OvationSchemaV2.self),
             .lightweight(fromVersion: OvationSchemaV2.self, toVersion: OvationSchemaV3.self),
+            .lightweight(fromVersion: OvationSchemaV3.self, toVersion: OvationSchemaV4.self),
         ]
     }
 }

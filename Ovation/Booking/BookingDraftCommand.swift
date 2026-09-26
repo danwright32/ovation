@@ -122,7 +122,8 @@ final class BookingDraftCommand {
         }
         progress = .running(since: now)
         Task { @MainActor in
-            let report = await Self.offTheMainActor(queue: queue, container: container)
+            let report = await Self.offTheMainActor(queue: queue, container: container,
+                                                    today: .stamping(now))
             let finished = Date()
             for said in report.sentences {
                 _ = problems.raise(kind: said.kind, subject: said.subject,
@@ -149,7 +150,10 @@ final class BookingDraftCommand {
     /// store, and doing that on the thread that draws the result is how the whole
     /// window stops responding rather than the one surface that asked (L236,
     /// L241).
-    private static func offTheMainActor(queue: URL, container: ModelContainer) async -> Report {
+    /// `today` is the day of the press, which each drafted invoice is created on
+    /// (ovation#510). Passed rather than read here, so no clock is hidden inside.
+    private static func offTheMainActor(queue: URL, container: ModelContainer,
+                                        today: BusinessDate) async -> Report {
         let reading = BookingQueue.read(directory: queue)
         var said: [Report.Said] = []
 
@@ -183,7 +187,7 @@ final class BookingDraftCommand {
         for queued in reading.records {
             do {
                 switch try await drafter.draft(from: queued.record,
-                                               at: Pricing.standardHourlyRate) {
+                                               at: Pricing.standardHourlyRate, on: today) {
                 case .drafted:
                     drafted += 1
                 case .alreadyDrafted:

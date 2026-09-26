@@ -55,7 +55,7 @@ struct ServiceTypeTests {
         let type = ServiceType(name: "Preview images", role: .ordinary, defaultUnitAmount: nil)
         context.insert(type)
         let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: nil,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         let line = LineItem.flat(Money(dollars: 75), describedAs: "Preview images")
         line.serviceType = type

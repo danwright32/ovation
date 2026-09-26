@@ -38,7 +38,7 @@ struct InvoiceListPresenterTests {
         amount: Int64 = 100
     ) -> Invoice {
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: shoot,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         invoice.dueDate = due
         invoice.number = number
         if sent {

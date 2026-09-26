@@ -93,7 +93,7 @@ enum ReviewSampleWorld {
         let issued = BusinessDate.stamping(Date(timeIntervalSince1970: 1_790_000_000))
         let rate = Money(dollars: 250)
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: issued,
-                              hourlyRate: rate, taxRate: .newYorkCity)
+                              hourlyRate: rate, taxRate: .newYorkCity, createdOn: issued)
         context.insert(invoice)
         invoice.number = 1_123
         invoice.dueDate = BusinessDate.stamping(Date(timeIntervalSince1970: 1_791_209_600))

@@ -35,7 +35,7 @@ struct ShootTimesWriterTests {
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography,
                               invoiceDate: .stamping(noon),
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         invoice.dueDate = .stamping(noon.addingTimeInterval(14 * 86_400))
         context.insert(invoice)
         let shoot = Shoot(name: "Autumn Evensong", when: .dayOnly(.stamping(noon)), venue: "St Anne's")

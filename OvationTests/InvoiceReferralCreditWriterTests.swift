@@ -44,7 +44,7 @@ struct InvoiceReferralCreditWriterTests {
         let client = Client(name: "Cedar Hill Youth Orchestra", taxStatus: .notExempt)
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography,
-                              invoiceDate: day, hourlyRate: rate, taxRate: .newYorkCity)
+                              invoiceDate: day, hourlyRate: rate, taxRate: .newYorkCity, createdOn: nil)
         if lines > .zero {
             invoice.add(LineItem.flat(lines, describedAs: "Photography"))
         }

@@ -37,7 +37,7 @@ struct ReturningToTheListTests {
         return (0..<count).map { index in
             let invoice = Invoice(client: client, kind: .photography,
                                   invoiceDate: today, hourlyRate: Money(dollars: 250),
-                                  taxRate: .newYorkCity)
+                                  taxRate: .newYorkCity, createdOn: nil)
             context.insert(invoice)
             let shoot = Shoot(name: "Shoot \(index)", when: .dayOnly(today), venue: "St Anne's")
             invoice.add(shoot)
