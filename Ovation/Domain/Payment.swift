@@ -104,6 +104,15 @@ extension OvationSchemaV3 {
 
         var canBeCleared: Bool { method.gainsAClearedStep }
 
+        /// A check that has not cleared yet, which is the one payment Dan is ever
+        /// asked to confirm (PRD 15, 51n). Every other method is cleared the moment
+        /// it is recorded, so it never waits.
+        ///
+        /// ONE PREDICATE, read by the list's band and by the invoice screen, so
+        /// the To confirm count and the line under the Total cannot disagree about
+        /// one payment (L16).
+        var isWaitingToClear: Bool { canBeCleared && clearedOn == nil }
+
         /// Records that a check cleared. Answers whether it did anything, because a
         /// control that silently does nothing is worse than one that refuses (L109).
         @discardableResult

@@ -50,6 +50,35 @@ enum AllocationRefusal: Error, Equatable {
     case noSuchInvoice
 }
 
+/// Why a payment could not be recorded or cleared (ovation#510). Each is its own
+/// case, so the sheet can say which one stopped it rather than that something did
+/// (L11).
+enum PaymentRecordingRefusal: Error, Equatable {
+    /// Nothing typed, or a negative figure: a payment of nothing records no money.
+    case amountIsNotPositive(asked: Money)
+    case noSuchInvoice
+    /// A draft has not been sent, so nothing has been asked of the client yet.
+    /// Money arriving first is a deposit, which is ovation#96, not this.
+    case invoiceIsNotSent
+    /// A cancelled or deleted invoice takes no money (PRD 13, 14d).
+    case invoiceIsClosed
+    /// Paid in full already. More money would only be held, and holding it
+    /// against an invoice that owes nothing is not a decision this sheet makes.
+    case nothingIsOwed
+    case noSuchPayment
+    /// Only a check has a cleared step (PRD 15).
+    case hasNoClearedStep
+}
+
+/// What recording a payment did, read back after the one save.
+struct RecordedPayment: Sendable, Equatable {
+    let payment: PersistentIdentifier
+    /// What went against the invoice.
+    let allocated: Money
+    /// What the invoice could not take, which stays on the client (PRD 14a).
+    let held: Money
+}
+
 @ModelActor
 actor PaymentAllocator {
 
@@ -124,6 +153,82 @@ actor PaymentAllocator {
         let allocation = PaymentAllocation(payment: payment, invoice: invoice,
                                            amount: amount, allocatedOn: day)
         modelContext.insert(allocation)
+        try modelContext.save()
+    }
+
+    /// Records money that arrived for one sent invoice (ovation#510, PRD 51m).
+    ///
+    /// THE PAYMENT AND ITS ALLOCATION ARE ONE SAVE. Written as two, a failure
+    /// between them leaves money arrived and pointed at nothing, which the Clients
+    /// screen would show as money held that Dan never meant to hold. So both are
+    /// inserted and saved together, under the same gate every other writer of
+    /// money takes (ovation#175).
+    ///
+    /// MORE THAN IS OWED IS RECORDED IN FULL, because the payment is the amount
+    /// actually written (PRD 14), and the invoice takes only what it owes: the rest
+    /// is unallocated on the client, which is where PRD 14a puts an overpayment.
+    ///
+    /// ONE PRESS IS ONE PAYMENT, HOWEVER IT ARRIVES. `press` becomes the payment's
+    /// identity, so a double click or a retry after a write that looked like it
+    /// failed finds the first payment and answers with it instead of recording
+    /// the money twice. It is checked first, under the gate, because a second
+    /// arrival after the first paid the invoice in full must get the first
+    /// answer, not a refusal that nothing is owed.
+    @discardableResult
+    func record(
+        _ amount: Money,
+        method: PaymentMethod,
+        receivedOn day: BusinessDate,
+        onto invoiceID: PersistentIdentifier,
+        press: UUID
+    ) async throws -> RecordedPayment {
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+
+        guard amount > .zero else { throw PaymentRecordingRefusal.amountIsNotPositive(asked: amount) }
+        guard let invoice = try find(invoiceID, as: Invoice.self) else {
+            throw PaymentRecordingRefusal.noSuchInvoice
+        }
+        if let earlier = try modelContext.fetch(FetchDescriptor<Payment>(
+            predicate: #Predicate { $0.id == press })).first {
+            let standing = earlier.activeAllocations.filter { $0.invoice?.id == invoice.id }
+            return RecordedPayment(payment: earlier.persistentModelID,
+                                   allocated: Money.sum(of: standing.map(\.amount)),
+                                   held: earlier.unallocated)
+        }
+        guard case .sent = invoice.sentStatus else { throw PaymentRecordingRefusal.invoiceIsNotSent }
+        guard invoice.closure == nil else { throw PaymentRecordingRefusal.invoiceIsClosed }
+        let owed = invoice.amountOutstanding
+        guard owed > .zero else { throw PaymentRecordingRefusal.nothingIsOwed }
+
+        let payment = Payment(client: invoice.client, amount: amount, method: method,
+                              receivedOn: day)
+        payment.id = press
+        modelContext.insert(payment)
+        let share = amount < owed ? amount : owed
+        modelContext.insert(PaymentAllocation(payment: payment, invoice: invoice,
+                                              amount: share, allocatedOn: day))
+        try modelContext.save()
+        return RecordedPayment(payment: payment.persistentModelID,
+                               allocated: share, held: amount - share)
+    }
+
+    /// Marks a check cleared on the day Mark cleared is pressed (PRD 15, 51n).
+    ///
+    /// Under the same gate, because it writes a payment another writer may be
+    /// allocating from. Pressing it again on a check already cleared changes
+    /// nothing: the day it cleared is a fact, and a second press is not a newer one.
+    func markCleared(_ paymentID: PersistentIdentifier, on day: BusinessDate) async throws {
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+        guard let payment = try find(paymentID, as: Payment.self) else {
+            throw PaymentRecordingRefusal.noSuchPayment
+        }
+        guard payment.canBeCleared else { throw PaymentRecordingRefusal.hasNoClearedStep }
+        guard payment.clearedOn == nil else { return }
+        payment.markCleared(on: day)
         try modelContext.save()
     }
 
