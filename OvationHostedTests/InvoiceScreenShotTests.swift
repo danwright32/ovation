@@ -94,6 +94,22 @@ struct InvoiceScreenShotTests {
         // THE COUNT IS ASSERTED, so a capture that silently wrote fewer than it
         // meant to is a failure rather than a shorter set nobody counts.
         #expect(written.count == State.allCases.count)
+
+        // AND EACH STATE AT THE HALF SCREEN MINIMUM (ovation#110), the width Dan
+        // works at, which no picture of this screen had ever been taken at.
+        for state in State.allCases {
+            let file = directory.appending(path: "invoice-\(state.rawValue)-half-screen.png")
+            try OffscreenShot.capture(
+                InvoiceScreenView(presenter: try Self.presenter(for: state), close: {},
+                                  setTime: { _, _, _ in },
+                                  answerTax: { _, _ in },
+                                  addLine: { _, _ in }, createType: { _, _ in },
+                                  setDiscount: { _ in }, payment: Self.payment(for: state),
+                                  review: {}),
+                size: Self.halfScreenSize, scheme: .light, to: file)
+            written.append(file.lastPathComponent)
+        }
+        #expect(written.count == State.allCases.count * 2)
         print("INVOICE SCREEN SHOTS: wrote \(written.count) into \(directory.path)")
     }
 
@@ -216,4 +232,7 @@ struct InvoiceScreenShotTests {
     /// the fold on a laptop. The width is the settled 1120px shell's content area
     /// less its rail.
     private static let windowSize = CGSize(width: 856, height: 560)
+    /// The content area of the narrowest window, beside the rail (ovation#110).
+    private static let halfScreenSize = CGSize(
+        width: OvationWindow.minimumWidth - OvationWindow.railWidth, height: 560)
 }

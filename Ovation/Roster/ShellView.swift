@@ -147,7 +147,10 @@ struct ShellView: View {
             rail
             content
         }
-        .frame(minWidth: 900, minHeight: 620, alignment: .topLeading)
+        // THE MINIMUM IS HALF DAN'S SCREEN (ovation#110), from `OvationWindow`,
+        // which the design record's check reads too. It was a literal 900 here,
+        // chosen rather than measured and wider than the half screen he uses.
+        .frame(minWidth: OvationWindow.minimumWidth, minHeight: 620, alignment: .topLeading)
         .ovationAppearance()
         // THE SHEET BELONGS TO THE WINDOW (PRD 52a). Every way it closes, Close, Done
         // or the Escape key, goes through the reviewer, which gives back a number the
@@ -249,7 +252,7 @@ struct ShellView: View {
         .padding(.horizontal, 9)
         .padding(.top, 34)
         .padding(.bottom, 12)
-        .frame(width: 208, alignment: .topLeading)
+        .frame(width: OvationWindow.railWidth, alignment: .topLeading)
         .background(OvationPalette.rail)
     }
 

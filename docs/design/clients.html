@@ -127,7 +127,9 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 
 
 .win {
-  width: 1064px; margin: 22px auto 0; border-radius: 10px; overflow: hidden;
+  --win-width: 1064px;
+  width: var(--win-width); margin: 22px auto 0; border-radius: 10px; overflow: hidden;
+  container: win / inline-size;
   box-shadow: 0 1px 1px rgba(0,0,0,.18), 0 20px 44px rgba(0,0,0,.28);
 }
 /* FULL HEIGHT SIDEBAR. The rail runs to the top of the window and the traffic
@@ -319,6 +321,17 @@ color: var(--faint); }
 .damt { text-align: right; color: var(--ink); font-weight: 500; font-size: 13px; }
 .dsub { font-size: 13.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .dsaid { font-size: 12.5px; color: var(--faint); text-align: right; white-space: nowrap; }
+/* BELOW A 1020 POINT WINDOW THE SHOOT TAKES A LINE OF ITS OWN (Dan, 2026-09-26,
+   ovation#110 round 2, PRD 47c). At 860, half his screen, these rows needed
+   more than the pane had, so the pane scrolled sideways by 24 points and every
+   shoot was squeezed to nothing. He chose the shoot on its own line with the
+   number, date, amount and status beneath it, following the invoice list's rule,
+   over narrowing the names column to 176, which kept one line but cut every
+   shoot and 27 of 31 client names. Rows go from 36 points to 59.
+   IT SWITCHES AT ITS OWN WIDTH, not the invoice list's 900, because these rows
+   carry no client name to give way: measured on one line, they hold every shoot
+   at 1020 and cut every one at 980, so they switch just below 1020. */
+@container win (max-width: 1019px) { .drow { grid-template-columns: 44px minmax(0,1fr) 92px 108px; row-gap: 2px; } .drow .dsub { grid-column: 1 / -1; order: -1; } }
 
 /* A money row that holds one box keeps the two box geometry. A lone box that
    stretched to the pane would be a different design appearing on 6 clients of

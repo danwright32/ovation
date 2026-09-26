@@ -15,8 +15,18 @@
 
    Nothing was harmonised to build this part: it was measured out of the files
    as the run they already agreed on. */
+/* THE WINDOW'S WIDTH IS A VARIABLE, AND THE WINDOW IS A CONTAINER (ovation#110).
+   1064 is the width every screen was settled at; the app's window may be made as
+   narrow as its minimum, 860, which is half of Dan's screen (1728 points wide, a
+   half screen window 867, measured 2026-09-23). `scripts/check-design-draws.sh`
+   draws every window at that minimum by overriding `--win-width` on `.win`, which
+   defines its own so the token check finds it where it is named, and a screen that
+   changes its layout when narrow does so with a container query on `win`, so the
+   rule answers to the WINDOW and not to the page the rendering sits in. */
 .win {
-  width: 1064px; margin: 22px auto 0; border-radius: 10px; overflow: hidden;
+  --win-width: 1064px;
+  width: var(--win-width); margin: 22px auto 0; border-radius: 10px; overflow: hidden;
+  container: win / inline-size;
   box-shadow: 0 1px 1px rgba(0,0,0,.18), 0 20px 44px rgba(0,0,0,.28);
 }
 /* FULL HEIGHT SIDEBAR. The rail runs to the top of the window and the traffic

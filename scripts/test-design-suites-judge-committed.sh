@@ -53,10 +53,13 @@ if [ "$?" = "3" ]; then
 fi
 
 # A copy of everything a rendering suite reads: its scripts, the design record,
-# and the workflow the draws suite holds against its checks.
+# and the workflow the draws suite holds against its checks, and the app's
+# window constants, which the draws check reads its minimum width from
+# (ovation#110).
 copy_tree() {
     mkdir -p "$1/docs"
-    cp -R scripts "$1/scripts" && cp -R docs/design "$1/docs/design" && cp -R .github "$1/.github"
+    cp -R scripts "$1/scripts" && cp -R docs/design "$1/docs/design" && cp -R .github "$1/.github" &&
+        mkdir -p "$1/Ovation/App" && cp Ovation/App/OvationWindow.swift "$1/Ovation/App/"
 }
 
 # $1 tree, $2 design file, $3 sed expression, $4 what the edit must leave behind.

@@ -93,22 +93,29 @@ struct RosterPassRenderTests {
             roster: roster,
             problems: problems)
 
-        let size = NSSize(width: 1064, height: 980)
-        let host = NSHostingView(rootView: view)
-        host.frame = NSRect(origin: .zero, size: size)
-        host.layoutSubtreeIfNeeded()
-
-        let bitmap = try #require(
-            host.bitmapImageRepForCachingDisplay(in: host.bounds),
-            "the shell produced no bitmap at all")
-        host.cacheDisplay(in: host.bounds, to: bitmap)
-
-        #expect(bitmap.size.width == size.width)
-
+        // AT THE SETTLED WIDTH AND AT THE HALF SCREEN MINIMUM (ovation#110): the
+        // roster's rows give the client name no width of their own, and until
+        // this they had only ever been drawn at 1064.
+        let sizes: [(String, NSSize)] = [
+            ("roster-pass.png", NSSize(width: 1064, height: 980)),
+            ("roster-pass-half-screen.png", NSSize(width: OvationWindow.minimumWidth, height: 980)),
+        ]
         try? FileManager.default.createDirectory(
             at: Self.renderDirectory, withIntermediateDirectories: true)
-        if let png = bitmap.representation(using: .png, properties: [:]) {
-            try? png.write(to: Self.renderDirectory.appendingPathComponent("roster-pass.png"))
+        for (name, size) in sizes {
+            let host = NSHostingView(rootView: view)
+            host.frame = NSRect(origin: .zero, size: size)
+            host.layoutSubtreeIfNeeded()
+
+            let bitmap = try #require(
+                host.bitmapImageRepForCachingDisplay(in: host.bounds),
+                "the shell produced no bitmap at all at \(Int(size.width)) points")
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+
+            #expect(bitmap.size.width == size.width)
+            if let png = bitmap.representation(using: .png, properties: [:]) {
+                try? png.write(to: Self.renderDirectory.appendingPathComponent(name))
+            }
         }
     }
 }

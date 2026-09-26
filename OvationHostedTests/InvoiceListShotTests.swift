@@ -68,6 +68,12 @@ struct InvoiceListShotTests {
                 "the list draws differently in dark, so something on it takes a colour from the system rather than from OvationPalette")
         // THE PICTURE IS OF SOMETHING, asserted rather than assumed: a capture of
         // an empty list would be a file nobody looks at twice (L98).
+        // AND AT THE HALF SCREEN MINIMUM (ovation#110), where the shoot goes under
+        // the client, which is the shape Dan works at and the one to look at.
+        let half = directory.appending(path: "invoice-list-half-screen.png")
+        try OffscreenShot.capture(view, size: Self.halfScreenSize, scheme: .light, to: half)
+        #expect(FileManager.default.fileExists(atPath: half.path))
+
         let rows = presenter.bands.flatMap { $0.rows }
         #expect(rows.count == 11, "the population is \(rows.count) rows, not the real eleven")
         print("INVOICE LIST SHOTS: wrote \(file.lastPathComponent) into \(directory.path)")
@@ -159,4 +165,7 @@ struct InvoiceListShotTests {
 
     /// The settled shell's content area, from the design record.
     private static let windowSize = CGSize(width: 856, height: 620)
+    /// The content area of the narrowest window, beside the rail (ovation#110).
+    private static let halfScreenSize = CGSize(
+        width: OvationWindow.minimumWidth - OvationWindow.railWidth, height: 900)
 }

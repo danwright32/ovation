@@ -80,10 +80,12 @@ checked" must never be the same answer (L98).
 Exit codes: 0 every claim held, 1 a claim failed, 2 used wrongly, 3 cannot
 measure.
 
-Seams: OVATION_DESIGN_ROOT, OVATION_HEADLESS_BROWSER, and
-OVATION_DESIGN_WIDTHS, a comma separated list of window widths.
+Seams: OVATION_DESIGN_ROOT, OVATION_HEADLESS_BROWSER,
+OVATION_DESIGN_WIDTHS, a comma separated list of page widths, and
+OVATION_WINDOW_SOURCE, the Swift file the minimum window width is read from.
 """
 import glob
+import re
 import os
 import sys
 
@@ -99,6 +101,90 @@ DEFAULT_ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs
 # narrowest laptop Dan opens them on. A single width is what let the invoice list
 # ship cutting off its own side.
 DEFAULT_WIDTHS = "1440,1280"
+
+# AND EVERY APP WINDOW AGAIN AT THE APP'S MINIMUM WIDTH (ovation#110). The widths
+# above are the PAGE the rendering sits in; the window drawn inside it was 1064
+# at both, so no screen had ever been judged at the half screen width Dan works
+# at. The minimum is read from the app's own constant rather than written here,
+# so the check and the window cannot come to mean two numbers (L41), and a
+# source that does not declare it is a refusal rather than a pass at a default.
+WINDOW_SOURCE = os.environ.get("OVATION_WINDOW_SOURCE") or os.path.join(
+    REPO, "Ovation/App/OvationWindow.swift")
+
+
+class NoMinimumWindow(Exception):
+    """The app's minimum window width could not be read."""
+
+
+def minimum_window():
+    """The app's minimum window width, or a NoMinimumWindow naming the file.
+
+    ITS OWN REFUSAL, NEVER "CANNOT MEASURE". Exit 3 is what every caller reads
+    as there being no browser, and on 2026-09-26 a scratch tree that lacked
+    this file made the check answer 3: the draws suite then reported no
+    headless browser, skipped every case, and a planted fault went unjudged
+    (ovation#110, L11). A source that does not say the minimum is a check
+    pointed at the wrong tree, which is being used wrongly."""
+    try:
+        with open(WINDOW_SOURCE, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError as err:
+        raise NoMinimumWindow("the minimum window width could not be read from %s: %s"
+                              % (WINDOW_SOURCE, err))
+    found = re.search(r"static let minimumWidth: CGFloat = (\d+)\b", text)
+    if not found:
+        raise NoMinimumWindow("%s does not declare `static let minimumWidth: CGFloat`, "
+                              "so there is no minimum window to draw at" % WINDOW_SOURCE)
+    return int(found.group(1))
+
+
+# THREE CLAIMS, AND THE FIRST IS THE CONTROL. A window that ignores the width it
+# is asked for passes the other two at 1064, which is the pass this exists to
+# stop (L159). The second is the fault ovation#110 was filed for, a pane
+# scrolling sideways inside the window, which claim 4 above cannot see because it
+# measures the PAGE. The third is the fault it found beside it: a name cell that
+# truncates by design, squeezed until nothing of its text shows, which no scroll
+# and no clip reports because the cell is doing exactly what it was told.
+MINIMUM_PROBE = r"""
+<script>
+window.addEventListener("load", function () {
+  var result = {windows: 0, claims: {}};
+  function claim(label, ok, saw) { result.claims[label] = {ok: ok, saw: saw}; }
+  try {
+    var wins = document.querySelectorAll(".win");
+    result.windows = wins.length;
+    var asked = window.__ovationMinimum, wrong = [], scrolls = [], squeezed = [];
+    wins.forEach(function (win) {
+      var drawn = win.getBoundingClientRect().width;
+      if (Math.abs(drawn - asked) > 0.5) wrong.push(Math.round(drawn) + "px");
+      win.querySelectorAll("*").forEach(function (node) {
+        var style = getComputedStyle(node);
+        if ((style.overflowX === "auto" || style.overflowX === "scroll")
+            && node.scrollWidth > node.clientWidth) {
+          scrolls.push((node.className || node.tagName) + " by "
+                       + (node.scrollWidth - node.clientWidth) + "px");
+        }
+        if (style.textOverflow === "ellipsis" && node.getClientRects().length
+            && node.textContent.trim() && node.clientWidth < 4) {
+          squeezed.push(node.textContent.trim());
+        }
+      });
+    });
+    claim("the window draws at the minimum width", !wrong.length,
+          wrong.length ? "asked for " + asked + "px and drew " + wrong.join(", ") : "");
+    claim("nothing in the window scrolls sideways", !scrolls.length, scrolls.join("; "));
+    claim("no name is squeezed to nothing", !squeezed.length,
+          squeezed.length + " cut to nothing, among them " + squeezed.slice(0, 4).join(", "));
+  } catch (err) {
+    result.threw = String(err);
+  }
+  var pre = document.createElement("pre");
+  pre.id = "ovation-probe";
+  pre.textContent = JSON.stringify(result);
+  document.body.appendChild(pre);
+});
+</script>
+"""
 
 # The page must produce at least this many elements to be judged at all. It is a
 # floor on "did anything render", not a measure of the design: the smallest of
@@ -452,6 +538,14 @@ def main(argv):
         print("CANNOT MEASURE: %s" % err)
         return 3
 
+    try:
+        minimum = minimum_window()
+    except NoMinimumWindow as err:
+        print("USED WRONGLY: %s. The check draws every window at the app's own "
+              "minimum and reads it from that file, so it has nothing to draw at."
+              % err)
+        return 2
+
     floor = int(os.environ.get("OVATION_DESIGN_DREW_FLOOR") or DREW_SOMETHING)
     prologue = "<script>window.__ovationFloor = %d;</script>" % floor
     held = failed = edge_groups = pressed = 0
@@ -492,6 +586,39 @@ def main(argv):
                     print("  FAIL %s at %dpx: %s: %s"
                           % (name, width, label, answer["saw"]))
 
+    # AT THE APP'S MINIMUM WINDOW, once per file that draws one. A file drawing
+    # no window, the invoice PDF, is a page rather than a screen and is counted
+    # out loud rather than silently skipped (L98).
+    windowed = 0
+    for path in files:
+        name = os.path.basename(path)
+        page = minimum + 200
+        try:
+            report = session.render(
+                path, MINIMUM_PROBE, window="%d,1200" % page,
+                preamble="<script>window.__ovationMinimum = %d;</script>"
+                         "<style>.win { --win-width: %dpx !important; }</style>"
+                % (minimum, minimum))
+        except CannotMeasure as err:
+            print("CANNOT MEASURE: %s at the %d point minimum window: %s"
+                  % (name, minimum, err))
+            return 3
+        if report.get("threw"):
+            print("  FAIL %s at the %d point minimum window: the probe itself threw: %s"
+                  % (name, minimum, report["threw"]))
+            failed += 1
+            continue
+        if not report.get("windows"):
+            continue
+        windowed += 1
+        for label, answer in sorted((report.get("claims") or {}).items()):
+            if answer["ok"]:
+                held += 1
+            else:
+                failed += 1
+                print("  FAIL %s at the %d point minimum window: %s: %s"
+                      % (name, minimum, label, answer["saw"]))
+
     if not held and not failed:
         print("CANNOT MEASURE: nothing was claimed about any file, so this "
               "compared nothing.")
@@ -506,11 +633,12 @@ def main(argv):
     # that only applies where a file asks for it, and a record that stopped
     # marking its money blocks would otherwise report exactly what a record
     # whose figures all line up reports (L98, L543).
-    print("OK: all %d claim(s) about what %d design file(s) draw held, at %s. "
+    print("OK: all %d claim(s) about what %d design file(s) draw held, at %s, "
+          "and %d app window(s) again at the %d point minimum window. "
           "%d marked block(s) of figures were judged and %d control(s) pressed "
           "across those renders."
           % (held, len(files), " and ".join("%dpx" % w for w in at),
-             edge_groups, pressed))
+             windowed, minimum, edge_groups, pressed))
     return 0
 
 
