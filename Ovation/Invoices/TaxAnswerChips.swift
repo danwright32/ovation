@@ -19,8 +19,8 @@
 // ONE COMPONENT AND THE GUARD THAT KEEPS IT THE ONLY ONE, in the same change
 // (L613). `scripts/check-one-tax-chip.sh` refuses any other Swift file that draws
 // the answers itself, and any design file whose chip is not the invoice's. The
-// Clients screen's correction of a status (PRD 51j1) is the third place the
-// question is asked, and it is not built yet.
+// Clients screen's correction of a status (PRD 51j1, ovation#482) is the third
+// place the question is asked, and it uses this too.
 import SwiftUI
 
 struct TaxAnswerChips: View {

@@ -88,7 +88,7 @@ struct WritersReachTheScreenTests {
         _ draft: Draft, heard: Heard, edits: InvoiceEditCommand, spying: Bool,
         writePayment: ((PersistentIdentifier, PaymentEntry) async -> String?)?? = nil,
         writeCleared: ((PersistentIdentifier) async -> String?)?? = nil,
-        openings: Heard? = nil
+        openings: Heard? = nil, on destination: Destination = .invoices
     ) -> RootView {
         let store = ProblemsStore(journal: InMemoryProblemsJournal())
         let blocking = Client(name: "Client 0", taxStatus: .neverRecorded)
@@ -97,7 +97,7 @@ struct WritersReachTheScreenTests {
         return RootView(
             presenter: LaunchPresenter(store: store), store: store,
             roster: roster,
-            shell: ShellPresenter(selected: .invoices, rosterHasWork: { true }),
+            shell: ShellPresenter(selected: destination, rosterHasWork: { true }),
             invoices: InvoiceListPresenter(invoices: [draft.invoice], heldMoney: [:], today: today),
             openInvoice: { _ in
                 openings?.record("openInvoice")
@@ -116,6 +116,9 @@ struct WritersReachTheScreenTests {
             writeCleared: writeCleared
                 ?? (spying ? { _ in heard.record("writeCleared"); return nil } : nil),
             writeHeldMoney: spying ? { _, _ in heard.record("writeHeldMoney"); return nil } : nil,
+            clients: ClientsPresenter(clients: [draft.client]),
+            writePaymentTerm: spying ? { _, _ in heard.record("writePaymentTerm"); return nil } : nil,
+            acknowledgeSharedAddress: spying ? { _ in heard.record("acknowledgeSharedAddress"); return nil } : nil,
             edits: edits)
     }
 
@@ -207,7 +210,7 @@ struct WritersReachTheScreenTests {
         let declared = Set(Mirror(reflecting: root).children.compactMap(\.label)
             .filter { $0.hasPrefix("write") })
         #expect(!declared.isEmpty, "no writer was read off RootView, so nothing was judged")
-        #expect(declared == Set(presses.map(\.writer)),
+        #expect(declared == Set(presses.map(\.writer)).union(Self.clientsScreenWriters),
                 "RootView's writers and the ones this test presses differ")
 
         for (control, writer, press) in presses {
@@ -221,6 +224,37 @@ struct WritersReachTheScreenTests {
             #expect(heard.names.count == before + 1, "pressing \(control) wrote nothing")
             #expect(heard.names.last == writer,
                     "pressing \(control) reached \(heard.names.last ?? "nothing") instead of \(writer)")
+        }
+    }
+
+    /// ovation#568. The writes that reach the Clients screen rather than the invoice
+    /// screen, pressed by the case below and counted by the one above.
+    private static let clientsScreenWriters: Set<String> = ["writePaymentTerm"]
+
+    @Test("the Clients screen is given the tax status, payment terms and shared address writes")
+    func theclientsScreenIsGivenItsWrites() async throws {
+        let draft = try Self.draft()
+        let heard = Heard()
+        let root = Self.window(draft, heard: heard, edits: InvoiceEditCommand(), spying: true,
+                               on: .clients)
+        let screen = try Self.shell(of: root).inspect().find(ClientsView.self).actualView()
+        let client = draft.client.persistentModelID
+
+        let presses: [(control: String, writer: String, press: (() async -> Void)?)] = [
+            ("Sales tax", "writeTaxStatus", screen.writeTax.map { w in { _ = await w(client, .exempt) } }),
+            ("Payment terms", "writePaymentTerm",
+             screen.writeTerm.map { w in { _ = await w(client, PaymentTerms.standard) } }),
+            ("That is correct", "acknowledgeSharedAddress",
+             screen.acknowledgeShared.map { w in { _ = await w(client) } }),
+        ]
+        #expect(Set(presses.map(\.writer)).isSuperset(of: Self.clientsScreenWriters))
+        for (control, writer, press) in presses {
+            guard let press else {
+                Issue.record("\(control) was not given to the Clients screen, so \(writer) cannot be reached")
+                continue
+            }
+            await press()
+            #expect(heard.names.last == writer, "pressing \(control) reached \(heard.names.last ?? "nothing")")
         }
     }
 

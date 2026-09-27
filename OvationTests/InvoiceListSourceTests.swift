@@ -137,6 +137,38 @@ struct InvoiceListSourceTests {
                 "the money was applied to the invoice and the rail still says something")
     }
 
+    /// ovation#568 and ovation#482. THE CLIENTS SCREEN IS THE THIRD FIGURE FROM THE
+    /// SAME READ, and the correction it makes is a write from its own actor: the
+    /// client's page must show the corrected status, and a sent invoice on it must
+    /// keep the total it went out with while the page re-derives.
+    @Test("a tax status corrected by the writer re-derives the client's page, and a sent invoice's total stays")
+    func acorrectionRedrawsTheClientsPage() async throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let setUp = ModelContext(container)
+        let client = Self.client(setUp)
+        let invoice = Invoice(client: client, kind: .photography, invoiceDate: .stamping(Self.noon),
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
+        setUp.insert(invoice)
+        invoice.number = 1_131
+        invoice.add(LineItem.flat(Money(dollars: 1_000), describedAs: "Autumn gala"))
+        invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
+        try setUp.save()
+
+        let source = InvoiceListSource(over: container, problems: Self.problems(),
+                                       now: { Self.noon })
+        defer { source.stop() }
+        let page = { source.clients?.pages[client.id] }
+        #expect(page()?.taxStatus == .notExempt)
+        #expect(page()?.invoices.first?.amount == "1,088.75")
+
+        try await ClientTaxStatusWriter(modelContainer: container)
+            .setTaxStatus(.exempt, on: client.persistentModelID)
+
+        #expect(await Self.settle { page()?.taxStatus == .exempt },
+                "the status was corrected and the client's page still shows the old one")
+        #expect(page()?.invoices.first?.amount == "1,088.75", "the sent invoice was re-drawn")
+    }
+
     /// A QUANTITY OF NOTHING IS NOT DRAWN (PRD 46b), and that has to survive a
     /// re-read in the other direction too: the figure appearing is as much a
     /// change as it going away.
@@ -221,6 +253,7 @@ struct InvoiceListSourceTests {
         source.reread()
 
         #expect(source.list == nil, "a list was still drawn after the read threw")
+        #expect(source.clients == nil, "the Clients screen was still drawn after the read threw")
         #expect(problems.open.map(\.kind) == [ProblemKind.invoicesUnreadable],
                 "the failure was not reported")
     }

@@ -193,6 +193,22 @@ struct BookingDrafterTests {
         #expect(invoice.dueDate?.dayKey == "2026-09-20")
     }
 
+    /// PRD 51j. A client's standing terms, set on the Clients screen, date the draft.
+    @Test("a client with standing terms of 30 days is invoiced on them")
+    func aclientsStandingTermsDateTheDraft() async throws {
+        let container = try Self.store()
+        let record = try Self.record()
+        let client = try Self.knownClient(in: container, downbeatID: record.client.id)
+        try await ClientStandingWriter(modelContainer: container)
+            .setPaymentTerm(try #require(PaymentTerms.all.last), on: client.persistentModelID)
+
+        _ = try await BookingDrafter(modelContainer: container)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+
+        let invoice = try #require(try Self.invoices(in: container).first)
+        #expect(invoice.dueDate?.dayKey == "2026-10-06")
+    }
+
     // MARK: doing it once
 
     /// DOING IT TWICE IS THE FAILURE THIS WHOLE TYPE IS SHAPED AROUND. The queue

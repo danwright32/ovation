@@ -25,9 +25,17 @@ enum OvationWindow {
     /// the width where a one line row with the SHOOT giving way still held; he
     /// chose instead that the client gives way, which holds far narrower. The
     /// design file switches at the same width, with a container query on the
-    /// window. The Clients screen's own rows switch at 1020 in the design file,
-    /// for a reason of their own (PRD 47c), and nothing here draws them yet.
+    /// window. The Clients screen's own rows switch at their own width, below.
     static let shootUnderneathBelow: CGFloat = 900
+
+    /// Below this window width a client's page puts each invoice's shoot on a line
+    /// of its own (Dan, 2026-09-26, ovation#110 round 2, PRD 47c). ITS OWN WIDTH,
+    /// because those rows carry no client name to give way: measured on one line
+    /// in the design file, they hold every shoot at 1020 and cut every one at 980.
+    static let clientShootUnderneathBelow: CGFloat = 1020
+
+    /// The Clients screen's names column, which a client's page sits beside.
+    static let clientNamesWidth: CGFloat = 240
 
     /// The rail's width, which every screen's content is laid out beside.
     static let railWidth: CGFloat = 208
@@ -38,5 +46,12 @@ enum OvationWindow {
     /// Dan resizes and what the design record judges.
     static func putsShootUnderneath(listWidth: CGFloat) -> Bool {
         listWidth + railWidth < shootUnderneathBelow
+    }
+
+    /// Whether a client's page whose own width is `pageWidth` should put each
+    /// invoice's shoot on its own line. The page sits beside the names column and
+    /// its rule, which sit beside the rail, so the rule is stated for the window.
+    static func putsClientShootUnderneath(pageWidth: CGFloat) -> Bool {
+        pageWidth + clientNamesWidth + 1 + railWidth < clientShootUnderneathBelow
     }
 }

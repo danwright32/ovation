@@ -170,7 +170,12 @@ actor BookingDrafter {
         let shootDay = BusinessCalendar.day(forKey: record.booking.startDate)
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: shootDay,
                               hourlyRate: rate, taxRate: .newYorkCity, createdOn: day)
-        invoice.dueDate = shootDay.flatMap { BusinessCalendar.day(14, after: $0) }
+        // THE CLIENT'S STANDING TERMS, set on the Clients screen (PRD 51j), and PRD
+        // 5.7's fourteen days where none is recorded. Read through the one mapping
+        // the screen shows them by, so the draft is dated by the term the client's
+        // page says.
+        let term = ClientsPresenter.term(days: client.paymentTermDays)
+        invoice.dueDate = shootDay.flatMap { BusinessCalendar.day(term.days, after: $0) }
         modelContext.insert(invoice)
 
         let shoot = Shoot(name: record.booking.shootName,

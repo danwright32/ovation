@@ -54,10 +54,14 @@ enum Destination: String, CaseIterable, Hashable, Sendable {
     /// ovation#298 the live roster never has. So the window has been opening on
     /// the invoice list this whole time; what was missing was the list. Nothing
     /// was decided here beyond building it.
+    ///
+    /// AND ON 2026-09-27 (ovation#568) THE CLIENTS SCREEN, built from
+    /// docs/design/clients.html, which is where a client's recorded facts are read
+    /// and a wrongly recorded tax status is corrected (PRD 51j1).
     var isBuilt: Bool {
         switch self {
-        case .roster, .invoices: return true
-        case .expenses, .clients: return false
+        case .roster, .invoices, .clients: return true
+        case .expenses: return false
         }
     }
 }

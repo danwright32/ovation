@@ -61,7 +61,7 @@ struct ShellPresenterTests {
     /// that the two screens still unbuilt cannot select (L252, L430).
     @Test("the invoice list is built, so the leaving rule can now actually fire")
     func theLeavingRuleCanNowFire() {
-        #expect(Destination.allCases.filter(\.isBuilt) == [.invoices, .roster])
+        #expect(Destination.allCases.filter(\.isBuilt) == [.invoices, .clients, .roster])
 
         // The rule firing for real: standing on the list, with nothing blocking,
         // the roster is gone from the rail.
@@ -84,7 +84,7 @@ struct ShellPresenterTests {
     /// PRD 44a. They are PRESENT and they SAY SO. A destination that is simply
     /// absent teaches nothing, and one that is present and silent is a dead
     /// control nobody can ask about (L49, L109).
-    @Test("the two still unbuilt destinations are in the rail and are marked unbuilt")
+    @Test("the one still unbuilt destination is in the rail and is marked unbuilt")
     func unbuiltDestinationsArePresentAndMarked() {
         let shell = ShellPresenter(selected: .roster, rosterHasWork: { true })
 
@@ -93,7 +93,8 @@ struct ShellPresenterTests {
         #expect(shell.destinations.contains(.clients))
 
         #expect(!Destination.expenses.isBuilt)
-        #expect(!Destination.clients.isBuilt)
+        // ovation#568: the Clients screen is built.
+        #expect(Destination.clients.isBuilt)
         #expect(Destination.roster.isBuilt)
         #expect(Destination.invoices.isBuilt)
     }
@@ -133,5 +134,16 @@ struct ShellPresenterTests {
         // into a rethrowing call and then needs a `try` it cannot have.
         let anyBlank = names.contains { $0.isEmpty }
         #expect(!anyBlank)
+    }
+}
+
+/// ovation#568. The Clients screen is built, so pressing it in the rail moves there.
+@MainActor
+struct ClientsDestinationTests {
+    @Test("pressing Clients in the rail goes to the Clients screen")
+    func clientsCanBeReached() {
+        let shell = ShellPresenter(selected: .invoices, rosterHasWork: { false })
+        shell.go(to: .clients)
+        #expect(shell.selected == .clients)
     }
 }

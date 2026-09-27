@@ -59,7 +59,7 @@ struct ShellViewTests {
         let unbuilt = ShellPresenter(selected: .roster, rosterHasWork: { true })
             .destinations.filter { !$0.isBuilt }
         #expect(marks.count == unbuilt.count)
-        #expect(unbuilt == [.expenses, .clients])
+        #expect(unbuilt == [.expenses])
     }
 
     @Test("the roster is in the rail while something blocks")
