@@ -157,7 +157,7 @@ plant() {
 #    sets it in the body face, so it inherits the money face: the source still
 #    reads as two boxes and the figures are identical.
 plant "one-face" \
-    's/el("div", "mval notmoney", k.r)/el("div", "mval", k.r)/' '"mval", k.r)' \
+    's/el("div", "mval notmoney", hoursWithUnit(k.r))/el("div", "mval", hoursWithUnit(k.r))/' '"mval", hoursWithUnit(k.r))' \
     "referral credit drawn in the money face is refused" \
     "the held money value is in the mono tabular face and the referral credit in the body face;"
 
@@ -191,9 +191,11 @@ plant "terms-lose-client" \
     "choosing a term changes the value, closes the list and keeps the selected client;"
 
 # 11. A QUANTITY OF NOTHING DRAWN (round 4). A credit box drawn for a client who
-#     has no credit, which is an empty figure under a real label.
+#     has no credit, which is a zero figure under a real label. Since ovation#565
+#     the figure is spelled by hoursWithUnit, which cannot write an absent hour,
+#     so the planted box holds the zero a careless default would give it.
 plant "empty-credit" \
-    's/    if (k.r) {/    if (true) {/' 'if (true) {' \
+    's/    if (k.r) {/    if (true) { k.r = k.r || 0;/' 'if (true) { k.r = k.r || 0;' \
     "a referral credit box drawn with nothing in it is refused" \
     "a quantity of nothing is not drawn on the clients screen or the rail;"
 
@@ -201,7 +203,7 @@ plant "empty-credit" \
 #      exist reads `undefined`, and a scan asking only whether a figure is ZERO
 #      waves it through, because NaN loses every comparison it is in (L50).
 plant "unparsed-figure" \
-    's/el("div", "mval notmoney", k.r)/el("div", "mval notmoney", String(k.credit))/' 'String(k.credit)' \
+    's/el("div", "mval notmoney", hoursWithUnit(k.r))/el("div", "mval notmoney", String(k.credit))/' 'String(k.credit)' \
     "a figure that does not parse is refused rather than read as not zero" \
     "a quantity of nothing is not drawn on the clients screen or the rail;"
 
@@ -224,7 +226,7 @@ plant "zero-section" \
 #     AND holding a broken address is one client in the pass, and adding the two
 #     section counts states 26 for 25.
 plant "started-double" \
-    's/"Started with " + settle.length + " of "/"Started with " + (untaxed.length + bad.length) + " of "/' \
+    's/"Started with " + startedWith() + " of "/"Started with " + (untaxed.length + bad.length) + " of "/' \
     'untaxed.length + bad.length' \
     "a pass that counts one client twice is refused" \
     "the roster pass reports the number it started with;"
