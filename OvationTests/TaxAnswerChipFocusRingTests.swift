@@ -1,6 +1,5 @@
 import CoreGraphics
 import Testing
-@testable import Ovation
 
 /// ovation#480. The one tax status chip's focus ring must sit where the design
 /// record's `.taxpick:focus-visible` puts it: `outline: 2px; outline-offset: 1px`,
