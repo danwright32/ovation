@@ -854,7 +854,10 @@ function windowFor(layout) {
   side.append(el("div", "spacer"));
   /* THE FOOT NAMES EACH OPEN THING, and Read opens a popover beside it (PRD 44c
      to 44f), drawn by rules/rail-foot.js, whose record says why. */
-  var railParts = railFootFor(QUIET, drawList);
+  /* drawList is named inside a function rather than passed, because a design round
+     lifts everything above drawList into a harness of its own, where drawList does
+     not exist until a press reaches for it. */
+  var railParts = railFootFor(QUIET, function () { drawList(); });
   if (railParts.foot) side.append(railParts.foot);
 
   var main = el("div", "main");
@@ -951,7 +954,7 @@ function windowFor(layout) {
    `data-day`, which is what scripts/check-design-sidebar-card.sh presses before
    comparing the four rails on that day too. */
 var QUIET = false;
-function drawList() { document.getElementById("stage").replaceChildren(windowFor("")); placeRailPop(); }
+function drawList() { document.getElementById("stage").replaceChildren(windowFor("")); }
 var railBtn = el("button", "tab");
 railBtn.type = "button";
 function railLabel() {
@@ -963,6 +966,7 @@ railBtn.addEventListener("click", function () {
   QUIET = !QUIET;
   railLabel();
   drawList();
+  placeRailPop();
 });
 railLabel();
 document.getElementById("tabs").append(railBtn);
