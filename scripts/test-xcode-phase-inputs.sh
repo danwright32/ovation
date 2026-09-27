@@ -192,7 +192,9 @@ done
 T="$WORK/trace"
 mkdir -p "$T/standin.xcodeproj"
 printf 'com.apple.finder\n' > "$T/domains"
-# $1 is what OVATION_SKIP_XCODE_PHASE says, $2 where the trace goes.
+# $1 is what OVATION_SKIP_XCODE_PHASE says, $2 where the trace goes. The live
+# data bracket is aimed at a throwaway root by its own seams (ovation#570), not
+# only by the emptied HOME, so it stays off Dan's folder if that line changes.
 traced_run() {
     env -i HOME="$T" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
         PS4='+@@XT@@${BASH_SOURCE[0]:-}@@ ' SHELLOPTS=xtrace \
@@ -207,6 +209,7 @@ traced_run() {
         OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
         OVATION_UNLOCKED_COMMAND=true \
         OVATION_XCODE_PROJECT="$T/standin.xcodeproj" \
+        OVATION_LIVE_DATA_ROOT="$T/live-data" OVATION_LIVE_DATA_PROCESS_LIST=/usr/bin/true \
         bash "$REPO_ROOT/scripts/run-tests.sh" > "$2" 2>&1
 }
 

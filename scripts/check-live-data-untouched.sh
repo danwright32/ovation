@@ -50,6 +50,15 @@ Seams: OVATION_LIVE_DATA_ROOT, and OVATION_LIVE_DATA_PROCESS_LIST, a command
 printing one executable path per line in place of `ps -A -o comm=`, so the suite
 never has to launch or quit anything.
 
+OVATION_LIVE_DATA_BRACKET_LOG names a file each SNAPSHOT appends the root it
+fingerprinted to, one line per bracket opened (ovation#570). It exists for the
+runner's own suite, which drives dozens of inner runs that each open this
+bracket, and until then left every one of them measuring Dan's real folder: an
+open app then failed a case at random. The suite reads this log to prove no inner
+run measured a real path, by where the snapshot looked rather than by which
+variables a helper remembered to set (L322). A log that cannot be written is said
+on stderr and never fails the snapshot, because the bracket is the real work.
+
     snapshot <file>   record the fingerprint
     compare <file>    re-read and refuse on any difference
 
@@ -104,6 +113,19 @@ def installed_app_running():
     return any(line.strip() == INSTALLED_APP for line in result.stdout.splitlines())
 
 
+def record_bracket(root):
+    """Appends the root this snapshot measured to the bracket log, when one is
+    named (ovation#570). Best effort and said, never the verdict."""
+    log = os.environ.get("OVATION_LIVE_DATA_BRACKET_LOG")
+    if not log:
+        return
+    try:
+        with open(log, "a", encoding="utf-8") as handle:
+            handle.write(root + "\n")
+    except OSError as error:
+        print(f"could not record this bracket's root in {log}: {error}", file=sys.stderr)
+
+
 def fingerprint(root):
     """A stable description of the watched set: what exists, how big, when."""
     entries = {}
@@ -142,6 +164,7 @@ def main(argv):
     running_now = installed_app_running()
 
     if command == "snapshot":
+        record_bracket(root)
         try:
             with open(store, "w", encoding="utf-8") as handle:
                 json.dump({"root": root, "entries": current,

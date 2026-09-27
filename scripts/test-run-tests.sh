@@ -79,7 +79,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 300
+harness_begin "test runner lock tests" 302
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -92,6 +92,33 @@ harness_temp_dir WORK
 
 DIR_LOCK="$WORK/dir.lock"
 FILE_LOCK="$WORK/file.lock"
+
+# EVERY INNER RUN BRACKETS A THROWAWAY LIVE DATA ROOT (ovation#570).
+#
+# The runner opens its live data bracket around the Xcode phase on every run, and
+# the inner runs here left its seams unset, so each one fingerprinted Dan's real
+# Application Support and compared it at the end: 116 of them per run of this
+# suite, measured 2026-09-26. With the installed app open its store changes under
+# them, the compare exits non-zero, and a case about something else entirely
+# failed at random ("a hosted run with a long output is not reported as having
+# run nothing" did, on untouched main). The outer, real run keeps its bracket as
+# it is; only these inner ones are pointed away.
+#
+# EXPORTED, NOT SET PER HELPER, so no helper and no one-off invocation can leave
+# it out (L621), and BOTH of the guard's seams are set, because a suite setting
+# some of a script's seams runs every unset one for real (L284): the process list
+# is a stub that lists nothing, so no case asks this Mac whether Ovation is open.
+#
+# EVERY BRACKET AN INNER RUN OPENS IS LOGGED by the guard itself, so the last
+# cases in this file prove where each one actually looked (L322).
+LIVE_DATA_ROOT="$WORK/live-data"
+mkdir -p "$LIVE_DATA_ROOT"
+printf '#!/bin/bash\nexit 0\n' > "$WORK/no-processes"
+chmod +x "$WORK/no-processes"
+export OVATION_LIVE_DATA_ROOT="$LIVE_DATA_ROOT"
+export OVATION_LIVE_DATA_PROCESS_LIST="$WORK/no-processes"
+export OVATION_LIVE_DATA_BRACKET_LOG="$WORK/live-data-brackets.log"
+: > "$OVATION_LIVE_DATA_BRACKET_LOG"
 
 # A PROJECT THAT EXISTS, SO NO CASE HERE DEPENDS ON THE DEVELOPER HAVING ONE.
 #
@@ -2633,6 +2660,19 @@ print(" ".join(missing))
 PYSEAMS
 )" ""
 
+
+# NO INNER RUN BRACKETED DAN'S REAL LIVE DATA (ovation#570).
+#
+# Read from where each snapshot actually LOOKED, which the guard writes to the
+# bracket log, never from which variables the helpers set: a helper that forgot
+# the seam, or a case that cleared the environment, is caught by the path it
+# measured (L322). A log with no line in it is a failure of its own, because a
+# check over nothing would pass however the brackets were aimed (L98).
+BRACKETS_OPENED="$(grep -c . "$OVATION_LIVE_DATA_BRACKET_LOG" 2>/dev/null || true)"
+check "the inner runs opened live data brackets this suite could read back" \
+    "$([ "${BRACKETS_OPENED:-0}" -gt 0 ] && echo logged || echo "none logged")" "logged"
+check "and every one of them measured this suite's throwaway root, never a real path" \
+    "$(grep -v -x -F -- "$LIVE_DATA_ROOT" "$OVATION_LIVE_DATA_BRACKET_LOG" 2>/dev/null | sort | uniq -c | sed 's/^ *//')" ""
 
 echo "interrupted runs that needed more than one interrupt: $LOST_INTERRUPT_RUNS (ovation#554)"
 harness_end
