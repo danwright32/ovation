@@ -344,9 +344,14 @@ struct ShellView: View {
                     footLine(problem)
                 }
                 if let more = RailFoot.moreSentence(lines.more) {
-                    Text(more)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(OvationPalette.railDim)
+                    // A CONTROL LIKE READ (Dan, 2026-09-26): what it opens lists every
+                    // open thing, so nothing past the first two is out of reach.
+                    ActionWord(word: more, size: RailFoot.textSize,
+                               press: { shell.readEverything() },
+                               ground: .rail, spoken: "Read all \(problems.open.count) open")
+                        .popover(isPresented: readingEverythingBinding, arrowEdge: .trailing) {
+                            everything()
+                        }
                 }
                 Text(RailFoot.onlyWhileOpen)
                     .font(.system(size: 11.5))
@@ -374,6 +379,19 @@ struct ShellView: View {
     private func readingBinding(_ id: Problem.ID) -> Binding<Bool> {
         Binding(get: { shell.reading == id },
                 set: { if !$0, shell.reading == id { shell.stopReading() } })
+    }
+
+    private var readingEverythingBinding: Binding<Bool> {
+        Binding(get: { shell.readingEverything },
+                set: { if !$0 { shell.stopReadingEverything() } })
+    }
+
+    /// What "and N more" opens: every open thing, newest first, each with its own
+    /// "I have read this". Named for the same reason `reading(for:)` is.
+    func everything() -> FootReadingList {
+        FootReadingList(problems: problems, read: { problem in
+            problems.acknowledge(problem.id, now: now())
+        })
     }
 
     /// What Read opens for one problem, and what "I have read this" does. Named so a
@@ -704,14 +722,19 @@ enum RailFoot {
     /// again at this launch comes back to the top. A tie goes to the one recorded
     /// later.
     static func lines(for open: [Problem]) -> Lines {
-        let newest = open.enumerated()
+        let newest = newestFirst(open)
+        return Lines(shown: Array(newest.prefix(most)), more: max(newest.count - most, 0))
+    }
+
+    /// The one order the foot and the list behind "and N more" share.
+    static func newestFirst(_ open: [Problem]) -> [Problem] {
+        open.enumerated()
             .sorted { a, b in
                 a.element.lastRaised != b.element.lastRaised
                     ? a.element.lastRaised > b.element.lastRaised
                     : a.offset > b.offset
             }
             .map(\.element)
-        return Lines(shown: Array(newest.prefix(most)), more: max(newest.count - most, 0))
     }
 
     /// Nothing at all when nothing is left over, because "and 0 more" is noise.
@@ -768,6 +791,44 @@ struct FootReading: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(width: 300, alignment: .leading)
+        .background(OvationPalette.background)
+        .ovationAppearance()
+    }
+}
+
+/// What "and N more" opens: every open thing, newest first as the foot is, each with
+/// its whole sentence and its own "I have read this". It reads the store as it draws,
+/// so a notice read here leaves the list and a standing problem stays in it, exactly
+/// as in the foot. Scrolls past a height, because the open list has no bound.
+struct FootReadingList: View {
+    @Bindable var problems: ProblemsStore
+    let read: (Problem) -> Void
+
+    var body: some View {
+        let open = RailFoot.newestFirst(problems.open)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(open.enumerated()), id: \.element.id) { index, problem in
+                    if index > 0 { Divider().overlay(OvationPalette.rule) }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(problem.sentence)
+                            .font(.system(size: 13))
+                            .foregroundStyle(OvationPalette.ink)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                        ActionWord(word: RailFoot.readIt, size: 13, press: { read(problem) },
+                                   spoken: "\(RailFoot.readIt): \(problem.shortName)")
+                    }
+                    .padding(.vertical, 10)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 2)
+        }
+        .frame(width: 320)
+        .frame(maxHeight: 440)
+        .fixedSize(horizontal: false, vertical: true)
         .background(OvationPalette.background)
         .ovationAppearance()
     }

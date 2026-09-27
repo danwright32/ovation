@@ -3,8 +3,9 @@
 // looking rather than described (L606).
 //
 // THREE MOMENTS, the ones the decision round drew: two open things, three (so the
-// third becomes "and 1 more"), and one. Plus what Read opens, on its own, because a
-// popover is its own window and the camera cannot see it over the shell.
+// third becomes "and 1 more"), and one. Plus what Read and "and N more" open, on
+// their own, because a popover is its own window and the camera cannot see it over
+// the shell.
 //
 // SAME CAMERA AS THE OTHER SHOT SUITES. OPT IN, AND IT SAYS WHEN IT DID NOTHING (L98).
 import AppKit
@@ -66,11 +67,15 @@ struct RailFootShotTests {
         try OffscreenShot.capture(Self.shell(problems), size: Self.size, scheme: .light,
                                   to: directory.appending(path: "foot-three.png"))
 
+        try OffscreenShot.capture(Self.shell(problems).everything(),
+                                  size: CGSize(width: 320, height: 460), scheme: .light,
+                                  to: directory.appending(path: "foot-more-opens.png"))
+
         let reading = FootReading(sentence: export.sentence, done: {})
         try OffscreenShot.capture(reading, size: CGSize(width: 300, height: 220), scheme: .light,
                                   to: directory.appending(path: "foot-read-opens.png"))
 
         #expect(RailFoot.lines(for: problems.open).more == 1)
-        print("RAIL FOOT SHOTS: wrote four pictures into \(directory.path)")
+        print("RAIL FOOT SHOTS: wrote five pictures into \(directory.path)")
     }
 }

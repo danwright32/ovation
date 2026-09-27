@@ -281,4 +281,44 @@ struct ShellViewTests {
         }
         #expect(tooWide.isEmpty, "wider than the \(Int(RailFoot.column)) point column: \(tooWide.sorted())")
     }
+
+    /// ovation#566, Dan 2026-09-26. "and N more" is a control like Read, and what it
+    /// opens lists EVERY open thing with its sentence and its own "I have read this",
+    /// so nothing open is out of reach from the shell. Before, the third thing's
+    /// sentence was reachable nowhere once the shell owned the window.
+    @Test("with three open, the third's sentence is reachable only through and N more")
+    func theThirdIsReachableThroughMore() throws {
+        let problems = Self.noProblems()
+        let oldest = problems.raise(kind: .backupsAreStale, subject: "b",
+                                    sentence: "the oldest sentence", now: Self.at(1))
+        _ = problems.raise(kind: .rosterUnreadable, subject: "r", sentence: "the middle sentence",
+                           now: Self.at(2))
+        _ = problems.raise(kind: .exportFailed, subject: "year-end-export-2026",
+                           sentence: "the newest sentence", now: Self.at(3))
+        let presenter = ShellPresenter(selected: .invoices, rosterHasWork: { false })
+        let view = Self.shell(problems, presenter: presenter)
+
+        // Not in the rail, and not behind either Read that is drawn.
+        #expect(!(try Self.texts(in: view)).contains("the oldest sentence"))
+        let shown = RailFoot.lines(for: problems.open).shown
+        #expect(!shown.map { view.reading(for: $0).sentence }.contains("the oldest sentence"))
+
+        // "and 1 more" is a control, drawn by the product's one control word.
+        let more = try view.inspect().find(button: "and 1 more")
+        try more.tap()
+        #expect(presenter.readingEverything)
+
+        // What it opens holds every open thing, the third included, each readable.
+        let list = view.everything()
+        #expect(throws: Never.self) { try list.inspect().find(text: "the oldest sentence") }
+        #expect(throws: Never.self) { try list.inspect().find(text: "the newest sentence") }
+        let reads = try list.inspect().findAll(ViewType.Button.self)
+            .filter { (try? $0.labelView().text().string()) == RailFoot.readIt }
+        #expect(reads.count == 3)
+        // The last row is the oldest, newest first as the foot is; reading it marks it read.
+        try #require(reads.count == 3)
+        try reads[2].tap()
+        #expect(problems.all.first { $0.id == oldest.id }?.acknowledgedAt
+                    == Date(timeIntervalSinceReferenceDate: 99))
+    }
 }
