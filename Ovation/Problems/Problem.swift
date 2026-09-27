@@ -150,9 +150,102 @@ extension ProblemKind {
     /// them (ovation#564). A kind belongs here only when nothing is left for Dan
     /// to do once he has read it; one that still needs him, like
     /// `clientImportNeedsAnAnswer`, stays open until it is resolved.
-    static let closingOnceRead: Set<ProblemKind> = [.clientImportBroughtClientsAcross]
+    ///
+    /// THE EXPORT THAT WAS WRITTEN, THE DRAFTS THAT WERE MADE AND THE EXPORT THAT
+    /// CORRECTLY FOUND NOTHING JOINED IT with the rail's foot (ovation#99,
+    /// ovation#566). Dan settled on 2026-09-26 that the foot lists what is OPEN,
+    /// read or not, on the understanding that a notice closes once read. Each of
+    /// these reports something done with nothing left for him to do, so left open
+    /// they would stand in the foot for ever after he had read them.
+    static let closingOnceRead: Set<ProblemKind> = [
+        .clientImportBroughtClientsAcross, .exportWritten, .bookingsDrafted, .exportFoundNothing,
+    ]
 
     var closesOnceRead: Bool { Self.closingOnceRead.contains(self) }
+
+    /// ovation#99 and ovation#566. What the rail's foot calls a problem of this kind:
+    /// a few plain words on one line, with Read beside it and the whole sentence
+    /// behind Read (Dan, 2026-09-26).
+    ///
+    /// KEYED BY KIND, NOT WRITTEN BY THE RAISER, because a problem read back from
+    /// the journal carries only its kind, subject and sentence, and a name the
+    /// raiser supplied would be missing on every problem raised before it existed.
+    /// `RailFootTests` derives every kind the app declares and fails on one with
+    /// no name here (L113), and measures every name against the foot's width.
+    ///
+    /// NO COUNTS AND NO DATES IN A NAME. A name is read for as long as the problem
+    /// stays open, so "3 days behind" would go on saying 3 on the fifth day. The
+    /// sentence behind Read carries the dates.
+    static let shortNames: [ProblemKind: String] = [
+        .foreignStore: "Wrong database",
+        .unreadableStore: "Can't read database",
+        .storeIsNotADatabase: "Not a database",
+        .unidentifiableStore: "Database unknown",
+        .storeFromANewerVersion: "From newer Ovation",
+        .storeVersionUnreadable: "Version unreadable",
+        .storeVersionNotRecorded: "Version not saved",
+        .secondRunningCopy: "Another copy open",
+        .backupFailed: "Backup failed",
+        .backupCouldNotBeWritten: "Backup not written",
+        .backupStillRunning: "Backup still running",
+        .backupFolderNotChosen: "No backup folder",
+        .backupNotTakenByThisBuild: "No upgrade backup",
+        .backupFolderIsEmpty: "No backups yet",
+        .backupsAreStale: "Backups are behind",
+        .archiveNoLongerVerifies: "Old backup broken",
+        .backupCurrencyCouldNotBeJudged: "Backups unchecked",
+        .archiveCouldNotBeRemoved: "Backup not deleted",
+        .retentionCouldNotRun: "Backups not tidied",
+        .startingDataNotSeeded: "No service types",
+        .clientImportExportMissing: "No Downbeat file",
+        .clientImportUnreadable: "Bad Downbeat file",
+        .clientImportBroughtClientsAcross: "New clients added",
+        .clientImportNeedsAnAnswer: "Clients to check",
+        .exportStale: "No export lately",
+        .exportFoundNothing: "Nothing to export",
+        .exportRunRecordUnreadable: "Export log broken",
+        .exportRunRecordDamaged: "Export log damaged",
+        .problemsJournalUnreadable: "Problem log broken",
+        .problemsJournalDamaged: "Some problems lost",
+        .problemsJournalUnwritable: "Problems unsaved",
+        .invoicesUnreadable: "Invoices unreadable",
+        .rosterUnreadable: "Clients unreadable",
+        .bookingsDrafted: "Bookings drafted",
+        .bookingDraftRefused: "No drafts made",
+        .bookingRecordUnreadable: "Booking unreadable",
+        .exportWritten: "Export written",
+        .exportRefused: "Export held back",
+        .exportFailed: "Export failed",
+        .exportWrittenButNotRecorded: "Export not recorded",
+        .exportCouldNotBeRun: "Export did not run",
+    ]
+
+    /// The year end export's outcomes, named for the year they are about, which is
+    /// how this year's export is told from last year's in the foot. The year is read
+    /// from the subject `YearEndExportCommand` raises them with.
+    static let yearlyShortNames: [ProblemKind: @Sendable (Int) -> String] = [
+        .exportWritten: { "\($0) export written" },
+        .exportRefused: { "\($0) not exported" },
+        .exportFailed: { "\($0) export failed" },
+        .exportWrittenButNotRecorded: { "\($0) not recorded" },
+    ]
+
+    /// This kind's name in the foot, or nil where it has none, which a test refuses.
+    func shortName(subject: String?) -> String? {
+        if let yearly = Self.yearlyShortNames[self], let year = Self.exportYear(in: subject) {
+            return yearly(year)
+        }
+        return Self.shortNames[self]
+    }
+
+    /// The year in a year end export's subject, `year-end-export-2026`, or nil.
+    private static func exportYear(in subject: String?) -> Int? {
+        let prefix = "year-end-export-"
+        guard let subject, subject.hasPrefix(prefix) else { return nil }
+        let digits = subject.dropFirst(prefix.count)
+        guard digits.count == 4, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        return Int(digits)
+    }
 
     /// Rows that matched more than one client, or matched only by name, so the
     /// import left them alone (ovation#208). The one import outcome that needs
@@ -229,6 +322,13 @@ struct Problem: Identifiable, Equatable, Codable, Sendable {
         return !(kind.closesOnceRead && acknowledgedAt != nil)
     }
     var needsPresenting: Bool { resolvedAt == nil && acknowledgedAt == nil }
+
+    /// What the rail's foot calls it (ovation#99). A kind with no name says so
+    /// plainly rather than borrowing another's, and `RailFootTests` keeps that
+    /// from ever being drawn by failing on the missing name (L113).
+    var shortName: String {
+        kind.shortName(subject: subject) ?? "Something to read"
+    }
 
     static func identity(kind: ProblemKind, subject: String?) -> String {
         guard let subject, !subject.isEmpty else { return kind.rawValue }

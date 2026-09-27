@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Testing
 import ViewInspector
@@ -101,62 +102,183 @@ struct ShellViewTests {
         }
     }
 
-    // MARK: the status block, which is where a launch notice lands in the shell
+    // MARK: the foot of the rail, where every notice and problem is named (ovation#99, #566)
 
-    /// THE SHELL REPLACES THE WINDOW, so anything the window used to carry has
-    /// to be somewhere here or it is simply gone. `RootView` is where every
-    /// launch time condition reaches Dan (ovation#59), and the design puts that
-    /// at the foot of the rail. Without this the first screen would silently
-    /// swallow a foreign store, a failed backup and a stale export (L242, L98).
-    @Test("an open problem is said at the foot of the rail")
-    func anOpenProblemIsSaidInTheRail() throws {
-        let problems = ProblemsStore(journal: InMemoryProblemsJournal())
-        _ = problems.raise(kind: .backupFailed, subject: "b",
-                           sentence: "Ovation has not backed up for 3 days.", now: Date())
-
-        let view = ShellView(shell: ShellPresenter(selected: .roster, rosterHasWork: { true }),
-                             roster: Self.roster(blocking: 25),
-                             problems: problems)
-
-        #expect(throws: Never.self) {
-            try view.inspect().find(text: "Ovation has not backed up for 3 days.")
-        }
+    /// THE SHELL IS THE WINDOW, so anything the old notice window carried has to be
+    /// here or it is simply gone (L242, L98). Dan settled its form on 2026-09-26: each
+    /// open thing on its own line, a short name with Read beside it, newest first, at
+    /// most two, then "and N more". The whole sentence is behind Read.
+    private static func shell(_ problems: ProblemsStore,
+                              presenter: ShellPresenter = ShellPresenter(
+                                  selected: .roster, rosterHasWork: { true })) -> ShellView {
+        ShellView(shell: presenter, roster: Self.roster(blocking: 25), problems: problems,
+                  now: { Date(timeIntervalSinceReferenceDate: 99) })
     }
 
-    @Test("the ones behind it are counted, and only when there are some")
-    func theOthersAreCountedWhenThereAreSome() throws {
-        let problems = ProblemsStore(journal: InMemoryProblemsJournal())
-        _ = problems.raise(kind: .backupFailed, subject: "b", sentence: "the first", now: Date())
-        _ = problems.raise(kind: .foreignStore, subject: "s", sentence: "the second", now: Date())
-
-        let view = ShellView(shell: ShellPresenter(selected: .roster, rosterHasWork: { true }),
-                             roster: Self.roster(blocking: 25),
-                             problems: problems)
-
-        #expect(throws: Never.self) {
-            try view.inspect().find(text: "1 other problem")
-        }
+    private static func at(_ second: Int) -> Date {
+        Date(timeIntervalSinceReferenceDate: TimeInterval(second))
     }
 
-    /// The zero rule again, and the fifth surface it now applies to. `0 other
-    /// problems` is noise, and a healthy rail says nothing rather than saying
-    /// nothing is wrong in a place reserved for things that are.
-    @Test("a rail with nothing wrong says nothing at all about problems")
-    func aHealthyRailIsSilent() throws {
-        let problems = ProblemsStore(journal: InMemoryProblemsJournal())
-        _ = problems.raise(kind: .backupFailed, subject: "b", sentence: "the only one", now: Date())
+    private static func texts(in view: ShellView) throws -> [String] {
+        try view.inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+    }
 
-        let view = ShellView(shell: ShellPresenter(selected: .roster, rosterHasWork: { true }),
-                             roster: Self.roster(blocking: 25),
-                             problems: problems)
+    @Test("an open problem is named at the foot by its short name, with Read beside it")
+    func anOpenProblemIsNamedWithRead() throws {
+        let problems = Self.noProblems()
+        _ = problems.raise(kind: .backupsAreStale, subject: "b",
+                           sentence: "Your work on 2026-09-23 is in no backup.", now: Self.at(1))
 
+        let view = Self.shell(problems)
+
+        #expect(throws: Never.self) { try view.inspect().find(text: "Backups are behind") }
+        #expect(try view.inspect().findAll(ViewType.Button.self)
+                    .filter { (try? $0.labelView().text().string()) == RailFoot.readWord }.count == 1)
+        // The sentence is behind Read, not in the rail: that is the decision.
         #expect(throws: (any Error).self) {
-            try view.inspect().find(text: "0 other problems")
+            try view.inspect().find(text: "Your work on 2026-09-23 is in no backup.")
         }
-        // It really did draw the one, so the absence above means something (L98).
-        #expect(throws: Never.self) {
-            try view.inspect().find(text: "the only one")
+    }
+
+    @Test("two open things are each named with their own Read, newest first, and nothing counts them")
+    func twoAreEachNamed() throws {
+        let problems = Self.noProblems()
+        _ = problems.raise(kind: .backupsAreStale, subject: "b", sentence: "older", now: Self.at(1))
+        _ = problems.raise(kind: .exportWritten, subject: "year-end-export-2026",
+                           sentence: "newer", now: Self.at(2))
+
+        let view = Self.shell(problems)
+        let words = try Self.texts(in: view)
+
+        let newer = try #require(words.firstIndex(of: "2026 export written"))
+        let older = try #require(words.firstIndex(of: "Backups are behind"))
+        #expect(newer < older, "newest first")
+        #expect(words.filter { $0 == RailFoot.readWord }.count == 2)
+        // The retired counts (Dan, 2026-09-26): neither vocabulary survives.
+        #expect(!words.contains { $0.contains("other problem") || $0.contains("more to read") })
+    }
+
+    @Test("a third open thing is not named, and the foot says and 1 more")
+    func aThirdIsCountedAsMore() throws {
+        let problems = Self.noProblems()
+        _ = problems.raise(kind: .backupsAreStale, subject: "b", sentence: "one", now: Self.at(1))
+        _ = problems.raise(kind: .rosterUnreadable, subject: "r", sentence: "two", now: Self.at(2))
+        _ = problems.raise(kind: .exportFailed, subject: "year-end-export-2026",
+                           sentence: "three", now: Self.at(3))
+
+        let words = try Self.texts(in: Self.shell(problems))
+
+        #expect(words.contains("2026 export failed"))
+        #expect(words.contains("Clients unreadable"))
+        #expect(!words.contains("Backups are behind"))
+        #expect(words.contains("and 1 more"))
+        #expect(words.filter { $0 == RailFoot.readWord }.count == 2)
+    }
+
+    /// The zero rule. A rail with nothing open says nothing at all, not even the line
+    /// about when Ovation looks, rather than saying nothing is wrong in the one place
+    /// reserved for things that are.
+    @Test("with nothing open there is no foot at all")
+    func nothingOpenNoFoot() throws {
+        let problems = Self.noProblems()
+        let read = problems.raise(kind: .exportWritten, subject: "year-end-export-2026",
+                                  sentence: "done", now: Self.at(1))
+        problems.acknowledge(read.id, now: Self.at(2))
+
+        let words = try Self.texts(in: Self.shell(problems))
+
+        #expect(!words.contains(RailFoot.readWord))
+        #expect(!words.contains(RailFoot.onlyWhileOpen))
+        // It really did draw the rail, so the absence above means something (L98).
+        #expect(words.contains("Nothing waiting"))
+    }
+
+    @Test("pressing Read opens that thing's sentence, and only that one")
+    func pressingReadOpensThatOne() throws {
+        let problems = Self.noProblems()
+        let older = problems.raise(kind: .backupsAreStale, subject: "b", sentence: "older",
+                                   now: Self.at(1))
+        _ = problems.raise(kind: .exportWritten, subject: "year-end-export-2026",
+                           sentence: "newer", now: Self.at(2))
+        let presenter = ShellPresenter(selected: .invoices, rosterHasWork: { false })
+        let view = Self.shell(problems, presenter: presenter)
+
+        let reads = try view.inspect().findAll(ViewType.Button.self)
+            .filter { (try? $0.labelView().text().string()) == RailFoot.readWord }
+        try #require(reads.count == 2)
+        try reads[1].tap()
+
+        #expect(presenter.reading == older.id)
+        // Nothing else moved: still on the invoice list.
+        #expect(presenter.selected == .invoices)
+    }
+
+    @Test("what Read opens holds the whole sentence and I have read this, looking like a control")
+    func theReadingHoldsTheSentence() throws {
+        var done = 0
+        let reading = FootReading(sentence: "The 2026 export is written.", done: { done += 1 })
+
+        #expect(throws: Never.self) { try reading.inspect().find(text: "The 2026 export is written.") }
+        // Drawn by the product's one control word, so it is underlined at rest (L49).
+        let control = try reading.inspect().find(ActionWord.self).actualView()
+        #expect(control.word == RailFoot.readIt)
+        try reading.inspect().find(button: RailFoot.readIt).tap()
+        #expect(done == 1)
+    }
+
+    /// The popover is its own window, so the reading it shows is taken from the one
+    /// function the popover itself is built from, and its done is pressed.
+    @Test("I have read this marks it read and closes the popover; a notice leaves the foot")
+    func readingANoticeClosesIt() throws {
+        let problems = Self.noProblems()
+        let notice = problems.raise(kind: .exportWritten, subject: "year-end-export-2026",
+                                    sentence: "The 2026 export is written.", now: Self.at(1))
+        let presenter = ShellPresenter(selected: .invoices, rosterHasWork: { false })
+        presenter.read(notice.id)
+        let view = Self.shell(problems, presenter: presenter)
+
+        let reading = view.reading(for: notice)
+        #expect(reading.sentence == "The 2026 export is written.")
+        reading.done()
+
+        #expect(presenter.reading == nil)
+        #expect(problems.all.first?.acknowledgedAt == Date(timeIntervalSinceReferenceDate: 99))
+        #expect(!(try Self.texts(in: Self.shell(problems))).contains("2026 export written"))
+    }
+
+    @Test("a standing problem, once read, is still named with its Read")
+    func aReadStandingProblemStays() throws {
+        let problems = Self.noProblems()
+        let standing = problems.raise(kind: .backupsAreStale, subject: "b", sentence: "behind",
+                                      now: Self.at(1))
+        let presenter = ShellPresenter(selected: .invoices, rosterHasWork: { false })
+        presenter.read(standing.id)
+        let view = Self.shell(problems, presenter: presenter)
+
+        view.reading(for: standing).done()
+
+        let words = try Self.texts(in: Self.shell(problems))
+        #expect(words.contains("Backups are behind"))
+        #expect(words.contains(RailFoot.readWord))
+    }
+
+    /// ARITHMETIC OVER THE NAME'S WIDTH IS NOT THE LINE'S WIDTH. The first build
+    /// passed `RailFootTests`' sum and still cut "2026 export written" short on
+    /// screen, because the line spent its gap twice. So each name is laid out in the
+    /// line the foot really draws, at its natural width, and held to the column.
+    @Test("every short name, laid out in its own line with Read, fits the foot's column")
+    func everyLineFitsTheColumn() throws {
+        var names = Array(ProblemKind.shortNames.values)
+        for yearly in ProblemKind.yearlyShortNames.values {
+            names += (2000...2099).map(yearly)
         }
+        #expect(names.count > 400)
+        let reading = FootReading(sentence: "", done: {})
+        let tooWide = names.filter { name in
+            let line = RailFootLine(name: name, read: {}, isReading: .constant(false),
+                                    reading: reading)
+            return NSHostingView(rootView: line.fixedSize()).fittingSize.width > RailFoot.column
+        }
+        #expect(tooWide.isEmpty, "wider than the \(Int(RailFoot.column)) point column: \(tooWide.sorted())")
     }
 }
-

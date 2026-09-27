@@ -100,4 +100,16 @@ final class ShellPresenter {
         guard destination.isBuilt else { return }
         selected = destination
     }
+
+    // MARK: the foot of the rail (ovation#99, ovation#566)
+
+    /// Which problem's sentence is open in the popover beside its Read, or nil.
+    /// Held here rather than in the view so that the press is something a test can
+    /// see: a popover is its own window and no view tree test reaches it.
+    private(set) var reading: Problem.ID?
+
+    func read(_ id: Problem.ID) { reading = id }
+
+    /// The popover closed, by "I have read this" or by clicking away.
+    func stopReading() { reading = nil }
 }

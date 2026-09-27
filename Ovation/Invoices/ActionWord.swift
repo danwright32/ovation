@@ -39,14 +39,34 @@ struct ActionWord: View {
     /// Why it cannot be pressed, said after the word to a screen reader. A
     /// refusal that only sighted readers can see is not a refusal (PRD 47).
     var notYet: String?
+    /// What it is drawn on. The rail's foot carries Read on the espresso rail
+    /// (ovation#99), where the page's ink would vanish, so it takes the design
+    /// record's `--rail-read` there instead. One word, two grounds, one treatment.
+    var ground: Ground = .page
+    /// What a screen reader says for it, where the word alone is ambiguous: every
+    /// line of the rail's foot says Read, so each says what it reads.
+    var spoken: String?
+
+    enum Ground {
+        case page
+        case rail
+
+        var ink: Color {
+            switch self {
+            case .page: return OvationPalette.ink
+            case .rail: return OvationPalette.railRead
+            }
+        }
+    }
 
     var body: some View {
         if let press {
             Button(word, action: press)
                 .buttonStyle(.plain)
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(OvationPalette.ink)
+                .foregroundStyle(ground.ink)
                 .underline()
+                .accessibilityLabel(spoken ?? word)
         } else {
             Text(word)
                 .font(.system(size: size))

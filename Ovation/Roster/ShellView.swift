@@ -30,6 +30,9 @@ struct ShellView: View {
     /// future call site forget the wiring and still compile, which is the whole
     /// shape of this failure (L168).
     @Bindable var problems: ProblemsStore
+    /// When "I have read this" was pressed, stamped on the acknowledgement. The app
+    /// passes the real clock and a test a fixed one, the same seam `RootView` has.
+    var now: () -> Date = Date.init
 
     /// The invoice list, or nil where it could not be read out of the store.
     /// NOT OPTIONAL BECAUSE IT IS OPTIONAL TO PASS: the nil means one thing only,
@@ -265,7 +268,7 @@ struct ShellView: View {
             Spacer(minLength: 14)
             status
         }
-        .padding(.horizontal, 9)
+        .padding(.horizontal, RailFoot.railInset)
         .padding(.top, 34)
         .padding(.bottom, 12)
         .frame(width: OvationWindow.railWidth, alignment: .topLeading)
@@ -321,49 +324,66 @@ struct ShellView: View {
         .disabled(!destination.isBuilt)
     }
 
-    // MARK: what is wrong, at the foot of the rail
+    // MARK: what is open, at the foot of the rail (ovation#99, ovation#566)
 
-    /// THE ZERO RULE, for the fifth surface it now governs. A rail with nothing
-    /// wrong says nothing at all, rather than saying nothing is wrong in the one
-    /// place reserved for things that are.
+    /// THE ZERO RULE. A rail with nothing open says nothing at all, rather than
+    /// saying nothing is wrong in the one place reserved for things that are.
+    ///
+    /// EACH OPEN THING ON ITS OWN LINE, by its short name with its own Read beside
+    /// it, newest first, at most two, then "and N more" (Dan, 2026-09-26). No count:
+    /// read and unread look the same, because a notice closes once read and what
+    /// stays is a standing problem, open until its condition clears. The sentence is
+    /// behind Read, in a popover anchored to it, so nothing else on screen moves and
+    /// an open invoice stays open.
     @ViewBuilder
     private var status: some View {
-        let open = problems.open
-        if let first = open.first {
+        let lines = RailFoot.lines(for: problems.open)
+        if !lines.shown.isEmpty {
             VStack(alignment: .leading, spacing: 5) {
-                Text(first.sentence)
-                    .font(.system(size: 12.5, weight: .bold))
-                    .foregroundStyle(OvationPalette.railFault)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let others = Self.othersSentence(open.count - 1) {
-                    Text(others)
+                ForEach(lines.shown) { problem in
+                    footLine(problem)
+                }
+                if let more = RailFoot.moreSentence(lines.more) {
+                    Text(more)
                         .font(.system(size: 11.5))
                         .foregroundStyle(OvationPalette.railDim)
                 }
-                Text("Ovation only looks while it is open.")
+                Text(RailFoot.onlyWhileOpen)
                     .font(.system(size: 11.5))
                     .foregroundStyle(OvationPalette.railDim)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 9)
+            .padding(.horizontal, RailFoot.footPadding)
             .padding(.top, 10)
             .padding(.bottom, 4)
             .overlay(alignment: .top) { Divider().overlay(OvationPalette.railStatusBorder) }
-            .padding(.horizontal, 3)
+            .padding(.horizontal, RailFoot.footInset)
         }
     }
 
-    /// What the rail says about the ones behind the first. Nothing at all when
-    /// there are none, because `0 other problems` is noise. Singular and plural
-    /// are separate, because `1 other problems` is the kind of sentence that
-    /// makes a person stop trusting the rest of the screen.
-    static func othersSentence(_ others: Int) -> String? {
-        switch others {
-        case ..<1: return nil
-        case 1: return "1 other problem"
-        default: return "\(others) other problems"
-        }
+    /// One open thing, with what its Read opens anchored to that Read.
+    private func footLine(_ problem: Problem) -> some View {
+        RailFootLine(name: problem.shortName, read: { shell.read(problem.id) },
+                     isReading: readingBinding(problem.id),
+                     reading: reading(for: problem))
+    }
+
+    /// Whether this line's popover is open. Clicking away closes it, which is not
+    /// reading it: only "I have read this" marks it read.
+    private func readingBinding(_ id: Problem.ID) -> Binding<Bool> {
+        Binding(get: { shell.reading == id },
+                set: { if !$0, shell.reading == id { shell.stopReading() } })
+    }
+
+    /// What Read opens for one problem, and what "I have read this" does. Named so a
+    /// test can take the popover's content from the same place the popover does,
+    /// since a popover is its own window and no view tree test reaches it.
+    func reading(for problem: Problem) -> FootReading {
+        FootReading(sentence: problem.sentence, done: {
+            problems.acknowledge(problem.id, now: now())
+            shell.stopReading()
+        })
     }
 
     // MARK: what you are standing on
@@ -651,5 +671,104 @@ struct ShellView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(24)
         .background(OvationPalette.background)
+    }
+}
+
+/// ovation#99 and ovation#566. The foot of the rail's measurements and vocabulary, in
+/// one place, because `RailFootTests` measures every short name against the same
+/// column the view lays out.
+enum RailFoot {
+    /// The most open things named before the rest become "and N more".
+    static let most = 2
+    static let textSize: CGFloat = 12.5
+    /// The space between a name and its Read, the design record's `gap: 8px`.
+    static let gap: CGFloat = 8
+    static let readWord = "Read"
+    static let readIt = "I have read this"
+    static let onlyWhileOpen = "Ovation only looks while it is open."
+
+    /// The rail's own side padding, the foot's inset inside it, and the foot's
+    /// padding inside its rule, each used by the view.
+    static let railInset: CGFloat = 9
+    static let footInset: CGFloat = 3
+    static let footPadding: CGFloat = 9
+    /// What a line has to itself: 166 points in a 208 point rail.
+    static let column: CGFloat = OvationWindow.railWidth - 2 * (railInset + footInset + footPadding)
+
+    struct Lines: Equatable {
+        let shown: [Problem]
+        let more: Int
+    }
+
+    /// Newest first, by when each was last raised, so a standing condition found
+    /// again at this launch comes back to the top. A tie goes to the one recorded
+    /// later.
+    static func lines(for open: [Problem]) -> Lines {
+        let newest = open.enumerated()
+            .sorted { a, b in
+                a.element.lastRaised != b.element.lastRaised
+                    ? a.element.lastRaised > b.element.lastRaised
+                    : a.offset > b.offset
+            }
+            .map(\.element)
+        return Lines(shown: Array(newest.prefix(most)), more: max(newest.count - most, 0))
+    }
+
+    /// Nothing at all when nothing is left over, because "and 0 more" is noise.
+    static func moreSentence(_ more: Int) -> String? {
+        more > 0 ? "and \(more) more" : nil
+    }
+}
+
+/// One line of the foot: the short name, and Read at the line's right edge, where
+/// every line's Read lines up, with what Read opens in a popover pointing at it.
+///
+/// ITS OWN VIEW SO ITS REAL WIDTH CAN BE MEASURED. The first build put a Spacer
+/// between the name and Read inside a spaced stack, which spent the gap twice and
+/// cut "2026 export written" short, while arithmetic over the name's width said it
+/// fitted. `RailFootLineTests` lays this view out for every name and holds it to
+/// the column.
+struct RailFootLine: View {
+    let name: String
+    let read: () -> Void
+    @Binding var isReading: Bool
+    let reading: FootReading
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text(name)
+                .font(.system(size: RailFoot.textSize, weight: .bold))
+                .foregroundStyle(OvationPalette.railFault)
+                .lineLimit(1)
+            Spacer(minLength: RailFoot.gap)
+            ActionWord(word: RailFoot.readWord, size: RailFoot.textSize, press: read,
+                       ground: .rail, spoken: "\(RailFoot.readWord): \(name)")
+                .popover(isPresented: $isReading, arrowEdge: .trailing) { reading }
+        }
+    }
+}
+
+/// What Read opens: the whole sentence and "I have read this", on the page's paper,
+/// in a popover pointing at Read. It sets its own appearance, because a popover is
+/// its own window and does not inherit the screen's (PRD 43).
+struct FootReading: View {
+    let sentence: String
+    let done: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(sentence)
+                .font(.system(size: 13))
+                .foregroundStyle(OvationPalette.ink)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            ActionWord(word: RailFoot.readIt, size: 13, press: done)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(width: 300, alignment: .leading)
+        .background(OvationPalette.background)
+        .ovationAppearance()
     }
 }

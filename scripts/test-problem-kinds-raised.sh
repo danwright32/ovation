@@ -7,7 +7,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "problem kinds raised tests" 15
+harness_begin "problem kinds raised tests" 16
 
 TARGET="scripts/check-problem-kinds-raised.sh"
 require_target "$TARGET"
@@ -94,6 +94,19 @@ declare_kind "$STRING"
 resolve_kind "$STRING"
 printf 'let hint = "raise .folderMissing when the folder is gone"\n' > "$STRING/Hint.swift"
 check_exit "a kind spelled only inside a string is still refused" 1 status_on "$STRING"
+
+# A table keyed by every kind, like the rail foot's short names (ovation#99), is
+# not the kind happening. Were it counted, one table naming every kind would
+# silence this check for all of them at once.
+TABLE="$WORK/table"
+declare_kind "$TABLE"
+resolve_kind "$TABLE"
+cat > "$TABLE/Names.swift" <<'SWIFT'
+static let shortNames: [ProblemKind: String] = [
+    .folderMissing: "No backup folder",
+]
+SWIFT
+check_exit "a kind named only as a table's key is still refused" 1 status_on "$TABLE"
 
 # ---------------------------------------------------------------------------
 # Scope.

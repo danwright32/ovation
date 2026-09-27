@@ -117,12 +117,10 @@ struct RootViewTests {
 
     /// L3: built is not wired. Every test above this point renders `ShellView`
     /// directly, which says nothing about whether the app ever SHOWS it. These
-    /// two drive the choice the window actually makes.
+    /// drive the choice the window actually makes.
     ///
-    /// THE SHELL OWNS THE WINDOW ONLY WHILE THE ROSTER IS IN THE RAIL, which is
-    /// the same predicate the rail itself uses rather than a second one beside
-    /// it (L70). So the roster cannot be in the rail with the shell not showing,
-    /// nor the shell showing with nothing to stand on.
+    /// THE SHELL OWNS THE WINDOW WHENEVER THIS LAUNCH HAS ONE (ovation#566): with
+    /// the roster in the rail, with it settled, and with a notice unread.
     @Test("the window is the shell while something blocks a send")
     func theWindowIsTheShellWhenTheRosterHasWork() throws {
         let (store, presenter) = make()
@@ -144,7 +142,7 @@ struct RootViewTests {
     /// ovation#298 is one. The rule above used to be the ONLY way into the shell,
     /// written when the roster was the only screen; once the invoice list existed
     /// it left Dan on the bare problems window with every screen unreachable.
-    @Test("the window is the shell when the roster is settled and nothing is waiting to be read")
+    @Test("the window is the shell when the roster is settled")
     func theWindowIsTheShellWhenSettled() throws {
         let (store, presenter) = make()
         let roster = Self.rosterNeeding(0)
@@ -158,17 +156,17 @@ struct RootViewTests {
         }
     }
 
-    /// And the other direction, or the assertion above is satisfied by a window
-    /// that shows the shell unconditionally (L98, L159). A notice Dan has not read
-    /// yet is shown first, with its own "I have read this", because the rail's
-    /// foot names a problem without offering the notice's reading of it; the
-    /// shell follows as soon as it is read.
-    @Test("an unread launch notice is shown before the shell")
-    func theWindowIsTheProblemsSurfaceWhileANoticeIsUnread() throws {
+    /// ovation#566. AN UNREAD NOTICE NO LONGER TAKES THE WINDOW, at launch or later
+    /// (Dan, 2026-09-26: "Foot, like the rest"). It is named in the rail's foot with
+    /// Read, and the shell keeps the window, so an invoice Dan has open stays open.
+    /// This reverses the rule ovation#564 added and the test that held it (L252).
+    @Test("an unread notice at launch is named in the foot, and the shell owns the window")
+    func anUnreadNoticeAtLaunchIsInTheFoot() throws {
         let (store, presenter) = make()
-        store.raise(kind: .foreignStore, subject: "s",
-                    sentence: "The database belongs to another app.", now: at(10))
+        store.raise(kind: .exportWritten, subject: "year-end-export-2026",
+                    sentence: "The 2026 export is written.", now: at(10))
         presenter.refresh()
+        #expect(presenter.showing != nil, "the fixture has an unread notice")
 
         let roster = Self.rosterNeeding(0)
         let shell = ShellPresenter(selected: .invoices, rosterHasWork: { !roster.isSettled })
@@ -176,12 +174,51 @@ struct RootViewTests {
         let view = RootView(presenter: presenter, store: store, now: { at(11) },
                             roster: roster, shell: shell)
 
-        #expect(throws: Never.self) {
-            try view.inspect().find(text: "The database belongs to another app.")
-        }
+        #expect(throws: Never.self) { try view.inspect().find(ShellView.self) }
+        #expect(throws: Never.self) { try view.inspect().find(text: "2026 export written") }
+        #expect(throws: (any Error).self) { try view.inspect().find(LaunchNoticeView.self) }
         #expect(throws: (any Error).self) {
-            try view.inspect().find(text: "Invoices")
+            try view.inspect().find(text: "The 2026 export is written.")
         }
+    }
+
+    /// And one arriving while the shell is showing, from the year end export or the
+    /// booking queue, which used to replace the shell and close the open invoice.
+    /// The SAME live view is inspected before and after, so a window that swapped
+    /// its content and back cannot pass (L243).
+    @Test("a notice arriving mid session goes to the foot and the shell keeps the window")
+    func aNoticeMidSessionGoesToTheFoot() throws {
+        let (store, presenter) = make()
+        let roster = Self.rosterNeeding(0)
+        let shell = ShellPresenter(selected: .invoices, rosterHasWork: { !roster.isSettled })
+        let view = RootView(presenter: presenter, store: store, now: { at(11) },
+                            roster: roster, shell: shell)
+        ViewHosting.host(view: view)
+        defer { ViewHosting.expel() }
+        #expect(throws: Never.self) { try view.inspect().find(ShellView.self) }
+
+        store.raise(kind: .bookingsDrafted, subject: "booking-queue",
+                    sentence: "2 booking(s) from the queue are now drafts.", now: at(12))
+        presenter.refresh()
+
+        #expect(throws: Never.self) { try view.inspect().find(ShellView.self) }
+        #expect(throws: Never.self) { try view.inspect().find(text: "Bookings drafted") }
+        #expect(throws: (any Error).self) { try view.inspect().find(LaunchNoticeView.self) }
+    }
+
+    /// The problems window is still what a launch with NO store gets, where there is
+    /// no shell to carry anything, or its refusal would reach nobody (ovation#59).
+    @Test("with no shell, the notice window is still what shows")
+    func noShellStillShowsTheNotice() throws {
+        let (store, presenter) = make()
+        store.raise(kind: .foreignStore, subject: "s",
+                    sentence: "The database belongs to another app.", now: at(10))
+        presenter.refresh()
+
+        let view = RootView(presenter: presenter, store: store, now: { at(11) })
+
+        #expect(throws: Never.self) { try view.inspect().find(LaunchNoticeView.self) }
+        #expect(throws: (any Error).self) { try view.inspect().find(ShellView.self) }
     }
 
     private static func rosterNeeding(_ count: Int) -> RosterPresenter {

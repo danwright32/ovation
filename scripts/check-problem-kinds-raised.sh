@@ -26,6 +26,11 @@ and requiring the literal `kind: .name` would call every one of those unraised.
 The looseness costs a false negative: a kind mentioned in some other expression
 passes without being raised. That is accepted rather than a Swift parser.
 
+A KIND AS A DICTIONARY KEY IS NOT A USE (ovation#99). The rail's foot names every
+kind in one table, `.name: "Short name"`, and a table naming every kind would
+count every kind as raised, which silences this check for all of them at once.
+So a `.name` followed by a colon is read as a key, never as the kind happening.
+
 ITS SUBJECTS ARE DERIVED, never listed (L96, L247). Kinds are declared as
 `static let name = ProblemKind("...")` in more than one file, extensions in the
 roster and export code included, so declarations are collected from the tree.
@@ -61,6 +66,7 @@ _constructs = importlib.machinery.SourceFileLoader(
 DECLARATION = re.compile(r"\bstatic\s+let\s+([A-Za-z_]\w*)\s*=\s*ProblemKind\s*\(")
 COMPARISON = re.compile(r"\bkind\s*[!=]=\s*\.([A-Za-z_]\w*)\b")
 DOTTED = re.compile(r"\.([A-Za-z_]\w*)\b")
+KEY_AFTER = re.compile(r"\s*:")
 
 EXPLANATION = (
     "problem kind matched and never raised: code that resolves, filters or counts "
@@ -119,6 +125,8 @@ def main():
         for match in DOTTED.finditer(code):
             name = match.group(1)
             if name not in declared:
+                continue
+            if KEY_AFTER.match(code, match.end()):
                 continue
             if any(start <= match.start(1) < end for start, end in comparison_names):
                 continue
