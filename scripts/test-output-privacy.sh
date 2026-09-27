@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 126
+harness_begin "output privacy tests" 128
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -1020,6 +1020,27 @@ check "the one action word check prints no identity from the file it refuses" \
     "$(leaks_in "$WORD_OUT")" "clean"
 check "and it really did refuse, so the case reached the lines that name a file" \
     "$(printf '%s' "$WORD_OUT" | grep -c 'REFUSED')" "1"
+
+# ---------------------------------------------------------------------------
+# THE ONE TAX CHIP CHECK (ovation#480). It reads every Swift file under the app
+# and the design files' stylesheets, and prints PATHS, LINE NUMBERS and CSS
+# selectors. It must never print a line of the Swift it refuses: the roster pass
+# and the invoice screen are where a real client's name would sit if one were
+# ever written into a preview or a comment.
+# ---------------------------------------------------------------------------
+CHIP_TREE="$WORK/tax-chip-tree"
+mkdir -p "$CHIP_TREE/Ovation/Invoices" "$CHIP_TREE/Ovation/Roster" "$CHIP_TREE/docs/design"
+printf 'struct TaxAnswerChips: View { let answers: [TaxStatus]\n var body: some View { ForEach(answers, id: \\.self) { a in Text(a.exportLabel) } } }\n' \
+    > "$CHIP_TREE/Ovation/Invoices/TaxAnswerChips.swift"
+printf '<!doctype html>\n<style>\n.taxpick { padding: 2px 9px; }\n.taxpick:hover { color: red; }\n.taxpick:focus-visible { color: blue; }\n</style>\n' \
+    > "$CHIP_TREE/docs/design/invoice.html"
+printf '// the row for %s at %s\nForEach(TaxStatus.answers, id: \\.self) { s in Button(s.exportLabel) {} }\n' \
+    "$CLIENT" "$VENUE" > "$CHIP_TREE/Ovation/Roster/RosterPassView.swift"
+CHIP_OUT="$(OVATION_REPO_ROOT="$CHIP_TREE" ./scripts/check-one-tax-chip.sh 2>&1)"
+check "the one tax chip check prints no identity from the file it refuses" \
+    "$(leaks_in "$CHIP_OUT")" "clean"
+check "and it really did refuse, so the case reached the lines that name a file" \
+    "$(printf '%s' "$CHIP_OUT" | grep -c 'REFUSED')" "1"
 
 # ---------------------------------------------------------------------------
 # THE WAITING SENTENCE GUARD (ovation#117). Its whole subject is COPY: the
