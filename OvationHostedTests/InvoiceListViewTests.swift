@@ -49,8 +49,8 @@ struct InvoiceListViewTests {
             i.dueDate = due
             i.number = number
             if sent {
-                i.sentStatus = .sent(route: .ovationSentIt,
-                                     at: Date(timeIntervalSince1970: 1_794_000_000))
+                i.recordSendState(.sent(route: .ovationSentIt,
+                                     at: Date(timeIntervalSince1970: 1_794_000_000)))
             }
             i.add(LineItem.flat(Money(dollars: amount), describedAs: "Photography"))
             if let day { i.add(Shoot(name: shootName, when: .dayOnly(day), venue: nil)) }
@@ -92,8 +92,8 @@ struct InvoiceListViewTests {
         all.append(check)
         let unknown = invoice(alder, "La Boheme, act three", on: day(-18), due: day(-4),
                               number: 1037, sent: true, amount: 1_320)
-        unknown.sentStatus = .couldNotDetermine(
-            checkedAt: Date(timeIntervalSince1970: 1_794_400_000))
+        unknown.recordSendState(.couldNotDetermine(
+            checkedAt: Date(timeIntervalSince1970: 1_794_400_000)))
         all.append(unknown)
 
         return (all, [cedar: Money(dollars: 500)])

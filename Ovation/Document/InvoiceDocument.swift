@@ -215,7 +215,7 @@ struct InvoiceDocument: Equatable, Sendable {
         title = "Invoice"
         columns = ["Description", "Hours", "Rate", "Amount"]
         items = try invoice.orderedLineItems.map(Self.row)
-        money = Self.moneyRows(invoice, taxed: client.taxStatus.isTaxed)
+        money = Self.moneyRows(invoice, taxed: invoice.taxStatusCharged?.isTaxed ?? true)
         // A BLOCK WITH NOTHING TO SAY IS LEFT OFF, rather than drawn as a heading
         // over a gap (ovation#319). The page is still BUILT when a required line is
         // missing, and that is deliberate: Dan reviews this page before sending,

@@ -68,7 +68,7 @@ struct InvoiceListSourceTests {
         invoice.add(LineItem.flat(Money(dollars: dollars), describedAs: "Photography"))
         if sent {
             invoice.number = 1_123
-            invoice.sentStatus = .sent(route: .ovationSentIt, at: noon)
+            invoice.recordSendState(.sent(route: .ovationSentIt, at: noon))
         }
         context.insert(invoice)
         return invoice

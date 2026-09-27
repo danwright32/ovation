@@ -193,7 +193,7 @@ struct InvoiceReferralCreditWriterTests {
         let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>())
             .first { $0.persistentModelID == invoiceID })
         invoice.number = 1_123
-        invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+        invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
         try context.save()
 
         await #expect(throws: InvoiceReferralCreditRefusal.invoiceWasSent) {
@@ -212,7 +212,7 @@ struct InvoiceReferralCreditWriterTests {
         let context = ModelContext(container)
         let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>())
             .first { $0.persistentModelID == invoiceID })
-        invoice.sentStatus = .couldNotDetermine(checkedAt: Self.noon)
+        invoice.recordSendState(.couldNotDetermine(checkedAt: Self.noon))
         try context.save()
 
         await #expect(throws: InvoiceReferralCreditRefusal.sendIsUnsettled) {
@@ -319,7 +319,7 @@ struct InvoiceReferralCreditWriterTests {
         let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>())
             .first { $0.persistentModelID == invoiceID })
         invoice.number = 1_124
-        invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+        invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
         try context.save()
 
         await #expect(throws: InvoiceReferralCreditRefusal.invoiceWasSent) {

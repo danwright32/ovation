@@ -28,7 +28,7 @@ struct PaymentRecordingTests {
                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         invoice.add(LineItem.flat(owing, describedAs: "Photography"))
-        if sent { invoice.sentStatus = .sent(route: .ovationSentIt, at: day) }
+        if sent { invoice.recordSendState(.sent(route: .ovationSentIt, at: day)) }
         return invoice
     }
 

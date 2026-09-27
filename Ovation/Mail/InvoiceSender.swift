@@ -92,14 +92,17 @@ actor InvoiceSender {
         }
 
         // 2. THE ATTEMPT, written before the call.
-        invoice.sentStatus = .attempting(SendAttempt(destination: recipients,
-                                                     wasRedirected: settings.destination.isRedirected,
-                                                     renderSHA256: render.sha256,
-                                                     startedAt: clock()))
+        // RECORDED THROUGH THE INVOICE, so the attempt also records the tax status
+        // the render was taken under (ovation#482, PRD 51j1): what went out is what
+        // it says, whatever the client's page later corrects.
+        invoice.recordSendState(.attempting(SendAttempt(destination: recipients,
+                                                        wasRedirected: settings.destination.isRedirected,
+                                                        renderSHA256: render.sha256,
+                                                        startedAt: clock())))
         do {
             try modelContext.save()
         } catch {
-            invoice.sentStatus = .notSent
+            invoice.recordSendState(.notSent)
             return .refused("The send could not be recorded before it started, so nothing was sent: \(error.localizedDescription)")
         }
 
@@ -126,7 +129,7 @@ actor InvoiceSender {
     /// that down, so it needs a person rather than a guess (L12).
     private func settle(_ invoice: Invoice, as status: SentStatus,
                         then outcome: InvoiceSendOutcome) -> InvoiceSendOutcome {
-        invoice.sentStatus = status
+        invoice.recordSendState(status)
         do {
             try modelContext.save()
             return outcome

@@ -24,7 +24,7 @@ struct InvoicePaymentViewTests {
         context.insert(invoice)
         invoice.add(LineItem.flat(Money(dollars: 375), describedAs: "Photography"))
         invoice.number = 1_123
-        invoice.sentStatus = .sent(route: .ovationSentIt, at: noon)
+        invoice.recordSendState(.sent(route: .ovationSentIt, at: noon))
         return invoice
     }
 

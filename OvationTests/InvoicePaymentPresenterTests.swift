@@ -31,7 +31,7 @@ struct InvoicePaymentPresenterTests {
                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         invoice.add(LineItem.flat(Money(dollars: 375), describedAs: "Photography"))
-        if sent { invoice.sentStatus = .sent(route: .ovationSentIt, at: noon) }
+        if sent { invoice.recordSendState(.sent(route: .ovationSentIt, at: noon)) }
         return invoice
     }
 
@@ -105,7 +105,7 @@ struct InvoicePaymentPresenterTests {
                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         context.insert(invoice)
         invoice.add(LineItem.flat(.zero, describedAs: "Photography"))
-        invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+        invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
         let presenter = Self.present(invoice)
         #expect(presenter.footAction == .none)
         #expect(presenter.paymentStarts == nil)

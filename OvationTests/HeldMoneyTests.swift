@@ -59,7 +59,7 @@ struct HeldMoneyTests {
                               taxRate: .newYorkCity, createdOn: today)
         world.context.insert(invoice)
         invoice.add(LineItem.flat(owing, describedAs: "Photography"))
-        if sent { invoice.sentStatus = .sent(route: .ovationSentIt, at: noon) }
+        if sent { invoice.recordSendState(.sent(route: .ovationSentIt, at: noon)) }
         return invoice
     }
 
@@ -230,7 +230,7 @@ struct HeldMoneyTests {
         let cancelled = Self.invoice(world, owing: Money(dollars: 300))
         cancelled.closure = .cancelled(on: Self.today, reason: "the concert was called off")
         let unsettled = Self.invoice(world, owing: Money(dollars: 300), sent: false)
-        unsettled.sentStatus = .couldNotDetermine(checkedAt: Self.noon)
+        unsettled.recordSendState(.couldNotDetermine(checkedAt: Self.noon))
         try world.context.save()
 
         #expect(try await world.allocator.placeHeldMoney(on: Self.today).isEmpty)
@@ -543,7 +543,7 @@ struct HeldMoneyTests {
         let owesNothing = Self.invoice(world, owing: .zero)
         let open = Self.invoice(world, owing: Money(dollars: 300))
         let unsettled = Self.invoice(world, owing: Money(dollars: 300), sent: false)
-        unsettled.sentStatus = .couldNotDetermine(checkedAt: Self.noon)
+        unsettled.recordSendState(.couldNotDetermine(checkedAt: Self.noon))
         let clientless = Invoice(client: nil, kind: .photography, invoiceDate: Self.today,
                                  hourlyRate: Money(dollars: 250), taxRate: .newYorkCity,
                                  createdOn: Self.today)

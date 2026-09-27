@@ -42,7 +42,7 @@ struct HeldMoneyViewTests {
                                   createdOn: today)
             context.insert(invoice)
             invoice.add(LineItem.flat(Money(dollars: 375), describedAs: "Photography"))
-            if sent { invoice.sentStatus = .sent(route: .ovationSentIt, at: noon) }
+            if sent { invoice.recordSendState(.sent(route: .ovationSentIt, at: noon)) }
             return invoice
         }
         let invoice = make(sent: true)

@@ -26,7 +26,7 @@ struct SendSettlerTests {
                               invoiceDate: BusinessCalendar.day(forKey: "2026-11-12"),
                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         invoice.number = number
-        invoice.sentStatus = status
+        invoice.recordSendState(status)
         context.insert(invoice)
         try context.save()
         return (container, invoice.persistentModelID)
@@ -53,6 +53,24 @@ struct SendSettlerTests {
         let after = try Self.read(id, in: container)
         #expect(after.sentStatus == .notSent)
         #expect(after.number == 1_123)
+    }
+
+    /// ovation#482. A draft follows its client's tax status, so marking a send as not
+    /// having happened takes away the status it was recorded under.
+    @Test("an unsettled send marked unsent no longer carries the tax status of the send")
+    func anunsentInvoiceLosesItsSentTaxStatus() async throws {
+        let (container, id) = try Self.invoice(.notSent)
+        do {
+            let context = ModelContext(container)
+            let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
+            invoice.recordSendState(Self.attempt)
+            try context.save()
+        }
+        #expect(try Self.read(id, in: container).taxStatusWhenSent == .notExempt)
+
+        try await SendSettler(modelContainer: container).markNotSent(id)
+
+        #expect(try Self.read(id, in: container).taxStatusWhenSent == nil)
     }
 
     @Test("a sent invoice is refused, and stays sent")

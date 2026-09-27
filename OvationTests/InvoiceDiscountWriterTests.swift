@@ -108,7 +108,7 @@ struct InvoiceDiscountWriterTests {
         let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>())
             .first { $0.persistentModelID == invoiceID })
         invoice.number = 1_123
-        invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+        invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
         try context.save()
 
         await #expect(throws: InvoiceDiscountRefusal.invoiceWasSent) {
@@ -124,7 +124,7 @@ struct InvoiceDiscountWriterTests {
         let context = ModelContext(container)
         let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>())
             .first { $0.persistentModelID == invoiceID })
-        invoice.sentStatus = .couldNotDetermine(checkedAt: Self.noon)
+        invoice.recordSendState(.couldNotDetermine(checkedAt: Self.noon))
         try context.save()
 
         await #expect(throws: InvoiceDiscountRefusal.sendIsUnsettled) {

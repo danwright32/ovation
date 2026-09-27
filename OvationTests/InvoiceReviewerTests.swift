@@ -341,8 +341,8 @@ struct InvoiceReviewerTests {
     func markingFromTheListSettles() async throws {
         let (container, id) = try Self.draft(numbered: 1_123)
         let context = ModelContext(container)
-        try #require(try context.fetch(FetchDescriptor<Invoice>()).first).sentStatus =
-            .couldNotDetermine(checkedAt: Self.noon)
+        try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
+            .recordSendState(.couldNotDetermine(checkedAt: Self.noon))
         try context.save()
         let reviewer = Self.reviewer(container, settings: nil)
 
@@ -358,8 +358,8 @@ struct InvoiceReviewerTests {
     func markingASentInvoiceIsRefused() async throws {
         let (container, id) = try Self.draft(numbered: 1_123)
         let context = ModelContext(container)
-        try #require(try context.fetch(FetchDescriptor<Invoice>()).first).sentStatus =
-            .sent(route: .ovationSentIt, at: Self.noon)
+        try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
+            .recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
         try context.save()
 
         let refusal = await Self.reviewer(container, settings: nil).markNotSent(id)

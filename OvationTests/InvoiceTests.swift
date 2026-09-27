@@ -481,7 +481,7 @@ struct InvoiceTests {
         let context = try Self.store()
         let invoice = Self.invoice(context, for: Self.client(context))
         invoice.discount = Discount(percentBasisPoints: 1_250)
-        invoice.sentStatus = .sent(route: .foundInTheMailbox, at: Self.shootEnd)
+        invoice.recordSendState(.sent(route: .foundInTheMailbox, at: Self.shootEnd))
         invoice.number = 1_123
         invoice.add(Shoot(name: "Autumn concert",
                           when: ShootWhen(startsAt: Self.shootStart, endsAt: Self.shootEnd),

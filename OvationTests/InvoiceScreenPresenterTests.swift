@@ -115,7 +115,7 @@ struct InvoiceScreenPresenterTests {
         let draft = try Self.invoice(context)
         let sent = try Self.invoice(context)
         sent.number = 1_042
-        sent.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+        sent.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
 
         #expect(Self.present(draft).state == "Draft")
         #expect(Self.present(sent).state == "Invoice 1042")
@@ -412,7 +412,7 @@ struct InvoiceScreenPresenterTests {
         let invoice = try Self.invoice(context)
         if sent {
             invoice.number = 1_123
-            invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+            invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
         }
 
         #expect(Self.present(invoice).mayEdit == !sent)
@@ -550,7 +550,7 @@ struct InvoiceScreenPresenterTests {
         let types = Self.seeded(context)
         let sent = try Self.invoice(context)
         sent.number = 1_042
-        sent.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+        sent.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
 
         #expect(Self.present(sent, types: types).mayAddLine(canMakeAType: true) == false)
         #expect(Self.present(try Self.invoice(context), types: types).mayAddLine(canMakeAType: true))
@@ -632,7 +632,7 @@ struct InvoiceScreenPresenterTests {
         let sent = try Self.invoice(context)
         sent.discount = Discount(percentBasisPoints: 1_000)
         sent.number = 1_042
-        sent.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+        sent.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
 
         let screen = Self.present(sent)
 

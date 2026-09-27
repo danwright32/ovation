@@ -55,7 +55,7 @@ struct InvoiceSenderTests {
         let invoice = try InvoiceFixtures.invoice("Ordinary", in: context)
         invoice.client?.email = "booker@client.example"
         invoice.number = number
-        invoice.sentStatus = .notSent
+        invoice.recordSendState(.notSent)
         for shoot in invoice.shoots {
             shoot.shotFrom = ClockTime("19:00")
             shoot.shotUntil = ClockTime("20:00")
@@ -144,6 +144,42 @@ struct InvoiceSenderTests {
         #expect(attempt.renderSHA256 == Self.render().sha256)
     }
 
+    // MARK: the tax it went out with (ovation#482)
+
+    private static func stored(_ id: PersistentIdentifier, in container: ModelContainer) throws -> Invoice {
+        try #require(try ModelContext(container).fetch(FetchDescriptor<Invoice>())
+            .first { $0.persistentModelID == id })
+    }
+
+    /// WHAT WENT OUT IS WHAT IT SAYS (Dan, 2026-09-23, PRD 51j1): the send records the
+    /// status the render was taken under, so a later correction on the client's page
+    /// cannot re-draw it. Asked for an accepted send and for one Gmail never answered,
+    /// because an unanswered send may have gone.
+    @Test("a send records the client's tax status on the invoice", arguments: ["accepted", "unanswered"])
+    func asendRecordsTheTaxStatus(answer: String) async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+        if answer == "unanswered" { gmail.answer = .neverAnswers(URLError(.timedOut)) }
+
+        _ = await Self.send(id, in: container, gmail: gmail)
+
+        let invoice = try Self.stored(id, in: container)
+        let client = invoice.client
+        #expect(invoice.taxStatusWhenSent != nil)
+        #expect(invoice.taxStatusWhenSent == client?.taxStatus)
+    }
+
+    @Test("a send Gmail refused records no tax status, because the invoice is still a draft")
+    func arefusedSendRecordsNoTaxStatus() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+        gmail.answer = .refuses(GmailSendError.api("invalid recipient"))
+
+        _ = await Self.send(id, in: container, gmail: gmail)
+
+        #expect(try Self.stored(id, in: container).taxStatusWhenSent == nil)
+    }
+
     // MARK: Gmail said no, so nothing went
 
     @Test("a send Gmail refused leaves a draft, and says so")
@@ -210,8 +246,8 @@ struct InvoiceSenderTests {
             try context.save()
         case "already sent":
             let context = ModelContext(container)
-            try #require(try context.fetch(FetchDescriptor<Invoice>()).first).sentStatus =
-                .sent(route: .ovationSentIt, at: Self.noon)
+            try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
+                .recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
             try context.save()
         case "too large": gmail.limit = 1
         default: break

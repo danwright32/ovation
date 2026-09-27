@@ -498,7 +498,7 @@ struct InvoiceCancellationTests {
             invoice.number = number
             invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
             if sent {
-                invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.now)
+                invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.now))
             }
             return invoice
         }
