@@ -91,6 +91,27 @@
 .status .fault b { font-weight: 700; }
 .status .fault .read { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .status .also, .status .looked { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
+/* EACH OPEN THING BY ITS SHORT NAME, READ BESIDE IT, AND READ OPENING A POPOVER
+   (Dan, 2026-09-26, ovation#99 and ovation#566, PRD 44c to 44f). The lines and
+   the popover are drawn by rules/rail-foot.js; these are how they look. The name
+   keeps to one line, which is the whole point of a short name, and Read is a
+   real button, so it can be reached from the keyboard as well as pressed. The
+   popover sits on the content's paper with its arrow pointing at the Read that
+   opened it, measured in the round at 300 points wide. */
+.status .fault b { white-space: nowrap; }
+.status .fault button.read { font: inherit; font-weight: 600; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
+.app { position: relative; }
+.railpop { position: absolute; z-index: 8; width: 300px; background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.10), 0 12px 28px rgba(0,0,0,.18); }
+.railsay { font-size: 13px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
+.railack { font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; align-self: flex-start; cursor: pointer; }
+/* "and N more" is a control like Read and opens the list of everything open
+   (Dan, 2026-09-26, ovation#566, "Opens a list pop-up"), each item named, its
+   sentence under it and its own I have read this. */
+.status button.more { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--rail-read); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; align-self: flex-start; white-space: nowrap; }
+.railitem { display: flex; flex-direction: column; gap: 6px; }
+.railitem + .railitem { border-top: 1px solid var(--rule-soft); padding-top: 10px; }
+.railname { font-size: 13px; font-weight: 700; color: var(--ink); }
+.railarrow { position: absolute; left: -7px; width: 12px; height: 12px; background: var(--bg); border-left: 1px solid var(--rule); border-bottom: 1px solid var(--rule); transform: rotate(45deg); }
 
 .main { background: var(--bg); display: flex; flex-direction: column; min-width: 0; overflow: visible; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px 12px; border-bottom: 1px solid var(--rule); flex: none; }

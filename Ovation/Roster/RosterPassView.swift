@@ -200,51 +200,13 @@ struct RosterPassView: View {
             // FROM `TaxStatus.answers`, THE ONE LIST, since ovation#457 gave the
             // invoice screen the same question to ask. Two screens each holding
             // their own copy of a vocabulary is how they come to offer different
-            // things (L41, L89).
-            HStack(spacing: 6) {
-                ForEach(TaxStatus.answers, id: \.self) { status in
-                    Button { record(status, on: client) } label: {
-                        chip(status.exportLabel)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+            // things (L41, L89). AND WITH THE ONE CHIP, since ovation#480: the
+            // invoice's, chosen by Dan by looking with both drawn on both screens.
+            TaxAnswerChips(answers: TaxStatus.answers) { record($0, on: client) }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 9)
         .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.ruleSoft) }
-    }
-
-    /// NOTHING NATIVE, NOTHING DEFAULT (L607). This was SwiftUI's `.bordered`
-    /// button style until the screen was rendered and looked at: the two answers
-    /// came out as ghost text with no visible edge, which a view tree test
-    /// cannot see because the words were all present. The design record names
-    /// this exact trap, that the framework's default control is what ships when
-    /// nothing replaces it and it reads as the OS pasted into the product.
-    ///
-    /// The geometry and the colours are the design file's `.chip` rule, quoted
-    /// rather than invented: 12px, 3 by 11 padding, a 4px radius, a one pixel
-    /// rule, and the accent filling the one that is chosen.
-    /// ONE LOOK, BECAUSE THE OTHER ONE CANNOT HAPPEN HERE. The design file draws
-    /// a filled chip for the answer already recorded and this screen carried it
-    /// too, until the render was looked at and the state was traced: the section
-    /// is built from `needingTaxStatus`, so every client in it holds
-    /// `neverRecorded` and neither chip is ever the chosen one. Answering takes
-    /// the row out of the list, which is the feedback, along with the count
-    /// above it dropping. A branch no fixture can reach is the branch that ships
-    /// untested (L29), and `RosterPassTests` states the property that keeps this
-    /// removable. The filled treatment belongs on the Clients screen, where a
-    /// recorded status is actually displayed.
-    private func chip(_ label: String) -> some View {
-        Text(label)
-            .font(.system(size: 12))
-            .foregroundStyle(OvationPalette.soft)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 3)
-            .background(OvationPalette.background)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(OvationPalette.rule, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .fixedSize()
     }
 
     /// PRD 5a. The number it BEGAN with, which is what makes this read as a one

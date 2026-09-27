@@ -116,7 +116,7 @@ check "and the claim that fired names the menu closing" \
 #    that reported 450.00 for a 375.00 line.
 SUMMED="$WORK/summed.html"
 check "the amount is where the mutation expects it" \
-    "$(mutate "$SUMMED" 's/  else amt.textContent = money(hours \* RATE);/  else amt.textContent = money(t.lines);/' 'money(t.lines);')" "1"
+    "$(mutate "$SUMMED" 's/  else amt.textContent = screenMoney(hours \* RATE);/  else amt.textContent = screenMoney(t.lines);/' 'screenMoney(t.lines);')" "1"
 judge "$SUMMED"
 check_rendered_status "a first line reporting the lines total is refused" "$(case_of "$SUMMED")" "1"
 check "and the claim that fired names the line's own amount" \
@@ -175,7 +175,7 @@ check "and the claim that fired names the list not being painted" \
 #    correct on screen, and the amount simply never arrives on the line.
 DEAFPANEL="$WORK/deaf-panel.html"
 check "the prefill is gone from the mutated copy" \
-    "$(mutate "$DEAFPANEL" 's/^    field.value = money(ADDING.amount);$//' 'field.value = money(ADDING.amount)')" "0"
+    "$(mutate "$DEAFPANEL" 's/^    field.value = screenMoney(ADDING.amount);$//' 'field.value = screenMoney(ADDING.amount)')" "0"
 judge "$DEAFPANEL"
 check_rendered_status "a panel whose answer nothing reads is refused" "$(case_of "$DEAFPANEL")" "1"
 check "and the claim that fired names making a type" \
@@ -235,7 +235,7 @@ check "and the claim that fired names the deletion" \
 #     appended above it, and the figures on screen all still add up.
 NETTED="$WORK/netted.html"
 check "the total line is where the mutation expects it" \
-    "$(mutate "$NETTED" 's|sumBox.append(line("Total", money(t.total), "tot totline"));|sumBox.append(line("Total", money(t.total - heldApplied(t.total)), "tot totline"));|' 'money(t.total - heldApplied')" "1"
+    "$(mutate "$NETTED" 's|sumBox.append(line("Total", screenMoney(t.total), "tot totline"));|sumBox.append(line("Total", screenMoney(t.total - heldApplied(t.total)), "tot totline"));|' 'screenMoney(t.total - heldApplied')" "1"
 judge "$NETTED"
 check_rendered_status "held money folded into the total is refused" "$(case_of "$NETTED")" "1"
 check "and the claim that fired names the arithmetic" \
@@ -262,7 +262,7 @@ check "and the claim that fired names where Remove sits" \
 #     two screens show 500.00 and 440.94 and the person does the subtraction.
 QUIETREST="$WORK/quiet-rest.html"
 check "the leftover sentence is where the mutation expects it" \
-    "$(mutate "$QUIETREST" 's|^        "\$" + money(HELD_ON_CLIENT - on) + " stays held on the client."));$|        ""));|' 'stays held on the client')" "0"
+    "$(mutate "$QUIETREST" 's|^        "\$" + screenMoney(HELD_ON_CLIENT - on) + " stays held on the client."));$|        ""));|' 'stays held on the client')" "0"
 judge "$QUIETREST"
 check_rendered_status "a leftover that is never named is refused" "$(case_of "$QUIETREST")" "1"
 check "and the claim that fired names what is left over" \
@@ -287,7 +287,7 @@ check "and the claim that fired names the second open invoice" \
 #     could not be read at all (L50). This plants exactly that.
 UNREADABLE="$WORK/unreadable-figure.html"
 check "the applied figure is where the mutation expects it" \
-    "$(mutate "$UNREADABLE" 's|row.append(label, el("div", "fig", "-" + money(on)));|row.append(label, el("div", "fig", "-" + "n/a"));|' '"-" + "n/a"')" "1"
+    "$(mutate "$UNREADABLE" 's|row.append(label, el("div", "fig", "-" + screenMoney(on)));|row.append(label, el("div", "fig", "-" + "n/a"));|' '"-" + "n/a"')" "1"
 judge "$UNREADABLE"
 check_rendered_status "a figure the check cannot read is refused, not passed" "$(case_of "$UNREADABLE")" "1"
 check "and the claim that fired names what is left over" \

@@ -149,6 +149,17 @@ color: var(--faint); }
 .status .fault .read { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .status .also, .status .looked { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
 
+.status .fault b { white-space: nowrap; }
+.status .fault button.read { font: inherit; font-weight: 600; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
+.app { position: relative; }
+.railpop { position: absolute; z-index: 8; width: 300px; background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.10), 0 12px 28px rgba(0,0,0,.18); }
+.railsay { font-size: 13px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
+.railack { font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; align-self: flex-start; cursor: pointer; }
+.status button.more { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--rail-read); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; align-self: flex-start; white-space: nowrap; }
+.railitem { display: flex; flex-direction: column; gap: 6px; }
+.railitem + .railitem { border-top: 1px solid var(--rule-soft); padding-top: 10px; }
+.railname { font-size: 13px; font-weight: 700; color: var(--ink); }
+.railarrow { position: absolute; left: -7px; width: 12px; height: 12px; background: var(--bg); border-left: 1px solid var(--rule); border-bottom: 1px solid var(--rule); transform: rotate(45deg); }
 .main { background: var(--bg); display: flex; flex-direction: column; min-width: 0; overflow: visible; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px 12px; border-bottom: 1px solid var(--rule); flex: none; }
 .toolbar h4 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 29px; font-weight: 400; color: var(--ink); line-height: 1; }
@@ -665,7 +676,14 @@ color: var(--faint); }
 
 /* The two answers, offered rather than assumed. They sit in the note that
    states the fact, because the thing stopping the invoice should be answerable
-   where it is said. */
+   where it is said.
+
+   `.taxpick` IS THE ONE TAX STATUS CHIP IN THE PRODUCT (Dan, 2026-09-26,
+   ovation#480, PRD 5a2): asked "Which chip should answer the tax status question
+   on both screens?", with both treatments drawn on both surfaces in the real
+   windows, he answered "Invoice chip". clients.html carries these three rules
+   verbatim for the roster pass and the client page, and
+   scripts/check-one-tax-chip.sh refuses a copy that differs from this file's. */
 .taxanswers { display: flex; justify-content: flex-end; gap: 6px;
               width: 318px; padding-top: 6px; }
 .taxpick { font: inherit; font-size: 12px; font-family: "Archivo", ui-sans-serif, sans-serif;
@@ -1823,7 +1841,12 @@ function el(t, c, x) {
   if (x !== undefined) n.textContent = x;
   return n;
 }
-function money(n) {
+/* THE SCREEN'S OWN WAY OF WRITING MONEY: a comma between thousands and no dollar
+   sign, because every figure on this screen sits in a column or a line already
+   about money. Named for the screen since ovation#565: it was `money`, the same
+   name as the PDF's rule in rules/pdf-text.js, which writes the dollar sign, and
+   two functions sharing a name read as one rule while doing two (L263). */
+function screenMoney(n) {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -1969,15 +1992,15 @@ function historyFor(state, total) {
      is the fixture this history was written against. */
   if (PAYMENTS.length) {
     PAYMENTS.forEach(function (p, i) {
-      var more = "$" + money(p.amount) + " by " + methodWord(p.method);
-      if (p.held > 0) more += ", $" + money(p.held) + " held on the client";
+      var more = "$" + screenMoney(p.amount) + " by " + methodWord(p.method);
+      if (p.held > 0) more += ", $" + screenMoney(p.held) + " held on the client";
       events.push({ when: p.when, what: "Payment recorded", more: more, just: i === JUST });
       if (p.method === "Check" && p.cleared) {
         events.push({ when: p.clearedWhen, what: "Cleared", more: null });
       }
     });
   } else if (state === "paid") {
-    events.push({ when: "26 Sep", what: "Payment recorded", more: "$" + money(total) + " by check" },
+    events.push({ when: "26 Sep", what: "Payment recorded", more: "$" + screenMoney(total) + " by check" },
                  { when: "2 Oct", what: "Cleared", more: null });
   }
   return events;
@@ -2327,7 +2350,7 @@ function addingRow() {
   /* THE TYPE'S USUAL AMOUNT, where it has one, which is what makes the panel's
      second question worth asking. A type with none leaves the field empty. */
   if (ADDING.amount !== null && ADDING.amount !== undefined) {
-    field.value = money(ADDING.amount);
+    field.value = screenMoney(ADDING.amount);
   }
   /* NO PLACEHOLDER READING 0.00. A zero total is a legitimate comped invoice
      (PRD 5.1b), so a figure the screen has not been given is never drawn as one,
@@ -2354,7 +2377,7 @@ function addingRow() {
 function extraRow(item) {
   var row = el("div", "lrow");
   row.append(el("div", "ldesc", item.name), el("div", "fig", ""),
-             el("div", "fig", ""), el("div", "fig", money(item.amount)));
+             el("div", "fig", ""), el("div", "fig", screenMoney(item.amount)));
   return row;
 }
 
@@ -2454,7 +2477,7 @@ function buildInvoice() {
      added a second this row started reporting the sum: a 375.00 line read as
      450.00 with a 75.00 line beneath it, and the invoice contradicted its own
      arithmetic. Caught by reading the rendered rows back, not by looking. */
-  else amt.textContent = money(hours * RATE);
+  else amt.textContent = screenMoney(hours * RATE);
   row.append(el("div", "ldesc", "Concert photography"),
              el("div", "fig" + (hours === null ? " pending" : ""), hours === null ? "" : hoursFigure(hours)),
              el("div", "fig", "250.00"), amt);
@@ -2488,16 +2511,16 @@ function buildInvoice() {
        (rules/money.js). When there is no credit the lines total and the subtotal
        are the same number, and a quantity stated twice is not drawn. */
     if (t.credit > 0) {
-      sumBox.append(line("Photography", money(t.lines)));
-      sumBox.append(line("Referral credit", "-" + money(t.credit)));
+      sumBox.append(line("Photography", screenMoney(t.lines)));
+      sumBox.append(line("Referral credit", "-" + screenMoney(t.credit)));
     }
-    sumBox.append(line("Subtotal", money(t.subtotal)));
+    sumBox.append(line("Subtotal", screenMoney(t.subtotal)));
 
     if (DISCOUNT) {
       sumBox.append(line(DISCOUNT.kind === "percent"
                            ? "Discount, " + DISCOUNT.value + "%"
                            : "Discount",
-                         "-" + money(t.discount), "discline"));
+                         "-" + screenMoney(t.discount), "discline"));
       sumBox.append(discountEdit());
     }
 
@@ -2507,8 +2530,8 @@ function buildInvoice() {
        and cannot support, and it is the same treatment the invoice already
        gives an unpriced draft. */
     if (tl.drawn) {
-      sumBox.append(line(tl.label, money(tl.amount)));
-      sumBox.append(line("Total", money(t.total), "tot totline"));
+      sumBox.append(line(tl.label, screenMoney(tl.amount)));
+      sumBox.append(line("Total", screenMoney(t.total), "tot totline"));
       /* Below the total, never above it: see heldBlock. It is drawn only once
          there IS a total, for the same reason the total is: a figure taken off
          a price nobody has established asserts something the screen cannot
@@ -2579,7 +2602,7 @@ function buildInvoice() {
       act.setAttribute("role", "button");
       act.tabIndex = 0;
       var openSheet = function () {
-        var opened = { amount: money(owedOn(t.total)), method: "Zelle", received: TODAY_TEXT };
+        var opened = { amount: screenMoney(owedOn(t.total)), method: "Zelle", received: TODAY_TEXT };
         SHEET = { amount: opened.amount, method: opened.method, received: opened.received,
                   opened: opened, asking: false };
         redraw(function () {
@@ -2666,11 +2689,11 @@ function paymentsBlock(sumBox, line, total) {
     } else {
       paid.append(el("span", null, "Check, not cleared"), clearButton(p));
     }
-    row.append(paid, el("div", "fig", "-" + money(p.amount - p.held)));
+    row.append(paid, el("div", "fig", "-" + screenMoney(p.amount - p.held)));
     sumBox.append(row);
   });
   sumBox.classList.add("hasout");
-  sumBox.append(line("Outstanding", money(owedOn(total)), "tot outline"));
+  sumBox.append(line("Outstanding", screenMoney(owedOn(total)), "tot outline"));
 }
 
 /* ---- the payment sheet (ovation#510) ----
@@ -2834,7 +2857,7 @@ function heldBlock(sumBox, line, total) {
       redraw();
     });
     label.append(off);
-    row.append(label, el("div", "fig", "-" + money(on)));
+    row.append(label, el("div", "fig", "-" + screenMoney(on)));
     sumBox.append(row);
     /* THE TOTALS BLOCK SAYS, IN THE MARKUP, THAT IT DREW AN OUTSTANDING LINE,
        so the stylesheet can quieten Total on this invoice and leave it alone on
@@ -2846,7 +2869,7 @@ function heldBlock(sumBox, line, total) {
        so the figure is stated once (ovation#510). */
     if (!PAYMENTS.length) {
       sumBox.classList.add("hasout");
-      sumBox.append(line("Outstanding", money(total - on), "tot outline"));
+      sumBox.append(line("Outstanding", screenMoney(total - on), "tot outline"));
     }
     /* WHAT IS LEFT IS SAID, never left as a subtraction. An invoice smaller than
        the balance uses part of it, and PRD 5.14e is explicit that a partial
@@ -2855,7 +2878,7 @@ function heldBlock(sumBox, line, total) {
        91.72, is the product asking Dan to do the arithmetic it just did. */
     if (on < HELD_ON_CLIENT) {
       sumBox.append(el("div", "heldwhy",
-        "$" + money(HELD_ON_CLIENT - on) + " stays held on the client."));
+        "$" + screenMoney(HELD_ON_CLIENT - on) + " stays held on the client."));
     }
     return;
   }
@@ -2865,7 +2888,7 @@ function heldBlock(sumBox, line, total) {
        otherwise this reads as the money having gone missing. */
     var offer = el("div", "heldoffer");
     offer.append(el("span", "heldsays", "Cedar Hill Youth Orchestra is holding "),
-                 el("b", null, "$" + money(HELD_ON_CLIENT)));
+                 el("b", null, "$" + screenMoney(HELD_ON_CLIENT)));
     var use = el("button", "heldbtn", "Use it here");
     use.type = "button";
     use.addEventListener("click", function () { HELD_TAKEN = true; redraw(); });
@@ -2880,7 +2903,7 @@ function heldBlock(sumBox, line, total) {
      what was just done. */
   var back = el("div", "heldoffer");
   back.append(el("span", "heldsays", "Cedar Hill Youth Orchestra is holding "),
-              el("b", null, "$" + money(HELD_ON_CLIENT)));
+              el("b", null, "$" + screenMoney(HELD_ON_CLIENT)));
   var again = el("button", "heldbtn", "Use it");
   again.type = "button";
   again.addEventListener("click", function () { HELD_REMOVED = false; redraw(); });
@@ -2922,6 +2945,7 @@ function discountEdit() {
 
 function redraw(after) {
   document.getElementById("stage").replaceChildren(buildInvoiceScreen());
+  placeRailPop();
   if (after) after();
 }
 
@@ -2995,6 +3019,206 @@ function buildMenu() {
   return menu;
 }
 
+/* THE FOOT OF THE RAIL: EACH OPEN THING BY A SHORT NAME, WITH READ BESIDE IT,
+   AND READ OPENING A POPOVER (Dan, 2026-09-26, four rendered rounds on ovation#99
+   and ovation#566, PRD 44c to 44g). Each answer is quoted from the comment that
+   records it.
+
+   THE FORM. Asked "How should the first problem and Read sit at the bottom of the
+   sidebar?", answer "Shortened beside Read": "the rail foot shows a one line
+   short name for the first problem with Read beside it, Read looking like a
+   control at rest, and the full sentence only behind Read. It fits at the 620
+   point minimum window height with the longest real sentence, which the two full
+   sentence options did not." (ovation#99)
+
+   A NOTICE THAT ARRIVES MID SESSION. Asked "Where does a notice go when it
+   arrives while an invoice is open?", answer "In the sidebar's foot": "an unread
+   notice mid session becomes the rail foot's first line in the form settled on
+   ovation#99 ... nothing drawn over the content, the invoice left open."
+   (ovation#566)
+
+   WHAT READ OPENS. Asked "What should pressing Read in the sidebar's foot
+   open?", answer "Popover from Read": "Read opens a popover anchored to Read
+   holding the full sentence and "I have read this", and nothing else moves; the
+   invoice stays open." Measured in that round: 300 by 207 points, 8 lines for
+   the export sentence. (ovation#99, ovation#566)
+
+   THE WORDS. Asked "What should the lines at the foot of the sidebar say?",
+   answer "Name each open thing": "the foot carries no count. Each open item gets
+   its own line, its short name with its own Read beside it, newest first, at
+   most two lines, then "and N more". Read and unread items look the same (a
+   notice closes once read, so what stays is standing problems). Nothing open:
+   the whole foot disappears (the zero rule). This retires both "1 more to read"
+   and "1 other problem" in the foot." (ovation#99, ovation#566)
+
+   THE LAST LOOKED LINE STAYS. Asked "On a day with nothing open, should the
+   sidebar still say when Ovation last looked for bookings and receipts?", answer
+   "Keep that line": "the zero rule removes only the problem and notice lines:
+   the "Last looked for bookings and receipts ... Ovation only looks while it is
+   open." line stays on every day (PRD 32), so a quiet foot still proves Ovation
+   is checking." (Dan, 2026-09-27, ovation#566)
+
+   A NOTICE UNREAD AT LAUNCH. Asked "When Ovation opens with an unread notice
+   waiting, what happens?", answer "Foot, like the rest": "a notice unread at
+   launch goes in the rail foot with Read like any other, and Ovation opens
+   straight onto the shell". So nothing here tells a launch notice apart.
+   (Dan, 2026-09-26, ovation#566)
+
+   WHAT "AND N MORE" DOES. Asked "What should 'and N more' at the foot of the
+   sidebar do?", answer "Opens a list pop-up": ""and N more" is a control like
+   Read: it opens a popover beside it listing every open item, each with its full
+   sentence and "I have read this", so every open problem and notice can be read
+   from the shell." (ovation#566)
+
+   ONE COPY FOR EVERY SCREEN THAT DRAWS THE RAIL, because the rail is chrome and
+   the foot is part of it: three files drawing it by hand is three places for the
+   retired count to come back.
+   CARRIED BY: invoice-list.html, invoice.html, clients.html */
+
+/* The lines the foot draws for the items open, newest first. `drawn` false is
+   the zero rule: no problem or notice line, not a line saying nothing. `looked`
+   is drawn on every day, open items or none. `listed` is what
+   "and N more" opens: every open item, the two named above it included, and
+   nothing when there is no such line. */
+function footLines(items) {
+  var names = items.slice(0, 2);
+  var rest = items.length - names.length;
+  return { drawn: items.length > 0, names: names,
+           looked: "Last looked for bookings and receipts 2 minutes ago. "
+             + "Ovation only looks while it is open.",
+           more: rest > 0 ? "and " + rest + " more" : null,
+           listed: rest > 0 ? items.slice() : [] };
+}
+
+/* What is still open once one item is read. A notice closes once read; a
+   standing problem stays open until its condition clears. A new list, never the
+   one given changed in place. */
+function afterRead(items, key) {
+  return items.filter(function (it) { return !(it.key === key && it.closesOnceRead); });
+}
+
+/* THE TWO REAL ITEMS THE ROUNDS WERE DRAWN WITH, newest first: the year end
+   export's result (YearEndExportCommand's sentence for a written export, a
+   notice) and the stale backup (StoreLaunchSequence's, a standing problem). The
+   short names are the ones the rounds wrote; the folder is written from the home
+   folder rather than as one person's full path. A THIRD, oldest, so that "and 1
+   more" is drawn and can be pressed: BookingDraftCommand's notice for bookings
+   drafted from the queue, under the app's own short name (ovation#585), which
+   carries no count because a name stays on screen for as long as its item is
+   open. No round chose it. */
+var RAIL_OPEN = [
+  { key: "export", short: "2026 export written", closesOnceRead: true,
+    sentence: "The 2026 export is written: income.csv, expenses.csv, manifest.json in "
+      + "~/Library/Application Support/Ovation/exports. Every row was read back off the "
+      + "disk and reconciled against a second reading of the store before this was said." },
+  { key: "backup", short: "Backup 3 days behind", closesOnceRead: false,
+    sentence: "Your work on 2026-09-23 is in no backup: the newest was taken on 2026-09-20." },
+  { key: "bookings", short: "Bookings drafted", closesOnceRead: true,
+    sentence: "2 booking(s) from the queue are now drafts, waiting on the shoot times "
+      + "before they can be sent." }
+];
+var RAIL_READING = null;
+var RAIL_LIST = "and-more";
+
+function railEl(tag, cls, text) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+/* The foot and, while one is being read, its popover. The caller puts the foot
+   at the bottom of the rail and the popover in the window's `.app`, then calls
+   placeRailPop once both are on the page. A settled day has nothing open, and
+   its foot is the last looked line alone. */
+function railFootFor(quiet, redraw) {
+  var items = quiet ? [] : RAIL_OPEN;
+  var lines = footLines(items);
+  var st = railEl("div", "status");
+  var pop = null;
+  lines.names.forEach(function (it) {
+    var row = railEl("div", "fault");
+    var read = railEl("button", "read", "Read");
+    read.type = "button";
+    read.setAttribute("aria-expanded", String(RAIL_READING === it.key));
+    read.addEventListener("click", function () {
+      RAIL_READING = RAIL_READING === it.key ? null : it.key;
+      redraw();
+      placeRailPop();
+    });
+    row.append(railEl("b", null, it.short), read);
+    st.append(row);
+    if (RAIL_READING === it.key) {
+      pop = railEl("div", "railpop");
+      pop.setAttribute("role", "dialog");
+      pop.setAttribute("aria-label", it.short);
+      var ack = railEl("button", "railack", "I have read this");
+      ack.type = "button";
+      ack.addEventListener("click", function () {
+        RAIL_OPEN = afterRead(RAIL_OPEN, it.key);
+        RAIL_READING = null;
+        redraw();
+        placeRailPop();
+      });
+      pop.append(railEl("div", "railsay", it.sentence), ack, railEl("div", "railarrow"));
+    }
+  });
+  if (lines.more) {
+    var more = railEl("button", "more", lines.more);
+    more.type = "button";
+    more.setAttribute("aria-expanded", String(RAIL_READING === RAIL_LIST));
+    more.addEventListener("click", function () {
+      RAIL_READING = RAIL_READING === RAIL_LIST ? null : RAIL_LIST;
+      redraw();
+      placeRailPop();
+    });
+    st.append(more);
+    if (RAIL_READING === RAIL_LIST) {
+      pop = railEl("div", "railpop");
+      pop.setAttribute("role", "dialog");
+      pop.setAttribute("aria-label", "Everything open");
+      lines.listed.forEach(function (it) {
+        var entry = railEl("div", "railitem");
+        var ack = railEl("button", "railack", "I have read this");
+        ack.type = "button";
+        ack.addEventListener("click", function () {
+          RAIL_OPEN = afterRead(RAIL_OPEN, it.key);
+          if (!footLines(RAIL_OPEN).more) RAIL_READING = null;
+          redraw();
+          placeRailPop();
+        });
+        entry.append(railEl("div", "railname", it.short), railEl("div", "railsay", it.sentence), ack);
+        pop.append(entry);
+      });
+      pop.append(railEl("div", "railarrow"));
+    }
+  }
+  st.append(railEl("div", "looked", lines.looked));
+  return { foot: st, pop: pop };
+}
+
+/* Anchored to the control that opened it, pointing at it, and kept inside the
+   window. It starts just past the sidebar's edge rather than just past the
+   control, because "and 1 more" is short and a popover beside it would cover the
+   very names above it. THAT PLACEMENT IS CLAUDE'S LAYOUT CALL, NOT DAN'S: the
+   round he chose from drew the Read popover 14 points past Read, overlapping the
+   sidebar by 8, and this moves it about 16 points right; he has not looked at it. Measured from the page, so it has to run once the window
+   is on it. */
+function placeRailPop() {
+  var pop = document.querySelector(".railpop");
+  var read = document.querySelector('.status [aria-expanded="true"]');
+  if (!pop || !read) return;
+  var a = pop.parentElement.getBoundingClientRect(), r = read.getBoundingClientRect();
+  var mid = r.top + r.height / 2 - a.top;
+  var h = pop.getBoundingClientRect().height;
+  var top = Math.max(12, Math.min(mid - h + 30, a.height - h - 12));
+  var side = document.querySelector(".side");
+  var edge = side ? Math.max(r.right, side.getBoundingClientRect().right) : r.right;
+  pop.style.left = Math.round(edge - a.left + 10) + "px";
+  pop.style.top = Math.round(top) + "px";
+  pop.querySelector(".railarrow").style.top = Math.round(mid - top - 7) + "px";
+}
+
 /* THE NUMBER A DURATION IS WRITTEN AS, ON THE SCREEN AND ON THE PDF (Dan,
    2026-09-19, ovation#322, PRD 51k; held together by ovation#413).
 
@@ -3008,16 +3232,22 @@ function buildMenu() {
 
    THE UNIT IS NOT PART OF THE FIGURE. The screen's column is already headed
    Hours, so a unit on every row would be the same fact twice on one surface
-   (L605), chosen with all three spellings drawn. The PDF adds its unit in
-   `hours` (rules/pdf-text.js), because a client reads one line there without a
-   column header above it.
+   (L605), chosen with all three spellings drawn. Where a figure is read with no
+   column header above it, it carries its unit, written once in `hoursWithUnit`
+   below: the PDF's lines (through `hours` in rules/pdf-text.js), and the Clients
+   screen's referral credit (Dan, 2026-09-26, ovation#565: "Clients writes "1.0
+   hr"").
 
    ONE RULE, TWO SCREENS, so each is held to it on its own rather than the
    better copy answering for both:
-   CARRIED BY: invoice.html, invoice-pdf.html */
+   CARRIED BY: invoice.html, invoice-pdf.html, review-send.html, clients.html */
 function hoursFigure(h) {
   var hundredths = Math.round(h * 100);
   return hundredths % 10 === 0 ? h.toFixed(1) : h.toFixed(2);
+}
+
+function hoursWithUnit(h) {
+  return hoursFigure(h) + (Math.round(h * 100) === 100 ? " hr" : " hrs");
 }
 
 /* NAMED FOR THIS SCREEN RATHER THAN `buildScreen` (ovation#322). A design round
@@ -3085,16 +3315,16 @@ function buildInvoiceScreen() {
     side.append(el("div", "item" + (label === "Invoices" ? " on" : ""), label));
   });
   side.append(el("div", "spacer"));
-  var st = el("div", "status");
-  var fault = el("div", "fault");
-  fault.append(el("b", null, "Backup failed 3 days ago"), el("span", "read", "Read"));
-  st.append(fault, el("div", "also", "1 other problem"),
-    el("div", "looked", "Last looked for bookings and receipts 2 minutes ago. Ovation only looks while it is open."));
-  side.append(st);
+  /* THE FOOT NAMES EACH OPEN THING, and Read opens a popover beside it (PRD 44c
+     to 44f), drawn by rules/rail-foot.js, whose record says why. These rounds were
+     drawn on this screen, with the Cedar Hill draft open. */
+  var railParts = railFootFor(QUIET, redraw);
+  if (railParts.foot) side.append(railParts.foot);
 
   var main = el("div", "main");
   main.append(buildInvoice());
   app.append(side, tb, main);
+  if (railParts.pop) app.append(railParts.pop);
   if (SHEET) app.append(paymentSheet(LAST_TOTAL));
   win.append(app);
   screen.append(bar, win);

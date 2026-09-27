@@ -322,6 +322,15 @@ gate_check check-waiting-sentences-agree.sh "a refusal the app says has drifted 
 # still want this word. Fast: one grep per Swift file under Ovation/.
 gate_check check-one-action-word.sh "a second hand rolled copy of the product's word-that-is-a-control."
 
+# ovation#480, PRD 5a2. Two screens asked the tax status question and each drew
+# its own chip, until Dan chose the invoice's by looking with both drawn on both
+# screens. `TaxAnswerChips` is the one component and `.taxpick` in invoice.html
+# the one look; a shared component the next screen is free to ignore is not
+# consolidation (L613), and the Clients screen's correction (PRD 51j1) is the
+# third place the question will be asked. Fast: one pass over the Swift files
+# under Ovation/ and the design files' stylesheets.
+gate_check check-one-tax-chip.sh "a second chip treatment for the tax status question."
+
 # ovation#119. `OvationMigrationPlan.stages` is empty and `schemas` names one
 # version. Both are correct today and exactly one of them is silently wrong the
 # moment a second version is added, because SwiftData does not refuse a missing

@@ -10,16 +10,17 @@
    HOURS KEEP ONE DECIMAL UNLESS THE VALUE NEEDS TWO. "1.0 hr" and "1.5 hrs" are
    the settled spelling. A quarter hour written to one decimal printed 1.3, so
    the hours times the rate stopped adding up to the amount beside them, and
-   PRD 50c exists so a client can reconstruct every figure. The number is
-   hoursFigure (rules/hours-figure.js), which the invoice screen writes too, and
-   this adds only the unit (PRD 51k, ovation#413). */
+   PRD 50c exists so a client can reconstruct every figure. The number and its
+   unit are hoursWithUnit (rules/hours-figure.js), whose figure the invoice
+   screen writes too and whose unit the Clients screen writes (PRD 51k,
+   ovation#413, ovation#565). */
 function money(n) {
   var s = Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return (n < 0 ? "-$" : "$") + s;
 }
 
 function hours(h) {
-  return hoursFigure(h) + (Math.round(h * 100) === 100 ? " hr" : " hrs");
+  return hoursWithUnit(h);
 }
 
 /* THE TERMS COUNT THE INVOICE'S OWN DAYS (Dan, 2026-09-14). PRD 7 lets a due date

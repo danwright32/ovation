@@ -890,14 +890,8 @@ struct InvoiceScreenView: View {
                 .foregroundStyle(OvationPalette.quiet)
                 .multilineTextAlignment(.trailing)
             if let answerTax {
-                HStack(spacing: 6) {
-                    ForEach(question.answers, id: \.self) { answer in
-                        Button { answerTax(question.about, answer) } label: {
-                            answerChip(answer.exportLabel)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                // The one chip for this question, the roster pass's too (ovation#480).
+                TaxAnswerChips(answers: question.answers) { answerTax(question.about, $0) }
             }
             if let refusedTax {
                 Text(refusedTax)
@@ -909,34 +903,6 @@ struct InvoiceScreenView: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.horizontal, Column.sideMargin)
         .padding(.top, 8)
-    }
-
-    /// NOTHING NATIVE, NOTHING DEFAULT (L607). The roster pass records this same
-    /// answer and its chips came out as ghost text with no visible edge while they
-    /// were SwiftUI's `.bordered`, which no view tree test could see because the
-    /// words were all present.
-    ///
-    /// AND IT IS NOT THAT SCREEN'S CHIP, deliberately. The geometry here is
-    /// `docs/design/invoice.html`'s `.taxpick`, quoted rather than invented: 12px,
-    /// 2 by 9 padding, a 5px radius, the chrome fill and a one pixel rule. The
-    /// roster's is its own record's `.chip`: 3 by 11 padding, a 4px radius, the
-    /// soft ink on the page background. Two similar rules that differ may each be
-    /// a recorded decision, and both of these are, settled on the surface each is
-    /// drawn on, the same way this screen writes "Sales tax, 8.875%" where the PDF
-    /// writes "Sales tax (8.875%)" (L542). Making them agree is a design question
-    /// for Dan rather than a tidy up, and it is filed as one.
-    private func answerChip(_ word: String) -> some View {
-        Text(word)
-            .font(.system(size: 12))
-            .foregroundStyle(OvationPalette.ink)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 2)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(OvationPalette.chrome)
-                    .overlay(RoundedRectangle(cornerRadius: 5)
-                        .stroke(OvationPalette.rule, lineWidth: 1))
-            )
     }
 
     // MARK: the foot
