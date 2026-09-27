@@ -125,8 +125,8 @@ if (bad.length) {
 /* The count is asserted, not just the absence of failures: a suite that runs
    half of itself and reports no failures reads exactly like a green one (L288,
    and ovation#106 filed for the same shape in the main suite). */
-if (ran < 200) {
-  console.log("only " + ran + " cases ran, which is fewer than the 200 these files carry.");
+if (ran < 205) {
+  console.log("only " + ran + " cases ran, which is fewer than the 205 these files carry.");
   process.exit(1);
 }
 console.log("design rules: " + ran + " cases pass across " + suites.length + " suites, isolation checked");

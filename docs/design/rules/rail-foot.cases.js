@@ -55,6 +55,20 @@ function runRailFootTests() {
       failures.push(c[3] + ": drawn " + got.drawn);
   });
 
+  /* "AND N MORE" OPENS A LIST OF EVERY OPEN ITEM (Dan, 2026-09-26, ovation#566:
+     "Opens a list pop-up"), the two named above it included, so every open thing
+     can be read from the sidebar. With nothing hidden there is no list. */
+  RAIL_FOOT_CASES.forEach(function (c) {
+    ran++;
+    var items = c[0].map(function (s) { return { key: s, short: s }; });
+    var got = footLines(items);
+    var listed = got.listed.map(function (it) { return it.short; });
+    var want = c[2] ? c[0] : [];
+    if (JSON.stringify(listed) !== JSON.stringify(want))
+      failures.push(c[3] + ": the list behind the line held " + JSON.stringify(listed)
+        + ", expected " + JSON.stringify(want));
+  });
+
   /* THE RETIRED WORDS NEVER COME BACK. "1 more to read" and "1 other problem"
      counted different things, and the decision retires both from the foot. */
   RAIL_FOOT_CASES.forEach(function (c) {
