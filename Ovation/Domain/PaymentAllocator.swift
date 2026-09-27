@@ -134,6 +134,13 @@ enum HeldMoneyRefusal: Error, Equatable {
     }
 }
 
+/// Which way a press on the invoice moves a client's held money (ovation#185):
+/// `Use it here` and `Use it` put it on, `Remove` takes it off (PRD 14i, 14j).
+enum HeldMoneyChange: Equatable, Sendable {
+    case apply
+    case remove
+}
+
 /// What putting a client's held money on one invoice came to, read back after
 /// the save: what went on, and what the client still holds (PRD 14k).
 struct HeldMoneyApplied: Sendable, Equatable {

@@ -77,6 +77,10 @@ struct ShellView: View {
     /// nothing. Nil where this launch has no store to write to.
     var writePayment: ((PersistentIdentifier, PaymentEntry) async -> String?)?
     var writeCleared: ((PersistentIdentifier) async -> String?)?
+    /// ovation#185, PRD 14i and 14j. Putting the client's held money on the
+    /// invoice on screen, or taking it back off. Nil where this launch has no
+    /// store to write to.
+    var writeHeldMoney: ((PersistentIdentifier, HeldMoneyChange) async -> String?)?
 
     /// What the Edit menu is allowed to offer about the invoice on screen. The
     /// menu is declared on the app, outside every view, so this is how what is
@@ -95,6 +99,9 @@ struct ShellView: View {
     @State private var paymentIsRecording = false
     @State private var refusedPayment: String?
     @State private var refusedClearing: String?
+    /// Why the last Use it here, Use it or Remove did nothing, held here for the
+    /// reason the payment's refusals are: the screen is rebuilt after every write.
+    @State private var refusedHeldMoney: String?
 
     /// Which invoice is selected. It lives here rather than inside the list
     /// because coming back from an invoice has to find the row again (ovation#125).
@@ -160,6 +167,15 @@ struct ShellView: View {
             ReviewSheet(presenter: review.presenter, review: review,
                         close: { finishReview(review) })
                 .interactiveDismissDisabled(review.state.holdsTheSheetOpen)
+        }
+        // THE OPEN INVOICE FOLLOWS EVERY WRITE, not only this screen's own
+        // (ovation#185). The list is read again after every committed write, and
+        // some of those change the invoice on screen without it having asked: the
+        // held money pass puts money on a draft the moment its times price it,
+        // after this screen has already read it back. Keyed on the list's identity
+        // because a new list is exactly what a write produces (L14).
+        .onChange(of: invoices.map(ObjectIdentifier.init)) { _, _ in
+            if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
         }
         .onReceive(inspection.notice) { inspection.visit(self, $0) }
     }
@@ -406,6 +422,24 @@ struct ShellView: View {
         publishWhatIsOpen()
     }
 
+    /// ovation#185. The held money controls, or nil where nothing can write them.
+    private var heldMoneyControls: InvoiceScreenView.HeldMoneyControls? {
+        guard writeHeldMoney != nil else { return nil }
+        return InvoiceScreenView.HeldMoneyControls(
+            refused: refusedHeldMoney,
+            apply: { invoice in Task { await movedHeldMoney(invoice, .apply) } },
+            remove: { invoice in Task { await movedHeldMoney(invoice, .remove) } })
+    }
+
+    /// Puts held money on or takes it off, then re-reads the invoice, so the held
+    /// money line, Outstanding, the foot and the sheet's starting amount all
+    /// change together or not at all (L14).
+    private func movedHeldMoney(_ invoice: PersistentIdentifier, _ change: HeldMoneyChange) async {
+        refusedHeldMoney = await writeHeldMoney?(invoice, change)
+        if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
+        publishWhatIsOpen()
+    }
+
     /// Clears one check, then re-reads the invoice the same way.
     private func cleared(_ check: PersistentIdentifier) async {
         refusedClearing = await writeCleared?(check)
@@ -520,6 +554,7 @@ struct ShellView: View {
                         payingIsOpen = false
                         refusedPayment = nil
                         refusedClearing = nil
+                        refusedHeldMoney = nil
                         publishWhatIsOpen()
                     },
                     setTime: writeTime == nil ? nil : { shoot, edge, time in
@@ -546,6 +581,7 @@ struct ShellView: View {
                         Task { await discounted(openedInvoiceID, discount) }
                     },
                     payment: paymentControls,
+                    heldMoney: heldMoneyControls,
                     review: reviewer == nil ? nil : { startReview() },
                     refusedReview: refusedReview)
             } else if let invoices {

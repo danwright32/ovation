@@ -68,6 +68,10 @@ struct RootView: View {
     /// nothing. Nil where this launch has no store to write to.
     var writePayment: ((PersistentIdentifier, PaymentEntry) async -> String?)?
     var writeCleared: ((PersistentIdentifier) async -> String?)?
+    /// ovation#185, PRD 14i and 14j. Putting the client's held money on the
+    /// invoice on screen, or taking it back off, answering with a sentence where
+    /// it did nothing. Nil where this launch has no store to write to.
+    var writeHeldMoney: ((PersistentIdentifier, HeldMoneyChange) async -> String?)?
 
     var edits: InvoiceEditCommand?
     /// ovation#42. The review of a real invoice, as one value. Nil where this launch
@@ -115,7 +119,8 @@ struct RootView: View {
                       writeLine: writeLine, writeServiceType: writeServiceType,
                       writeDiscount: writeDiscount,
                       writeReferralCredit: writeReferralCredit,
-                      writePayment: writePayment, writeCleared: writeCleared, edits: edits,
+                      writePayment: writePayment, writeCleared: writeCleared,
+                      writeHeldMoney: writeHeldMoney, edits: edits,
                       reviewer: reviewer)
         } else {
             problemsWindow

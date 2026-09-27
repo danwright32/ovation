@@ -87,7 +87,8 @@ struct WritersReachTheScreenTests {
     private static func window(
         _ draft: Draft, heard: Heard, edits: InvoiceEditCommand, spying: Bool,
         writePayment: ((PersistentIdentifier, PaymentEntry) async -> String?)?? = nil,
-        writeCleared: ((PersistentIdentifier) async -> String?)?? = nil
+        writeCleared: ((PersistentIdentifier) async -> String?)?? = nil,
+        openings: Heard? = nil
     ) -> RootView {
         let store = ProblemsStore(journal: InMemoryProblemsJournal())
         let blocking = Client(name: "Client 0", taxStatus: .neverRecorded)
@@ -99,8 +100,9 @@ struct WritersReachTheScreenTests {
             shell: ShellPresenter(selected: .invoices, rosterHasWork: { true }),
             invoices: InvoiceListPresenter(invoices: [draft.invoice], heldMoney: [:], today: today),
             openInvoice: { _ in
-                InvoiceScreenPresenter(invoice: draft.invoice, footer: .fixed, today: today,
-                                       serviceTypes: [draft.type])
+                openings?.record("openInvoice")
+                return InvoiceScreenPresenter(invoice: draft.invoice, footer: .fixed, today: today,
+                                              serviceTypes: [draft.type])
             },
             writeTime: spying ? { _, _, _ in heard.record("writeTime"); return nil } : nil,
             writeDueDate: spying ? { _, _ in heard.record("writeDueDate"); return nil } : nil,
@@ -113,6 +115,7 @@ struct WritersReachTheScreenTests {
                 ?? (spying ? { _, _ in heard.record("writePayment"); return nil } : nil),
             writeCleared: writeCleared
                 ?? (spying ? { _ in heard.record("writeCleared"); return nil } : nil),
+            writeHeldMoney: spying ? { _, _ in heard.record("writeHeldMoney"); return nil } : nil,
             edits: edits)
     }
 
@@ -187,6 +190,11 @@ struct WritersReachTheScreenTests {
                         screen.payment.map { payment in { payment.record(entry) } }))
         presses.append(("Mark cleared", "writeCleared",
                         screen.payment.map { payment in { payment.markCleared(invoice) } }))
+        // ovation#185. Use it here and Remove on the held money lines.
+        presses.append(("held money: Use it here", "writeHeldMoney",
+                        screen.heldMoney.map { held in { held.apply(invoice) } }))
+        presses.append(("held money: Remove", "writeHeldMoney",
+                        screen.heldMoney.map { held in { held.remove(invoice) } }))
         presses.append(("Edit menu: add a discount", "writeDiscount",
                         edits.addDiscount.map { add in { add(invoice, InvoiceEditCommand.whatItAdds) } }))
         presses.append(("Edit menu: apply the referral credit", "writeReferralCredit",
@@ -277,6 +285,32 @@ struct WritersReachTheScreenTests {
         #expect(after == nil)
     }
 
+    /// ovation#185. A write the screen did not make still changes the invoice on
+    /// it: the held money pass puts money on a draft the moment its times price
+    /// it, after the screen has already read it back. So the open invoice is read
+    /// again whenever the list is, which is on every committed write (L14).
+    @Test("the open invoice is read again whenever the list is")
+    func theopenInvoiceFollowsTheList() async throws {
+        let draft = try Self.draft()
+        let openings = Heard()
+        let shell = try Self.shell(of: Self.window(
+            draft, heard: Heard(), edits: InvoiceEditCommand(), spying: false,
+            openings: openings))
+        ViewHosting.host(view: shell)
+        defer { ViewHosting.expel() }
+        _ = try await Self.open(draft, in: shell)
+        let before = openings.names.count
+        #expect(before >= 1, "opening the row read the invoice")
+
+        let reread = InvoiceListPresenter(invoices: [draft.invoice], heldMoney: [:], today: Self.today)
+        try await shell.inspection.inspect { view in
+            try view.hStack().callOnChange(oldValue: ObjectIdentifier?.none,
+                                           newValue: Optional(ObjectIdentifier(reread)))
+        }
+
+        #expect(openings.names.count == before + 1, "a new list did not read the open invoice again")
+    }
+
     @Test("with no writers given, the screen offers no write and the menu no action")
     func noWriterNoControl() async throws {
         let draft = try Self.draft()
@@ -294,6 +328,7 @@ struct WritersReachTheScreenTests {
         #expect(screen.createType == nil)
         #expect(screen.setDiscount == nil)
         #expect(screen.payment == nil, "no payment writer, so no Record a payment and no Mark cleared")
+        #expect(screen.heldMoney == nil, "no held money writer, so no Use it here and no Remove")
         #expect(edits.addDiscount == nil)
         #expect(edits.applyReferralCredit == nil)
         #expect(edits.removeReferralCredit == nil)

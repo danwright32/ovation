@@ -41,6 +41,10 @@ struct OvationApp: App {
     /// on every write to the store, and holding it rather than its output is what
     /// makes that reach the window.
     @State private var invoiceList: InvoiceListSource?
+    /// ovation#185, PRD 14h. The pass that puts a client's held money on their one
+    /// open invoice, run when the store opens and after every write to it. Held
+    /// for the life of the window, because the listening lives as long as it does.
+    @State private var heldMoneyPass: HeldMoneyPass?
     #if DEBUG
     /// ovation#318 B5. Which review sheet sample is on screen, in the Debug build
     /// only. Real invoices reach the sheet with ovation#42.
@@ -431,6 +435,7 @@ struct OvationApp: App {
         // writers over one file, closed from the other side).
         var rosterPair: (roster: RosterPresenter, shell: ShellPresenter)?
         var list: InvoiceListSource?
+        var placing: HeldMoneyPass?
         if let container = openedStore.container {
             let context = ModelContext(container)
             rosterPair = RosterLaunch.presenters(
@@ -444,11 +449,13 @@ struct OvationApp: App {
             // list only ever reads, so it makes a fresh context per read and sees
             // whatever is committed.
             list = InvoiceListSource(over: container, problems: store, now: Date.init)
+            placing = HeldMoneyPass(over: container, problems: store, now: Date.init)
         }
         opened = openedStore.container
         roster = rosterPair?.roster
         shell = rosterPair?.shell
         invoiceList = list
+        heldMoneyPass = placing
         presenter.refresh()
     }
 
@@ -656,6 +663,28 @@ struct OvationApp: App {
                                  return refusal.sentence
                              } catch {
                                  return "That check could not be marked cleared: \(error)"
+                             }
+                         }
+                     },
+                     // ovation#185, PRD 14i and 14j. Use it here, Use it and
+                     // Remove on the held money line. THE DAY IS READ HERE AND
+                     // NOWHERE DEEPER, the one place that asks the clock (L524).
+                     writeHeldMoney: opened.map { container in
+                         { invoice, change in
+                             let allocator = PaymentAllocator(modelContainer: container)
+                             let today = BusinessDate.stamping(Date())
+                             do {
+                                 switch change {
+                                 case .apply:
+                                     try await allocator.applyHeldMoney(to: invoice, on: today)
+                                 case .remove:
+                                     try await allocator.removeHeldMoney(from: invoice, on: today)
+                                 }
+                                 return nil
+                             } catch let refusal as HeldMoneyRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That held money could not be moved: \(error)"
                              }
                          }
                      },
