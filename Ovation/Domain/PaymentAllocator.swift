@@ -92,6 +92,55 @@ enum PaymentRecordingRefusal: Error, Equatable {
     }
 }
 
+/// Why a client's held money could not be put on an invoice or taken off it
+/// (ovation#185, PRD 14h to 14j). Each is its own case, so the invoice can say
+/// which one stopped it rather than that something did (L11).
+enum HeldMoneyRefusal: Error, Equatable {
+    case noSuchInvoice
+    /// A cancelled or deleted invoice takes no money (PRD 13, 14d).
+    case invoiceIsClosed
+    /// Held money belongs to a client (PRD 14a), and an invoice with none has
+    /// nobody's money to take.
+    case invoiceHasNoClient
+    /// Paid, including paid by a check that has not cleared (Dan, 2026-09-26),
+    /// or a comped invoice owing nothing: PRD 14h's "a PAID invoice is not one".
+    case nothingIsOwed
+    /// Ovation could not settle whether this went out, which is its own question
+    /// (ovation#45) and not one held money answers (PRD 14j).
+    case sendIsUnsettled
+    case clientHoldsNothing
+    /// `Remove` pressed where no held money stands on the invoice.
+    case nothingToRemove
+
+    /// What the invoice says when nothing was applied or taken off, in the words of
+    /// the thing that stopped it (L109).
+    var sentence: String {
+        switch self {
+        case .noSuchInvoice:
+            return "That invoice is no longer there, so no held money was moved."
+        case .invoiceIsClosed:
+            return "This invoice was cancelled, so it takes no held money."
+        case .invoiceHasNoClient:
+            return "This invoice has no client, so there is nobody's held money to use."
+        case .nothingIsOwed:
+            return "Nothing is owed on this invoice, so no held money was put on it."
+        case .sendIsUnsettled:
+            return "Ovation could not tell whether this invoice went out, so no held money was put on it."
+        case .clientHoldsNothing:
+            return "This client is holding no money, so none was put on the invoice."
+        case .nothingToRemove:
+            return "No held money is on this invoice, so there was nothing to remove."
+        }
+    }
+}
+
+/// What putting a client's held money on one invoice came to, read back after
+/// the save: what went on, and what the client still holds (PRD 14k).
+struct HeldMoneyApplied: Sendable, Equatable {
+    let applied: Money
+    let stillHeld: Money
+}
+
 /// What recording a payment did, read back after the one save.
 struct RecordedPayment: Sendable, Equatable {
     let payment: PersistentIdentifier
@@ -286,6 +335,177 @@ actor PaymentAllocator {
         // same one and each writer saves in its own context (L370).
         invoice.releaseActiveAllocations(on: day)
         try modelContext.save()
+    }
+
+    // MARK: a client's held money on an invoice (ovation#185, PRD 14g to 14k)
+
+    /// Applies held money wherever PRD 14h says Ovation does it by itself, and
+    /// gives back whatever an invoice's shrinking total has left it holding more
+    /// of than it is owed. Answers the invoices it changed, in no order.
+    ///
+    /// PRD 14h: a client with money held and EXACTLY ONE open invoice has it put
+    /// on that invoice, as much as fits. PRD 14j: with more than one, nothing is
+    /// put on any of them, and each offers `Use it here` instead. Which invoices
+    /// are open is `InvoiceStanding.isOpenForHeldMoney`, the one predicate the
+    /// list's held money band is counted over too, so the invoice and the list
+    /// cannot disagree about how many are open (L16, L370).
+    ///
+    /// IT IS A FIXED POINT, which is what makes it safe to run on every write.
+    /// After one pass every client either holds nothing, or has no single open
+    /// invoice still owed, or has set that invoice aside with `Remove`, so a
+    /// second pass finds nothing to do and saves nothing. It saves only when it
+    /// changed something, because its own save is itself a write the app reacts
+    /// to, and a pass that always saved would never stop.
+    ///
+    /// UNDER THE ONE GATE every writer of money takes (ovation#175), so a pass and
+    /// a payment being recorded, a cancellation, or a second pass cannot both find
+    /// the same money free (PRD 14b).
+    @discardableResult
+    func placeHeldMoney(on day: BusinessDate) async throws -> [PersistentIdentifier] {
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+
+        var touched: [PersistentIdentifier] = []
+        for client in try modelContext.fetch(FetchDescriptor<Client>()) {
+            let live = client.invoices.filter { $0.closure == nil }
+            // AN INVOICE MAY NEVER TAKE MORE THAN IT IS OWED (ovation#108), and a
+            // draft's total moves as it is edited. Where it has fallen below the
+            // held money on it, the held money is put back and what still fits
+            // goes on again, so the record keeps both decisions (PRD 5.14d).
+            for invoice in live where invoice.amountOutstanding < .zero {
+                let standing = invoice.allocations.filter { $0.releasedOn == nil && $0.isHeldMoney }
+                guard !standing.isEmpty else { continue }
+                let heldOnIt = Money.sum(of: standing.map(\.amount))
+                for allocation in standing { allocation.releasedOn = day }
+                let fits = min(heldOnIt, max(invoice.amountOutstanding, .zero))
+                spread(fits, of: client, onto: invoice, on: day)
+                touched.append(invoice.persistentModelID)
+            }
+
+            let open = live.filter { Self.isOpenForHeldMoney($0, on: day) }
+            guard open.count == 1, let only = open.first,
+                  only.heldMoneyRemovedOn == nil else { continue }
+            let fits = min(client.moneyHeld, only.amountOutstanding)
+            guard fits > .zero else { continue }
+            spread(fits, of: client, onto: only, on: day)
+            if !touched.contains(only.persistentModelID) {
+                touched.append(only.persistentModelID)
+            }
+        }
+        if !touched.isEmpty { try modelContext.save() }
+        return touched
+    }
+
+    /// Puts the client's held money on this invoice, as much as fits: `Use it
+    /// here` where the client has more than one open invoice (PRD 14j), and `Use
+    /// it` where Dan took it off with `Remove` (PRD 14i).
+    ///
+    /// A SECOND PRESS ANSWERS WITH THE FIRST. Applying takes as much as fits, so
+    /// once it has run either the client holds nothing or the invoice owes nothing,
+    /// and a press arriving after that finds the money already where it was sent.
+    /// Refusing it would tell Dan something failed when nothing did.
+    @discardableResult
+    func applyHeldMoney(to invoiceID: PersistentIdentifier,
+                        on day: BusinessDate) async throws -> HeldMoneyApplied {
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+
+        guard let invoice = try find(invoiceID, as: Invoice.self) else {
+            throw HeldMoneyRefusal.noSuchInvoice
+        }
+        guard invoice.closure == nil else { throw HeldMoneyRefusal.invoiceIsClosed }
+        let alreadyOn = Money.sum(of: invoice.allocations
+            .filter { $0.releasedOn == nil && $0.isHeldMoney }.map(\.amount))
+        guard let client = invoice.client else { throw HeldMoneyRefusal.invoiceHasNoClient }
+        if alreadyOn > .zero,
+           invoice.amountOutstanding <= .zero || client.moneyHeld <= .zero {
+            return HeldMoneyApplied(applied: alreadyOn, stillHeld: client.moneyHeld)
+        }
+        guard Self.isOpenForHeldMoney(invoice, on: day) else {
+            switch invoice.sentStatus {
+            case .couldNotDetermine, .attempting: throw HeldMoneyRefusal.sendIsUnsettled
+            case .notSent, .sent: throw HeldMoneyRefusal.nothingIsOwed
+            }
+        }
+        let fits = min(client.moneyHeld, invoice.amountOutstanding)
+        guard fits > .zero else {
+            throw invoice.amountOutstanding > .zero
+                ? HeldMoneyRefusal.clientHoldsNothing : HeldMoneyRefusal.nothingIsOwed
+        }
+        spread(fits, of: client, onto: invoice, on: day)
+        // PRESSING IT TAKES BACK AN EARLIER `Remove`, so Ovation may again keep this
+        // invoice's held money right by itself as its total moves.
+        invoice.heldMoneyRemovedOn = nil
+        try modelContext.save()
+        return HeldMoneyApplied(applied: alreadyOn + fits, stillHeld: client.moneyHeld)
+    }
+
+    /// Takes the client's held money back off this invoice, which is `Remove` on
+    /// the held money line (PRD 14i). Answers how much went back to the client.
+    ///
+    /// THE TRUE INVERSE OF APPLYING IT. Applying wrote allocations and nothing
+    /// else, since every figure an invoice or a client shows is derived from the
+    /// allocations that stand, so releasing them puts every one of those figures
+    /// back. They are released and never deleted (PRD 5.14d), and the day is
+    /// recorded on the invoice so the next pass does not put it straight back.
+    ///
+    /// ONLY HELD MONEY. A payment recorded against this invoice is not held money
+    /// and is never taken off by this; that is a refund or a correction, and
+    /// neither is this control.
+    ///
+    /// A SECOND PRESS CHANGES NOTHING. Once it is off there is nothing standing to
+    /// release, and the day it was removed is a fact that a second press is not a
+    /// newer version of.
+    @discardableResult
+    func removeHeldMoney(from invoiceID: PersistentIdentifier,
+                         on day: BusinessDate) async throws -> Money {
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+
+        guard let invoice = try find(invoiceID, as: Invoice.self) else {
+            throw HeldMoneyRefusal.noSuchInvoice
+        }
+        let standing = invoice.allocations.filter { $0.releasedOn == nil && $0.isHeldMoney }
+        guard !standing.isEmpty else {
+            if invoice.heldMoneyRemovedOn != nil { return .zero }
+            throw HeldMoneyRefusal.nothingToRemove
+        }
+        for allocation in standing { allocation.releasedOn = day }
+        invoice.heldMoneyRemovedOn = day
+        try modelContext.save()
+        return Money.sum(of: standing.map(\.amount))
+    }
+
+    /// Whether this invoice is one the client's held money could settle, asked
+    /// through the list's own predicate and never decided again here (L16).
+    private static func isOpenForHeldMoney(_ invoice: Invoice, on day: BusinessDate) -> Bool {
+        InvoiceStanding(of: invoice, today: day, couldSettleMoreThanOne: false)
+            .isOpenForHeldMoney
+    }
+
+    /// Writes `amount` of the client's held money onto the invoice, one allocation
+    /// per payment it comes out of, OLDEST MONEY FIRST, which is the order PRD
+    /// 14e already takes a refund across payments in.
+    ///
+    /// ITS CALLER HAS ALREADY BOUNDED THE AMOUNT by what the client holds and what
+    /// the invoice owes, under the gate, so each allocation here fits both of
+    /// PaymentAllocator's ceilings by construction.
+    private func spread(_ amount: Money, of client: Client, onto invoice: Invoice,
+                        on day: BusinessDate) {
+        var left = amount
+        let holding = client.payments
+            .filter { $0.unallocated > .zero }
+            .sorted { ($0.receivedOn.dayKey, $0.id.uuidString) < ($1.receivedOn.dayKey, $1.id.uuidString) }
+        for payment in holding where left > .zero {
+            let share = min(payment.unallocated, left)
+            let allocation = PaymentAllocation(payment: payment, invoice: invoice, amount: share,
+                                               allocatedOn: day, source: .heldMoney)
+            modelContext.insert(allocation)
+            left = left - share
+        }
     }
 
     /// The row behind an identifier, or nil where there is no longer one.
