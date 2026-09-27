@@ -477,6 +477,11 @@ color: var(--faint); }
       <p><b>"and N more" is a control like Read</b> and opens a popover beside it listing every
       open thing, each named with its whole sentence and its own I have read this, so everything
       open can be read from the sidebar.</p>
+      <p><b>Two things here are Claude's, not Dan's.</b> Both popovers start just past the
+      sidebar's edge, so the list does not cover the names above "and 1 more"; the round Dan chose
+      from drew the Read popover about 16 points further left, over the sidebar. And the third
+      item, Bookings drafted, is in the fixture only so that "and 1 more" is drawn; its name is the
+      app's, which carries no count.</p>
       <p>Dan, 2026-09-26, over four rounds drawn in the real window with the real sentences
       (ovation#99, ovation#566): "Shortened beside Read", "In the sidebar's foot", "Popover from
       Read" and "Name each open thing", and asked what "and N more" should do, "Opens a list
@@ -763,7 +768,9 @@ function afterRead(items, key) {
    short names are the ones the rounds wrote; the folder is written from the home
    folder rather than as one person's full path. A THIRD, oldest, so that "and 1
    more" is drawn and can be pressed: BookingDraftCommand's notice for bookings
-   drafted from the queue, whose short name no round wrote. */
+   drafted from the queue, under the app's own short name (ovation#585), which
+   carries no count because a name stays on screen for as long as its item is
+   open. No round chose it. */
 var RAIL_OPEN = [
   { key: "export", short: "2026 export written", closesOnceRead: true,
     sentence: "The 2026 export is written: income.csv, expenses.csv, manifest.json in "
@@ -771,7 +778,7 @@ var RAIL_OPEN = [
       + "disk and reconciled against a second reading of the store before this was said." },
   { key: "backup", short: "Backup 3 days behind", closesOnceRead: false,
     sentence: "Your work on 2026-09-23 is in no backup: the newest was taken on 2026-09-20." },
-  { key: "bookings", short: "2 bookings drafted", closesOnceRead: true,
+  { key: "bookings", short: "Bookings drafted", closesOnceRead: true,
     sentence: "2 booking(s) from the queue are now drafts, waiting on the shoot times "
       + "before they can be sent." }
 ];
@@ -858,7 +865,9 @@ function railFootFor(quiet, redraw) {
 /* Anchored to the control that opened it, pointing at it, and kept inside the
    window. It starts just past the sidebar's edge rather than just past the
    control, because "and 1 more" is short and a popover beside it would cover the
-   very names above it. Measured from the page, so it has to run once the window
+   very names above it. THAT PLACEMENT IS CLAUDE'S LAYOUT CALL, NOT DAN'S: the
+   round he chose from drew the Read popover 14 points past Read, overlapping the
+   sidebar by 8, and this moves it about 16 points right; he has not looked at it. Measured from the page, so it has to run once the window
    is on it. */
 function placeRailPop() {
   var pop = document.querySelector(".railpop");

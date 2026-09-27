@@ -683,8 +683,10 @@ the whole sentence and `I have read this` ("Popover from Read"); and the foot co
 each open thing on its own line, newest first, two at most and then `and N more`, and draws no such
 line when nothing is open ("Name each open thing"); and `and N more` is a control like `Read`
 that opens a popover listing every open thing with its sentence and `I have read this` ("Opens a
-list pop-up"). A third open item, the drafted bookings notice, is in the fixture so that line is
-drawn and can be pressed. A notice unread at LAUNCH is no different: asked "When Ovation opens
+list pop-up"). A third open item, the drafted bookings notice under the app's own short name `Bookings
+drafted`, is in the fixture so that line is drawn and can be pressed. Both popovers start just past
+the sidebar's edge, about 16 points right of where the round drew Read's; that placement is
+Claude's layout call, not Dan's. A notice unread at LAUNCH is no different: asked "When Ovation opens
 with an unread notice waiting, what happens?", he answered "Foot, like the rest", so it goes in the
 foot with `Read` and Ovation opens straight onto the shell, retiring the rule from `ovation#564`
 that gave the window to an unread launch notice (PRD 44g). And on 2026-09-27, asked whether a day
