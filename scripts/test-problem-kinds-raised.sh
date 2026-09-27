@@ -7,7 +7,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "problem kinds raised tests" 15
+harness_begin "problem kinds raised tests" 19
 
 TARGET="scripts/check-problem-kinds-raised.sh"
 require_target "$TARGET"
@@ -94,6 +94,54 @@ declare_kind "$STRING"
 resolve_kind "$STRING"
 printf 'let hint = "raise .folderMissing when the folder is gone"\n' > "$STRING/Hint.swift"
 check_exit "a kind spelled only inside a string is still refused" 1 status_on "$STRING"
+
+# A table keyed by every kind, like the rail foot's short names (ovation#99), is
+# not the kind happening. Were it counted, one table naming every kind would
+# silence this check for all of them at once.
+TABLE="$WORK/table"
+declare_kind "$TABLE"
+resolve_kind "$TABLE"
+cat > "$TABLE/Names.swift" <<'SWIFT'
+static let shortNames: [ProblemKind: String] = [
+    .folderMissing: "No backup folder",
+]
+SWIFT
+check_exit "a kind named only as a table's key is still refused" 1 status_on "$TABLE"
+
+# But only a table's KEY is discounted. A genuine raise written as the true branch
+# of a ternary has a colon after it too, and must still count, or the check
+# refuses a kind that is raised.
+TERNARY="$WORK/ternary"
+declare_kind "$TERNARY"
+resolve_kind "$TERNARY"
+cat > "$TERNARY/Launch.swift" <<'SWIFT'
+problems.raise(kind: missing ? .folderMissing : .other, subject: "b", sentence: "s", now: now)
+SWIFT
+check_exit "a kind raised as the true branch of a ternary counts as raised" 0 status_on "$TERNARY"
+
+# A switch case label is read as it always was, as a use, whether it stands alone
+# or follows another pattern: this check never counted matching in a switch as
+# "never raised", and discounting keys must not quietly start to.
+CASELABEL="$WORK/case-label"
+declare_kind "$CASELABEL"
+resolve_kind "$CASELABEL"
+cat > "$CASELABEL/Sort.swift" <<'SWIFT'
+switch kind {
+case .folderMissing: return 1
+default: return 0
+}
+SWIFT
+check_exit "a kind in a switch case label is counted as before" 0 status_on "$CASELABEL"
+CASELIST="$WORK/case-list"
+declare_kind "$CASELIST"
+resolve_kind "$CASELIST"
+cat > "$CASELIST/Sort.swift" <<'SWIFT'
+switch kind {
+case .other, .folderMissing: return 1
+default: return 0
+}
+SWIFT
+check_exit "a kind second in a case pattern list is counted as before" 0 status_on "$CASELIST"
 
 # ---------------------------------------------------------------------------
 # Scope.

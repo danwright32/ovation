@@ -43,6 +43,19 @@
 import Foundation
 import SwiftData
 
+extension ProblemKind {
+    /// Raised when the store opened but its invoices could not be read out of it.
+    ///
+    /// ITS OWN KIND rather than the roster's, because the two failures need
+    /// different sentences: one means no invoice can be sent, the other means the
+    /// screen Dan works from cannot be drawn at all (L11).
+    ///
+    /// DECLARED ON THE KIND rather than on `InvoiceListSource` (ovation#99), where
+    /// it was isolated to the main actor with the class, so the rail foot's table
+    /// of short names, which every kind is in, could not name it.
+    static let invoicesUnreadable = ProblemKind("invoices.unreadable")
+}
+
 @MainActor
 @Observable
 final class InvoiceListSource {
@@ -55,13 +68,6 @@ final class InvoiceListSource {
     /// fact about a client's whole set of invoices (PRD 14j, 46d), so the two
     /// disagreeing is a band with the wrong rows in it.
     typealias Read = () throws -> (invoices: [Invoice], clients: [Client])
-
-    /// Raised when the store opened but its invoices could not be read out of it.
-    ///
-    /// ITS OWN KIND rather than the roster's, because the two failures need
-    /// different sentences: one means no invoice can be sent, the other means the
-    /// screen Dan works from cannot be drawn at all (L11).
-    static let invoicesUnreadable = ProblemKind("invoices.unreadable")
 
     /// The list, or nil where it could not be read. Never an empty list standing
     /// for a failure.
@@ -134,7 +140,7 @@ final class InvoiceListSource {
             list = nil
             heldMoney = nil
             _ = problems.raise(
-                kind: Self.invoicesUnreadable,
+                kind: .invoicesUnreadable,
                 subject: nil,
                 sentence: "Ovation opened its database but could not read the invoices out "
                     + "of it: \(error). The invoice list is the only way to reach an invoice, "
@@ -165,7 +171,7 @@ final class InvoiceListSource {
         // nothing else retracts it, `ProblemsStore` never retracts on its own, and
         // a standing notice about a condition that has passed is one Dan learns to
         // click past (L36).
-        for standing in problems.open where standing.kind == Self.invoicesUnreadable {
+        for standing in problems.open where standing.kind == .invoicesUnreadable {
             _ = problems.resolve(standing.id,
                                  because: "the invoices were read",
                                  now: moment)

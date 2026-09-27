@@ -66,6 +66,8 @@ enum OvationPalette {
     static let railStatusBorder = Color(hex: 0x5A4D45)
     static let railFault = Color(hex: 0xF3F2F2)
     static let railDim = Color(hex: 0xC4BFBC)
+    /// Read at the foot of the rail, `--rail-read` (ovation#99).
+    static let railRead = Color(hex: 0xE2BC82)
 }
 
 extension Color {

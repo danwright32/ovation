@@ -336,4 +336,32 @@ struct WritersReachTheScreenTests {
         // above are about the writers rather than about nothing being open.
         #expect(edits.open?.id == draft.invoice.persistentModelID)
     }
+
+    /// ovation#566 and ovation#99. A notice arriving while an invoice is open, and
+    /// Read pressed on it, leave the invoice open (Dan, 2026-09-26). Before this a
+    /// mid session notice replaced the whole window and closed the invoice; the
+    /// foot now carries it, and Read opens a popover without moving anything.
+    @Test("a notice arriving and Read pressed on it leave the open invoice open")
+    func aNoticeAndItsReadLeaveTheInvoiceOpen() async throws {
+        let draft = try Self.draft()
+        let shell = try Self.shell(of: Self.window(draft, heard: Heard(),
+                                                   edits: InvoiceEditCommand(), spying: false))
+        ViewHosting.host(view: shell)
+        defer { ViewHosting.expel() }
+        _ = try await Self.open(draft, in: shell)
+
+        let notice = shell.problems.raise(kind: .exportWritten, subject: "year-end-export-2026",
+                                          sentence: "The 2026 export is written.", now: Self.noon)
+        try await shell.inspection.inspect { view in
+            try view.find(text: "2026 export written")
+            let reads = try view.findAll(ViewType.Button.self)
+                .filter { (try? $0.labelView().text().string()) == RailFoot.readWord }
+            try #require(reads.count == 1)
+            try reads[0].tap()
+        }
+
+        #expect(shell.shell.reading == notice.id)
+        let still = try await Self.current(in: shell)
+        #expect(still != nil, "pressing Read closed the invoice")
+    }
 }

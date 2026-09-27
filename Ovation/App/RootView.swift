@@ -86,23 +86,21 @@ struct RootView: View {
     /// WHICH WINDOW DAN GETS, decided in ONE place.
     ///
     /// The shell owns the window whenever this launch has one, which is every
-    /// launch that opened a store. While the roster is in the rail it always
-    /// does, asking the RAIL rather than a second predicate beside it (L70).
+    /// launch that opened a store, whether the roster is in the rail or settled
+    /// (ovation#564) and whether or not a notice is waiting to be read.
     ///
-    /// ONCE THE ROSTER HAS SETTLED IT STILL DOES (ovation#564). This used to be
-    /// the roster clause alone, written when the roster was the only screen; once
-    /// the invoice list existed, a settled roster, which is every launch since
-    /// ovation#298, left Dan on the bare problems window with every screen
-    /// unreachable.
+    /// AN UNREAD NOTICE NO LONGER TAKES THE WINDOW (ovation#566). ovation#564 gave
+    /// the window to one, because the rail's foot then named a problem with no
+    /// way to read it; the year end export and the booking queue report through
+    /// the same notices mid session, so pressing either replaced the shell and
+    /// closed the invoice Dan had open. The foot now names each open thing with
+    /// its own Read (ovation#99), and Dan settled on 2026-09-26 that a notice
+    /// waiting at launch sits there like any other: Ovation opens on the shell.
     ///
-    /// AN UNREAD LAUNCH NOTICE COMES FIRST. The notice and the durable list are
-    /// the only surface several refusals have (ovation#59), and the rail's foot
-    /// names a problem without the notice's "I have read this", so a notice Dan
-    /// has not read is shown on its own and the shell follows once it is read.
+    /// The problems window is what a launch with NO store gets, where there is no
+    /// shell to carry anything and a refusal would otherwise reach nobody.
     private var shellOwnsTheWindow: Bool {
-        guard let shell, roster != nil else { return false }
-        if shell.destinations.contains(.roster) { return true }
-        return presenter.showing == nil
+        shell != nil && roster != nil
     }
 
     var body: some View {
@@ -112,7 +110,8 @@ struct RootView: View {
         if let progress, progress.phase == .preparing {
             StartingView(progress: progress)
         } else if shellOwnsTheWindow, let shell, let roster {
-            ShellView(shell: shell, roster: roster, problems: store,
+            ShellView(shell: shell, roster: roster, problems: store, now: now,
+                      exportCommand: exportCommand,
                       invoices: invoices, heldMoney: heldMoney,
                       openInvoice: openInvoice, writeTime: writeTime,
                       writeDueDate: writeDueDate, writeTaxStatus: writeTaxStatus,
@@ -170,7 +169,7 @@ struct LaunchNoticeView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 12) {
-                Button("I have read this", action: dismiss)
+                Button(RailFoot.readIt, action: dismiss)
                 if let waiting = Self.waitingSentence(waiting) {
                     Text(waiting).foregroundStyle(.secondary)
                 }
@@ -222,12 +221,27 @@ struct ProblemsListView: View {
 /// second place the result is stated (L605).
 struct RunningExportView: View {
     let command: YearEndExportCommand
+    /// Drawn at the foot of the rail (ovation#566), in the rail's own colours and
+    /// the foot's size, with a spinner that reads on the dark rail.
+    var onRail = false
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text(sentence(at: context.date))
+            HStack(spacing: onRail ? 6 : 8) {
+                ProgressView()
+                    .controlSize(onRail ? .mini : .small)
+                    // The rail is dark and the product's appearance is light, so the
+                    // spinner there is drawn for a dark ground or it cannot be seen.
+                    .environment(\.colorScheme, onRail ? .dark : scheme)
+                if onRail {
+                    Text(sentence(at: context.date))
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(OvationPalette.railFault)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(sentence(at: context.date))
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(sentence(at: context.date))

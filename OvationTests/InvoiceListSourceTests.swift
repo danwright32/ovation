@@ -221,7 +221,7 @@ struct InvoiceListSourceTests {
         source.reread()
 
         #expect(source.list == nil, "a list was still drawn after the read threw")
-        #expect(problems.open.map(\.kind) == [InvoiceListSource.invoicesUnreadable],
+        #expect(problems.open.map(\.kind) == [ProblemKind.invoicesUnreadable],
                 "the failure was not reported")
     }
 
