@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode project regeneration tests" 66
+harness_begin "xcode project regeneration tests" 67
 
 TARGET="scripts/regenerate-xcode-project.sh"
 require_target "$TARGET"
@@ -240,12 +240,17 @@ wait_for_text() {
 }
 
 PURE_HOLD="$WORK/pure-hold"
+LIVE_BRACKETS="$WORK/live-data-brackets.log"
+LIVE_DATA_ROOT="$WORK/live-data"
+mkdir -p "$LIVE_DATA_ROOT"
 PURE_STARTED="$WORK/pure-started"
 SIBLING_DIR_LOCK="$WORK/sibling-dir.lock"
 # Sets PURE_PID. Every runner seam this could inherit from the shell that ran the
 # suite is cleared or set, because an inherited skip or hosted command would
 # answer for it (L169, L439). The bounded loop is the deadline on the hold, so a
-# case that fails cannot leave this waiting for ever (L110).
+# case that fails cannot leave this waiting for ever (L110). The live data
+# bracket is aimed at a throwaway root with a process list naming nothing, so the
+# run never measures Dan's real folder (ovation#570, L2, L284).
 start_held_pure_suite() {
     : > "$PURE_HOLD"; rm -f "$PURE_STARTED"
     env -u OVATION_SKIP_XCODE_PHASE -u OVATION_HOSTED_TEST_COMMAND -u OVATION_TEST_FLOOR \
@@ -257,6 +262,9 @@ start_held_pure_suite() {
         OVATION_FLOCK_BIN=/usr/bin/true \
         OVATION_PROJECT_CREATE_POLL=0.05 \
         OVATION_UNLOCKED_COMMAND=true \
+        OVATION_LIVE_DATA_ROOT="$LIVE_DATA_ROOT" \
+        OVATION_LIVE_DATA_PROCESS_LIST=/usr/bin/true \
+        OVATION_LIVE_DATA_BRACKET_LOG="$LIVE_BRACKETS" \
         OVATION_TEST_COMMAND="touch '$PURE_STARTED'; n=0; while [ -e '$PURE_HOLD' ] && [ \$n -lt 600 ]; do n=\$((n+1)); sleep 0.05; done" \
         OVATION_XCODE_PROJECT="$TREE_PROJECT" OVATION_XCODEGEN="$WORK/xcodegen" \
         ./scripts/run-tests.sh > "$WORK/pure.out" 2>&1 &
@@ -491,5 +499,12 @@ fresh_tree; stub_generator 0
 check_exit "a --wait that is not a whole number of seconds is used wrongly" 4 status_of --wait soon
 check_exit "and so is an argument it does not know" 4 status_of --nope
 check "and neither generated" "$([ -f "$WORK/generated.txt" ] && echo generated || echo no)" "no"
+
+# THE HELD PURE SUITE IS A REAL RUNNER RUN, and it brackets live data like any
+# other (ovation#570). Read from where each snapshot looked, which the guard logs,
+# so a bracket aimed at Dan's real folder is caught by the path it measured
+# rather than by a variable somebody set (L322); an empty log fails too (L98).
+check "the held pure suite's live data brackets measured the throwaway root and nothing else" \
+    "$(grep -c . "$LIVE_BRACKETS" 2>/dev/null || true):$(grep -v -x -F -- "$LIVE_DATA_ROOT" "$LIVE_BRACKETS" 2>/dev/null | sort -u)" "2:"
 
 harness_end

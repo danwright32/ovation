@@ -30,7 +30,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode phase inputs tests" 41
+harness_begin "xcode phase inputs tests" 39
 
 LIB="scripts/lib/xcode-phase-inputs.sh"
 require_target "$LIB"
@@ -160,14 +160,10 @@ check "the build command is read (ovation#154)" \
     "$(verdict scripts/lib/build-one-configuration.sh)" "read"
 check "the script that builds both products is read" \
     "$(verdict scripts/build-products.sh)" "read"
-check "the pure suite's floor is read" \
-    "$(verdict scripts/pure-test-floor.txt)" "read"
 check "the invoice PDF's expected output under docs/design is read" \
     "$(verdict docs/design/invoice-pdf.expected.json)" "read"
 check "the shell suite floor is not read, because only the shell half judges it (ovation#360)" \
     "$(verdict scripts/shell-suite-floor.txt)" "not read"
-check "the pure suite's floor still is, because the Xcode phase judges that count" \
-    "$(verdict scripts/pure-test-floor.txt)" "read"
 check "a design suite shipped on 2026-09-15 is not read (ovation#358)" \
     "$(verdict scripts/test-design-record-open.sh)" "not read"
 check "a design check the gate runs is not read" \
@@ -192,7 +188,9 @@ done
 T="$WORK/trace"
 mkdir -p "$T/standin.xcodeproj"
 printf 'com.apple.finder\n' > "$T/domains"
-# $1 is what OVATION_SKIP_XCODE_PHASE says, $2 where the trace goes.
+# $1 is what OVATION_SKIP_XCODE_PHASE says, $2 where the trace goes. The live
+# data bracket is aimed at a throwaway root by its own seams (ovation#570), not
+# only by the emptied HOME, so it stays off Dan's folder if that line changes.
 traced_run() {
     env -i HOME="$T" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
         PS4='+@@XT@@${BASH_SOURCE[0]:-}@@ ' SHELLOPTS=xtrace \
@@ -207,6 +205,7 @@ traced_run() {
         OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
         OVATION_UNLOCKED_COMMAND=true \
         OVATION_XCODE_PROJECT="$T/standin.xcodeproj" \
+        OVATION_LIVE_DATA_ROOT="$T/live-data" OVATION_LIVE_DATA_PROCESS_LIST=/usr/bin/true \
         bash "$REPO_ROOT/scripts/run-tests.sh" > "$2" 2>&1
 }
 

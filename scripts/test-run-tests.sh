@@ -42,7 +42,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_ONLY_TESTING OVATION_PROJECT_CURRENT_COMMAND OVATION_REGENERATE_COMMAND \
       OVATION_REGENERATE_WAIT \
       OVATION_SHELL_SUITES OVATION_SHOT_DIR TEST_RUNNER_OVATION_SHOT_DIR \
-      OVATION_APP_CHANGES_ROOT OVATION_APP_CHANGES_BASE OVATION_APP_BUILD_COMMAND
+      OVATION_APP_CHANGES_ROOT OVATION_APP_CHANGES_BASE OVATION_APP_BUILD_COMMAND \
+      OVATION_PURE_TESTS_ROOT
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -79,7 +80,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 300
+harness_begin "test runner lock tests" 313
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -92,6 +93,33 @@ harness_temp_dir WORK
 
 DIR_LOCK="$WORK/dir.lock"
 FILE_LOCK="$WORK/file.lock"
+
+# EVERY INNER RUN BRACKETS A THROWAWAY LIVE DATA ROOT (ovation#570).
+#
+# The runner opens its live data bracket around the Xcode phase on every run, and
+# the inner runs here left its seams unset, so each one fingerprinted Dan's real
+# Application Support and compared it at the end: 116 of them per run of this
+# suite, measured 2026-09-26. With the installed app open its store changes under
+# them, the compare exits non-zero, and a case about something else entirely
+# failed at random ("a hosted run with a long output is not reported as having
+# run nothing" did, on untouched main). The outer, real run keeps its bracket as
+# it is; only these inner ones are pointed away.
+#
+# EXPORTED, NOT SET PER HELPER, so no helper and no one-off invocation can leave
+# it out (L621), and BOTH of the guard's seams are set, because a suite setting
+# some of a script's seams runs every unset one for real (L284): the process list
+# is a stub that lists nothing, so no case asks this Mac whether Ovation is open.
+#
+# EVERY BRACKET AN INNER RUN OPENS IS LOGGED by the guard itself, so the last
+# cases in this file prove where each one actually looked (L322).
+LIVE_DATA_ROOT="$WORK/live-data"
+mkdir -p "$LIVE_DATA_ROOT"
+printf '#!/bin/bash\nexit 0\n' > "$WORK/no-processes"
+chmod +x "$WORK/no-processes"
+export OVATION_LIVE_DATA_ROOT="$LIVE_DATA_ROOT"
+export OVATION_LIVE_DATA_PROCESS_LIST="$WORK/no-processes"
+export OVATION_LIVE_DATA_BRACKET_LOG="$WORK/live-data-brackets.log"
+: > "$OVATION_LIVE_DATA_BRACKET_LOG"
 
 # A PROJECT THAT EXISTS, SO NO CASE HERE DEPENDS ON THE DEVELOPER HAVING ONE.
 #
@@ -810,14 +838,125 @@ check "an injected command with no floor announces the skip rather than passing 
        OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
        OVATION_TEST_COMMAND="true" "$TARGET" 2>&1 | grep -c 'Pure count check skipped')" "1"
 
-# THE FLOOR IS A REAL NUMBER ON DISK, not only a seam. A committed floor that
-# nothing reads is the same as no floor (L96).
-check "the committed floor is a positive integer" \
-    "$(grep -cE '^[1-9][0-9]*$' "$PWD/scripts/pure-test-floor.txt")" "1"
-# Deliberately NOT asserted here: that the floor is at or below the real count.
-# The runner itself checks exactly that on every run, against the count it just
-# executed, and a second copy of the number in this file would be a place for
-# the two to disagree (L41). A floor set too high fails the very next run.
+# THE EXPECTED COUNT IS DERIVED FROM THE TESTS THE BRANCH DECLARES (ovation#579).
+#
+# It was scripts/pure-test-floor.txt, one committed number every branch adding a
+# test had to change, so any two such branches conflicted on it: on 2026-09-26
+# four parallel batches merged one after another and each later one conflicted
+# there, costing a rebase, a regeneration and a fresh full run per merge. It is
+# the collision ovation#351 and ovation#346 recorded for the shell suite floor
+# and the assertion counts, and they settled on a sentence in the refusal; this
+# one removes the shared number instead. Swift Testing counts one test per
+# `@Test` function, parameterised ones included (1431 lines, 1431 executed, on
+# the day), so each branch's own sources say how many tests a whole run must
+# execute, and two branches adding tests in different places touch nothing in
+# common. The property that matters is kept: a run that executed FEWER is
+# refused (L288).
+#
+# A STAGED TREE, whose project.yml and sources this suite chose, so each rule is
+# exercised on its own: two tests in one file (one parameterised), one in
+# another, a commented out @Test and a doc comment naming one, an app source
+# with none, a test in an EXCLUDED file of the pure target, and one in the
+# hosted target, which the pure run does not execute.
+DECLARED="$WORK/declared"
+mkdir -p "$DECLARED/OvationTests" "$DECLARED/Ovation/App" "$DECLARED/OvationHostedTests"
+cat > "$DECLARED/project.yml" <<'YML'
+targets:
+  Ovation:
+    type: application
+    sources:
+      - path: Ovation
+  OvationTests:
+    type: bundle.unit-test
+    sources:
+      - path: OvationTests
+      - path: Ovation
+        excludes:
+          - "App/OvationApp.swift"
+          - "Info.plist"
+    dependencies:
+      - sdk: libsqlite3.tbd
+  OvationHostedTests:
+    type: bundle.unit-test
+    sources:
+      - path: OvationHostedTests
+YML
+cat > "$DECLARED/OvationTests/ATests.swift" <<'SWIFT'
+import Testing
+/// A doc comment saying @Test is not a test.
+struct ATests {
+    @Test("one") func one() {}
+    @Test("two, three times", arguments: [1, 2, 3])
+    func two(n: Int) {}
+    // @Test("a commented out test is not one")
+    @Testable var notATest = 0
+}
+SWIFT
+printf 'import Testing\nstruct BTests {\n    @Test func three() {}\n}\n' > "$DECLARED/OvationTests/BTests.swift"
+printf 'struct Thing {}\n' > "$DECLARED/Ovation/Thing.swift"
+printf '@main struct App { @Test func excludedFromThePureTarget() {} }\n' > "$DECLARED/Ovation/App/OvationApp.swift"
+printf 'import Testing\n@Test func hosted() {}\n' > "$DECLARED/OvationHostedTests/HTests.swift"
+
+declared_run() {
+    OVATION_PURE_TESTS_ROOT="${2:-$DECLARED}" \
+    OVATION_UNLOCKED_COMMAND=true \
+    OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
+    OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+    OVATION_TEST_COMMAND="echo 'Test run with ${1} tests in 2 suites passed'" \
+    OVATION_HOSTED_TEST_COMMAND='echo "Test run with 5 tests in 1 suite passed"' \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
+    "$TARGET" 2>&1
+}
+declared_status() { declared_run "$@" >/dev/null; }
+
+OUT579A="$(declared_run 3)"; ST579A=$?
+check "a pure run executing every test its sources declare passes, with no committed number" \
+    "$ST579A" "0"
+check "and it says the count was judged, and against what" \
+    "$(grep -c '^==> The pure suite executed all 3 tests the OvationTests target declares' <<< "$OUT579A")" "1"
+
+# THE SHORT RUN, which is the whole reason a count is read at all (L288).
+OUT579B="$(declared_run 2)"; ST579B=$?
+check "a pure run executing FEWER tests than its sources declare is refused" "$ST579B" "7"
+check "and it names both numbers" \
+    "$(grep -c '^Error: the suite executed 2 tests and the OvationTests target declares 3\.$' <<< "$OUT579B")" "1"
+check "and it hands the reader no number to write down, because there is none to keep" \
+    "$(grep -c "printf '%s.n'" <<< "$OUT579B")" "0"
+
+# MORE THAN DECLARED is a count that missed a form of test, and a count that
+# misses tests cannot see a run that loses them, so it is refused too.
+OUT579C="$(declared_run 4)"; ST579C=$?
+check "a pure run executing MORE tests than its sources declare is refused" "$ST579C" "7"
+check "and it says the declaration count missed some, rather than blaming the run" \
+    "$(grep -c '^Error: the suite executed 4 tests and the OvationTests target declares only 3\.$' <<< "$OUT579C")" "1"
+
+# TWO BRANCHES ADDING TESTS IN DIFFERENT FILES TOUCH NOTHING IN COMMON: a new
+# file's test is counted from the file itself, so nothing else has to change.
+printf 'import Testing\n@Test func added() {}\n' > "$DECLARED/OvationTests/CTests.swift"
+check_exit "a test added in a new file raises the expected count by itself" 0 declared_status 4
+check_exit "and a run that then leaves it out is refused" 7 declared_status 3
+rm -f "$DECLARED/OvationTests/CTests.swift"
+
+# A TREE WHOSE TESTS CANNOT BE COUNTED IS NOT A GREEN RUN: nothing would be
+# compared, which is the defect this exists to end (L98, L215).
+NOTARGET="$WORK/declared-no-target"
+mkdir -p "$NOTARGET"
+printf 'targets:\n  Ovation:\n    sources:\n      - path: Ovation\n' > "$NOTARGET/project.yml"
+OUT579D="$(declared_run 3 "$NOTARGET")"; ST579D=$?
+check "a tree whose pure target cannot be read is refused rather than passed" "$ST579D" "7"
+check "and it says the tests could not be counted" \
+    "$(grep -c '^Error: could not count the tests the OvationTests target declares' <<< "$OUT579D")" "1"
+MISSINGSRC="$WORK/declared-missing-source"
+mkdir -p "$MISSINGSRC"
+cp "$DECLARED/project.yml" "$MISSINGSRC/project.yml"
+check_exit "and so is one whose target names a source folder that is not there" \
+    7 declared_status 3 "$MISSINGSRC"
+
+# AND THE SHARED NUMBER IS GONE, so it cannot come back as a merge point with
+# nothing reading it (L29).
+check "no committed pure test floor remains for two branches to conflict on" \
+    "$([ -e "$PWD/scripts/pure-test-floor.txt" ] && echo present || echo gone)" "gone"
 
 check_exit "a hosted run that executed tests passes" \
     0 hosted_status 'echo "Test run with 5 tests in 1 suite passed"'
@@ -1821,16 +1960,18 @@ check "a short run is given no pure floor to paste, because that would silence t
 OUT157="$(counted_run 140 100)"
 check_exit "a run ABOVE its floor is refused too, because a floor that never moves stops being one" \
     7 counted_status 140 100
-check "and it says the tests were ADDED rather than reporting a loss" \
-    "$(mentions "$OUT157" "being ADDED")" "yes"
-check "and it gives the exact command, with the real number in it" \
-    "$(mentions "$OUT157" "140 > ")" "yes"
-# And it says the number comes from this run, for the reason the shell suite
-# floor's refusal does (ovation#351, case 11f3): the floor file conflicts on every
-# pair of branches that add tests, and arithmetic over two diffs is how a wrong
-# number gets committed (L554, L30).
-check "and it says the number came from this run, not from adding up two diffs" \
-    "$(mentions "$OUT157" "two diffs")" "yes"
+# THESE TWO REPLACE THREE THAT DEFENDED THE OLD REMEDY (ovation#579). A run
+# above its count used to be told to write the number it counted into
+# scripts/pure-test-floor.txt, and to take it from this run rather than from two
+# diffs (ovation#351). That file is gone: the expected count is what the
+# branch's sources declare, so a run above it means the COUNT missed a form of
+# test, and there is no number to write down anywhere. A test defending the
+# reversed remedy is the guard for the rejected behaviour, so they are rewritten
+# rather than adjusted (L252, L430).
+check "and it says the run is not at fault, the count of expected tests is" \
+    "$(mentions "$OUT157" "The run is not at fault")" "yes"
+check "and it hands no command to write a number down, because none is kept" \
+    "$(printf '%s' "$OUT157" | grep -c "printf '%s.n'")" "0"
 
 
 # ---------------------------------------------------------------------------
@@ -2633,6 +2774,19 @@ print(" ".join(missing))
 PYSEAMS
 )" ""
 
+
+# NO INNER RUN BRACKETED DAN'S REAL LIVE DATA (ovation#570).
+#
+# Read from where each snapshot actually LOOKED, which the guard writes to the
+# bracket log, never from which variables the helpers set: a helper that forgot
+# the seam, or a case that cleared the environment, is caught by the path it
+# measured (L322). A log with no line in it is a failure of its own, because a
+# check over nothing would pass however the brackets were aimed (L98).
+BRACKETS_OPENED="$(grep -c . "$OVATION_LIVE_DATA_BRACKET_LOG" 2>/dev/null || true)"
+check "the inner runs opened live data brackets this suite could read back" \
+    "$([ "${BRACKETS_OPENED:-0}" -gt 0 ] && echo logged || echo "none logged")" "logged"
+check "and every one of them measured this suite's throwaway root, never a real path" \
+    "$(grep -v -x -F -- "$LIVE_DATA_ROOT" "$OVATION_LIVE_DATA_BRACKET_LOG" 2>/dev/null | sort | uniq -c | sed 's/^ *//')" ""
 
 echo "interrupted runs that needed more than one interrupt: $LOST_INTERRUPT_RUNS (ovation#554)"
 harness_end

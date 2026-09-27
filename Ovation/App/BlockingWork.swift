@@ -148,6 +148,18 @@ nonisolated enum BlockingWork {
 
         let outcome = await answer.wait()
         timer.cancel()
+        // AND THE TIMER IS SETTLED BEFORE THIS RETURNS (ovation#572). When the work
+        // answers first, the timer task may not have STARTED yet, so without this
+        // the deadline was handed to `sleeping` after the caller had moved on: a
+        // test reading back the deadline it armed read a race, and failed a
+        // pre-push run on 2026-09-26. Waiting costs nothing here, because the task
+        // is already cancelled and `Task.sleep` throws the moment it sees that.
+        //
+        // The WORK is still abandoned rather than awaited, which is the whole
+        // point of the deadline: only the timer, which this type owns, is waited
+        // on. A `sleeping` that ignored cancellation would hold this until its
+        // deadline and no longer, because a sleep of the deadline is all it is.
+        await timer.value
         return outcome
     }
 }

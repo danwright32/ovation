@@ -154,6 +154,10 @@ REGENERATE_COMMAND="${OVATION_REGENERATE_COMMAND:-}"
 APP_CHANGES_ROOT="${OVATION_APP_CHANGES_ROOT:-${REPO_ROOT}}"
 APP_CHANGES_BASE="${OVATION_APP_CHANGES_BASE:-origin/main}"
 APP_BUILD_COMMAND="${OVATION_APP_BUILD_COMMAND:-}"
+# The tree whose project.yml and sources say how many tests a whole pure run must
+# execute (ovation#579). A seam so the runner's own suite can judge a tree whose
+# declarations it chose; the default is this checkout.
+PURE_TESTS_ROOT="${OVATION_PURE_TESTS_ROOT:-${REPO_ROOT}}"
 
 # ---------------------------------------------------------------------------
 # THE ARGUMENTS, READ BEFORE ANYTHING RUNS (ovation#321).
@@ -342,9 +346,11 @@ trap 'release_locks; exit 143' TERM
 #
 # THE COUNT IS JUDGED, NOT ONLY THE VERDICTS (L288). `[ -x "$s" ] || continue`
 # drops a suite that lost its executable bit in silence, and a glob that matches
-# fewer files reads as a full green run. The floor is a committed number for the
-# same reason the pure suite's is: refusing only an empty run would catch the
-# total loss and miss every partial one.
+# fewer files reads as a full green run. The floor is a committed number because
+# refusing only an empty run would catch the total loss and miss every partial
+# one. (The pure suite's count stopped being a committed number in ovation#579,
+# because a test declares itself in its source; nothing here counts a suite that
+# lost its executable bit except this floor.)
 SUITE_DIR="${OVATION_SHELL_SUITE_DIR:-${REPO_ROOT}/scripts}"
 SUITE_FLOOR="${OVATION_SHELL_SUITE_FLOOR:-}"
 SHELL_UNMEASURED=""
@@ -844,24 +850,66 @@ else
   # broken app stops the run with the build's own status and the suite is not
   # reported over it.
   # ---------------------------------------------------------------------------
-  # The left out paths, one per line, relative to the checkout: each exclude of
-  # a source path in the OvationTests target, joined to that path. Empty when the
-  # target or its excludes cannot be found.
-  pure_target_left_out() {
+  # The OvationTests target's sources in <tree>/project.yml, one per line, as
+  # "source<TAB>path" for each source path and "exclude<TAB>path/item" for each
+  # exclude of one, relative to the tree. Empty when the target cannot be found.
+  # ONE READER of the target, for the left out files here and the declared test
+  # count below, so the two cannot come to disagree about what it compiles (L263).
+  pure_target_paths() {
     awk '
       /^  OvationTests:[[:space:]]*$/ { in_target = 1; next }
       in_target && /^  [^ #]/ { exit }
       in_target && /^[^ #]/ { exit }
       !in_target { next }
-      /^[[:space:]]*- path:/ { path = $0; sub(/^[[:space:]]*- path:[[:space:]]*/, "", path); gsub(/"/, "", path); in_excludes = 0; next }
+      /^[[:space:]]*- path:/ {
+        path = $0; sub(/^[[:space:]]*- path:[[:space:]]*/, "", path); gsub(/"/, "", path); in_excludes = 0
+        if (path != "") print "source\t" path
+        next
+      }
       /^[[:space:]]*excludes:[[:space:]]*$/ { in_excludes = 1; next }
       in_excludes && /^[[:space:]]*- / {
         item = $0; sub(/^[[:space:]]*-[[:space:]]*/, "", item); gsub(/"/, "", item)
-        if (path != "" && item != "") print path "/" item
+        if (path != "" && item != "") print "exclude\t" path "/" item
         next
       }
       { in_excludes = 0 }
-    ' "${APP_CHANGES_ROOT}/project.yml" 2>/dev/null
+    ' "$1/project.yml" 2>/dev/null
+  }
+  # The left out paths, one per line, relative to the checkout: each exclude of
+  # a source path in the OvationTests target, joined to that path. Empty when the
+  # target or its excludes cannot be found.
+  pure_target_left_out() {
+    pure_target_paths "${APP_CHANGES_ROOT}" | awk -F'\t' '$1 == "exclude" { print $2 }'
+  }
+  # How many tests a whole pure run of <tree> must execute (ovation#579): the
+  # lines beginning `@Test` in the Swift files under each source path of the
+  # OvationTests target, less those in the files it excludes. FAILS rather than
+  # answering 0 when the target, a source path, or a read cannot be had, because
+  # an unreadable count and an empty suite are different facts (L98, L215).
+  PURE_TEST_DECLARATION='^[[:space:]]*@Test([^A-Za-z0-9_]|$)'
+  declared_in() {
+    local found
+    found="$(grep -rhE --include='*.swift' "${PURE_TEST_DECLARATION}" "$1" 2>/dev/null)"
+    [ $? -le 1 ] || return 1
+    count_lines "${found}"
+  }
+  pure_tests_declared() {
+    local tree="$1" listed kind path n total=0 sources=0
+    listed="$(pure_target_paths "${tree}")"
+    while IFS=$'\t' read -r kind path; do
+      [ -n "${path}" ] || continue
+      if [ "${kind}" = source ]; then
+        [ -d "${tree}/${path}" ] || return 1
+        n="$(declared_in "${tree}/${path}")" || return 1
+        total=$((total + n))
+        sources=$((sources + 1))
+      elif [ -e "${tree}/${path}" ]; then
+        n="$(declared_in "${tree}/${path}")" || return 1
+        total=$((total - n))
+      fi
+    done <<< "${listed}"
+    [ "${sources}" -gt 0 ] || return 1
+    printf '%s\n' "${total}"
   }
 
   if [ "${ONLY_TARGET}" = "OvationTests" ]; then
@@ -1089,52 +1137,76 @@ else
         STATUS=6
       fi
     fi
-  elif [ "${STATUS}" -eq 0 ] && [ -n "${TEST_COMMAND}" ] && [ -z "${OVATION_TEST_FLOOR:-}" ]; then
+  elif [ "${STATUS}" -eq 0 ] && [ -n "${TEST_COMMAND}" ] && [ -z "${OVATION_TEST_FLOOR:-}" ] \
+      && [ -z "${OVATION_PURE_TESTS_ROOT:-}" ]; then
     # Said out loud rather than skipped silently, the same way the hosted skip is:
     # the runner is being measured with an injected command, which prints no count,
-    # so a floor would refuse every test of the locking. A skip nobody is told
-    # about is indistinguishable from a check that passed (L98, L320).
+    # so an expected count would refuse every test of the locking. A skip nobody is
+    # told about is indistinguishable from a check that passed (L98, L320).
     echo "==> Pure count check skipped: the command was injected and no floor was given."
   elif [ "${STATUS}" -eq 0 ]; then
-    FLOOR_FILE="${REPO_ROOT}/scripts/pure-test-floor.txt"
-    PURE_FLOOR="${OVATION_TEST_FLOOR:-$(cat "${FLOOR_FILE}" 2>/dev/null || echo 0)}"
+    # THE EXPECTED COUNT IS WHAT THE BRANCH'S OWN SOURCES DECLARE (ovation#579).
+    #
+    # It was scripts/pure-test-floor.txt, one committed number that every branch
+    # adding a test had to change, so any two such branches conflicted on it and
+    # neither side's number was right (L554). On 2026-09-26 four parallel
+    # batches merged one after another and each later one conflicted there,
+    # paying a rebase, a regeneration and a fresh full run per merge. ovation#351
+    # and ovation#346 met the same collision in the shell floor and the assertion
+    # counts and answered it with a sentence in the refusal; here the number
+    # itself can go, because every test already declares itself. Swift Testing
+    # counts one test per `@Test` function, a parameterised one included: 1431
+    # lines and 1431 executed, measured on the day this was written. So a branch
+    # that adds a test adds its own line to its own file, and two branches adding
+    # tests in different places touch nothing in common.
+    #
+    # EXACT, BOTH WAYS. FEWER executed than declared is the run that lost part of
+    # itself, which is what this check exists for (L288, ovation#106). MORE is a
+    # count that missed a form of test, and a count that misses tests cannot see
+    # a run that loses them, so it is refused too, naming the count as the fault.
+    # The floor used to refuse the run above it for the same reason (ovation#157):
+    # an expectation that does not move with the suite stops being one.
+    #
+    # OVATION_TEST_FLOOR still gives the expected count directly, for the
+    # runner's own suite.
     PURE_COUNT="$(grep -oE 'Test run with [0-9]+ test' "${PURE_OUTPUT}" \
       | grep -oE '[0-9]+' | sort -rn | head -1)"
     PURE_COUNT="${PURE_COUNT:-0}"
-    if [ "${PURE_FLOOR}" -eq 0 ]; then
-      echo "Error: no test floor to judge the run against (${FLOOR_FILE})." >&2
-      echo "       A run nothing can be compared to is not a green run." >&2
+    if [ -n "${OVATION_TEST_FLOOR:-}" ]; then
+      PURE_EXPECTED="${OVATION_TEST_FLOOR}"
+      PURE_EXPECTED_IS="the floor this run was given is"
+      PURE_EXPECTED_IS_ONLY="the floor this run was given is only"
+      PURE_EXPECTED_ALL="of the floor this run was given"
+    elif PURE_EXPECTED="$(pure_tests_declared "${PURE_TESTS_ROOT}")"; then
+      PURE_EXPECTED_IS="the OvationTests target declares"
+      PURE_EXPECTED_IS_ONLY="the OvationTests target declares only"
+      PURE_EXPECTED_ALL="the OvationTests target declares"
+    else
+      PURE_EXPECTED=0
+    fi
+    if [ "${PURE_EXPECTED}" -eq 0 ]; then
+      echo "Error: could not count the tests the OvationTests target declares, from the" >&2
+      echo "       sources ${PURE_TESTS_ROOT}/project.yml lists for it. A run nothing can be" >&2
+      echo "       compared to is not a green run, so this one is refused." >&2
       STATUS=7
-    elif [ "${PURE_COUNT}" -lt "${PURE_FLOOR}" ]; then
-      echo "Error: the suite executed ${PURE_COUNT} tests against a floor of ${PURE_FLOOR}." >&2
-      echo "       It exited 0, so this is a run that lost most of itself and" >&2
-      echo "       still reported success. Nothing about the missing tests was judged." >&2
-      echo "       If tests were deliberately removed, lower ${FLOOR_FILE}." >&2
+    elif [ "${PURE_COUNT}" -lt "${PURE_EXPECTED}" ]; then
+      echo "Error: the suite executed ${PURE_COUNT} tests and ${PURE_EXPECTED_IS} ${PURE_EXPECTED}." >&2
+      echo "       It exited 0, so this is a run that lost part of itself and still" >&2
+      echo "       reported success. Nothing about the missing tests was judged. A test" >&2
+      echo "       that was declared was not built, not found, or filtered out." >&2
       STATUS=7
-    elif [ "${PURE_COUNT}" -gt "${PURE_FLOOR}" ]; then
-      # AND A FLOOR THAT DOES NOT MOVE STOPS BEING A FLOOR (ovation#157).
-      #
-      # It was committed at 294 and was still 294 with the suite executing 422:
-      # a floor 128 below the real count cannot see a run that loses a quarter of
-      # itself, which is precisely the partial run it exists to refuse, and it
-      # passes the whole time (L63, L354). Nothing made it move, so it was a rule
-      # living in whoever remembered it (L27).
-      #
-      # REFUSED RATHER THAN PRINTED. A notice on a green run is one nobody reads,
-      # and this is the only moment both numbers are in front of anybody. The cost
-      # is one command per change that adds tests, and the message is that command
-      # rather than a description of it (L399). It says the number comes from
-      # this run for the shell suite floor's reason above (ovation#351, L30).
-      echo "Error: the suite executed ${PURE_COUNT} tests and the floor says ${PURE_FLOOR}." >&2
-      echo "       That is tests being ADDED, which is good, and the floor has to" >&2
-      echo "       move with them or it stops being able to see a run that loses" >&2
-      echo "       some. Write the number THIS RUN counted, never one worked out" >&2
-      echo "       from two diffs, which is how a wrong one gets committed." >&2
-      echo "       Run this, then push:" >&2
-      echo "" >&2
-      echo "       printf '%s\\n' ${PURE_COUNT} > ${FLOOR_FILE}" >&2
-      echo "" >&2
+    elif [ "${PURE_COUNT}" -gt "${PURE_EXPECTED}" ]; then
+      echo "Error: the suite executed ${PURE_COUNT} tests and ${PURE_EXPECTED_IS_ONLY} ${PURE_EXPECTED}." >&2
+      echo "       The run is not at fault: the count of declared tests missed some, so it" >&2
+      echo "       could not see a run that lost them either. It counts lines beginning" >&2
+      echo "       with @Test in the target's sources; teach pure_tests_declared in" >&2
+      echo "       scripts/run-tests.sh the form it missed. There is no number to write" >&2
+      echo "       down anywhere, which is the point (ovation#579)." >&2
       STATUS=7
+    else
+      # SAID ON THE GREEN RUN TOO, so its silence can never mean the count was
+      # not judged (L98).
+      echo "==> The pure suite executed all ${PURE_COUNT} tests ${PURE_EXPECTED_ALL}."
     fi
   fi
   rm -f "${PURE_OUTPUT}"

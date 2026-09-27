@@ -101,8 +101,11 @@ struct LaunchBackupOutcomeTests {
             recording: { _ in }) { taken }
 
         #expect(attempt == taken)
-        #expect(waits.durations.last == LaunchBackupOutcome.deadline(for: size),
-                "\(waits.durations)")
+        // THE WHOLE SEQUENCE, the size walk's floor and then the backup's own
+        // deadline, read as a value: `BlockingWork.run` settles its timer before it
+        // returns (ovation#572), so nothing here is still to be recorded.
+        #expect(waits.durations == [LaunchBackupOutcome.deadlineFloor,
+                                    LaunchBackupOutcome.deadline(for: size)])
     }
 
     /// A MEASUREMENT THAT FAILS DOES NOT STOP THE BACKUP. Whatever stopped the size
@@ -121,7 +124,8 @@ struct LaunchBackupOutcomeTests {
             recording: { _ in }) { taken }
 
         #expect(attempt == taken)
-        #expect(waits.durations.last == LaunchBackupOutcome.deadlineFloor, "\(waits.durations)")
+        #expect(waits.durations == [LaunchBackupOutcome.deadlineFloor,
+                                    LaunchBackupOutcome.deadlineFloor])
     }
 
     /// AND A BACKUP STILL RUNNING AT THAT DEADLINE COMES OUT AS STILL RUNNING,
@@ -157,12 +161,17 @@ struct LaunchBackupOutcomeTests {
             sleeping: waits.sleep) { .nothingToCheck }
 
         #expect(checked == .nothingToCheck)
-        #expect(waits.durations.last == LaunchBackupOutcome.deadline(for: size),
-                "\(waits.durations)")
+        #expect(waits.durations == [LaunchBackupOutcome.deadlineFloor,
+                                    LaunchBackupOutcome.deadline(for: size)])
     }
 
     /// Records every deadline a wait was given, then waits far longer than any
     /// test, so the work always answers first and the timer is cancelled.
+    ///
+    /// Read straight after `run` returns, and that is only sound because
+    /// `BlockingWork.run` settles its timer first (ovation#572): these three cases
+    /// read `.last` of a list the timer task had not always written yet, and one
+    /// failed a pre-push run on 2026-09-26 with 5.0 seconds where 95.0 was due.
     private final class RecordedWaits: @unchecked Sendable {
         private let lock = NSLock()
         private var recorded: [Duration] = []

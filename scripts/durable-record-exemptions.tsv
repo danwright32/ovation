@@ -5,3 +5,4 @@
 # line with no reason, and a line for a file that no longer has one. Two tab
 # separated columns: the script, relative to scripts/, and the reason.
 record-backup-grant-check.sh	Its subject is a person: Dan runs it by hand to write down what a relaunched installed build showed him, and nothing in it runs a browser, a command or a build that could be injected. Its suite points OVATION_GRANT_RECORD at a throwaway file on every case.
+check-live-data-untouched.sh	Its append is the bracket log of ovation#570, written only when a caller names OVATION_LIVE_DATA_BRACKET_LOG, and the only callers are the runner's own suites, which name a file in their throwaway directory so they can prove each staged inner run measured a throwaway root. A real run names none and writes nothing, so staged runs are the whole of its subject rather than something to keep out of it.

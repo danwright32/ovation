@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "live data guard tests" 25
+harness_begin "live data guard tests" 27
 
 TARGET="scripts/check-live-data-untouched.sh"
 require_target "$TARGET"
@@ -154,6 +154,20 @@ check "and it says the process list could not be read, rather than claiming the 
 with_ps "$WORK/ps-running" snapshot "$WORK/app5.json" >/dev/null
 check_exit "nothing changing while the app was open still passes" \
     0 with_ps_status "$WORK/ps-running" compare "$WORK/app5.json"
+
+# THE ROOT EACH BRACKET MEASURED CAN BE READ BACK (ovation#570). The runner's own
+# suite drives inner runs that each open this bracket, and it has to be able to
+# prove none of them measured Dan's real folder, by where the snapshot actually
+# looked rather than by which variables a helper remembered to set (L322). So a
+# snapshot names its root in a log when one is named, and only a snapshot does:
+# one line is one bracket opened.
+BRACKETS="$WORK/brackets.log"
+OVATION_LIVE_DATA_BRACKET_LOG="$BRACKETS" run snapshot "$WORK/log1.json" >/dev/null
+check "a snapshot records the root it fingerprinted in the bracket log it is given" \
+    "$(cat "$BRACKETS" 2>/dev/null)" "$ROOT"
+OVATION_LIVE_DATA_BRACKET_LOG="$BRACKETS" run compare "$WORK/log1.json" >/dev/null
+check "and a compare adds nothing, so each line is one bracket opened" \
+    "$(wc -l < "$BRACKETS" 2>/dev/null | tr -d ' ')" "1"
 
 # The real root, once (L246).
 REAL="$WORK/real.json"
