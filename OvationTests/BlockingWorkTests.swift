@@ -74,6 +74,36 @@ struct BlockingWorkTests {
         #expect(outcome == .answered("done"))
     }
 
+    /// NO TIMER OUTLIVES THE ANSWER (ovation#572). The deadline's sleeper is
+    /// started on a task of its own, and when the work answered first `run` used
+    /// to return with that task possibly not yet started, so the deadline it armed
+    /// was handed to the sleeper AFTER the caller had moved on. A test reading back
+    /// the deadline it was given then read a race, and failed a pre-push run on
+    /// 2026-09-26. Seen to fail by delaying the timer task's start by 0.3s, which
+    /// is the arrangement a busy machine produces by chance.
+    @Test("when the work answers first, the deadline has already been armed by the time run returns")
+    func theDeadlineIsArmedBeforeRunReturns() async {
+        let armed = ArmedDeadlines()
+
+        let outcome = await BlockingWork.run(
+            deadline: .seconds(7),
+            sleeping: { deadline in
+                armed.record(deadline)
+                try await Task.sleep(for: .seconds(3_600))
+            },
+            { "done" })
+
+        #expect(outcome == .answered("done"))
+        #expect(armed.deadlines == [.seconds(7)])
+    }
+
+    private final class ArmedDeadlines: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recorded: [Duration] = []
+        var deadlines: [Duration] { lock.withLock { recorded } }
+        func record(_ deadline: Duration) { lock.withLock { recorded.append(deadline) } }
+    }
+
     /// IT RUNS OFF THE CALLING THREAD, which is the whole reason it exists: the
     /// launch runs on the main actor and the copying must not.
     @Test("the work does not run on the main thread")
