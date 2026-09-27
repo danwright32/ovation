@@ -35,8 +35,7 @@ harness_temp_dir WORK
 
 run_on() { OVATION_DESIGN_ROOT="$1" "./$TARGET" 2>&1; }
 status_on() {
-    OVATION_DESIGN_ROOT="$1" "./$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_DESIGN_ROOT="$1" "./$TARGET"
 }
 
 # The rule, as it would sit in rules/. Deliberately carries a comment and blank
@@ -73,7 +72,7 @@ record() {
 # ---------------------------------------------------------------------------
 GOOD="$WORK/good"
 record "$GOOD" "$INLINED"
-check "a rule carried verbatim by a design file passes" "$(status_on "$GOOD")" "0"
+check_exit "a rule carried verbatim by a design file passes" 0 status_on "$GOOD"
 check "and it says how many rules it actually compared" \
     "$(run_on "$GOOD" | grep -c '1 rule')" "1"
 check "and it names the design file it found the rule in" \
@@ -88,7 +87,7 @@ record "$DRIFT" '  function roundToQuarter(hours) {
     return Math.round(hours / 0.5) * 0.5;
   }
 '
-check "a design file whose copy has drifted is refused" "$(status_on "$DRIFT")" "1"
+check_exit "a design file whose copy has drifted is refused" 1 status_on "$DRIFT"
 check "and the refusal says DRIFTED rather than something generic" \
     "$(run_on "$DRIFT" | grep -c 'DRIFTED')" "1"
 check "and it names the rule that drifted" \
@@ -104,7 +103,7 @@ record "$ONELINE" '  function roundToQuarter(hours) {
     return Math.round(hours / 0.25) * 0.25;
   }
 '
-check "one extra line inside the rule is still a drift" "$(status_on "$ONELINE")" "1"
+check_exit "one extra line inside the rule is still a drift" 1 status_on "$ONELINE"
 
 # ---------------------------------------------------------------------------
 # THE CASE THAT PROVES THE MATCH IS CONTIGUOUS. Every line of the rule is present
@@ -118,8 +117,8 @@ record "$SCATTERED" '  function roundToQuarter(hours) {
   var andAnother = 2;
   }
 '
-check "a rule whose lines are all present but scattered is refused" \
-    "$(status_on "$SCATTERED")" "1"
+check_exit "a rule whose lines are all present but scattered is refused" \
+    1 status_on "$SCATTERED"
 
 # ---------------------------------------------------------------------------
 # A rule no design file renders. Not a pass, and not cleared by naming the file
@@ -128,7 +127,7 @@ check "a rule whose lines are all present but scattered is refused" \
 ABSENT="$WORK/absent"
 record "$ABSENT" '  var unrelated = 1;
 '
-check "a rule no design file carries is refused" "$(status_on "$ABSENT")" "1"
+check_exit "a rule no design file carries is refused" 1 status_on "$ABSENT"
 check "and it says NOT INLINE, which is a different fault from a drift" \
     "$(run_on "$ABSENT" | grep -c 'NOT INLINE')" "1"
 check "and it does not also claim the rule drifted" \
@@ -139,7 +138,7 @@ record "$DECLARED" '  var unrelated = 1;
 '
 printf '/* NOT RENDERED: no screen prices a discount yet, ovation#111. */\n%s' \
     "$RULE" > "$DECLARED/rules/duration.js"
-check "a rule that says why no screen renders it passes" "$(status_on "$DECLARED")" "0"
+check_exit "a rule that says why no screen renders it passes" 0 status_on "$DECLARED"
 check "and the pass still reports it, rather than counting it as inlined" \
     "$(run_on "$DECLARED" | grep -c 'NOT RENDERED')" "1"
 
@@ -147,19 +146,19 @@ check "and the pass still reports it, rather than counting it as inlined" \
 # Nothing to compare is not a pass, and the two ways of having nothing are
 # different failures with different remedies (L11).
 # ---------------------------------------------------------------------------
-check "a missing design root cannot measure" "$(status_on "$WORK/nowhere")" "2"
+check_exit "a missing design root cannot measure" 2 status_on "$WORK/nowhere"
 
 NORULES="$WORK/norules"
 mkdir -p "$NORULES"
 printf '<meta charset="utf-8">\n' > "$NORULES/invoice.html"
-check "a record with no rules at all cannot measure" "$(status_on "$NORULES")" "2"
+check_exit "a record with no rules at all cannot measure" 2 status_on "$NORULES"
 check "and says the rules are missing, not that the design agrees with them" \
     "$(run_on "$NORULES" | grep -c 'CANNOT SCAN')" "1"
 
 NOHTML="$WORK/nohtml"
 mkdir -p "$NOHTML/rules"
 printf '%s' "$RULE" > "$NOHTML/rules/duration.js"
-check "a record with rules but no design files cannot measure" "$(status_on "$NOHTML")" "2"
+check_exit "a record with rules but no design files cannot measure" 2 status_on "$NOHTML"
 check "and names that as its own cause" \
     "$(run_on "$NOHTML" | grep -c 'no design file')" "1"
 
@@ -179,8 +178,8 @@ record "$REWORDED" '  /* Half away from zero, stated for POSITIVES because a
     return Math.round(hours / 0.25) * 0.25;
   }
 '
-check "a copy that runs the same code and says something else is refused" \
-    "$(status_on "$REWORDED")" "1"
+check_exit "a copy that runs the same code and says something else is refused" \
+    1 status_on "$REWORDED"
 check "and the finding names the reasoning rather than the code" \
     "$(run_on "$REWORDED" | grep -c 'REASONING DRIFTED')" "1"
 check "and it is NOT reported as a rule no design file carries" \
@@ -200,7 +199,7 @@ record "$REWRAPPED" '  /* Half away from zero, stated
     return Math.round(hours / 0.25) * 0.25;
   }
 '
-check "the same sentence wrapped differently is not drift" "$(status_on "$REWRAPPED")" "0"
+check_exit "the same sentence wrapped differently is not drift" 0 status_on "$REWRAPPED"
 
 # A COMMENT REMOVED ENTIRELY is the same fault as one reworded: the design file
 # then records no reason at all for a rule whose reason is the decision.
@@ -209,7 +208,7 @@ record "$STRIPPED" '  function roundToQuarter(hours) {
     return Math.round(hours / 0.25) * 0.25;
   }
 '
-check "a copy that drops the reasoning altogether is refused" "$(status_on "$STRIPPED")" "1"
+check_exit "a copy that drops the reasoning altogether is refused" 1 status_on "$STRIPPED"
 check "and named the same way, because it is the same loss" \
     "$(run_on "$STRIPPED" | grep -c 'REASONING DRIFTED')" "1"
 
@@ -242,7 +241,7 @@ shared_record() {
 
 BOTH="$WORK/both"
 shared_record "$BOTH" "$SHARED_INLINED" "$SHARED_INLINED"
-check "a rule carried verbatim by every file it names passes" "$(status_on "$BOTH")" "0"
+check_exit "a rule carried verbatim by every file it names passes" 0 status_on "$BOTH"
 
 # invoice-pdf.html sorts first and carries the rule exactly, so a guard that
 # stops at the first verbatim copy never reads invoice.html at all.
@@ -252,8 +251,8 @@ shared_record "$SCREENDRIFT" '  /* CARRIED BY: invoice.html, invoice-pdf.html */
     return Math.round(hours / 0.5) * 0.5;
   }
 ' "$SHARED_INLINED"
-check "one named file drifting is refused although another carries it exactly" \
-    "$(status_on "$SCREENDRIFT")" "1"
+check_exit "one named file drifting is refused although another carries it exactly" \
+    1 status_on "$SCREENDRIFT"
 check "and the refusal names the file that drifted" \
     "$(run_on "$SCREENDRIFT" | grep 'DRIFTED' | grep -c 'invoice.html')" "1"
 check "and does not blame the file that is right" \
@@ -262,8 +261,8 @@ check "and does not blame the file that is right" \
 SCREENMISSING="$WORK/screenmissing"
 shared_record "$SCREENMISSING" '  var unrelated = 1;
 ' "$SHARED_INLINED"
-check "a named file carrying none of the rule is refused" \
-    "$(status_on "$SCREENMISSING")" "1"
+check_exit "a named file carrying none of the rule is refused" \
+    1 status_on "$SCREENMISSING"
 check "and says the named file does not carry it" \
     "$(run_on "$SCREENMISSING" | grep 'NOT INLINE' | grep -c 'invoice.html')" "1"
 
@@ -272,15 +271,15 @@ check "and says the named file does not carry it" \
 NOSUCH="$WORK/nosuch"
 shared_record "$NOSUCH" "$SHARED_INLINED" "$SHARED_INLINED"
 rm "$NOSUCH/invoice-pdf.html"
-check "a rule naming a design file that does not exist is refused" \
-    "$(status_on "$NOSUCH")" "1"
+check_exit "a rule naming a design file that does not exist is refused" \
+    1 status_on "$NOSUCH"
 check "and says that file is not in the record" \
     "$(run_on "$NOSUCH" | grep -c 'invoice-pdf.html is not in the design record')" "1"
 
 # ---------------------------------------------------------------------------
 # The real record, so the seam is not the only thing ever exercised.
 # ---------------------------------------------------------------------------
-check "the real design record carries its rules verbatim" \
-    "$(OVATION_DESIGN_ROOT= "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+check_exit "the real design record carries its rules verbatim" \
+    0 env OVATION_DESIGN_ROOT= "./$TARGET"
 
 harness_end

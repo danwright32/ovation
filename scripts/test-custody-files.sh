@@ -84,7 +84,7 @@ note_tail() {
 }
 
 run_check() { OVATION_CUSTODY_NOTE="$1" "./$TARGET" 2>&1; }
-status_of() { run_check "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+status_of() { run_check "$1"; }
 says() { if grep -qiF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ note_entry "$GOOD" b.json "$FILES/b.json" "$(hash_of b.json)"
 note_tail "$GOOD"
 
 OUT_GOOD="$(run_check "$GOOD")"
-check "two recorded files that match is a pass" "$(status_of "$GOOD")" "0"
+check_exit "two recorded files that match is a pass" 0 status_of "$GOOD"
 check "and it says how many it verified, so a run of none cannot read as a run of all" \
     "$(says "$OUT_GOOD" "2 verified")" "yes"
 check "a heading that is not a file is not counted as one" \
@@ -111,7 +111,7 @@ ABSENT="$WORK/absent.md"; note_header "$ABSENT"
 note_entry "$ABSENT" a.json "$FILES/a.json" "$(hash_of a.json)"
 note_entry "$ABSENT" gone.json "$FILES/gone.json" "0000000000000000000000000000000000000000000000000000000000000000"
 OUT_ABSENT="$(run_check "$ABSENT")"
-check "a recorded file that is not on disk blocks" "$(status_of "$ABSENT")" "1"
+check_exit "a recorded file that is not on disk blocks" 1 status_of "$ABSENT"
 check "and it is reported as ABSENT" "$(says "$OUT_ABSENT" "absent")" "yes"
 check "not as a hash mismatch, which would be a different problem" \
     "$(says "$OUT_ABSENT" "mismatch")" "no"
@@ -124,7 +124,7 @@ MISMATCH="$WORK/mismatch.md"; note_header "$MISMATCH"
 note_entry "$MISMATCH" c.json "$FILES/c.json" "$(hash_of c.json)"
 printf 'one more byte\n' >> "$FILES/c.json"
 OUT_MM="$(run_check "$MISMATCH")"
-check "a file whose hash no longer matches blocks" "$(status_of "$MISMATCH")" "1"
+check_exit "a file whose hash no longer matches blocks" 1 status_of "$MISMATCH"
 check "and it is reported as a MISMATCH" "$(says "$OUT_MM" "mismatch")" "yes"
 check "not as absent, because the file is right there" "$(says "$OUT_MM" "absent")" "no"
 
@@ -149,13 +149,13 @@ chmod 644 "$FILES/d.json" 2>/dev/null || true
 # ---------------------------------------------------------------------------
 EMPTY="$WORK/empty.md"; note_header "$EMPTY"; note_tail "$EMPTY"
 OUT_EMPTY="$(run_check "$EMPTY")"
-check "a note recording no files cannot be measured" "$(status_of "$EMPTY")" "2"
+check_exit "a note recording no files cannot be measured" 2 status_of "$EMPTY"
 check "and it says so rather than reporting a clean run" \
     "$(says "$OUT_EMPTY" "no files")" "yes"
 check "and it never claims anything was verified" "$(says "$OUT_EMPTY" "verified")" "no"
 
-check "a note that is not there at all cannot be measured either" \
-    "$(status_of "$WORK/no-such-note.md")" "2"
+check_exit "a note that is not there at all cannot be measured either" \
+    2 status_of "$WORK/no-such-note.md"
 
 # ---------------------------------------------------------------------------
 # 4. AN ENTRY THAT IS HALF WRITTEN. A heading and a path with no recorded hash
@@ -168,8 +168,8 @@ HALF="$WORK/half.md"; note_header "$HALF"
     printf '| Path | `%s` |\n\n' "$FILES/a.json"
 } >> "$HALF"
 OUT_HALF="$(run_check "$HALF")"
-check "an entry with a path but no recorded hash cannot be measured" \
-    "$(status_of "$HALF")" "2"
+check_exit "an entry with a path but no recorded hash cannot be measured" \
+    2 status_of "$HALF"
 check "and it names the entry it could not check" "$(says "$OUT_HALF" "e.json")" "yes"
 
 # ---------------------------------------------------------------------------
@@ -196,8 +196,8 @@ note_live_entry "$LIVE" "The live export" "$FILES/never-written.json"
 note_tail "$LIVE"
 
 OUT_LIVE="$(run_check "$LIVE")"
-check "a section declaring itself not a custody file is a pass" \
-    "$(status_of "$LIVE")" "0"
+check_exit "a section declaring itself not a custody file is a pass" \
+    0 status_of "$LIVE"
 check "and it is NOT reported as having no recorded hash" \
     "$(says "$OUT_LIVE" 'NO RECORDED HASH')" "no"
 check "and its absence is NOT reported as a missing custody file" \

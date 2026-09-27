@@ -30,15 +30,14 @@ run_in() {
 status_in() {
     local home="$WORK/$1"; shift
     mkdir -p "$home"
-    env HOME="$home" "$@" bash "$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    env HOME="$home" "$@" bash "$TARGET"
 }
 
 # ---------------------------------------------------------------------------
 # A developer machine is never touched.
 # ---------------------------------------------------------------------------
-check "outside CI it does nothing and exits 0" \
-    "$(status_in local CI= OVATION_ALLOW_LOCAL_GIT_AUTH= BACKSTAGE_READ_TOKEN="$FAKE_TOKEN")" "0"
+check_exit "outside CI it does nothing and exits 0" \
+    0 status_in local CI= OVATION_ALLOW_LOCAL_GIT_AUTH= BACKSTAGE_READ_TOKEN="$FAKE_TOKEN"
 check "and says so rather than being silent" \
     "$(run_in local2 CI= OVATION_ALLOW_LOCAL_GIT_AUTH= BACKSTAGE_READ_TOKEN="$FAKE_TOKEN" | grep -c '^SKIPPED')" "1"
 check "and writes NOTHING into that machine's git config" \
@@ -50,7 +49,7 @@ check "and it names the override rather than leaving it to be found" \
 # ---------------------------------------------------------------------------
 # THE REFUSAL THIS EXISTS FOR: a missing credential, named as one.
 # ---------------------------------------------------------------------------
-check "in CI with no token it refuses" "$(status_in ci CI=1 BACKSTAGE_READ_TOKEN=)" "1"
+check_exit "in CI with no token it refuses" 1 status_in ci CI=1 BACKSTAGE_READ_TOKEN=
 check "and names the SECRET rather than the module" \
     "$(run_in ci2 CI=1 BACKSTAGE_READ_TOKEN= | grep -c 'BACKSTAGE_READ_TOKEN is not set')" "1"
 check "and says the repository is private, which is WHY a credential is needed" \
@@ -67,8 +66,8 @@ check "and the refusal goes to stderr, where a failing step's reader looks" \
 # ---------------------------------------------------------------------------
 mkdir -p "$WORK/good"
 GOOD="$(run_in good CI=1 BACKSTAGE_READ_TOKEN="$FAKE_TOKEN")"
-check "in CI with a token it succeeds" \
-    "$(status_in good2 CI=1 BACKSTAGE_READ_TOKEN="$FAKE_TOKEN")" "0"
+check_exit "in CI with a token it succeeds" \
+    0 status_in good2 CI=1 BACKSTAGE_READ_TOKEN="$FAKE_TOKEN"
 check "and the token appears NOWHERE in what it printed" \
     "$(printf '%s' "$GOOD" | grep -c "$FAKE_TOKEN")" "0"
 check "and it says the token was not printed, so the silence is deliberate" \

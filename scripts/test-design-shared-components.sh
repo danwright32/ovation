@@ -19,8 +19,7 @@ harness_temp_dir WORK
 
 run_on() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" 2>&1; }
 status_on() {
-    OVATION_DESIGN_ROOT="$1" python3 "$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_DESIGN_ROOT="$1" python3 "$TARGET"
 }
 
 record() {
@@ -41,7 +40,7 @@ SHARED="$(record shared '
 .poplist { position: absolute; z-index: 6; background: #F7F4F1; }
 .poplist button { display: block; width: 100%; text-align: left; }
 ')"
-check "the shared component itself passes" "$(status_on "$SHARED")" "0"
+check_exit "the shared component itself passes" 0 status_on "$SHARED"
 check "and the count says it was found in use" \
     "$(run_on "$SHARED" | grep -c '1 use(s) of the shared one')" "1"
 
@@ -54,7 +53,7 @@ SECOND="$(record second '
 .choicelist { position: absolute; border-radius: 6px; }
 .choicelist button { display: block; text-align: left; }
 ')"
-check "a second popup list under another name is refused" "$(status_on "$SECOND")" "1"
+check_exit "a second popup list under another name is refused" 1 status_on "$SECOND"
 check "and it is named" "$(run_on "$SECOND" | grep -c '\.choicelist')" "1"
 check "and the shared one is not accused alongside it" \
     "$(run_on "$SECOND" | grep -c 'is \.poplist and is not the shared')" "0"
@@ -69,8 +68,8 @@ RENAMED="$(record renamed '
 .duelist { position: absolute; inset-block-end: 100%; padding: 5px 0; }
 .duelist a { display: block; padding: 4px 16px; }
 ')"
-check "a copy using another element for its choices is caught too" \
-    "$(status_on "$RENAMED")" "1"
+check_exit "a copy using another element for its choices is caught too" \
+    1 status_on "$RENAMED"
 check "and named, once, in the line that reports it" \
     "$(run_on "$RENAMED" | grep -c '^  screen.html: `.duelist`')" "1"
 
@@ -81,23 +80,23 @@ PANEL="$(record panel '
 .sheetveil { position: absolute; inset: 0; background: rgba(31,24,18,.14); }
 .sheetveil p { margin: 0; }
 ')"
-check "something absolutely positioned that holds no choices is not a popup list" \
-    "$(status_on "$PANEL")" "0"
+check_exit "something absolutely positioned that holds no choices is not a popup list" \
+    0 status_on "$PANEL"
 
 INFLOW="$(record inflow '
 .sidebar { display: flex; flex-direction: column; }
 .sidebar button { display: block; width: 100%; }
 ')"
-check "a list of choices that is not positioned is not one either" \
-    "$(status_on "$INFLOW")" "0"
+check_exit "a list of choices that is not positioned is not one either" \
+    0 status_on "$INFLOW"
 
 COMMENTED="$(record commented '
 /* .choicelist { position: absolute; } and .choicelist button, in a comment. */
 .poplist { position: absolute; }
 .poplist button { display: block; }
 ')"
-check "a class named only in a comment is not an implementation" \
-    "$(status_on "$COMMENTED")" "0"
+check_exit "a class named only in a comment is not an implementation" \
+    0 status_on "$COMMENTED"
 
 # A SECOND DOCUMENT CARRIED INSIDE A SCRIPT is not this page's CSS.
 # `review-send.html` embeds the whole invoice PDF as a string (PRD 10c).
@@ -114,23 +113,23 @@ cat > "$EMBEDDED/screen.html" <<'HTML'
 var OTHER_PAGE = "<style>.otherlist { position: absolute; } .otherlist button { display: block; }</style>";
 </script>
 HTML
-check "a document embedded in a script is not read as this page's CSS" \
-    "$(status_on "$EMBEDDED")" "0"
+check_exit "a document embedded in a script is not read as this page's CSS" \
+    0 status_on "$EMBEDDED"
 
 # ---------------------------------------------------------------------------
 # NOTHING SCANNED IS NOT A PASS (L98).
 # ---------------------------------------------------------------------------
-check "an empty design root cannot measure" "$(status_on "$WORK/nowhere")" "2"
+check_exit "an empty design root cannot measure" 2 status_on "$WORK/nowhere"
 check "and says so rather than reporting health" \
     "$(run_on "$WORK/nowhere" | grep -c 'CANNOT MEASURE')" "1"
-check "a named file that is not there is refused, never skipped" \
-    "$(python3 "$TARGET" "$WORK/nowhere.html" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "a named file that is not there is refused, never skipped" \
+    2 python3 "$TARGET" "$WORK/nowhere.html"
 
 # ---------------------------------------------------------------------------
 # The committed record, which is the run the push gate makes.
 # ---------------------------------------------------------------------------
-check "the committed design record passes" \
-    "$(python3 "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+check_exit "the committed design record passes" \
+    0 python3 "$TARGET"
 check "and it scanned every file rather than one" \
     "$(python3 "$TARGET" 2>&1 | grep -c '5 design file(s) scanned')" "1"
 

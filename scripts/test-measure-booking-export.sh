@@ -24,8 +24,7 @@ run_on() {
     python3 "$TARGET" "$1" "$(shasum -a 256 "$1" | cut -d' ' -f1)" 2>&1
 }
 status_on() {
-    run_on "$1" >/dev/null 2>&1
-    printf '%s' "$?"
+    run_on "$1"
 }
 says() { run_on "$1" | sed -n "s/^ *$2 *//p" | head -1; }
 
@@ -50,7 +49,7 @@ BROKEN='{"id":"b3","startsAt":"not an instant","endsAt":"nor this"}'
 # ---------------------------------------------------------------------------
 SHAPE="$WORK/shape.json"
 export_with "$SHAPE" "[$ONE_HOUR,$ONE_HOUR,$ONE_HOUR,$TWO_HOUR]" '[]'
-check "an export of known bookings is measured" "$(status_on "$SHAPE")" "0"
+check_exit "an export of known bookings is measured" 0 status_on "$SHAPE"
 check "and the one hour share is the share of the readable ones" \
     "$(says "$SHAPE" 'exactly one hour')" "3   75%"
 check "and the shortest is reported" "$(says "$SHAPE" 'shortest')" "1.00 hours"
@@ -136,9 +135,8 @@ check "and it no longer claims the tax status has no field here" \
 # THE HASH IS VERIFIED AT READ TIME, which docs/CUSTODY.md requires of every
 # read of a custody file.
 # ---------------------------------------------------------------------------
-check "an export whose hash is not the recorded one is refused" \
-    "$(python3 "$TARGET" "$SHAPE" 0000000000000000000000000000000000000000000000000000000000000000 \
-        >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "an export whose hash is not the recorded one is refused" \
+    3 python3 "$TARGET" "$SHAPE" 0000000000000000000000000000000000000000000000000000000000000000
 check "and the refusal is told apart from every other outcome" \
     "$(python3 "$TARGET" "$SHAPE" 0000000000000000000000000000000000000000000000000000000000000000 2>&1 \
         | grep -c 'SHA-256 is not the one recorded')" "1"
@@ -150,26 +148,26 @@ check "and it prints both hashes so the difference is actionable" \
 # NOTHING TO MEASURE IS NOT A PASS, and each way of having nothing is its own
 # outcome (L98, L11).
 # ---------------------------------------------------------------------------
-check "an export that is not there is refused" \
-    "$(python3 "$TARGET" "$WORK/nowhere.json" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "an export that is not there is refused" \
+    2 python3 "$TARGET" "$WORK/nowhere.json"
 check "and says so rather than reporting zeroes" \
     "$(python3 "$TARGET" "$WORK/nowhere.json" 2>&1 | grep -c 'CANNOT MEASURE')" "1"
 
 EMPTY="$WORK/empty.json"
 export_with "$EMPTY" '[]' '[]'
-check "an export holding nothing cannot measure" "$(status_on "$EMPTY")" "1"
+check_exit "an export holding nothing cannot measure" 1 status_on "$EMPTY"
 check "and is told apart from an export that is absent" \
     "$(run_on "$EMPTY" | grep -c 'holds no booking and no client')" "1"
 
 BROKENFILE="$WORK/broken.json"
 printf 'not json at all\n' > "$BROKENFILE"
-check "an export that is not readable JSON cannot measure" \
-    "$(status_on "$BROKENFILE")" "1"
+check_exit "an export that is not readable JSON cannot measure" \
+    1 status_on "$BROKENFILE"
 check "and its message names that cause rather than the empty one" \
     "$(run_on "$BROKENFILE" | grep -c 'could not be read')" "1"
 
-check "called with no argument it says how to call it" \
-    "$(python3 "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "called with no argument it says how to call it" \
+    2 python3 "$TARGET"
 
 # ---------------------------------------------------------------------------
 # THE LIVE EXPORT, ovation#216. Every figure was measured from a frozen snapshot
@@ -181,7 +179,7 @@ check "called with no argument it says how to call it" \
 live_on() {
     python3 "$TARGET" "$1" "$(shasum -a 256 "$1" | cut -d' ' -f1)" --live "$2" 2>&1
 }
-live_status() { live_on "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+live_status() { live_on "$@"; }
 
 FOUR_WEEK='{"id":"b4","startsAt":"2026-11-01T19:00:00Z","endsAt":"2026-11-01T20:00:00Z"}'
 SNAP="$WORK/snap.json"
@@ -195,8 +193,8 @@ export_with "$LIVE" "[$ONE_HOUR,$TWO_HOUR,$FOUR_WEEK]" '[
   {"id":"1D6F2C3A-0000-4000-8000-000000000002","displayName":"Another invented one","email":"b@example.com","contractEmail":"","isTaxExempt":true,"notes":"x"}
 ]'
 
-check "a live export that disagrees with the snapshot is information, not a failure" \
-    "$(live_status "$SNAP" "$LIVE")" "0"
+check_exit "a live export that disagrees with the snapshot is information, not a failure" \
+    0 live_status "$SNAP" "$LIVE"
 check "and the comparison is its own section" \
     "$(live_on "$SNAP" "$LIVE" | grep -c '^LIVE AGAINST SNAPSHOT')" "1"
 check "and a figure that differs is given from both files" \
@@ -219,15 +217,15 @@ check "a live export identical in every figure says so" \
 
 # THE SNAPSHOT IS STILL THE RECORD, so a live file that cannot be measured does
 # not take the snapshot's figures down with it, and has its own exit code (L11).
-check "a live export that is not there is its own outcome" \
-    "$(live_status "$SNAP" "$WORK/nowhere-live.json")" "4"
+check_exit "a live export that is not there is its own outcome" \
+    4 live_status "$SNAP" "$WORK/nowhere-live.json"
 check "and says the live export could not be measured, not the snapshot" \
     "$(live_on "$SNAP" "$WORK/nowhere-live.json" | grep -c '^CANNOT MEASURE THE LIVE EXPORT: no file at')" "1"
 check "and the snapshot's own figures are still printed" \
     "$(live_on "$SNAP" "$WORK/nowhere-live.json" | grep -c 'exactly one hour')" "1"
 printf 'not json\n' > "$WORK/badlive.json"
-check "a live export that is not JSON is the same outcome" \
-    "$(live_status "$SNAP" "$WORK/badlive.json")" "4"
+check_exit "a live export that is not JSON is the same outcome" \
+    4 live_status "$SNAP" "$WORK/badlive.json"
 check "and names that cause" \
     "$(live_on "$SNAP" "$WORK/badlive.json" | grep -c 'LIVE EXPORT: it could not be read as JSON')" "1"
 
@@ -235,8 +233,8 @@ check "and names that cause" \
 # version of at least 2, an exportedAt instant, and clients carrying an id, a
 # name and both addresses. Each way of missing it is named.
 printf '{"version": 1, "exportedAt": "2026-08-29T15:07:27Z", "clients": []}\n' > "$WORK/v1.json"
-check "a live export below the version floor is refused" \
-    "$(live_status "$SNAP" "$WORK/v1.json")" "4"
+check_exit "a live export below the version floor is refused" \
+    4 live_status "$SNAP" "$WORK/v1.json"
 check "and the refusal names the version and the floor" \
     "$(live_on "$SNAP" "$WORK/v1.json" | grep -c 'version 1 is below the floor of 2')" "1"
 printf '{"exportedAt": "2026-08-29T15:07:27Z", "clients": []}\n' > "$WORK/nover.json"
@@ -257,7 +255,7 @@ check "and so is an export with no exportedAt instant" \
 # looked at what the app reads (L98).
 check "a run given no live export says the live export was not measured" \
     "$(run_on "$SHAPE" | grep -c '^LIVE EXPORT NOT MEASURED')" "1"
-check "and --live with no path is refused as a wrong call" \
-    "$(python3 "$TARGET" "$SHAPE" "$(shasum -a 256 "$SHAPE" | cut -d' ' -f1)" --live >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "and --live with no path is refused as a wrong call" \
+    2 python3 "$TARGET" "$SHAPE" "$(shasum -a 256 "$SHAPE" | cut -d' ' -f1)" --live
 
 harness_end

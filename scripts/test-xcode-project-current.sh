@@ -182,7 +182,7 @@ run_it() {
     OVATION_REPO_ROOT="$TREE" OVATION_XCODE_PROJECT="$TREE/Ovation.xcodeproj" \
         "./$TARGET" 2>&1
 }
-status_of() { run_it >/dev/null 2>&1; printf '%s' "$?"; }
+status_of() { run_it; }
 mentions() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # 1. A project listing every Swift file on disk is current, and says how many.
@@ -218,19 +218,19 @@ check "and it names the file the project still lists" "$(mentions "$OUT" "Gone.s
 fresh_tree
 on_disk App/Domain/Shared.swift; on_disk AppTests/Shared.swift
 project_lists Shared.swift
-check "a second file of the same name that the project lists once is refused" "$(status_of)" "1"
+check_exit "a second file of the same name that the project lists once is refused" 1 status_of
 
 # 5. NO PROJECT is nothing to compare, which is its own outcome: the next run
 #    generates one from these very directories.
 fresh_tree
 on_disk App/Domain/Main.swift
-check "a tree with no generated project cannot be measured" "$(status_of)" "2"
+check_exit "a tree with no generated project cannot be measured" 2 status_of
 
 # 6. A project directory with no project.pbxproj in it is nothing to read either.
 fresh_tree
 on_disk App/Domain/Main.swift
 mkdir -p "$TREE/Ovation.xcodeproj"
-check "a project directory with no project file in it cannot be measured" "$(status_of)" "2"
+check_exit "a project directory with no project file in it cannot be measured" 2 status_of
 
 # 7. A READER THAT READ NOTHING IS NOT A STALE PROJECT (L98). A project file in
 #    which no Swift reference could be found says the reader or the file is
@@ -248,20 +248,20 @@ fresh_tree
 on_disk App/Domain/Main.swift
 project_lists Main.swift
 rm -f "$TREE/project.yml"
-check "a tree with no project.yml is refused, not passed" "$(status_of)" "3"
+check_exit "a tree with no project.yml is refused, not passed" 3 status_of
 
 # 9. A quoted path, which xcodegen writes for any name with a space or a dash.
 fresh_tree
 on_disk "App/Domain/Odd Name.swift"
 project_lists "Odd Name.swift"
-check "a quoted path in the project file is read" "$(status_of)" "0"
+check_exit "a quoted path in the project file is read" 0 status_of
 
 # 10. ONLY WHAT project.yml NAMES. A Swift file outside every source directory is
 #     not part of any target, so its absence from the project is correct.
 fresh_tree
 on_disk App/Domain/Main.swift; on_disk scripts/tool.swift
 project_lists Main.swift
-check "a Swift file outside the source directories is not demanded" "$(status_of)" "0"
+check_exit "a Swift file outside the source directories is not demanded" 0 status_of
 
 # 11. STARTED WITH bash, THE SAME CODES (ovation#257). This is Python behind a .sh
 #     name, and `bash scripts/check-xcode-project-current.sh` is the obvious way
@@ -270,11 +270,11 @@ check "a Swift file outside the source directories is not demanded" "$(status_of
 fresh_tree
 on_disk App/Domain/Main.swift; on_disk App/Domain/New.swift
 project_lists Main.swift
-check "started with bash, a stale project still exits 1" \
-    "$(OVATION_REPO_ROOT="$TREE" OVATION_XCODE_PROJECT="$TREE/Ovation.xcodeproj" bash "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "1"
+check_exit "started with bash, a stale project still exits 1" \
+    1 env OVATION_REPO_ROOT="$TREE" OVATION_XCODE_PROJECT="$TREE/Ovation.xcodeproj" bash "$TARGET"
 rm -rf "$TREE/Ovation.xcodeproj"
-check "and with no project it still exits 2" \
-    "$(OVATION_REPO_ROOT="$TREE" OVATION_XCODE_PROJECT="$TREE/Ovation.xcodeproj" bash "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "and with no project it still exits 2" \
+    2 env OVATION_REPO_ROOT="$TREE" OVATION_XCODE_PROJECT="$TREE/Ovation.xcodeproj" bash "$TARGET"
 
 # ovation#419. EVERYTHING ABOVE COMPARES FILE SETS, and a project.yml change that
 # is not a file set change reaches no machine that already holds a generated
@@ -307,7 +307,7 @@ on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
 yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
 PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector)
 project_lists Main.swift MainTests.swift
-check "a package declared and held is current" "$(status_of)" "0"
+check_exit "a package declared and held is current" 0 status_of
 
 # 15. A TRAILING .git IS THE SAME REPOSITORY. Each side keeps the spelling it was
 #     given, so two spellings of one URL must not read as two packages.
@@ -316,14 +316,14 @@ on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
 yml_declares_package ViewInspector https://github.com/nalexn/ViewInspector
 PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector.git)
 project_lists Main.swift MainTests.swift
-check "the same repository spelled with and without .git is one package" "$(status_of)" "0"
+check_exit "the same repository spelled with and without .git is one package" 0 status_of
 
 # 16. NEITHER SIDE HAS ANY. A tree with no packages at all is current, and that is
 #     the tree every check written before ovation#419 stands on.
 fresh_tree
 on_disk App/Domain/Main.swift; on_disk AppTests/MainTests.swift
 project_lists Main.swift MainTests.swift
-check "a tree that declares no packages and holds none is current" "$(status_of)" "0"
+check_exit "a tree that declares no packages and holds none is current" 0 status_of
 
 # 17. A READER THAT READ NOTHING IS NOT A VERDICT (L98), for packages too. A
 #     project holding a package section this cannot get a URL out of is a file it
@@ -359,7 +359,7 @@ yml_target_depends_on_package OvationTests ViewInspector
 PROJECT_PACKAGE_URLS=(https://github.com/nalexn/ViewInspector)
 PROJECT_TARGET_PACKAGES=("Ovation=" "OvationTests=ViewInspector")
 project_lists Main.swift MainTests.swift
-check "a target holding the package it declares is current" "$(status_of)" "0"
+check_exit "a target holding the package it declares is current" 0 status_of
 
 # 20. The other direction: linked by the project, declared by nobody.
 fresh_tree
@@ -405,7 +405,7 @@ for line in lines:
         out.append("      - sdk: libsqlite3.tbd")
 open(path, "w").write("\n".join(out))
 SDKONLY
-check "an sdk dependency is not read as a package" "$(status_of)" "0"
+check_exit "an sdk dependency is not read as a package" 0 status_of
 
 # 23. THE ORDER OF THE TWO VERDICTS, pinned because it is a decision (ovation#419).
 #     A tree stale in its FILES whose project also cannot answer the membership

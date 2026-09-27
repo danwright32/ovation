@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 84
+harness_begin "design rendering checks" 93
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -19,15 +19,13 @@ harness_temp_dir WORK
 
 # The check answers 3 when it has nothing to render in, and that is the first
 # thing to establish: every assertion below would otherwise be measuring the
-# absence of a browser rather than the presence of a defect. The status is
-# captured on its own line, because `if ! cmd` makes `$?` the negation's status.
-python3 "$TARGET" docs/design/invoice-pdf.html >/dev/null 2>&1
-BROWSER_PROBE=$?
-if [ "$BROWSER_PROBE" = "3" ]; then
-    harness_cannot_measure \
-        "no headless browser, so nothing can be rendered and no claim here proves anything" \
-        "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
-fi
+# absence of a browser rather than the presence of a defect.
+# It skips only when the check names the browser as missing; any other 3 is a
+# fault and refuses the suite (harness_require_browser, ovation#561).
+harness_require_browser \
+    "no headless browser, so nothing can be rendered and no claim here proves anything" \
+    "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER" \
+    python3 "$TARGET" docs/design/invoice-pdf.html
 
 # ONE WIDTH FOR THE PLANTED CASES, so a mutation reports one failure rather than
 # one per width and the count below stays readable. The committed record is run
@@ -259,8 +257,8 @@ printf 'enum OvationWindow {}\n' > "$WORK/no-minimum.swift"
 # AND NEVER AS "CANNOT MEASURE", which is exit 3, the answer this suite reads as
 # no browser at all: a tree missing the source then skipped every case and
 # reported healthy nothing (L11).
-check "a window source with no minimum is used wrongly, never a missing browser" \
-    "$(OVATION_WINDOW_SOURCE="$WORK/no-minimum.swift" python3 "$TARGET" docs/design/clients.html >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "a window source with no minimum is used wrongly, never a missing browser" \
+    2 env OVATION_WINDOW_SOURCE="$WORK/no-minimum.swift" python3 "$TARGET" docs/design/clients.html
 check "and it names the file it read" \
     "$(OVATION_WINDOW_SOURCE="$WORK/no-minimum.swift" python3 "$TARGET" docs/design/clients.html 2>&1 | grep -c 'no-minimum.swift')" "1"
 
@@ -268,17 +266,17 @@ check "and it names the file it read" \
 # NOTHING TO MEASURE IS NOT A PASS, and each way of having nothing is its own
 # outcome (L98, L11).
 # ---------------------------------------------------------------------------
-check "a named file that is not there is refused, never skipped" \
-    "$(python3 "$TARGET" "$WORK/nowhere.html" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "a named file that is not there is refused, never skipped" \
+    2 python3 "$TARGET" "$WORK/nowhere.html"
 check "and it says which file" \
     "$(python3 "$TARGET" "$WORK/nowhere.html" 2>&1 | grep -c 'no such design file')" "1"
-check "an empty design root cannot measure" \
-    "$(OVATION_DESIGN_ROOT="$WORK/nothing-here" python3 "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
-check "a width list that is not a list of widths is used wrongly" \
-    "$(OVATION_DESIGN_WIDTHS='wide' python3 "$TARGET" docs/design/invoice-pdf.html >/dev/null 2>&1; printf '%s' "$?")" "2"
-check "a browser that is not there cannot measure, and is not a pass" \
-    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" \
-        docs/design/invoice-pdf.html >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "an empty design root cannot measure" \
+    2 env OVATION_DESIGN_ROOT="$WORK/nothing-here" python3 "$TARGET"
+check_exit "a width list that is not a list of widths is used wrongly" \
+    2 env OVATION_DESIGN_WIDTHS='wide' python3 "$TARGET" docs/design/invoice-pdf.html
+check_exit "a browser that is not there cannot measure, and is not a pass" \
+    3 env OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" \
+        docs/design/invoice-pdf.html
 check "and says so rather than reporting health" \
     "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" python3 "$TARGET" \
         docs/design/invoice-pdf.html 2>&1 | grep -c 'CANNOT MEASURE')" "1"
@@ -338,9 +336,9 @@ check "a NAMED browser that is not there is refused, never fallen back from" \
 BAD_BROWSER="$WORK/refuses.sh"
 printf '#!/bin/sh\necho "the browser is unhappy about something" >&2\nexit 6\n' > "$BAD_BROWSER"
 chmod +x "$BAD_BROWSER"
-check "a browser that renders nothing cannot measure" \
-    "$(OVATION_HEADLESS_BROWSER="$BAD_BROWSER" python3 "$TARGET" \
-        docs/design/invoice-pdf.html >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "a browser that renders nothing cannot measure" \
+    3 env OVATION_HEADLESS_BROWSER="$BAD_BROWSER" python3 "$TARGET" \
+        docs/design/invoice-pdf.html
 check "and the browser's own complaint is in the message" \
     "$(OVATION_HEADLESS_BROWSER="$BAD_BROWSER" python3 "$TARGET" \
         docs/design/invoice-pdf.html 2>&1 | grep -c 'the browser is unhappy about something')" "1"
@@ -351,9 +349,9 @@ check "and so is the exit code it left" \
 SILENT_BROWSER="$WORK/silent.sh"
 printf '#!/bin/sh\nexit 0\n' > "$SILENT_BROWSER"
 chmod +x "$SILENT_BROWSER"
-check "a browser that says nothing at all still cannot measure" \
-    "$(OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
-        docs/design/invoice-pdf.html >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "a browser that says nothing at all still cannot measure" \
+    3 env OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
+        docs/design/invoice-pdf.html
 check "and the message says it said nothing rather than leaving a blank" \
     "$(OVATION_HEADLESS_BROWSER="$SILENT_BROWSER" python3 "$TARGET" \
         docs/design/invoice-pdf.html 2>&1 | grep -c 'and said nothing')" "1"
@@ -467,6 +465,27 @@ check "the screenshot tool answers cannot measure when no browser can be found" 
 # job reads as a warning (L259, L11).
 check "and the refusal names the narrowed lookup as the reason" \
     "$(grep -c 'OVATION_BROWSER_GLOBS' "$WORK/no-browser-check-design-draws.txt")" "1"
+
+# AND EVERY RENDERING SUITE READS THAT ANSWER AS A MISSING BROWSER (ovation#561).
+# A suite's probe now skips only on the words the tools print for a missing
+# browser, which the harness matches, so each suite is driven here with no browser
+# to find and must answer CANNOT MEASURE, exit 2. A tool whose wording drifted
+# from the harness's would REFUSE its suite instead, and that is named here
+# rather than found on the first machine without a browser (L246). The suites are
+# found from the tree, not listed, so the next one is covered too (L41), however
+# the call is laid out. This one is left out, since it is the one running, and so
+# is the harness's own self test, whose calls are fixtures it writes out.
+said_with_status() { cat "$1"; return "$2"; }
+for suite_file in $(grep -l -E '^[[:space:]]*harness_require_browser([[:space:]]|$)' scripts/test-*.sh); do
+    case "$suite_file" in
+        scripts/test-design-draws.sh|scripts/test-test-harness.sh) continue ;;
+    esac
+    OVATION_BROWSER_GLOBS="$NOWHERE" OVATION_HEADLESS_BROWSER= \
+        bash "$suite_file" > "$WORK/no-browser-suite.txt" 2>&1
+    suite_status=$?
+    check_exit "${suite_file##*/} reads no browser to find as cannot measure, not a fault" \
+        2 said_with_status "$WORK/no-browser-suite.txt" "$suite_status"
+done
 
 # A COMPLAINT THAT COULD NOT BE READ IS NOT SILENCE (L11). The browser's own
 # output is the diagnosis every refusal above quotes, and when reading it fails

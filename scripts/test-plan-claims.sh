@@ -53,7 +53,7 @@ run_on() {
         OVATION_LIVE_EXPORT="$1/live.json" \
         python3 "$TARGET" "${@:2}" 2>&1
 }
-status_on() { run_on "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+status_on() { run_on "$@"; }
 
 # Every estate gets an install check, an export and a record that agree, so a
 # case is about the one thing it changes.
@@ -79,25 +79,25 @@ record() { printf '%s\n' "$2" > "$1/record.md"; }
 # ---------------------------------------------------------------------------
 GOOD="$(estate good)"; furnish "$GOOD"
 plan "$GOOD" '| a claim | `Downbeat/scripts/run-tests.sh:3` | `LOCK_DIR="/tmp/one.lock"` |' >/dev/null
-check "a citation whose literal is where the plan says holds" "$(status_on "$GOOD")" "0"
+check_exit "a citation whose literal is where the plan says holds" 0 status_on "$GOOD"
 check "and it is reported as held" "$(run_on "$GOOD" | grep -c '^  HELD')" "1"
 
 # ---------------------------------------------------------------------------
 # THE CASE THIS EXISTS FOR: the sibling moved and the plan did not.
 # ---------------------------------------------------------------------------
 plan "$GOOD" '| a claim | `Downbeat/scripts/run-tests.sh:40` | `LOCK_DIR="/tmp/one.lock"` |' >/dev/null
-check "a line past the end of the file is refused" "$(status_on "$GOOD")" "1"
+check_exit "a line past the end of the file is refused" 1 status_on "$GOOD"
 check "and named as SHORT rather than as anything else" \
     "$(run_on "$GOOD" | grep -c '^  SHORT')" "1"
 
 plan "$GOOD" '| a claim | `Overture/mac/Overture/Domain/ReplyDetection.swift:2` | `labelIds(of:)` |' >/dev/null
 check "a literal that has moved is reported" "$(run_on "$GOOD" | grep -c '^  MOVED')" "1"
-check "and it does NOT refuse, because these repositories change daily" \
-    "$(status_on "$GOOD")" "0"
+check_exit "and it does NOT refuse, because these repositories change daily" \
+    0 status_on "$GOOD"
 check "and the report says where it is now" \
     "$(run_on "$GOOD" | grep -c 'now at line 7')" "1"
-check "while --strict refuses on it, for bringing the plan back into step" \
-    "$(status_on "$GOOD" --strict)" "1"
+check_exit "while --strict refuses on it, for bringing the plan back into step" \
+    1 status_on "$GOOD" --strict
 
 # A SWIFT SIGNATURE IS QUOTED IN SHORTHAND, so a literal that is not in the file
 # whole is retried as the CALL it names. Without this the function above reported
@@ -113,18 +113,18 @@ check "a signature quoted in shorthand still anchors its own line" \
 AMBIG="$(estate ambig)"; furnish "$AMBIG"
 printf 'one\ntwo\nLOCK_DIR="/tmp/other.lock"\n' > "$AMBIG/Ovation/run-tests.sh"
 plan "$AMBIG" '| a claim | `run-tests.sh:3` | `LOCK_DIR="/tmp/one.lock"` |' >/dev/null
-check "a path that exists in two checkouts is refused" "$(status_on "$AMBIG")" "1"
+check_exit "a path that exists in two checkouts is refused" 1 status_on "$AMBIG"
 check "and the refusal names them and says what the plan must do" \
     "$(run_on "$AMBIG" | grep -c 'must write a path that names one')" "1"
 plan "$AMBIG" '| a claim | `Downbeat/scripts/run-tests.sh:3` | `LOCK_DIR="/tmp/one.lock"` |' >/dev/null
-check "and a path that names its checkout resolves there and nowhere else" \
-    "$(status_on "$AMBIG")" "0"
+check_exit "and a path that names its checkout resolves there and nowhere else" \
+    0 status_on "$AMBIG"
 
 # ---------------------------------------------------------------------------
 # A FILE THAT IS GONE.
 # ---------------------------------------------------------------------------
 plan "$GOOD" '| a claim | `Downbeat/scripts/vanished.sh:3` | `something` |' >/dev/null
-check "a file no checkout has is refused" "$(status_on "$GOOD")" "1"
+check_exit "a file no checkout has is refused" 1 status_on "$GOOD"
 check "and named ABSENT" "$(run_on "$GOOD" | grep -c '^  ABSENT')" "1"
 
 # ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ check "and named ABSENT" "$(run_on "$GOOD" | grep -c '^  ABSENT')" "1"
 # failure would refuse the plan for being right. Counted, never refused.
 # ---------------------------------------------------------------------------
 plan "$GOOD" '| a claim | `Downbeat/scripts/run-tests.sh:3` | writes no `dirtyFiles` and no `signingIdentity` |' >/dev/null
-check "a row quoting only what is NOT in the file does not refuse" "$(status_on "$GOOD")" "0"
+check_exit "a row quoting only what is NOT in the file does not refuse" 0 status_on "$GOOD"
 check "and is counted as unanchored rather than passing silently" \
     "$(run_on "$GOOD" | grep -c '^  UNANCHORED')" "1"
 
@@ -149,13 +149,13 @@ ONMAIN="$(git -C "$COMMITS/Downbeat" rev-parse --short=8 HEAD)"
     && git checkout -q main ) >/dev/null 2>&1
 OFFMAIN="$(git -C "$COMMITS/Downbeat" rev-parse --short=8 side)"
 plan "$COMMITS" "The plan names \`$ONMAIN\` as landed." >/dev/null
-check "a commit on the sibling's main holds" "$(status_on "$COMMITS")" "0"
+check_exit "a commit on the sibling's main holds" 0 status_on "$COMMITS"
 check "and is reported as an ancestor" "$(run_on "$COMMITS" | grep -c '^  ANCESTOR')" "1"
 plan "$COMMITS" "The plan names \`$OFFMAIN\` as landed." >/dev/null
-check "a commit that is NOT on main is refused" "$(status_on "$COMMITS")" "1"
+check_exit "a commit that is NOT on main is refused" 1 status_on "$COMMITS"
 check "and named UNMERGED" "$(run_on "$COMMITS" | grep -c '^  UNMERGED')" "1"
 plan "$COMMITS" 'The plan names `deadbeef` as a branch head at a moment in time.' >/dev/null
-check "a commit no checkout knows is reported, not refused" "$(status_on "$COMMITS")" "0"
+check_exit "a commit no checkout knows is reported, not refused" 0 status_on "$COMMITS"
 check "and named UNPLACED, because the plan records one such on purpose" \
     "$(run_on "$COMMITS" | grep -c '^  UNPLACED')" "1"
 
@@ -166,9 +166,9 @@ check "and named UNPLACED, because the plan records one such on purpose" \
 INST="$(estate inst)"; furnish "$INST"
 plan "$INST" 'The assertion is: version 3, 19 bookings, on snapshot 2.' >/dev/null
 printf '{"version": 3, "bookings": [%s]}\n' "$(seq 1 19 | paste -sd, -)" > "$INST/export.json"
-check "an export that is what the plan asserts holds" "$(status_on "$INST")" "0"
+check_exit "an export that is what the plan asserts holds" 0 status_on "$INST"
 printf '{"version": 2, "bookings": [1,2]}\n' > "$INST/export.json"
-check "an export that is not is refused" "$(status_on "$INST")" "1"
+check_exit "an export that is not is refused" 1 status_on "$INST"
 check "and the report gives both figures rather than only saying they differ" \
     "$(run_on "$INST" | grep -c 'the plan states version 3 and 19 booking(s); the export is version 2 with 2')" "1"
 
@@ -179,8 +179,8 @@ printf '{"version": 3, "bookings": [%s]}\n' "$(seq 1 19 | paste -sd, -)" > "$INS
 
 printf '#!/bin/bash\necho "BLOCKED: the installed Overture lacks the gate fix"\nexit 1\n' > "$INST/installs.sh"
 printf '{"version": 3, "bookings": [%s]}\n' "$(seq 1 19 | paste -sd, -)" > "$INST/export.json"
-check "an install check that refuses is carried through rather than swallowed" \
-    "$(status_on "$INST")" "1"
+check_exit "an install check that refuses is carried through rather than swallowed" \
+    1 status_on "$INST"
 check "and its own verdict line is what gets printed, not its last line" \
     "$(run_on "$INST" | grep -c 'INSTALLS   BLOCKED:')" "1"
 
@@ -199,8 +199,8 @@ contract "$FIELDS" '`id`, `displayName`, `isTaxExempt` (bool), `notes`'
 # THE CASE THIS EXISTS FOR: the record says a field is absent, the contract
 # declares it.
 record "$FIELDS" 'Nobody can re-derive it, because the Downbeat export has no field for a tax status.'
-check "a record saying the export lacks what the contract declares is refused" \
-    "$(status_on "$FIELDS")" "1"
+check_exit "a record saying the export lacks what the contract declares is refused" \
+    1 status_on "$FIELDS"
 check "and it is named DERIVABLE rather than as any other drift" \
     "$(run_on "$FIELDS" | grep -c '^  DERIVABLE')" "1"
 check "and the refusal names the field, and the contract line declaring it" \
@@ -229,7 +229,7 @@ printf '{"version": 3, "bookings": [1,2,3]}\n' > "$FIELDS/export.json"
 
 # A CLAIM THAT HOLDS, said positively rather than by silence (L98).
 record "$FIELDS" 'The Downbeat export carries nothing about payments, and nothing else holds them.'
-check "an absence no source contradicts holds" "$(status_on "$FIELDS")" "0"
+check_exit "an absence no source contradicts holds" 0 status_on "$FIELDS"
 check "and is reported as holding rather than passing silently" \
     "$(run_on "$FIELDS" | grep -c '^  FIELDS     record.md:1 ')" "1"
 
@@ -237,32 +237,32 @@ check "and is reported as holding rather than passing silently" \
 # Downbeat's, and a word matches whole words of a key, never letters inside one.
 contract "$FIELDS" '`id`, `syntaxNote`, `isTaxExempt` (bool)'
 record "$FIELDS" 'The FreshBooks export carries no tax amounts at all.'
-check "a sentence about the FreshBooks export is not read as one about Downbeat's" \
-    "$(status_on "$FIELDS")" "0"
+check_exit "a sentence about the FreshBooks export is not read as one about Downbeat's" \
+    0 status_on "$FIELDS"
 contract "$FIELDS" '`id`, `syntaxNote`'
 record "$FIELDS" 'The Downbeat export carries nothing about tax.'
-check "and a word never matches letters inside a longer word of a key" \
-    "$(status_on "$FIELDS")" "0"
+check_exit "and a word never matches letters inside a longer word of a key" \
+    0 status_on "$FIELDS"
 # A COUNT OF CLIENTS IS NOT A CLAIM ABOUT THE FILE. This sentence is PRD 5b's,
 # word for word, and it names an export while its subject is the clients.
 contract "$FIELDS" '`id`, `isTaxExempt` (bool)'
 record "$FIELDS" 'Measured against the live export, 25 of 31 clients carry no tax status, so the other reading would tell most clients.'
-check "and a count of clients carrying nothing is not read as the export lacking a field" \
-    "$(status_on "$FIELDS")" "0"
+check_exit "and a count of clients carrying nothing is not read as the export lacking a field" \
+    0 status_on "$FIELDS"
 
 # THE RECORD SAYING A FIELD IS THERE, which fails the other way.
 contract "$FIELDS" '`id`, `isTaxExempt` (bool)'
 record "$FIELDS" 'The Downbeat export carries `isTaxExempt` on the clients that have one.'
-check "a field the record says is carried, and the contract declares, holds" \
-    "$(status_on "$FIELDS")" "0"
+check_exit "a field the record says is carried, and the contract declares, holds" \
+    0 status_on "$FIELDS"
 contract "$FIELDS" '`id`, `notes`'
-check "and one no source declares or carries is refused" "$(status_on "$FIELDS")" "1"
+check_exit "and one no source declares or carries is refused" 1 status_on "$FIELDS"
 check "and named UNCARRIED" "$(run_on "$FIELDS" | grep -c '^  UNCARRIED')" "1"
 
 # A SUBJECT THAT NAMES NO FIELD, which is how the original false sentence was
 # written ("no field for either"). Reported so it is visible, never refused.
 record "$FIELDS" 'The Downbeat export has no field for either.'
-check "a claim whose subject names no field is not refused" "$(status_on "$FIELDS")" "0"
+check_exit "a claim whose subject names no field is not refused" 0 status_on "$FIELDS"
 check "and is reported UNPARSED rather than passing as checked" \
     "$(run_on "$FIELDS" | grep -c '^  UNPARSED')" "1"
 
@@ -282,12 +282,11 @@ check "and never reported as holding" \
 # outcome (L98, L11).
 # ---------------------------------------------------------------------------
 BARE="$WORK/bare"; mkdir -p "$BARE"
-check "an estate with no siblings cannot measure" \
-    "$(OVATION_SIBLING_ROOT="$BARE" OVATION_PLAN="$GOOD/plan.md" python3 "$TARGET" \
-        >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "an estate with no siblings cannot measure" \
+    3 env OVATION_SIBLING_ROOT="$BARE" OVATION_PLAN="$GOOD/plan.md" python3 "$TARGET"
 NOCITE="$(estate nocite)"; furnish "$NOCITE"
 plan "$NOCITE" 'A plan that cites nothing at all.' >/dev/null
-check "a plan citing no file cannot measure" "$(status_on "$NOCITE")" "2"
+check_exit "a plan citing no file cannot measure" 2 status_on "$NOCITE"
 check "and says that is different from every claim agreeing" \
     "$(run_on "$NOCITE" | grep -c 'must not report the same thing')" "1"
 

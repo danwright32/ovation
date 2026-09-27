@@ -164,7 +164,7 @@ render() {
         python3 "$WORK/render-once.py" 2>&1
     )
 }
-render_status() { render "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+render_status() { render "$1"; }
 browsers_started() { printf '%s' "$(wc -c < "$WORK/state/runs" | tr -d ' ')"; }
 
 # ---------------------------------------------------------------------------
@@ -212,7 +212,7 @@ check "and the restart line itself names the request that went unanswered" \
 # same fault with restarts turned off is the refusal CI reported (L1).
 # ---------------------------------------------------------------------------
 RESTARTS_OVERRIDE=0
-check "with restarts turned off the same fault refuses" "$(render_status 1)" "3"
+check_exit "with restarts turned off the same fault refuses" 3 render_status 1
 check "and refuses in the words CI reported" \
     "$(render 1 | grep -c 'did not answer its Page.navigate request')" "1"
 unset RESTARTS_OVERRIDE
@@ -221,8 +221,8 @@ unset RESTARTS_OVERRIDE
 # A BROWSER THAT NEVER ANSWERS IS STILL A REFUSAL. The retry is one attempt, not
 # a loop: a check that hangs forever is worse than one that fails (L110).
 # ---------------------------------------------------------------------------
-check "a browser that never answers is refused rather than retried forever" \
-    "$(render_status 1,2,3 )" "3"
+check_exit "a browser that never answers is refused rather than retried forever" \
+    3 render_status 1,2,3 
 check "and only one extra browser was ever started" "$(browsers_started)" "2"
 
 

@@ -30,13 +30,12 @@ COPY="$WORK/tree"; mkdir -p "$COPY"
 cp -R scripts .github "$COPY"/
 ( cd "$COPY" && git init -q -b main ) >/dev/null 2>&1
 rm "$COPY/scripts/lib/workflow-text.sh"
-( cd "$COPY" && bash scripts/check-ci-workflow.sh ) >/dev/null 2>&1; ST=$?
-check "the CI workflow check with a library missing refuses with 2, never 0" "$ST" "2"
+in_copy() { ( cd "$COPY" && bash scripts/check-ci-workflow.sh ); }
+check_exit "the CI workflow check with a library missing refuses with 2, never 0" 2 in_copy
 
 # 5. And with require.sh ITSELF missing, the bootstrap line refuses too.
 rm "$COPY/scripts/lib/require.sh"
-( cd "$COPY" && bash scripts/check-ci-workflow.sh ) >/dev/null 2>&1; ST=$?
-check "with the helper itself missing, it still refuses with 2" "$ST" "2"
+check_exit "with the helper itself missing, it still refuses with 2" 2 in_copy
 
 # 6. THE CLASS, not the instance (L30): no script that is not a test loads a file
 #    any way but the bootstrap line or require_lib. Enumerated from the tree, so a

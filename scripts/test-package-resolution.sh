@@ -98,7 +98,7 @@ check "and not the package that did not move" "$(says "$OUT" "backstage")" "no"
 check "it prints the remedy that commits a move made on purpose" \
     "$(says "$OUT" "git add -- $RESOLVED")" "yes"
 git_in add -- "$RESOLVED" && git_in commit -q -m "move it on purpose"
-check "and after running that remedy the check passes" "$(run_check >/dev/null; echo $?)" "0"
+check_exit "and after running that remedy the check passes" 0 run_check
 
 # 4. THE SECOND REMEDY, RUN: putting the committed resolution back.
 resolution 0.10.3 "$COMMITTED_REV" > "$REPO/$RESOLVED"
@@ -107,7 +107,7 @@ check "moving it again is refused again" "$ST" "1"
 check "and it prints the remedy that puts the committed one back" \
     "$(says "$OUT" "git checkout HEAD -- $RESOLVED")" "yes"
 git_in checkout HEAD -- "$RESOLVED"
-check "and after running that remedy the check passes" "$(run_check >/dev/null; echo $?)" "0"
+check_exit "and after running that remedy the check passes" 0 run_check
 
 # 5. A VERSION THAT MOVED is named with both versions.
 fresh_repo
@@ -146,7 +146,7 @@ OUT="$(run_check)"; ST=$?
 check "a committed resolution missing from disk is refused" "$ST" "1"
 git_in checkout HEAD -- "$RESOLVED"
 check "and the restore remedy it names brings it back to a pass" \
-    "$(says "$OUT" "git checkout HEAD -- $RESOLVED"):$(run_check >/dev/null; echo $?)" "yes:0"
+    "$(says "$OUT" "git checkout HEAD -- $RESOLVED"):$(status_or_words 0 run_check)" "yes:0"
 
 # 9. A TREE THAT COMMITS NO RESOLUTION is the state ovation#421 was filed on, and
 #    is refused by name rather than compared against nothing (L98).
@@ -159,7 +159,7 @@ check "and it says none is committed" "$(says "$OUT" "commits no package resolut
 
 # 10. NOT A REPOSITORY is CANNOT MEASURE, its own code, never a pass (L11, L260).
 rm -rf "$REPO"; mkdir -p "$REPO"
-check "a directory that is not a git work tree cannot be measured" "$(run_check >/dev/null; echo $?)" "2"
+check_exit "a directory that is not a git work tree cannot be measured" 2 run_check
 
 # 11. A PROJECT DIRECTORY HOLDING ONLY THE COMMITTED RESOLUTION IS NO PROJECT.
 #     A fresh clone now has Ovation.xcodeproj/, because a tracked file sits inside
@@ -173,7 +173,7 @@ resolution 0.10.3 "$COMMITTED_REV" > "$ONLY/project.xcworkspace/xcshareddata/swi
 check "the project create helper takes a directory holding only the resolution as no project" \
     "$(bash -c '. scripts/lib/ensure-xcode-project.sh; type xcode_project_present >/dev/null 2>&1 || { echo no-predicate; exit; }; xcode_project_present "$1" && echo present || echo absent' _ "$ONLY")" "absent"
 check "and the built product lookup says there is no project, which the gate knows a build fixes" \
-    "$(bash -c '. scripts/lib/built-product.sh; built_product_absence Debug /Ovation.app "$1" >/dev/null; echo $?' _ "$ONLY")" "3"
+    "$(bash -c '. scripts/lib/built-product.sh; said="$(built_product_absence Debug /Ovation.app "$1" 2>&1)"; st=$?; [ "$st" -eq 3 ] && echo 3 || printf "%s, and it said: %s" "$st" "$said"' _ "$ONLY")" "3"
 # AND THE CREATE THEN MAKES ONE THERE, keeping the committed file. The stub
 # generator writes into the directory it finds, as xcodegen does; that xcodegen
 # leaves a Package.resolved it finds in place was measured by hand, 2026-09-25.
@@ -192,7 +192,7 @@ check "so a run meeting that directory generates the project into it" \
 check "and the committed resolution is still there afterwards, unchanged" \
     "$(grep -c "$COMMITTED_REV" "$ONLY/project.xcworkspace/xcshareddata/swiftpm/Package.resolved" 2>/dev/null)" "1"
 check "and both take it as a project once it has a project file" \
-    "$(bash -c '. scripts/lib/ensure-xcode-project.sh; type xcode_project_present >/dev/null 2>&1 || { echo no-predicate; exit; }; xcode_project_present "$1" && echo present || echo absent' _ "$ONLY"):$(bash -c '. scripts/lib/built-product.sh; built_product_absence Debug /Ovation.app "$1" >/dev/null; echo $?' _ "$ONLY")" "present:4"
+    "$(bash -c '. scripts/lib/ensure-xcode-project.sh; type xcode_project_present >/dev/null 2>&1 || { echo no-predicate; exit; }; xcode_project_present "$1" && echo present || echo absent' _ "$ONLY"):$(bash -c '. scripts/lib/built-product.sh; said="$(built_product_absence Debug /Ovation.app "$1" 2>&1)"; st=$?; [ "$st" -eq 4 ] && echo 4 || printf "%s, and it said: %s" "$st" "$said"' _ "$ONLY")" "present:4"
 
 # 12. THE REAL TREE commits a resolution, and it agrees with project.yml: every
 #     package project.yml pins exactly is resolved at that version, and nothing

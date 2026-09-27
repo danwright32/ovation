@@ -17,7 +17,7 @@ require_target "$TARGET"
 harness_temp_dir WORK
 
 run_on() { "./$TARGET" "$1" "$2" 2>&1; }
-status_on() { "./$TARGET" "$1" "$2" >/dev/null 2>&1; printf '%s' "$?"; }
+status_on() { "./$TARGET" "$1" "$2"; }
 
 # A DESIGN FILE SHAPED LIKE THE REAL ONE: a rule with tips in it, including the
 # one built from a constant, which is the case the two languages spell apart.
@@ -53,14 +53,14 @@ AGREES="$(app agreeing '        case .times:
         case .duration:
             return "That is more than \(ShootDuration.cap.hundredths / 100) hours, so it prices nothing."')"
 
-check "a pair saying the same thing passes" "$(status_on "$D" "$AGREES")" "0"
+check_exit "a pair saying the same thing passes" 0 status_on "$D" "$AGREES"
 check "and it says how many it compared, rather than only that it passed" \
     "$(run_on "$D" "$AGREES" | grep -c '2 design tip')" "1"
 
 # THE CASE THE GUARD EXISTS FOR.
 MISSING="$(app missing '        case .duration:
             return "That is more than \(ShootDuration.cap.hundredths / 100) hours, so it prices nothing."')"
-check "a tip the app never says is refused" "$(status_on "$D" "$MISSING")" "1"
+check_exit "a tip the app never says is refused" 1 status_on "$D" "$MISSING"
 check "and the refusal names the sentence that is missing" \
     "$(run_on "$D" "$MISSING" | grep -c "Waiting on the shoot's start and end times.")" "1"
 
@@ -70,15 +70,15 @@ REWORDED="$(app reworded '        case .times:
             return "Waiting on the shoot'"'"'s start and end times."
         case .duration:
             return "That is more than \(ShootDuration.cap.hundredths / 100) hours, so nothing is priced."')"
-check "a sentence whose WORDS drifted around the constant is refused" \
-    "$(status_on "$D" "$REWORDED")" "1"
+check_exit "a sentence whose WORDS drifted around the constant is refused" \
+    1 status_on "$D" "$REWORDED"
 
 SPELLED="$(app spelled '        case .times:
             return "Waiting on the shoot'"'"'s start and end times."
         case .duration:
             return "That is more than \(Self.cap) hours, so it prices nothing."')"
-check "and one spelling the SAME constant differently is not" \
-    "$(status_on "$D" "$SPELLED")" "0"
+check_exit "and one spelling the SAME constant differently is not" \
+    0 status_on "$D" "$SPELLED"
 
 # A sentence written across two lines, which is how the real file writes the
 # long one, must be read as one sentence rather than as two fragments.
@@ -87,8 +87,8 @@ WRAPPED="$(app wrapped '        case .times:
         case .duration:
             return "That is more than \(ShootDuration.cap.hundredths / 100) hours, "
                 + "so it prices nothing."')"
-check "a sentence continued onto a second line is read whole" \
-    "$(status_on "$D" "$WRAPPED")" "0"
+check_exit "a sentence continued onto a second line is read whole" \
+    0 status_on "$D" "$WRAPPED"
 
 # THE APP MAY SAY MORE THAN THE DESIGN. Four of its refusals are not states of
 # waiting and waiting.js has never had a word for them.
@@ -98,27 +98,27 @@ EXTRA="$(app extra '        case .times:
             return "That is more than \(ShootDuration.cap.hundredths / 100) hours, so it prices nothing."
         case .paymentInstructionsNotSet:
             return "Settings has no payment instructions, so no invoice can be sent."')"
-check "a sentence the design has no tip for is allowed" "$(status_on "$D" "$EXTRA")" "0"
+check_exit "a sentence the design has no tip for is allowed" 0 status_on "$D" "$EXTRA"
 
 # NOTHING TO COMPARE IS NOT A PASS, and each cause is its own outcome (L11, L98).
-check "a design file that is not there cannot be compared" \
-    "$(status_on "$WORK/absent.js" "$AGREES")" "2"
-check "an app file that is not there cannot be compared either" \
-    "$(status_on "$D" "$WORK/absent.swift")" "2"
+check_exit "a design file that is not there cannot be compared" \
+    2 status_on "$WORK/absent.js" "$AGREES"
+check_exit "an app file that is not there cannot be compared either" \
+    2 status_on "$D" "$WORK/absent.swift"
 
 EMPTY_D="$WORK/empty.js"; printf 'function nothing() { return null; }\n' > "$EMPTY_D"
-check "a design file holding no tips is refused rather than passed" \
-    "$(status_on "$EMPTY_D" "$AGREES")" "2"
+check_exit "a design file holding no tips is refused rather than passed" \
+    2 status_on "$EMPTY_D" "$AGREES"
 check "and it says the comparison found nothing, rather than implying agreement" \
     "$(run_on "$EMPTY_D" "$AGREES" | grep -c 'CANNOT COMPARE')" "1"
 
 EMPTY_A="$WORK/empty.swift"; printf 'enum ReviewGate {}\n' > "$EMPTY_A"
-check "an app file holding no sentences is refused too" \
-    "$(status_on "$D" "$EMPTY_A")" "2"
+check_exit "an app file holding no sentences is refused too" \
+    2 status_on "$D" "$EMPTY_A"
 
 # AND THE REAL PAIR, which is a different question from every case above: those
 # ask what the guard CAN catch, this asks whether the tree is clean today.
-check "the committed design record and the committed app agree" \
-    "$(status_on docs/design/rules/waiting.js Ovation/Document/ReviewGate.swift)" "0"
+check_exit "the committed design record and the committed app agree" \
+    0 status_on docs/design/rules/waiting.js Ovation/Document/ReviewGate.swift
 
 harness_end

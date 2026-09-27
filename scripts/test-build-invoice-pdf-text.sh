@@ -26,14 +26,13 @@ harness_temp_dir WORK
 
 # It answers 3 when it has nothing to render in, and that is established FIRST,
 # or every assertion below would be measuring the absence of a browser rather
-# than the presence of a defect. The status is captured on its own line.
-python3 "$TARGET" --check >/dev/null 2>&1
-PROBE=$?
-if [ "$PROBE" = "3" ]; then
-    harness_cannot_measure \
-        "no headless browser, so the design cannot be rendered and nothing here proves anything" \
-        "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
-fi
+# than the presence of a defect.
+# It skips only when the check names the browser as missing; any other 3 is a
+# fault and refuses the suite (harness_require_browser, ovation#561).
+harness_require_browser \
+    "no headless browser, so the design cannot be rendered and nothing here proves anything" \
+    "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER" \
+    python3 "$TARGET" --check
 
 fresh() {
     local at="$WORK/$1"
@@ -41,7 +40,7 @@ fresh() {
     printf '%s' "$at"
 }
 run_in() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}" 2>&1; }
-status_in() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}" >/dev/null 2>&1; printf '%s' "$?"; }
+status_in() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" "${@:2}"; }
 
 # A fact read out of an expected file by this suite, not by the tool.
 fact() {
@@ -92,7 +91,7 @@ PYDAMAGE
 # ---------------------------------------------------------------------------
 # THE COMMITTED FILE, which must be the text the design draws.
 # ---------------------------------------------------------------------------
-check "the committed expected text is what the design draws" "$(status_in "$(pwd)/docs/design" --check)" "0"
+check_exit "the committed expected text is what the design draws" 0 status_in "$(pwd)/docs/design" --check
 check "and the answer says how much it compared" \
     "$(run_in "$(pwd)/docs/design" --check | grep -c '8 fixture(s)')" "1"
 # EIGHT SINCE ovation#326, which added the settled receipt. It is one fixture and
@@ -137,12 +136,12 @@ check "and the Every element inputs carry its credit, its discount and its three
 # ---------------------------------------------------------------------------
 D1="$(fresh designmoved)"
 damage "$D1/invoice-pdf.html" 'tot.append(mk("span", null, "Total due"));' 'tot.append(mk("span", null, "Balance due"));'
-check "a design drawn differently makes the committed text stale" "$(status_in "$D1" --check)" "1"
+check_exit "a design drawn differently makes the committed text stale" 1 status_in "$D1" --check
 check "and the answer says STALE rather than refusing for another reason" \
     "$(run_in "$D1" --check | grep -c '^STALE: ')" "1"
 check "and it names the remedy" \
     "$(run_in "$D1" --check | grep -c 'build-invoice-pdf-text.sh')" "1"
-check "rewriting it makes it current again" "$(status_in "$D1")" "0"
+check_exit "rewriting it makes it current again" 0 status_in "$D1"
 check "and every fixture now carries the design's new wording" \
     "$(fact "$D1/invoice-pdf.expected.json" last-money-labels)" \
     "Balance due,Balance due,Balance due,Balance due,Balance due,Balance due,Balance due,Balance due"
@@ -153,7 +152,7 @@ check "and every fixture now carries the design's new wording" \
 # ---------------------------------------------------------------------------
 D2="$(fresh handedit)"
 damage "$D2/invoice-pdf.expected.json" '"Subtotal", "$475.00"' '"Subtotal", "$476.00"'
-check "a figure changed by hand in the committed file is stale" "$(status_in "$D2" --check)" "1"
+check_exit "a figure changed by hand in the committed file is stale" 1 status_in "$D2" --check
 check "and it is reported as STALE" "$(run_in "$D2" --check | grep -c '^STALE: ')" "1"
 
 # ---------------------------------------------------------------------------
@@ -161,7 +160,7 @@ check "and it is reported as STALE" "$(run_in "$D2" --check | grep -c '^STALE: '
 # ---------------------------------------------------------------------------
 D3="$(fresh unreadable)"
 damage "$D3/invoice-pdf.html" 'function buildPage(inv) {' 'function buildPageGone(inv) {'
-check "a design page the tool cannot read is refused, never written from" "$(status_in "$D3")" "4"
+check_exit "a design page the tool cannot read is refused, never written from" 4 status_in "$D3"
 check "and it says the design could not be read" \
     "$(run_in "$D3" | grep -c 'could not be read')" "1"
 
@@ -170,12 +169,12 @@ check "and it says the design could not be read" \
 # reads as text rather than as a fault.
 D5="$(fresh baddate)"
 damage "$D5/invoice-pdf.html" 'due: "March 20, 2027"' 'due: "Smarch 20, 2027"'
-check "a fixture date the page cannot read is refused, never written as a term" "$(status_in "$D5")" "4"
+check_exit "a fixture date the page cannot read is refused, never written as a term" 4 status_in "$D5"
 check "and it names the date it could not read" \
     "$(run_in "$D5" | grep -c 'Smarch 20, 2027 is not a date')" "1"
 
 D4="$WORK/nodesign"; mkdir -p "$D4"
-check "a record with no design file is nothing to render, not a pass" "$(status_in "$D4" --check)" "2"
-check "an argument it does not take is refused" "$(status_in "$(pwd)/docs/design" --bogus)" "2"
+check_exit "a record with no design file is nothing to render, not a pass" 2 status_in "$D4" --check
+check_exit "an argument it does not take is refused" 2 status_in "$(pwd)/docs/design" --bogus
 
 harness_end

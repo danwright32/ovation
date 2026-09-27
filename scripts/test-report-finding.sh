@@ -464,9 +464,17 @@ run_step() {  # run_step <workflow> <step name> <reporter exit> [VAR=value]...
     local wf="$1" name="$2" code="$3"; shift 3
     step_script "$wf" "$name" > "$STEP_DIR/step.sh"
     : > "$STEP_DIR/args.log"
-    (cd "$STEP_DIR" && env GH_TOKEN=unused TITLE="A title" REPORTER_EXIT="$code" "$@" \
-        bash step.sh >/dev/null 2>&1)
+    # What the step said is kept, and shown when its status is not the one a
+    # check expects (ovation#540).
+    STEP_SAID="$(cd "$STEP_DIR" && env GH_TOKEN=unused TITLE="A title" REPORTER_EXIT="$code" "$@" \
+        bash step.sh 2>&1)"
     STEP_STATUS=$?
+}
+# The step's status when it is the one expected, otherwise the status and what
+# the step said, so a red case carries the step's own reason.
+step_status() {
+    if [ "$STEP_STATUS" = "$1" ]; then printf '%s' "$STEP_STATUS"
+    else printf '%s, and it said: %s' "$STEP_STATUS" "$(head -n 20 <<< "$STEP_SAID")"; fi
 }
 handed_verdict() {
     if grep -A1 -x -- '--verdict-file' "$STEP_DIR/args.log" | grep -qx 'verdict.txt'; then
@@ -477,9 +485,9 @@ every_stands_step() {
     local wf="$1" label="$2" name="$3"; shift 3
     run_step "$wf" "$name" 9 "$@"
     check "$label passes its verdict to the reporter" "$(handed_verdict)" "yes"
-    check "$label accepts UNCHANGED rather than failing on it" "$STEP_STATUS" "0"
+    check "$label accepts UNCHANGED rather than failing on it" "$(step_status 0)" "0"
     run_step "$wf" "$name" 5 "$@"
-    check "$label still fails the job on a refusal" "$STEP_STATUS" "5"
+    check "$label still fails the job on a refusal" "$(step_status 5)" "5"
 }
 every_stands_step .github/workflows/design-record.yml "the design record step" "Say so, once"
 every_stands_step .github/workflows/runner-xcode.yml "the dropped Xcode step" \
@@ -495,7 +503,7 @@ every_stands_step .github/workflows/ci-liveness.yml "the CI FAILING step" "Say s
 run_step .github/workflows/ci-liveness.yml "Say so, once" 1 STATUS=1
 check "the CI BLOCKED step passes no verdict, since its hour counts change every run" \
     "$(handed_verdict)" "no"
-check "and still reports as before" "$STEP_STATUS" "0"
+check "and still reports as before" "$(step_status 0)" "0"
 
 # ---------------------------------------------------------------------------
 # 14. A CRASH IS NOT A COMMENT. Python exits 1 on an uncaught exception, and 1

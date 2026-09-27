@@ -24,7 +24,7 @@ harness_temp_dir WORK
 
 HEADER='Invoice #,Invoice Status,Client Name,Item Name,Quantity,Line Subtotal,Discount Percentage,Tax 1 Amount,Date Issued'
 run_on() { "./$TARGET" "$1" 2>&1; }
-status_on() { "./$TARGET" "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+status_on() { "./$TARGET" "$1"; }
 field() { run_on "$1" | grep -E "^  $2 " | awk '{print $NF}'; }
 # A line that carries a count AND a share ends in the share, so the count is one
 # field back. Named rather than inlined, because `field` reading the last column
@@ -39,7 +39,7 @@ $HEADER
 1102,Sent,Harbour Line Theatre,Rush turnaround,1,100,0,8.88,2026-01-06
 1103,Draft,Northmoor Ensemble,Photography,4,1000,0,88.75,2026-01-09
 CSV
-check "an export with issued invoices measures successfully" "$(status_on "$WORK/basic.csv")" "0"
+check_exit "an export with issued invoices measures successfully" 0 status_on "$WORK/basic.csv"
 check "a DRAFT is not counted as issued, whatever date it carries" \
     "$(field "$WORK/basic.csv" 'issued invoices')" "2"
 check "and the draft's line is out of the line count too" \
@@ -77,8 +77,8 @@ cat > "$WORK/drafts-only.csv" <<CSV
 $HEADER
 1103,Draft,Northmoor Ensemble,Photography,4,1000,0,88.75,2026-01-09
 CSV
-check "an export holding only drafts refuses rather than reporting zeroes" \
-    "$(status_on "$WORK/drafts-only.csv")" "1"
+check_exit "an export holding only drafts refuses rather than reporting zeroes" \
+    1 status_on "$WORK/drafts-only.csv"
 check "and it says nothing could be measured" \
     "$(run_on "$WORK/drafts-only.csv" | grep -c 'nothing can be measured')" "1"
 
@@ -145,6 +145,6 @@ check "the section says what the export cannot answer" \
 check "an export with no Date Paid column says so instead of reporting none" \
     "$(run_on "$WORK/basic.csv" | grep -c 'no Date Paid column')" "1"
 
-check "an export that is not there cannot be measured" "$(status_on "$WORK/nowhere.csv")" "1"
+check_exit "an export that is not there cannot be measured" 1 status_on "$WORK/nowhere.csv"
 
 harness_end

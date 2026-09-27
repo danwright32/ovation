@@ -18,8 +18,7 @@ harness_temp_dir WORK
 
 run_on() { OVATION_DESIGN_ROOT="$1" python3 "$TARGET" 2>&1; }
 status_on() {
-    OVATION_DESIGN_ROOT="$1" python3 "$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_DESIGN_ROOT="$1" python3 "$TARGET"
 }
 
 root() { mkdir -p "$WORK/$1" && printf '%s' "$WORK/$1"; }
@@ -37,7 +36,7 @@ body { margin: 0; }
 </style>
 <div class="win"><div class="row"><span class="amt">1</span></div></div>
 HTML
-check "a file whose every rule is applied passes" "$(status_on "$CLEAN")" "0"
+check_exit "a file whose every rule is applied passes" 0 status_on "$CLEAN"
 check "and it says how many rules it judged" \
     "$(run_on "$CLEAN" | grep -c 'every one reachable')" "2"
 
@@ -54,7 +53,7 @@ cat > "$COPIED/screen.html" <<'HTML'
 </style>
 <div class="win">nothing else</div>
 HTML
-check "a rule nothing can reach is refused" "$(status_on "$COPIED")" "1"
+check_exit "a rule nothing can reach is refused" 1 status_on "$COPIED"
 check "and it is named" "$(run_on "$COPIED" | grep -c '`.crow` cannot match')" "1"
 check "and so is the class that cannot be reached" \
     "$(run_on "$COPIED" | grep -c '\.crow never named outside')" "1"
@@ -74,7 +73,7 @@ cat > "$HALF/screen.html" <<'HTML'
 </style>
 <div class="sel">n</div>
 HTML
-check "a compound selector dies with the class that is gone" "$(status_on "$HALF")" "1"
+check_exit "a compound selector dies with the class that is gone" 1 status_on "$HALF"
 check "and the surviving class alone does not rescue it" \
     "$(run_on "$HALF" | grep -c '`.crow.sel` cannot match')" "1"
 check "nor does a descendant whose second word is used elsewhere" \
@@ -123,7 +122,7 @@ check "so is one only ever handed to querySelector" \
     "$(run_on "$BYSCRIPT" | grep -c '`.open` cannot match')" "0"
 check "so is one built by a helper" \
     "$(run_on "$BYSCRIPT" | grep -c '`.tip` cannot match')" "0"
-check "and the file passes" "$(status_on "$BYSCRIPT")" "0"
+check_exit "and the file passes" 0 status_on "$BYSCRIPT"
 
 # ---------------------------------------------------------------------------
 # PROSE AND COMMENTS DO NOT RESCUE A RULE. This is what let `.sheet` survive.
@@ -175,7 +174,7 @@ cat > "$SHELLED/screen.html" <<'HTML'
 </style>
 <div class="win"><span class="mine">no row here</span></div>
 HTML
-check "with its own rules all reachable the file passes" "$(status_on "$SHELLED")" "0"
+check_exit "with its own rules all reachable the file passes" 0 status_on "$SHELLED"
 check "and the verdict says how many rules it left to the shell" \
     "$(run_on "$SHELLED" | grep -c 'come verbatim from shell/')" "1"
 
@@ -184,13 +183,13 @@ check "and the verdict says how many rules it left to the shell" \
 # outcome (L98, L11).
 # ---------------------------------------------------------------------------
 EMPTY="$(root empty)"
-check "an empty design root cannot measure" "$(status_on "$EMPTY")" "2"
+check_exit "an empty design root cannot measure" 2 status_on "$EMPTY"
 check "and says so rather than reporting health" \
     "$(run_on "$EMPTY" | grep -c 'CANNOT MEASURE')" "1"
 
 NOSTYLE="$(root nostyle)"
 printf '<p>Just prose.</p>\n' > "$NOSTYLE/screen.html"
-check "a file with no stylesheet of its own cannot measure" "$(status_on "$NOSTYLE")" "2"
+check_exit "a file with no stylesheet of its own cannot measure" 2 status_on "$NOSTYLE"
 check "and its message names that cause rather than the empty one" \
     "$(run_on "$NOSTYLE" | grep -c 'carries no stylesheet of its own')" "1"
 
@@ -202,17 +201,17 @@ h1 { font-size: 26px; }
 </style>
 <h1>An invoice</h1>
 HTML
-check "a stylesheet naming no class at all cannot measure" "$(status_on "$NOCLASS")" "2"
+check_exit "a stylesheet naming no class at all cannot measure" 2 status_on "$NOCLASS"
 check "and says which of the three empties it hit" \
     "$(run_on "$NOCLASS" | grep -c 'not one rule names a')" "1"
 
-check "a named file that is not there is refused, never skipped" \
-    "$(python3 "$TARGET" "$WORK/nowhere.html" >/dev/null 2>&1; printf '%s' "$?")" "2"
+check_exit "a named file that is not there is refused, never skipped" \
+    2 python3 "$TARGET" "$WORK/nowhere.html"
 
 # ---------------------------------------------------------------------------
 # THE COMMITTED RECORD ITSELF, which is the run the push gate makes.
 # ---------------------------------------------------------------------------
-check "the committed design record passes" \
-    "$(python3 "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+check_exit "the committed design record passes" \
+    0 python3 "$TARGET"
 
 harness_end

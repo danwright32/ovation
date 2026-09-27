@@ -84,8 +84,7 @@ for allowed in Document/InvoiceDocument.swift Document/InvoiceFooterSetting.swif
     : > "$ONE/Ovation/Document/InvoiceFooterSetting.swift"
     : > "$ONE/Ovation/Document/ReviewSampleWorld.swift"
     printf 'let f = InvoiceFooter.fixed\n' > "$ONE/Ovation/$allowed"
-    run_check "$ONE" >/dev/null
-    check "$allowed may read the shipped text" "$?" "0"
+    check_exit "$allowed may read the shipped text" 0 run_check "$ONE"
 done
 
 # ---------------------------------------------------------------------------

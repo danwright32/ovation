@@ -74,15 +74,15 @@ run_check() {
     OVATION_OVERTURE_GATE_COMMIT="$4" \
         "./$TARGET" 2>&1
 }
-status_of() { run_check "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+status_of() { run_check "$@"; }
 says() { if grep -qF "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
 # 1. The healthy case, which is what this machine actually looks like today.
 # ---------------------------------------------------------------------------
 OUT_OK="$(run_check "$GOOD_RECORD" "$REPO" "$GOOD_EXPORT" "$OLD")"
-check "everything in order is a pass" \
-    "$(status_of "$GOOD_RECORD" "$REPO" "$GOOD_EXPORT" "$OLD")" "0"
+check_exit "everything in order is a pass" \
+    0 status_of "$GOOD_RECORD" "$REPO" "$GOOD_EXPORT" "$OLD"
 check "and it names both facts it measured, not just its verdict" \
     "$(says "$OUT_OK" "version 3")" "yes"
 
@@ -96,15 +96,15 @@ check "and it names both facts it measured, not just its verdict" \
 # way round first, with the same commit on both sides, and it passed: a commit is
 # its own ancestor, so that fixture asserted nothing at all (L159).
 OLD_RECORD="$WORK/old.json"; record "$OLD_RECORD" "$OLD" main
-check "an installed build that predates the gate fix is BLOCKED" \
-    "$(status_of "$OLD_RECORD" "$REPO" "$GOOD_EXPORT" "$NEW")" "1"
+check_exit "an installed build that predates the gate fix is BLOCKED" \
+    1 status_of "$OLD_RECORD" "$REPO" "$GOOD_EXPORT" "$NEW"
 OUT_OLD="$(run_check "$OLD_RECORD" "$REPO" "$GOOD_EXPORT" "$NEW")"
 check "and it names the gate commit it wanted" \
     "$(says "$OUT_OLD" "${NEW:0:8}")" "yes"
 
 BRANCH_RECORD="$WORK/branch.json"; record "$BRANCH_RECORD" "$NEW" a-feature-branch
-check "an install from a branch other than main is BLOCKED" \
-    "$(status_of "$BRANCH_RECORD" "$REPO" "$GOOD_EXPORT" "$OLD")" "1"
+check_exit "an install from a branch other than main is BLOCKED" \
+    1 status_of "$BRANCH_RECORD" "$REPO" "$GOOD_EXPORT" "$OLD"
 OUT_BRANCH="$(run_check "$BRANCH_RECORD" "$REPO" "$GOOD_EXPORT" "$OLD")"
 check "and it names the provenance it actually found" \
     "$(says "$OUT_BRANCH" "a-feature-branch")" "yes"
@@ -116,15 +116,15 @@ check "and it names the provenance it actually found" \
 # merely incomplete tells Dan his ordinary install came from an unmerged branch,
 # and reinstalling would not clear it (L119, L11). So it cannot be measured.
 UNKNOWN_PROV="$WORK/unknown-prov.json"; record "$UNKNOWN_PROV" "$NEW" unknown
-check "an install whose provenance could not be classified cannot be measured" \
-    "$(status_of "$UNKNOWN_PROV" "$REPO" "$GOOD_EXPORT" "$OLD")" "2"
+check_exit "an install whose provenance could not be classified cannot be measured" \
+    2 status_of "$UNKNOWN_PROV" "$REPO" "$GOOD_EXPORT" "$OLD"
 OUT_UNK="$(run_check "$UNKNOWN_PROV" "$REPO" "$GOOD_EXPORT" "$OLD")"
 check "and it does not accuse the install of coming from a branch" \
     "$(says "$OUT_UNK" "branch")" "no"
 
 V2_EXPORT="$WORK/v2.json"; export_file "$V2_EXPORT" 2
-check "an export that is still version 2 is BLOCKED" \
-    "$(status_of "$GOOD_RECORD" "$REPO" "$V2_EXPORT" "$OLD")" "1"
+check_exit "an export that is still version 2 is BLOCKED" \
+    1 status_of "$GOOD_RECORD" "$REPO" "$V2_EXPORT" "$OLD"
 
 # ---------------------------------------------------------------------------
 # 3. CANNOT MEASURE: the fact could not be read at all.
@@ -133,32 +133,32 @@ check "an export that is still version 2 is BLOCKED" \
 # claim only what its check actually measured (L11). Sharing one message would
 # let the missing field answer for the missing file.
 # ---------------------------------------------------------------------------
-check "a missing installed-build.json cannot be measured, and is not a pass" \
-    "$(status_of "$WORK/nothing-here.json" "$REPO" "$GOOD_EXPORT" "$OLD")" "2"
+check_exit "a missing installed-build.json cannot be measured, and is not a pass" \
+    2 status_of "$WORK/nothing-here.json" "$REPO" "$GOOD_EXPORT" "$OLD"
 
 NO_COMMIT="$WORK/no-commit.json"; record "$NO_COMMIT" - main
-check "a record with no commit field cannot be measured" \
-    "$(status_of "$NO_COMMIT" "$REPO" "$GOOD_EXPORT" "$OLD")" "2"
+check_exit "a record with no commit field cannot be measured" \
+    2 status_of "$NO_COMMIT" "$REPO" "$GOOD_EXPORT" "$OLD"
 OUT_NC="$(run_check "$NO_COMMIT" "$REPO" "$GOOD_EXPORT" "$OLD")"
 check "and it names the field that was missing" "$(says "$OUT_NC" "commit")" "yes"
 
 NO_PROV="$WORK/no-prov.json"; record "$NO_PROV" "$NEW" -
-check "a record with no provenance field cannot be measured" \
-    "$(status_of "$NO_PROV" "$REPO" "$GOOD_EXPORT" "$OLD")" "2"
+check_exit "a record with no provenance field cannot be measured" \
+    2 status_of "$NO_PROV" "$REPO" "$GOOD_EXPORT" "$OLD"
 
 MALFORMED="$WORK/malformed.json"; printf 'this is not json\n' > "$MALFORMED"
-check "a record that is not JSON at all cannot be measured" \
-    "$(status_of "$MALFORMED" "$REPO" "$GOOD_EXPORT" "$OLD")" "2"
+check_exit "a record that is not JSON at all cannot be measured" \
+    2 status_of "$MALFORMED" "$REPO" "$GOOD_EXPORT" "$OLD"
 
-check "an unreachable Overture checkout cannot be measured" \
-    "$(status_of "$GOOD_RECORD" "$WORK/no-such-repo" "$GOOD_EXPORT" "$OLD")" "2"
+check_exit "an unreachable Overture checkout cannot be measured" \
+    2 status_of "$GOOD_RECORD" "$WORK/no-such-repo" "$GOOD_EXPORT" "$OLD"
 
 UNKNOWN="$WORK/unknown.json"; record "$UNKNOWN" 0000000000000000000000000000000000000000 main
-check "a commit the checkout has never heard of cannot be measured" \
-    "$(status_of "$UNKNOWN" "$REPO" "$GOOD_EXPORT" "$OLD")" "2"
+check_exit "a commit the checkout has never heard of cannot be measured" \
+    2 status_of "$UNKNOWN" "$REPO" "$GOOD_EXPORT" "$OLD"
 
-check "a missing export cannot be measured" \
-    "$(status_of "$GOOD_RECORD" "$REPO" "$WORK/no-export.json" "$OLD")" "2"
+check_exit "a missing export cannot be measured" \
+    2 status_of "$GOOD_RECORD" "$REPO" "$WORK/no-export.json" "$OLD"
 
 # ---------------------------------------------------------------------------
 # 4. THE PRIVACY FLOOR. The export carries real client and venue names, and this

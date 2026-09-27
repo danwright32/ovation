@@ -23,7 +23,7 @@ harness_temp_dir WORK
 n=0
 body() { n=$((n+1)); printf '%s\n' "$1" > "$WORK/body-$n.md"; printf '%s' "$WORK/body-$n.md"; }
 run_on() { OVATION_PR_BODY_FILE="$1" "./$TARGET" 2>&1; }
-status_on() { run_on "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+status_on() { run_on "$1"; }
 says() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 
 # ---------------------------------------------------------------------------
@@ -31,22 +31,22 @@ says() { if grep -qF -- "$2" <<< "$1"; then echo yes; else echo no; fi; }
 #    below is satisfied by a check that refuses everything (L159).
 # ---------------------------------------------------------------------------
 GOOD="$(body 'Closes #1.')"
-check "Closes #1 passes" "$(status_on "$GOOD")" "0"
+check_exit "Closes #1 passes" 0 status_on "$GOOD"
 check "and it says how many closing references it read" \
     "$(says "$(run_on "$GOOD")" "1 closing reference")" "yes"
 
 BOTH_GOOD="$(body 'Closes #236. Closes #281.')"
-check "two closing references in the spelling GitHub reads pass" "$(status_on "$BOTH_GOOD")" "0"
+check_exit "two closing references in the spelling GitHub reads pass" 0 status_on "$BOTH_GOOD"
 
 FULL="$(body 'Fixes danwright32/ovation#12.')"
-check "the owner/repo#N spelling passes, because GitHub reads it too" "$(status_on "$FULL")" "0"
+check_exit "the owner/repo#N spelling passes, because GitHub reads it too" 0 status_on "$FULL"
 
 # ---------------------------------------------------------------------------
 # 2. THE SPELLING THAT LEFT FIVE ISSUES OPEN.
 # ---------------------------------------------------------------------------
 BAD="$(body 'Closes ovation#1')"
 OUT_BAD="$(run_on "$BAD")"
-check "Closes ovation#1 is refused" "$(status_on "$BAD")" "1"
+check_exit "Closes ovation#1 is refused" 1 status_on "$BAD"
 check "and it names the reference it refused" "$(says "$OUT_BAD" "Closes ovation#1")" "yes"
 check "and it gives the spelling GitHub reads, rather than describing it (L399)" \
     "$(says "$OUT_BAD" "Closes #1")" "yes"
@@ -54,13 +54,13 @@ check "and it gives the spelling GitHub reads, rather than describing it (L399)"
 # EVERY KEYWORD GitHub documents, in every tense, and in any case.
 for keyword in close closes closed fix fixes fixed resolve resolves resolved; do
     f="$(body "This $keyword ovation#7 today.")"
-    [ "$(status_on "$f")" = "1" ] || MISSED="${MISSED:-}${keyword} "
+    said="$(status_on "$f" 2>&1)"; [ "$?" = "1" ] || MISSED="${MISSED:-}${keyword} "
 done
 check "every closing keyword before ovation#N is refused" "${MISSED:-}" ""
-check "and case does not hide one" "$(status_on "$(body 'FIXES ovation#7')")" "1"
+check_exit "and case does not hide one" 1 status_on "$(body 'FIXES ovation#7')"
 # GitHub reads `Closes: #N` as well, so the colon form of the mistake is the same
 # mistake.
-check "and neither does a colon after the keyword" "$(status_on "$(body 'Resolves: ovation#7')")" "1"
+check_exit "and neither does a colon after the keyword" 1 status_on "$(body 'Resolves: ovation#7')"
 
 # EVERY ONE, NOT THE FIRST. A refusal naming one of three teaches whoever fixes it
 # that there was one (L30).
@@ -70,47 +70,47 @@ check "every refused reference is named, not only the first" \
     "$(run_on "$MANY" | grep -c 'write Closes #247\|write Closes #231\|write fixes #9')" "3"
 
 # A mixed description is refused for the half that is wrong.
-check "one right and one wrong reference is still refused" \
-    "$(status_on "$(body 'Closes #252. Closes ovation#254.')")" "1"
+check_exit "one right and one wrong reference is still refused" \
+    1 status_on "$(body 'Closes #252. Closes ovation#254.')"
 
 # ---------------------------------------------------------------------------
 # 3. WHAT IT MUST NOT REFUSE. A description names issues as ovation#N all the
 #    time without closing them, and a check that refused prose would be one
 #    people learn to route around (L104, L36).
 # ---------------------------------------------------------------------------
-check "an ovation#N reference with no closing keyword passes" \
-    "$(status_on "$(body 'This follows ovation#155 and ovation#214.')")" "0"
-check "a keyword that is only part of a longer word does not count" \
-    "$(status_on "$(body 'The prefixes ovation#3 and the enclosed ovation#4 are prose.')")" "0"
-check "a keyword far from the reference does not count" \
-    "$(status_on "$(body 'This fixes the gate that ovation#5 described.')")" "0"
+check_exit "an ovation#N reference with no closing keyword passes" \
+    0 status_on "$(body 'This follows ovation#155 and ovation#214.')"
+check_exit "a keyword that is only part of a longer word does not count" \
+    0 status_on "$(body 'The prefixes ovation#3 and the enclosed ovation#4 are prose.')"
+check_exit "a keyword far from the reference does not count" \
+    0 status_on "$(body 'This fixes the gate that ovation#5 described.')"
 # ovation#486. A SENTENCE SAYING AN ISSUE STAYS OPEN IS NOT AN ATTEMPT TO CLOSE IT.
 # PR ovation#484 was refused for "It does not close ovation#457, which still owes
 # ...": a guard matching the phrase anywhere fires on prose that talks about it
 # (L673), and the prose it fired on is the good habit of naming the issue a slice
 # leaves open.
-check "a keyword a negation stands in front of does not count" \
-    "$(status_on "$(body 'It does not close ovation#457, which still owes the line item control.')")" "0"
-check "and neither does never, or a contraction" \
-    "$(status_on "$(body "This never fixes ovation#3, and it won't resolve ovation#4 either.")")" "0"
+check_exit "a keyword a negation stands in front of does not count" \
+    0 status_on "$(body 'It does not close ovation#457, which still owes the line item control.')"
+check_exit "and neither does never, or a contraction" \
+    0 status_on "$(body "This never fixes ovation#3, and it won't resolve ovation#4 either.")"
 check "and it is not counted as a closing reference it read" \
     "$(says "$(run_on "$(body 'It does not close ovation#457.')")" "0 closing reference")" "yes"
 # THE STAND DOWN IS NO BROADER THAN ITS REASON (L324). GitHub reads a keyword
 # anywhere in the description, mid sentence included, so an affirmative one there
 # is still refused: narrowing to the start of a line would pass exactly this.
-check "an affirmative keyword mid sentence is still refused" \
-    "$(status_on "$(body 'This change closes ovation#12 once it lands.')")" "1"
-check "and a negation elsewhere in the description does not excuse another reference" \
-    "$(status_on "$(body "It does not close ovation#457. Closes ovation#458.")")" "1"
+check_exit "an affirmative keyword mid sentence is still refused" \
+    1 status_on "$(body 'This change closes ovation#12 once it lands.')"
+check_exit "and a negation elsewhere in the description does not excuse another reference" \
+    1 status_on "$(body "It does not close ovation#457. Closes ovation#458.")"
 # AND A NEGATION BESIDE A REFERENCE GITHUB DOES READ IS REFUSED, the other way
 # round. GitHub's parser does no negation handling at all, so "does not close #12"
 # CLOSES #12 on merge: it closed Overture #897 on a pull request that said it did
 # not. The ovation#N spelling above is harmless precisely because GitHub reads
 # none of it; #N and owner/repo#N are read, "not" and all.
-check "a negated keyword before #N is refused, because GitHub closes it anyway" \
-    "$(status_on "$(body 'It does not close #457, which still owes the line item control.')")" "1"
-check "and so is one before owner/repo#N" \
-    "$(status_on "$(body 'This never fixes danwright32/ovation#3.')")" "1"
+check_exit "a negated keyword before #N is refused, because GitHub closes it anyway" \
+    1 status_on "$(body 'It does not close #457, which still owes the line item control.')"
+check_exit "and so is one before owner/repo#N" \
+    1 status_on "$(body 'This never fixes danwright32/ovation#3.')"
 check "and the refusal says GitHub ignores the negation and how to write it instead" \
     "$(says "$(run_on "$(body 'It does not close #457.')")" "stays open")" "yes"
 check "a description with no closing reference at all passes, and says it read none" \
@@ -119,16 +119,16 @@ check "a description with no closing reference at all passes, and says it read n
 # ---------------------------------------------------------------------------
 # 4. CANNOT MEASURE. No description to read proves nothing about one (L98).
 # ---------------------------------------------------------------------------
-check "no description file given cannot be measured" \
-    "$(OVATION_PR_BODY_FILE="" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "2"
-check "a description file that is not there cannot be measured" \
-    "$(status_on "$WORK/no-such-body.md")" "2"
+check_exit "no description file given cannot be measured" \
+    2 env OVATION_PR_BODY_FILE="" "./$TARGET"
+check_exit "a description file that is not there cannot be measured" \
+    2 status_on "$WORK/no-such-body.md"
 check "and it says so rather than passing" \
     "$(says "$(run_on "$WORK/no-such-body.md")" "CANNOT MEASURE")" "yes"
 # AN EMPTY DESCRIPTION IS A REAL DESCRIPTION. GitHub sends an empty body for a
 # pull request with none, and it closes nothing, so it passes.
-check "an empty description passes, because it closes nothing" \
-    "$(status_on "$(body '')")" "0"
+check_exit "an empty description passes, because it closes nothing" \
+    0 status_on "$(body '')"
 
 # ---------------------------------------------------------------------------
 # 5. THE WORKFLOW RUNS IT, ON THE EVENTS THAT CHANGE A DESCRIPTION. A check on

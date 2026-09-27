@@ -92,7 +92,7 @@ esac
 # 4. AN UNQUALIFIED TOKEN RESOLVES TO SECTION 5, and the proof is a requirement
 #    that exists ONLY there.
 D="$(fixture unqualified 'See PRD 52g for the vocabulary.')"
-run_on "$D" >/dev/null; check "a bare token resolves against section 5" "$?" "0"
+check_exit "a bare token resolves against section 5" 0 run_on "$D"
 
 # 5. AND THE QUALIFIER IS HONOURED rather than being read as "any section". The
 #    same requirement, asked for in a section that does not hold it, is refused.
@@ -110,7 +110,7 @@ esac
 #    hypothetical: the throwaway parser written while measuring this issue did
 #    exactly that and named 5a0 as the first dangling citation in the repo.
 D="$(fixture digitsuffix 'See PRD 5a0 for what cannot be re-derived.')"
-run_on "$D" >/dev/null; check "a requirement labelled 5a0 resolves" "$?" "0"
+check_exit "a requirement labelled 5a0 resolves" 0 run_on "$D"
 
 # 7. A CONTINUATION IN A LIST IS A CITATION. The one real defect in the tree was
 #    written as a section qualifier, `and`, and a second number, and a check
@@ -127,7 +127,7 @@ esac
 # 8. AND A LEGITIMATE CONTINUATION IS NOT REFUSED, or the rule above would be
 #    bought by refusing most of the real citations in the tree.
 D="$(fixture goodlist 'Recorded at PRD 5.3, 5.3a and 14h as agreed.')"
-run_on "$D" >/dev/null; check "a continuation naming real requirements passes" "$?" "0"
+check_exit "a continuation naming real requirements passes" 0 run_on "$D"
 
 # 9. NO PRD TO READ IS NOT A PASS.
 D="$(fixture noprd 'See PRD 3.' none)"
@@ -195,6 +195,6 @@ cp "$REAL_PRD" "$SAME_NUMBER_PRD"
 printf '\n## 99. An appendix\n\n14a. The same number in a DIFFERENT section, which is legitimate.\n' >> "$SAME_NUMBER_PRD"
 OUT="$(run_on "$(fixture other-section "Cited: ${C} 14a." "$SAME_NUMBER_PRD")")"; RC=$?
 check "the same number in a different section is not a duplicate" "$RC" "0"
-check "and the committed PRD declares every number once" "$("$CHECK" >/dev/null 2>&1; echo $?)" "0"
+check_exit "and the committed PRD declares every number once" 0 "$CHECK"
 
 harness_end

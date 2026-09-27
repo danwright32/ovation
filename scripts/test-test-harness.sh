@@ -459,5 +459,133 @@ LIVE_ARRAYS="$(unguarded_expansions scripts/*.sh scripts/lib/*.sh scripts/git-ho
 check "every array expansion under set -u in this tree is safe or says why it cannot be empty" \
     "$(grep -c . <<< "$LIVE_ARRAYS" || true)" "0"
 
+# A RENDERING SUITE SKIPS ONLY WHEN THE BROWSER IS REALLY MISSING (ovation#561).
+# Every rendering suite probed its tool once and skipped on exit 3, but a tool
+# answers 3 for faults too, "reported no claim at all" among them, and on
+# 2026-09-26 a planted fault went unjudged because its suite said "no browser"
+# over one (ovation#110). So the probe skips only when the tool's own words name
+# the browser as missing, and any other 3 is refused with what the tool said.
+browser_probe_suite() {
+    # $1 name, $2 the status the stand in tool answers, $3 what it says, $4 an
+    # extra pattern for --or, if any.
+    local also=""
+    [ -n "${4:-}" ] && also="--or '$4'"
+    suite "$1" <<SUITE
+#!/bin/bash
+cd "$PWD" || exit 1
+. "$PWD/$HARNESS"
+harness_begin "browser probe" 1
+tool() { printf '%s\n' "$3"; return $2; }
+harness_require_browser "no headless browser here" "install one" $also tool
+check "reached the cases" "a" "a"
+harness_end
+SUITE
+}
+browser_probe_suite probe_missing 3 "CANNOT MEASURE: no headless browser found. This check renders"
+OUT16="$(run probe_missing)"; ST16=$?
+check "a probe whose tool names no browser found skips the suite as cannot measure" \
+    "$ST16:$(grep -c '^CANNOT MEASURE: browser probe$' <<< "$OUT16")" "2:1"
+check "and gives the suite's reason and remedy" \
+    "$(grep -c -e 'no headless browser here' -e 'install one' <<< "$OUT16")" "2"
+browser_probe_suite probe_named 3 "CANNOT MEASURE: OVATION_HEADLESS_BROWSER names /x/chrome, which is not there"
+OUT17="$(run probe_named)"; ST17=$?
+check "a named browser that is not there is a missing browser too" "$ST17" "2"
+browser_probe_suite probe_prefixed 3 "CANNOT MEASURE: invoice-pdf.html: no headless browser found. This check renders"
+OUT23="$(run probe_prefixed)"; ST23=$?
+check "and so is one reported after the name of the file it was to render" "$ST23" "2"
+browser_probe_suite probe_fault 3 "CANNOT MEASURE: invoice-pdf.html at 1440px reported no claim at all, which is not a pass."
+OUT18="$(run probe_fault)"; ST18=$?
+check "a probe answering 3 for any other reason fails the suite rather than skipping it" \
+    "$ST18:$(grep -c '^CANNOT MEASURE: browser probe$' <<< "$OUT18")" "1:0"
+check "and says it refused, quoting what the tool said" \
+    "$(grep -c -e '^REFUSED: ' -e '^        CANNOT MEASURE: invoice-pdf.html at 1440px reported no claim at all' <<< "$OUT18")" "2"
+check "and never reaches the cases, whose answers would be about nothing" \
+    "$(grep -c 'browser probe: 1 passed' <<< "$OUT18")" "0"
+browser_probe_suite probe_renders 0 "OK: all 40 claim(s) held"
+OUT19="$(run probe_renders)"; ST19=$?
+check "a probe that could render goes on to the cases" \
+    "$ST19:$(grep -c '^browser probe: 1 passed, 0 failed$' <<< "$OUT19")" "0:1"
+browser_probe_suite probe_red 1 "REFUSED: 2 of 40 claim(s) did not hold"
+OUT20="$(run probe_red)"; ST20=$?
+check "and so does one whose tool found a fault, which the cases then judge" "$ST20" "0"
+browser_probe_suite probe_also 3 "CANNOT MEASURE: Pillow is not installed, so the picture's own" "Pillow is not installed"
+OUT21="$(run probe_also)"; ST21=$?
+check "a suite can name one more missing tool that is also no answer" "$ST21" "2"
+browser_probe_suite probe_also_fault 3 "CANNOT MEASURE: no design/x.html, so there is nothing to render." "Pillow is not installed"
+OUT22="$(run probe_also_fault)"; ST22=$?
+check "without widening the skip to every other 3" "$ST22" "1"
+
+# AND NO SUITE GOES BACK TO READING A BARE 3 AS NO BROWSER (ovation#561, L613).
+# The helper above is the one way a suite decides it cannot render, so a status
+# compared with 3 by hand in a suite is the old probe coming back.
+hand_probes() {
+    grep -n -E '\[ "\$[A-Za-z_?][A-Za-z0-9_]*" = "?3"? \]' "$@" 2>/dev/null \
+        | grep -v -E '^([^:]*:)?[0-9]+:[[:space:]]*#' || true
+}
+# The 3 goes in through %s, or this line would be the finding about this file.
+printf '#!/bin/bash\npython3 "$TARGET" >/dev/null 2>&1\nPROBE=$?\nif [ "$PROBE" = "%s" ]; then\n    harness_cannot_measure "no browser"\nfi\n' 3 > "$WORK/hand-probe.sh"
+check "a suite comparing a probe's status with 3 by hand is caught" \
+    "$(hand_probes "$WORK/hand-probe.sh" | grep -c .)" "1"
+LIVE_PROBES="$(hand_probes scripts/test-*.sh)"
+[ -z "$LIVE_PROBES" ] || printf '    compares a status with 3 by hand:\n%s\n' "$LIVE_PROBES" >&2
+check "no suite in this tree reads a bare exit 3 as a missing browser" \
+    "$(grep -c . <<< "$LIVE_PROBES" || true)" "0"
+
+# AN EXIT STATUS IS NEVER JUDGED WITH ITS COMMAND'S WORDS THROWN AWAY (ovation#540).
+# Suites judged a tool through a helper that sent its output to /dev/null and
+# printed only `$?`, so a failure read "expected '0', got '1'" and nothing else,
+# which is why main's one-off red on 2026-09-25 could not be diagnosed (ovation#539).
+# check_exit keeps the output and prints it under a failure, and every suite was
+# converted to it, so the shape that discards is refused here (L613).
+#
+# THE SHAPE IS THE STATE REACHED, NOT ONE SPELLING OF IT (L247). The first version
+# of this ban knew one spelling, output to /dev/null then `printf '%s' "$?"` or
+# `echo $?`, and a review found eighteen live sites it could not see: the status
+# saved (`>/dev/null 2>&1; ST=$?`), stdout alone discarded (`>/dev/null; echo $?`),
+# the status read straight into a check, and a redirect on one line whose status
+# the next line reads. So any redirect of stdout to /dev/null whose status is read
+# at once, by echo, printf, an assignment or a check, is refused. A redirect of
+# stderr alone (`wait "$pid" 2>/dev/null`) is not: its command's words are kept.
+discarding_status_helpers() {
+    awk '
+        /^[[:space:]]*#/ { prev = ""; next }
+        /(^|[^0-9&])>[[:space:]]*\/dev\/null( 2>&1)?[)'"'"']?; *(echo \$\?|printf .%s. "\$\?"|[A-Za-z_][A-Za-z0-9_]*=\$\?|check .*"\$\?")/ {
+            print FILENAME ":" FNR ": " $0; prev = $0; next
+        }
+        prev ~ /(^|[^0-9&])>[[:space:]]*\/dev\/null( 2>&1)?[)]?[[:space:]]*$/ &&
+            /^[[:space:]]*(echo \$\?|printf .%s. "\$\?"|[A-Za-z_][A-Za-z0-9_]*=\$\?|check .*"\$\?")/ {
+            print FILENAME ":" FNR ": " $0
+        }
+        { prev = $0 }
+    ' "$@"
+}
+# Every fixture is written with its status read passed in through %s, so this
+# file never holds the shape it refuses.
+S='$?'
+mkdir -p "$WORK/discards"
+printf 'status_of() { run_check "$1" >/dev/null 2>&1; printf %s; }\n' "'%s' \"$S\"" > "$WORK/discards/printf-one-line.sh"
+printf 'status_on() {\n    run_on "$1" >/dev/null 2>&1\n    echo %s\n}\n' "$S" > "$WORK/discards/echo-next-line.sh"
+printf 'bash "$RULE" maybe X "" >/dev/null 2>&1; ST=%s\n' "$S" > "$WORK/discards/saved-status.sh"
+printf 'check "passes" "$(run_check >/dev/null; echo %s)" "0"\n' "$S" > "$WORK/discards/stdout-only-echo.sh"
+printf 'run_on "$D" >/dev/null; check "resolves" "%s" "0"\n' "$S" > "$WORK/discards/status-into-check.sh"
+printf '( cd "$COPY" && bash scripts/check.sh ) >/dev/null 2>&1; ST=%s\n' "$S" > "$WORK/discards/subshell-saved.sh"
+printf 'python3 "$TARGET" >/dev/null 2>&1\nREAL=%s\n' "$S" > "$WORK/discards/saved-next-line.sh"
+printf 'run_check "$ONE" >/dev/null\ncheck "may read it" "%s" "0"\n' "$S" > "$WORK/discards/check-next-line.sh"
+for shape in printf-one-line echo-next-line saved-status stdout-only-echo status-into-check \
+        subshell-saved saved-next-line check-next-line; do
+    check "a status read with its command's output discarded is caught: $shape" \
+        "$(discarding_status_helpers "$WORK/discards/$shape.sh" | grep -c .)" "1"
+done
+mkdir -p "$WORK/keeps"
+printf 'status_on() { run_on "$1"; }\n# a helper once did >/dev/null 2>&1; echo %s\n' "$S" > "$WORK/keeps/output.sh"
+printf 'wait "$pid" 2>/dev/null\nSTOPPED=%s\n' "$S" > "$WORK/keeps/stderr-only.sh"
+printf 'git commit -qm x >/dev/null 2>&1\nOUT="$(run_check)"; ST=%s\n' "$S" > "$WORK/keeps/next-line-keeps.sh"
+check "but a helper that keeps the output, a comment, a stderr only redirect and a kept capture after a redirect are not" \
+    "$(discarding_status_helpers "$WORK/keeps/output.sh" "$WORK/keeps/stderr-only.sh" "$WORK/keeps/next-line-keeps.sh" | grep -c .)" "0"
+LIVE_DISCARDS="$(discarding_status_helpers scripts/test-*.sh)"
+[ -z "$LIVE_DISCARDS" ] || printf '    discards what the command said:\n%s\n' "$LIVE_DISCARDS" >&2
+check "no suite in this tree judges an exit status with its command's output thrown away" \
+    "$(grep -c . <<< "$LIVE_DISCARDS" || true)" "0"
+
 echo "test harness tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -17,8 +17,7 @@ run_on() {
     OVATION_SCHEMA_SCAN_ROOT="$1" OVATION_SCHEMA_FILE="$2" "./$TARGET" 2>&1
 }
 status_on() {
-    OVATION_SCHEMA_SCAN_ROOT="$1" OVATION_SCHEMA_FILE="$2" "./$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_SCHEMA_SCAN_ROOT="$1" OVATION_SCHEMA_FILE="$2" "./$TARGET"
 }
 
 # A tree with one model, and a schema that knows about it.
@@ -35,7 +34,7 @@ enum OvationSchema {
     static let models: [any PersistentModel.Type] = [Invoice.self]
 }
 SWIFT
-check "a registered model passes" "$(status_on "$GOOD" "$GOOD/Persistence/OvationSchema.swift")" "0"
+check_exit "a registered model passes" 0 status_on "$GOOD" "$GOOD/Persistence/OvationSchema.swift"
 
 # THE CASE THE GUARD EXISTS FOR. A second model, absent from the schema.
 BAD="$WORK/bad"
@@ -46,8 +45,8 @@ final class Payment {
     var id: UUID = UUID()
 }
 SWIFT
-check "an unregistered model is refused" \
-    "$(status_on "$BAD" "$BAD/Persistence/OvationSchema.swift")" "1"
+check_exit "an unregistered model is refused" \
+    1 status_on "$BAD" "$BAD/Persistence/OvationSchema.swift"
 check "and the refusal NAMES it" \
     "$(run_on "$BAD" "$BAD/Persistence/OvationSchema.swift" | grep -c 'Payment')" "1"
 check "and says what the symptom would have been" \
@@ -64,8 +63,8 @@ final class Expense {
     var id: UUID = UUID()
 }
 SWIFT
-check "a model with a comment under the macro is still found" \
-    "$(status_on "$SPACED" "$SPACED/Persistence/OvationSchema.swift")" "1"
+check_exit "a model with a comment under the macro is still found" \
+    1 status_on "$SPACED" "$SPACED/Persistence/OvationSchema.swift"
 
 # The other direction: a schema naming something the sources no longer declare.
 STALE="$WORK/stale"
@@ -75,8 +74,8 @@ enum OvationSchema {
     static let models: [any PersistentModel.Type] = [Invoice.self, Booking.self]
 }
 SWIFT
-check "a schema naming a type that is gone is its own outcome" \
-    "$(status_on "$STALE" "$STALE/Persistence/OvationSchema.swift")" "3"
+check_exit "a schema naming a type that is gone is its own outcome" \
+    3 status_on "$STALE" "$STALE/Persistence/OvationSchema.swift"
 check "and it is NOT reported as an unregistered model" \
     "$(run_on "$STALE" "$STALE/Persistence/OvationSchema.swift" | grep -c 'UNREGISTERED')" "0"
 
@@ -88,14 +87,14 @@ enum OvationSchema {
     static let models: [any PersistentModel.Type] = []
 }
 SWIFT
-check "a tree with no models at all cannot measure" \
-    "$(status_on "$EMPTY" "$EMPTY/Persistence/OvationSchema.swift")" "2"
+check_exit "a tree with no models at all cannot measure" \
+    2 status_on "$EMPTY" "$EMPTY/Persistence/OvationSchema.swift"
 check "and says so rather than reporting a clean tree" \
     "$(run_on "$EMPTY" "$EMPTY/Persistence/OvationSchema.swift" | grep -c 'CANNOT SCAN')" "1"
-check "a missing scan root cannot measure" \
-    "$(status_on "$WORK/nowhere" "$GOOD/Persistence/OvationSchema.swift")" "2"
-check "a missing schema file cannot measure" \
-    "$(status_on "$GOOD" "$WORK/nowhere.swift")" "2"
+check_exit "a missing scan root cannot measure" \
+    2 status_on "$WORK/nowhere" "$GOOD/Persistence/OvationSchema.swift"
+check_exit "a missing schema file cannot measure" \
+    2 status_on "$GOOD" "$WORK/nowhere.swift"
 
 # A NON MODEL `.self` IN THE SCHEMA FILE IS NOT A REGISTRATION. ovation#105 put
 # OvationSchemaV1.self and OvationMigrationPlan.self in this file, and reading
@@ -130,14 +129,14 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] { [OvationSchemaV1.self] }
 }
 SWIFT
-check "a versioned schema beside the models is not read as a stale registration" \
-    "$(status_on "$VERSIONED" "$VERSIONED/Persistence/OvationSchema.swift")" "0"
-check "and an actually unregistered model is still caught in the same file" \
-    "$(printf '@Model\nfinal class Payment { var id: Int = 0 }\n' > "$VERSIONED/Domain/Payment.swift"; \
-       status_on "$VERSIONED" "$VERSIONED/Persistence/OvationSchema.swift")" "1"
+check_exit "a versioned schema beside the models is not read as a stale registration" \
+    0 status_on "$VERSIONED" "$VERSIONED/Persistence/OvationSchema.swift"
+printf '@Model\nfinal class Payment { var id: Int = 0 }\n' > "$VERSIONED/Domain/Payment.swift"
+check_exit "and an actually unregistered model is still caught in the same file" \
+    1 status_on "$VERSIONED" "$VERSIONED/Persistence/OvationSchema.swift"
 
 # The real sources, once, so the seams are not the only thing ever exercised.
-check "the real tree passes" "$(OVATION_SCHEMA_SCAN_ROOT= OVATION_SCHEMA_FILE= "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+check_exit "the real tree passes" 0 env OVATION_SCHEMA_SCAN_ROOT= OVATION_SCHEMA_FILE= "./$TARGET"
 check "and it found every model, not a handful" \
     "$(./$TARGET | grep -c '10 model type(s)')" "1"
 
@@ -177,8 +176,8 @@ mk_versioned "$FROZEN" "Invoice.self" 'enum OvationSchemaV1: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
     static var models: [any PersistentModel.Type] { [Invoice.self] }
 }'
-check "a version holding its own list passes" \
-    "$(status_on "$FROZEN" "$FROZEN/Persistence/OvationSchema.swift")" "0"
+check_exit "a version holding its own list passes" \
+    0 status_on "$FROZEN" "$FROZEN/Persistence/OvationSchema.swift"
 
 # THE DEFECT ITSELF.
 DELEGATING="$WORK/delegating"
@@ -186,8 +185,8 @@ mk_versioned "$DELEGATING" "Invoice.self" 'enum OvationSchemaV1: VersionedSchema
     static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
     static var models: [any PersistentModel.Type] { OvationSchema.models }
 }'
-check "a version that delegates its list is refused" \
-    "$(status_on "$DELEGATING" "$DELEGATING/Persistence/OvationSchema.swift")" "4"
+check_exit "a version that delegates its list is refused" \
+    4 status_on "$DELEGATING" "$DELEGATING/Persistence/OvationSchema.swift"
 check "and the refusal names the version that is not describing itself" \
     "$(run_on "$DELEGATING" "$DELEGATING/Persistence/OvationSchema.swift" | grep -c 'OvationSchemaV1')" "1"
 check "and it says DELEGATED rather than that it could not read the list" \
@@ -200,8 +199,8 @@ SILENT="$WORK/silent"
 mk_versioned "$SILENT" "Invoice.self" 'enum OvationSchemaV1: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
 }'
-check "a version stating no model list is refused, not skipped" \
-    "$(status_on "$SILENT" "$SILENT/Persistence/OvationSchema.swift")" "6"
+check_exit "a version stating no model list is refused, not skipped" \
+    6 status_on "$SILENT" "$SILENT/Persistence/OvationSchema.swift"
 check "and it says nothing about that version was checked" \
     "$(run_on "$SILENT" "$SILENT/Persistence/OvationSchema.swift" | grep -c 'UNREADABLE')" "1"
 
@@ -212,8 +211,8 @@ mk_versioned "$EQUALS" "Invoice.self" 'enum OvationSchemaV1: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
     static var models: [any PersistentModel.Type] = [Invoice.self]
 }'
-check "a version writing its list the other way is read, not skipped" \
-    "$(status_on "$EQUALS" "$EQUALS/Persistence/OvationSchema.swift")" "0"
+check_exit "a version writing its list the other way is read, not skipped" \
+    0 status_on "$EQUALS" "$EQUALS/Persistence/OvationSchema.swift"
 
 # A VERSION SHORT OF THE APP'S MODELS, which is a different fault from the
 # app's own list being short of the sources, and needs a different answer.
@@ -223,8 +222,8 @@ mk_versioned "$SHORT" "Invoice.self, Payment.self" 'enum OvationSchemaV1: Versio
     static var models: [any PersistentModel.Type] { [Invoice.self] }
 }'
 printf '@Model\nfinal class Payment {\n    var id: UUID = UUID()\n}\n' > "$SHORT/Payment.swift"
-check "a newest version short of the app's models is refused" \
-    "$(status_on "$SHORT" "$SHORT/Persistence/OvationSchema.swift")" "5"
+check_exit "a newest version short of the app's models is refused" \
+    5 status_on "$SHORT" "$SHORT/Persistence/OvationSchema.swift"
 check "and it names the type the version does not know about" \
     "$(run_on "$SHORT" "$SHORT/Persistence/OvationSchema.swift" | grep -c 'Payment')" "1"
 # BOTH REMEDIES, because nothing in the sources can tell which situation this is
@@ -245,8 +244,8 @@ enum OvationSchemaV2: VersionedSchema {
     static var models: [any PersistentModel.Type] { [Invoice.self, Payment.self] }
 }'
 printf '@Model\nfinal class Payment {\n    var id: UUID = UUID()\n}\n' > "$TWO/Payment.swift"
-check "with two versions the newest is the one held to the app" \
-    "$(status_on "$TWO" "$TWO/Persistence/OvationSchema.swift")" "0"
+check_exit "with two versions the newest is the one held to the app" \
+    0 status_on "$TWO" "$TWO/Persistence/OvationSchema.swift"
 check "and the older version keeping a shorter list is not a fault" \
     "$(run_on "$TWO" "$TWO/Persistence/OvationSchema.swift" | grep -c 'OvationSchemaV1')" "0"
 
@@ -266,8 +265,8 @@ enum LegacyShape: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(0, 9, 0) }
     static var models: [any PersistentModel.Type] { [Invoice.self] }
 }'
-check "a versioned schema this cannot recognise is refused, not ignored" \
-    "$(status_on "$STRANGE" "$STRANGE/Persistence/OvationSchema.swift")" "7"
+check_exit "a versioned schema this cannot recognise is refused, not ignored" \
+    7 status_on "$STRANGE" "$STRANGE/Persistence/OvationSchema.swift"
 check "and it names the one it could not place" \
     "$(run_on "$STRANGE" "$STRANGE/Persistence/OvationSchema.swift" | grep -c 'LegacyShape')" "1"
 

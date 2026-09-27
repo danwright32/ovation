@@ -18,8 +18,7 @@ run_on() {
     OVATION_FLOOR_SCAN_ROOT="$1" OVATION_FLOOR_REGISTER="$2" "./$TARGET" 2>&1
 }
 status_on() {
-    OVATION_FLOOR_SCAN_ROOT="$1" OVATION_FLOOR_REGISTER="$2" "./$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_FLOOR_SCAN_ROOT="$1" OVATION_FLOOR_REGISTER="$2" "./$TARGET"
 }
 
 # A tree with one resolver, and a register that knows about it.
@@ -37,7 +36,7 @@ enum LiveDataFloor {
     ]
 }
 SWIFT
-check "a registered resolver passes" "$(status_on "$GOOD" "$GOOD/App/LiveDataFloor.swift")" "0"
+check_exit "a registered resolver passes" 0 status_on "$GOOD" "$GOOD/App/LiveDataFloor.swift"
 check "and it says how many it found" \
     "$(run_on "$GOOD" "$GOOD/App/LiveDataFloor.swift" | grep -c '1 live data resolver')" "1"
 
@@ -49,8 +48,8 @@ enum LiveDataFloor {
     static let entries: [Entry] = []
 }
 SWIFT
-check "an unregistered resolver is refused" \
-    "$(status_on "$BARE" "$BARE/App/LiveDataFloor.swift")" "1"
+check_exit "an unregistered resolver is refused" \
+    1 status_on "$BARE" "$BARE/App/LiveDataFloor.swift"
 check "and the refusal names the file and the line" \
     "$(run_on "$BARE" "$BARE/App/LiveDataFloor.swift" | grep -c 'Store.swift:2')" "1"
 check "and it names the resolver" \
@@ -64,8 +63,8 @@ for KEYWORD in func var let; do
     printf 'enum Store {\n    static %s liveThing = 1\n}\n' "$KEYWORD" > "$SHAPE/Store.swift"
     printf 'enum LiveDataFloor { static let entries: [Entry] = [] }\n' \
         > "$SHAPE/App/LiveDataFloor.swift"
-    check "a resolver declared as a static $KEYWORD is seen" \
-        "$(status_on "$SHAPE" "$SHAPE/App/LiveDataFloor.swift")" "1"
+    check_exit "a resolver declared as a static $KEYWORD is seen" \
+        1 status_on "$SHAPE" "$SHAPE/App/LiveDataFloor.swift"
 done
 
 # Prose about a resolver is not a resolver (L245): this script and the register
@@ -76,8 +75,8 @@ printf 'enum Store {\n    // static func liveNothing() -> URL? { nil }\n}\nenum 
     > "$COMMENTED/Store.swift"
 printf 'enum LiveDataFloor { static let entries = [Entry(name: "liveReal")] }\n' \
     > "$COMMENTED/App/LiveDataFloor.swift"
-check "a resolver named only in a comment is not counted" \
-    "$(status_on "$COMMENTED" "$COMMENTED/App/LiveDataFloor.swift")" "0"
+check_exit "a resolver named only in a comment is not counted" \
+    0 status_on "$COMMENTED" "$COMMENTED/App/LiveDataFloor.swift"
 
 # Two resolvers wearing one name would let a single registration answer for both.
 AMBIGUOUS="$WORK/ambiguous"
@@ -86,8 +85,8 @@ printf 'enum A {\n    static func liveURL() -> URL? { nil }\n}\n' > "$AMBIGUOUS/
 printf 'enum B {\n    static func liveURL() -> URL? { nil }\n}\n' > "$AMBIGUOUS/B.swift"
 printf 'enum LiveDataFloor { static let entries = [Entry(name: "liveURL")] }\n' \
     > "$AMBIGUOUS/App/LiveDataFloor.swift"
-check "two resolvers sharing a name are refused with their own code" \
-    "$(status_on "$AMBIGUOUS" "$AMBIGUOUS/App/LiveDataFloor.swift")" "3"
+check_exit "two resolvers sharing a name are refused with their own code" \
+    3 status_on "$AMBIGUOUS" "$AMBIGUOUS/App/LiveDataFloor.swift"
 check "and both places are named" \
     "$(run_on "$AMBIGUOUS" "$AMBIGUOUS/App/LiveDataFloor.swift" | grep -c 'A.swift:2, B.swift:2')" "1"
 
@@ -95,15 +94,15 @@ check "and both places are named" \
 EMPTY="$WORK/empty"
 mkdir -p "$EMPTY/App"
 printf 'enum LiveDataFloor { static let entries: [Entry] = [] }\n' > "$EMPTY/App/LiveDataFloor.swift"
-check "a tree with no resolvers at all refuses rather than passing" \
-    "$(status_on "$EMPTY" "$EMPTY/App/LiveDataFloor.swift")" "2"
-check "a register that is not there refuses" \
-    "$(status_on "$GOOD" "$WORK/no-such-register.swift")" "2"
-check "a scan root that is not there refuses" \
-    "$(status_on "$WORK/no-such-root" "$GOOD/App/LiveDataFloor.swift")" "2"
+check_exit "a tree with no resolvers at all refuses rather than passing" \
+    2 status_on "$EMPTY" "$EMPTY/App/LiveDataFloor.swift"
+check_exit "a register that is not there refuses" \
+    2 status_on "$GOOD" "$WORK/no-such-register.swift"
+check_exit "a scan root that is not there refuses" \
+    2 status_on "$WORK/no-such-root" "$GOOD/App/LiveDataFloor.swift"
 
 # The real sources, once (L246).
-check "Ovation's own resolvers are all registered, scanned at the real default root" \
-    "$("./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "0"
+check_exit "Ovation's own resolvers are all registered, scanned at the real default root" \
+    0 "./$TARGET"
 
 harness_end

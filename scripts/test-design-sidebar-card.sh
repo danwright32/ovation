@@ -29,15 +29,13 @@ harness_temp_dir WORK
 
 # The check answers 3 when it has nothing to render in, and that is established
 # FIRST, or every assertion below would be measuring the absence of a browser
-# rather than the presence of a defect. The status is captured on its own line:
-# written as `if ! cmd; then [ "$?" = 3 ]` the `$?` is the negation's status.
-OVATION_DESIGN_ROOT="$WORK/nothing-here" "./$TARGET" >/dev/null 2>&1
-BROWSER_PROBE=$?
-if [ "$BROWSER_PROBE" = "3" ]; then
-    harness_cannot_measure \
-        "no headless browser, so nothing can be rendered and no claim here proves anything" \
-        "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER"
-fi
+# rather than the presence of a defect.
+# It skips only when the check names the browser as missing; any other 3 is a
+# fault and refuses the suite (harness_require_browser, ovation#561).
+harness_require_browser \
+    "no headless browser, so nothing can be rendered and no claim here proves anything" \
+    "npx playwright install chromium, or set OVATION_HEADLESS_BROWSER" \
+    env OVATION_DESIGN_ROOT="$WORK/nothing-here" "./$TARGET"
 
 # EACH RECORD IS RENDERED ONCE (ovation#282). Its status and every sentence
 # asked of it come from that one run, kept beside the record as <record>.out,
@@ -240,10 +238,10 @@ check_rendered_status "a record whose files all draw no window cannot be compare
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.
 # ---------------------------------------------------------------------------
-check "a file that is not there is refused rather than passed" \
-    "$("./$TARGET" "$WORK/no-such-file.html" >/dev/null 2>&1; printf '%s' "$?")" "2"
-check "and a browser that is not there answers cannot measure" \
-    "$(OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "3"
+check_exit "a file that is not there is refused rather than passed" \
+    2 "./$TARGET" "$WORK/no-such-file.html"
+check_exit "and a browser that is not there answers cannot measure" \
+    3 env OVATION_HEADLESS_BROWSER="$WORK/no-such-browser" "./$TARGET"
 
 # ---------------------------------------------------------------------------
 # THE CARD IS A ROLLUP AND ITS FIGURES ARE COUNTED (ovation#198, PRD 46a). The

@@ -114,24 +114,23 @@ under_bash() {
     OVATION_CONSTRUCT_SCAN_ROOT="$1" OVATION_CONSTRUCT_ALLOWLIST="${2-}" bash "$TARGET" 2>&1
 }
 status_under() {
-    OVATION_CONSTRUCT_SCAN_ROOT="$2" OVATION_CONSTRUCT_ALLOWLIST="${3-}" "$1" "$TARGET" >/dev/null 2>&1
-    printf '%s' "$?"
+    OVATION_CONSTRUCT_SCAN_ROOT="$2" OVATION_CONSTRUCT_ALLOWLIST="${3-}" "$1" "$TARGET"
 }
 
-check "under bash, a clean tree exits 0" "$(status_under bash "$CLEAN")" "0"
-check "under bash, a forbidden construct exits 1" "$(status_under bash "$BAD")" "1"
-check "under bash, nothing to scan exits 2, the scanner's own CANNOT SCAN" \
-    "$(status_under bash "$EMPTY")" "2"
-check "under bash, a bad allowlist exits 3" \
-    "$(status_under bash "$CLEAN" "Money.swift")" "3"
+check_exit "under bash, a clean tree exits 0" 0 status_under bash "$CLEAN"
+check_exit "under bash, a forbidden construct exits 1" 1 status_under bash "$BAD"
+check_exit "under bash, nothing to scan exits 2, the scanner's own CANNOT SCAN" \
+    2 status_under bash "$EMPTY"
+check_exit "under bash, a bad allowlist exits 3" \
+    3 status_under bash "$CLEAN" "Money.swift"
 check "and bash prints exactly what the shebang does" \
     "$(under_bash "$BAD")" \
     "$(OVATION_CONSTRUCT_SCAN_ROOT="$BAD" OVATION_CONSTRUCT_ALLOWLIST="" "./$TARGET" 2>&1)"
-check "under sh, a forbidden construct exits 1 too" "$(status_under sh "$BAD")" "1"
+check_exit "under sh, a forbidden construct exits 1 too" 1 status_under sh "$BAD"
 
 # WITH NO PYTHON AT ALL, the one outcome that must never read as CANNOT SCAN. The
 # exec fails, the shell says python3 was not found, and it exits 127.
-check "under bash with no python3 on the path, it exits 127, never 2" \
-    "$(PATH="$WORK/no-such-dir" /bin/bash "$TARGET" >/dev/null 2>&1; printf '%s' "$?")" "127"
+check_exit "under bash with no python3 on the path, it exits 127, never 2" \
+    127 env PATH="$WORK/no-such-dir" /bin/bash "$TARGET"
 
 harness_end

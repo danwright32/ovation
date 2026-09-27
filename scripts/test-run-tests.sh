@@ -79,7 +79,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 294
+harness_begin "test runner lock tests" 300
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -339,6 +339,86 @@ wait_for_line() {
     harness_wait_for "'$2' in $(basename "$1")" 200 0.05 file_mentions "$1" "$2"
 }
 
+# 6b-0. THE STOP IS JUDGED THE WAY A PERSON STOPS A RUN, and the judge is
+#       tested first (ovation#554).
+#
+#       Case 6b-i failed once in the push gate, still running, and passed on two
+#       reruns. It was already waiting on the condition rather than a fixed
+#       interval, for ten seconds, so the run really had not stopped. Reproduced
+#       on this Mac, 2026-09-26, against a bare bash 3.2 loop of short commands
+#       with an INT trap that exits: a Ctrl+C style INT to the whole group was
+#       LOST in 3 of 1000 trials, and the shell ran on as though nothing had been
+#       sent, while a second INT stopped every one of those three. The signal
+#       lands in the moment a command has been forked but not yet exec'd, when
+#       the child still carries the shell's own handler: the child records the
+#       signal, exec discards it, the command exits normally, and bash then
+#       takes that as the command having dealt with the interrupt. Nothing in the
+#       runner can reach a signal the shell never delivers to its trap.
+#
+#       So a case that sends ONE interrupt is measuring bash's fork window, and
+#       the honest stop is the one a person uses: press Ctrl+C again. Up to three
+#       interrupts are sent, each followed by a condition wait. That still fails
+#       the defect #274 was about, because a trap that cleans up and RETURNS
+#       carries on after every one of them, which is what the second stub below
+#       stages. How many it took is printed whenever it was more than one, so a
+#       recurrence is counted where somebody reads it rather than retried away
+#       (L293).
+#
+#       Sets STOPPED (the status, or `still-running`) and INTERRUPTS. Like
+#       stopped_status it sets variables and is never called inside `$(...)`.
+interrupt_until_stopped() {
+    local pid="$1" polls_each="${2:-200}" polls
+    INTERRUPTS=0
+    while [ "$INTERRUPTS" -lt 3 ]; do
+        kill -INT -- "-$pid" 2>/dev/null
+        INTERRUPTS=$((INTERRUPTS+1))
+        polls=0
+        while kill -0 "$pid" 2>/dev/null && [ "$polls" -lt "$polls_each" ]; do
+            polls=$((polls+1)); sleep 0.05
+        done
+        kill -0 "$pid" 2>/dev/null || break
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+        STOPPED=still-running
+        return
+    fi
+    wait "$pid" 2>/dev/null
+    STOPPED=$?
+    if [ "$INTERRUPTS" -gt 1 ]; then
+        echo "NOTE: the run needed $INTERRUPTS interrupts to stop; bash lost the first (ovation#554)."
+    fi
+}
+# The stubs are written from inside a function for the reason case 1 of the
+# argument scan records: its `$1` belongs to the stub, not to this suite.
+# Counted over the real runner's stops only, not the stubs, which lose their first
+# interrupt on purpose, and said on one fixed line at the end of every run, so a
+# recurrence can be counted by searching run output for it (L293).
+LOST_INTERRUPT_RUNS=0
+start_interrupt_stub() {
+    printf '#!/bin/bash\n%s\ntouch "%s"\nwhile :; do sleep 0.02; done\n' "$2" "$1.ready" > "$1"
+    chmod +x "$1"
+    rm -f "$1.ready"
+    python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.setpgrp(); os.execv(sys.argv[1], sys.argv[1:])' \
+        "$1" > /dev/null 2>&1 &
+    STUB_PID=$!
+}
+    STUB_ONCE="$WORK/stub-swallows-first-int.sh"
+    start_interrupt_stub "$STUB_ONCE" 'n=0; trap '"'"'n=$((n+1)); [ "$n" -ge 2 ] && exit 130'"'"' INT'
+    harness_wait_for "the stub that loses its first interrupt to be ready" 200 0.05 test -e "$STUB_ONCE.ready"
+    interrupt_until_stopped "$STUB_PID" 10 > /dev/null
+    check "a run that lost its first interrupt is stopped by the next one, with status 130" \
+        "$STOPPED" "130"
+    check "and it took more than one interrupt to stop it" \
+        "$([ "$INTERRUPTS" -gt 1 ] && echo more || echo "$INTERRUPTS")" "more"
+    STUB_CARRIES_ON="$WORK/stub-trap-returns.sh"
+    start_interrupt_stub "$STUB_CARRIES_ON" 'trap '"'"'true'"'"' INT'
+    harness_wait_for "the stub whose INT trap returns to be ready" 200 0.05 test -e "$STUB_CARRIES_ON.ready"
+    interrupt_until_stopped "$STUB_PID" 10 > /dev/null
+    check "a run whose INT trap only cleans up and carries on is still reported as running (ovation#274)" \
+        "$STOPPED" "still-running"
+    check "after every interrupt it was allowed" "$INTERRUPTS" "3"
+
 # 6b-i. INT while WAITING on Overture's held lock: the case the issue saw.
 #        Indented like every other holder in this file, because the suite level
 #        argument scan below reads unindented lines and the holder's inner `$1`
@@ -352,9 +432,10 @@ wait_for_line() {
     OUT274A="$WORK/run-274a.out"
     start_stoppable_runner "$OUT274A" "$HOSTED_PASSES"
     wait_for_line "$OUT274A" 'Waiting for both test locks'
-    # To the whole group, as Ctrl+C does: the runner and whatever it is waiting on.
-    kill -INT -- "-$STOPPABLE_PID"
-    stopped_status "$STOPPABLE_PID"
+    # To the whole group, as Ctrl+C does: the runner and whatever it is waiting on,
+    # and again if bash lost it, as a person would (6b-0, ovation#554).
+    interrupt_until_stopped "$STOPPABLE_PID"
+    [ "$INTERRUPTS" -gt 1 ] && LOST_INTERRUPT_RUNS=$((LOST_INTERRUPT_RUNS+1))
     check "a run interrupted while waiting for a lock exits, with status 130" \
         "$STOPPED" "130"
     check "and it left Downbeat's lock free behind it" \
@@ -659,7 +740,7 @@ hosted_run() {
     OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
     "$TARGET" 2>&1
 }
-hosted_status() { hosted_run "$1" >/dev/null 2>&1; printf '%s' "$?"; }
+hosted_status() { hosted_run "$1"; }
 
 # A LONG HOSTED OUTPUT IS STILL JUDGED CORRECTLY (ovation#241).
 #
@@ -676,8 +757,8 @@ hosted_status() { hosted_run "$1" >/dev/null 2>&1; printf '%s' "$?"; }
 # and a hosted run of 26 tests. So the fixture is deliberately LARGE, and the
 # match is deliberately at the TOP, which is the arrangement that kills printf.
 LONG_HOSTED_OUTPUT='echo "Test run with 26 tests in 4 suites passed"; for i in $(seq 1 20000); do echo "a line of ordinary xcodebuild chatter, number $i"; done'
-check "a hosted run with a long output is not reported as having run nothing" \
-    "$(hosted_status "$LONG_HOSTED_OUTPUT")" "0"
+check_exit "a hosted run with a long output is not reported as having run nothing" \
+    0 hosted_status "$LONG_HOSTED_OUTPUT"
 check "and it does not complain about a broken pipe" \
     "$(hosted_run "$LONG_HOSTED_OUTPUT" | grep -c 'Broken pipe' || true)" "0"
 
@@ -697,10 +778,10 @@ pure_run() {
     OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
     "$TARGET" 2>&1
 }
-pure_status() { pure_run "$1" "${2:-100}" >/dev/null 2>&1; printf '%s' "$?"; }
+pure_status() { pure_run "$1" "${2:-100}"; }
 
-check "a pure run at the floor passes" \
-    "$(pure_status 'echo "Test run with 100 tests in 9 suites passed"' 100)" "0"
+check_exit "a pure run at the floor passes" \
+    0 pure_status 'echo "Test run with 100 tests in 9 suites passed"' 100
 # THIS CASE IS THE REVERSE OF WHAT IT ASSERTED, and the reversal is the whole of
 # ovation#157 rather than an adjustment. It used to say a run ABOVE its floor
 # passes, which is what let the floor sit at 294 while the suite executed 422:
@@ -708,16 +789,16 @@ check "a pure run at the floor passes" \
 # defending a decision that has been reversed is the guard for the rejected
 # behaviour, so it is rewritten to say the new rule rather than tweaked (L252,
 # L430).
-check "a pure run above the floor is refused, so the floor cannot stand still" \
-    "$(pure_status 'echo "Test run with 294 tests in 29 suites passed"' 100)" "7"
-check "a pure run BELOW the floor is refused even though it exited 0" \
-    "$(pure_status 'echo "Test run with 40 tests in 3 suites passed"' 100)" "7"
+check_exit "a pure run above the floor is refused, so the floor cannot stand still" \
+    7 pure_status 'echo "Test run with 294 tests in 29 suites passed"' 100
+check_exit "a pure run BELOW the floor is refused even though it exited 0" \
+    7 pure_status 'echo "Test run with 40 tests in 3 suites passed"' 100
 check "and it names both numbers, so the drop is readable" \
     "$(pure_run 'echo "Test run with 40 tests in 3 suites passed"' 100 | grep -c '40 .*100')" "1"
-check "a pure run that reported success and executed NOTHING is refused" \
-    "$(pure_status 'echo "** TEST SUCCEEDED **"' 100)" "7"
-check "a pure run that FAILED keeps its own status rather than the floor's" \
-    "$(pure_status 'echo "Test run with 294 tests in 29 suites failed"; exit 65' 100)" "65"
+check_exit "a pure run that reported success and executed NOTHING is refused" \
+    7 pure_status 'echo "** TEST SUCCEEDED **"' 100
+check_exit "a pure run that FAILED keeps its own status rather than the floor's" \
+    65 pure_status 'echo "Test run with 294 tests in 29 suites failed"; exit 65' 100
 check "the streamed output still reaches the terminal" \
     "$(pure_run 'echo "Test run with 294 tests in 29 suites passed"; echo A-LINE-FROM-THE-RUN' 100 | grep -c 'A-LINE-FROM-THE-RUN')" "1"
 
@@ -738,14 +819,14 @@ check "the committed floor is a positive integer" \
 # executed, and a second copy of the number in this file would be a place for
 # the two to disagree (L41). A floor set too high fails the very next run.
 
-check "a hosted run that executed tests passes" \
-    "$(hosted_status 'echo "Test run with 5 tests in 1 suite passed"')" "0"
-check "a hosted run that reported success and executed NOTHING is refused" \
-    "$(hosted_status 'echo "** TEST SUCCEEDED **"')" "6"
+check_exit "a hosted run that executed tests passes" \
+    0 hosted_status 'echo "Test run with 5 tests in 1 suite passed"'
+check_exit "a hosted run that reported success and executed NOTHING is refused" \
+    6 hosted_status 'echo "** TEST SUCCEEDED **"'
 check "and it says that nothing about the launch surface was verified" \
     "$(hosted_run 'echo "** TEST SUCCEEDED **"' | grep -c 'executed NO tests')" "1"
-check "a hosted run that failed fails the whole run with its own status" \
-    "$(hosted_status 'echo "Test run with 5 tests in 1 suite failed"; exit 7')" "7"
+check_exit "a hosted run that failed fails the whole run with its own status" \
+    7 hosted_status 'echo "Test run with 5 tests in 1 suite failed"; exit 7'
 check "with no hosted command injected, the skip is announced rather than silent" \
     "$(OVATION_UNLOCKED_COMMAND=true \
        OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
@@ -907,7 +988,7 @@ shell_run() {
     OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "$TARGET" 2>&1
 }
-shell_status() { shell_run "${1:-}" >/dev/null 2>&1; printf '%s' "$?"; }
+shell_status() { shell_run "${1:-}"; }
 
 # 11a. A suite that cannot measure does not take the rest of the run with it.
 clear_suites
@@ -996,7 +1077,7 @@ check "and the suites after a failure are not run" \
 clear_suites
 stage_suite "a-pass" 0
 stage_suite "b-pass" 0
-check "with every suite passing the run passes" "$(shell_status)" "0"
+check_exit "with every suite passing the run passes" 0 shell_status
 
 # 11e. A FAILURE OUTRANKS A CANNOT MEASURE, and neither hides the other. Two
 #      outcomes reported as one is the thing this issue is about (L11).
@@ -1016,7 +1097,7 @@ clear_suites
 stage_suite "a-pass" 0
 stage_suite "b-pass" 0
 stage_suite "c-pass" 0
-check "a run at the suite floor passes" "$(shell_status 3)" "0"
+check_exit "a run at the suite floor passes" 0 shell_status 3
 chmod -x "$SUITES/test-c-pass.sh"
 OUT11F="$(shell_run 3)"; ST11F=$?
 check "a suite that lost its executable bit is refused, not silently skipped" \
@@ -1179,8 +1260,8 @@ check "and it still passes" "$ST22A" "0"
 # off on the pushes it is cheapest to check.
 clear_suites
 stage_suite "a-fail" 5
-check "a failing shell suite still fails a skipped run" \
-    "$(skip_run 1 >/dev/null 2>&1; printf '%s' "$?")" "5"
+check_exit "a failing shell suite still fails a skipped run" \
+    5 skip_run 1
 
 clear_suites
 stage_suite "a-pass" 0
@@ -1679,8 +1760,7 @@ check "and the lock is gone afterwards" "$([ -e "$CREATE_LOCK" ] && echo held ||
 # 207d. A generator that fails still gives the lock back, or every later run on
 #       this tree would wait on a create that is not happening.
 reset_create; rm -f "$CREATE/hold"; stage_generator gen-fail fail
-create_now gen-fail >/dev/null; ST207D=$?
-check "a generator that failed is refused" "$ST207D" "2"
+check_exit "a generator that failed is refused" 2 create_now gen-fail
 check "and the create lock is released anyway" "$([ -e "$CREATE_LOCK" ] && echo held || echo free)" "free"
 
 # 207e. A create by a LIVE run that does not finish is a refusal naming it, not a
@@ -1728,10 +1808,10 @@ counted_run() {
     OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
         "./$TARGET" 2>&1
 }
-counted_status() { counted_run "$@" >/dev/null 2>&1; printf '%s' "$?"; }
+counted_status() { counted_run "$@"; }
 
-check "a run that matches its floor exactly passes" "$(counted_status 100 100)" "0"
-check "a run BELOW its floor is refused" "$(counted_status 60 100)" "7"
+check_exit "a run that matches its floor exactly passes" 0 counted_status 100 100
+check_exit "a run BELOW its floor is refused" 7 counted_status 60 100
 # AND A SHORT RUN IS NEVER HANDED A NUMBER TO PASTE, for the shell suite floor's
 # reason (ovation#351, case 11f4): writing what a short run counted is how the
 # floor stops seeing the tests that dropped out (L11, L93, L30).
@@ -1739,8 +1819,8 @@ check "a short run is given no pure floor to paste, because that would silence t
     "$(counted_run 60 100 | grep -c "printf '%s.n'")" "0"
 
 OUT157="$(counted_run 140 100)"
-check "a run ABOVE its floor is refused too, because a floor that never moves stops being one" \
-    "$(counted_status 140 100)" "7"
+check_exit "a run ABOVE its floor is refused too, because a floor that never moves stops being one" \
+    7 counted_status 140 100
 check "and it says the tests were ADDED rather than reporting a loss" \
     "$(mentions "$OUT157" "being ADDED")" "yes"
 check "and it gives the exact command, with the real number in it" \
@@ -1779,8 +1859,8 @@ check "an xcodebuild running while both locks are held is reported" \
 check "and it names how many" "$(mentions "$OUT156A" "2 xcodebuild")" "yes"
 check "and it names the pids, so the other run can actually be found" \
     "$(mentions "$OUT156A" "pid 4321")" "yes"
-check "and it does NOT refuse, because a false positive must not block a push" \
-    "$(lister_run 'printf "4321\n" ' >/dev/null 2>&1; printf '%s' "$?")" "0"
+check_exit "and it does NOT refuse, because a false positive must not block a push" \
+    0 lister_run 'printf "4321\n" '
 
 OUT156B="$(lister_run 'true')"
 check "a quiet machine says nothing about other builds" \
@@ -2190,14 +2270,14 @@ check "and with none named, to the default record under the home directory" \
     "$(sed -n 1p "$REALHOME/Library/Logs/Ovation/lock-waits.tsv" 2>/dev/null | cut -f3)" "acquired"
 
 # 321h. NO TESTS EXECUTED IS A REFUSAL, whatever the exit code said (L98, L288).
-check "a narrowed run that reported success and printed no count is refused" \
-    "$(ONLY_PURE='echo "** TEST SUCCEEDED **"' only_run --only OvationTests/NoSuchSuite >/dev/null 2>&1; printf '%s' "$?")" "6"
+ONLY_PURE='echo "** TEST SUCCEEDED **"' check_exit "a narrowed run that reported success and printed no count is refused" \
+    6 only_run --only OvationTests/NoSuchSuite
 OUT321M="$(ONLY_PURE='echo "Test run with 0 tests in 0 suites passed"' only_run --only OvationTests/NoSuchSuite)"; ST321M=$?
 check "and so is one whose count says zero tests" "$ST321M" "6"
 check "and it says the filter matched nothing, naming the filter" \
     "$(count_of "$OUT321M" 'OvationTests/NoSuchSuite matched nothing')" "1"
-check "a narrowed run that FAILED keeps its own status rather than the refusal's" \
-    "$(ONLY_PURE='echo "Test run with 3 tests in 1 suite failed"; exit 65' only_run --only OvationTests/SomeSuiteTests >/dev/null 2>&1; printf '%s' "$?")" "65"
+ONLY_PURE='echo "Test run with 3 tests in 1 suite failed"; exit 65' check_exit "a narrowed run that FAILED keeps its own status rather than the refusal's" \
+    65 only_run --only OvationTests/SomeSuiteTests
 OUT321N="$(ONLY_HOSTED='echo "** TEST SUCCEEDED **"' only_run --only OvationHostedTests/NoSuchSuite)"; ST321N=$?
 check "a narrowed hosted run that executed no tests is refused, naming the filter" \
     "$ST321N:$(count_of "$OUT321N" 'OvationHostedTests/NoSuchSuite matched nothing')" "6:1"
@@ -2554,4 +2634,5 @@ PYSEAMS
 )" ""
 
 
+echo "interrupted runs that needed more than one interrupt: $LOST_INTERRUPT_RUNS (ovation#554)"
 harness_end
