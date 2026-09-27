@@ -483,7 +483,8 @@ struct InvoiceListViewTests {
         context.insert(payment)
         if cleared { _ = payment.markCleared(on: day) }
         let allocation = PaymentAllocation(payment: payment, invoice: invoice,
-                                           amount: invoice.total, allocatedOn: day)
+                                           amount: invoice.total, allocatedOn: day,
+                                           source: .recordedWithThePayment)
         context.insert(allocation)
         invoice.allocations.append(allocation)
         payment.allocations.append(allocation)

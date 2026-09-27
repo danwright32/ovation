@@ -23,7 +23,7 @@
 import Foundation
 import SwiftData
 
-extension OvationSchemaV4 {
+extension OvationSchemaV5 {
     @Model
     final class Payment {
         var id: UUID = UUID()
@@ -131,7 +131,7 @@ extension OvationSchemaV4 {
 /// still exists and still arrived. Deleting the row would destroy the record of
 /// what was decided and when, which is the question an audit exists to answer
 /// (L529).
-extension OvationSchemaV4 {
+extension OvationSchemaV5 {
     @Model
     final class PaymentAllocation {
         var id: UUID = UUID()
@@ -145,13 +145,44 @@ extension OvationSchemaV4 {
         /// When it stopped standing. Nil while it stands.
         var releasedOn: BusinessDate?
 
-        init(payment: Payment?, invoice: Invoice?, amount: Money, allocatedOn: BusinessDate) {
+        /// Where the money on it came from (ovation#185, schema version 5).
+        ///
+        /// NIL ON EVERY ROW WRITTEN BEFORE VERSION 5, and nil there means the
+        /// money was recorded with its payment. That is measured rather than
+        /// assumed: until version 5 nothing in the app applied held money, and
+        /// `PaymentAllocator.record` wrote every allocation there was. Every row
+        /// written since says which it is, because the initialiser has no default
+        /// (L168).
+        var source: AllocationSource?
+
+        /// Whether this is a client's held money applied to the invoice, which
+        /// is the one allocation the invoice offers to take back off (PRD 14i).
+        var isHeldMoney: Bool { source == .heldMoney }
+
+        /// `source` HAS NO DEFAULT, so each writer has to say where the money came
+        /// from, and one that forgot cannot silently draw held money as a payment
+        /// or a payment as something `Remove` may take off (L168).
+        init(payment: Payment?, invoice: Invoice?, amount: Money, allocatedOn: BusinessDate,
+             source: AllocationSource) {
             self.payment = payment
             self.invoice = invoice
             self.amount = amount
             self.allocatedOn = allocatedOn
+            self.source = source
         }
     }
+}
+
+/// Where the money on one allocation came from (ovation#185).
+///
+/// TWO ANSWERS AND NOT A FLAG, because each is a positive fact about the row
+/// rather than the absence of the other (L163, L544).
+enum AllocationSource: String, Codable, Hashable, Sendable, CaseIterable {
+    /// Recorded against this invoice when the payment itself was recorded.
+    case recordedWithThePayment
+    /// Money the client was holding, put on this invoice afterwards, by Ovation
+    /// itself (PRD 14h) or by `Use it here` (PRD 14j).
+    case heldMoney
 }
 
 /// Money that went back out. PRD 5.13.
@@ -160,7 +191,7 @@ extension OvationSchemaV4 {
 /// income in the year it was issued and a refund can move in a different calendar
 /// year. How that is reported is one of the questions for the accountant recorded
 /// in PRD 9.3, so nothing here asserts a year for it.
-extension OvationSchemaV4 {
+extension OvationSchemaV5 {
     @Model
     final class Refund {
         var id: UUID = UUID()
@@ -193,6 +224,6 @@ extension OvationSchemaV4 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a newer version exists, this line moves to it and
 // every call site is already correct.
-typealias Payment = OvationSchemaV4.Payment
-typealias PaymentAllocation = OvationSchemaV4.PaymentAllocation
-typealias Refund = OvationSchemaV4.Refund
+typealias Payment = OvationSchemaV5.Payment
+typealias PaymentAllocation = OvationSchemaV5.PaymentAllocation
+typealias Refund = OvationSchemaV5.Refund

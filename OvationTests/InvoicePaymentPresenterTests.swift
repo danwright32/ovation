@@ -43,7 +43,8 @@ struct InvoicePaymentPresenterTests {
                               receivedOn: today)
         context.insert(payment)
         context.insert(PaymentAllocation(payment: payment, invoice: invoice,
-                                         amount: amount, allocatedOn: today))
+                                         amount: amount, allocatedOn: today,
+                                         source: .recordedWithThePayment))
         return payment
     }
 

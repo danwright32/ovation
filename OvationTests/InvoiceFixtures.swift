@@ -165,7 +165,8 @@ enum InvoiceFixtures {
                                   method: .zelle, receivedOn: received)
             context.insert(payment)
             let allocation = PaymentAllocation(payment: payment, invoice: invoice,
-                                               amount: Money(cents: cents(paid)), allocatedOn: received)
+                                               amount: Money(cents: cents(paid)), allocatedOn: received,
+                                               source: .recordedWithThePayment)
             context.insert(allocation)
             payment.allocations.append(allocation)
             invoice.allocations.append(allocation)

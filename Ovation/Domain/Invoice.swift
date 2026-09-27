@@ -170,7 +170,7 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
 
 }
 
-extension OvationSchemaV4 {
+extension OvationSchemaV5 {
     @Model
     final class Invoice {
         /// Ovation's own identity, minted fresh and never derived from anything
@@ -242,6 +242,16 @@ extension OvationSchemaV4 {
         /// could not support (L192). The history leaves out Draft created rather
         /// than guess it.
         var createdOn: BusinessDate?
+
+        /// The day Dan last took a client's held money back off this invoice with
+        /// `Remove`, or nil where he has not (ovation#185, PRD 14i, schema version 5).
+        ///
+        /// IT IS WHAT MAKES `Remove` A WAY OUT. PRD 14h has Ovation apply held
+        /// money by itself wherever the client has exactly one open invoice, so
+        /// without a record of the decision the next pass would put straight back
+        /// what he had just taken off. While it is set, Ovation applies nothing
+        /// here by itself and offers `Use it` instead, and pressing that clears it.
+        var heldMoneyRemovedOn: BusinessDate?
 
         /// The QuickBooks row this was imported from, for lookup only. ovation#68
         /// owns what goes in it.
@@ -561,4 +571,4 @@ extension OvationSchemaV4 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a newer version exists, this line moves to it and
 // every call site is already correct.
-typealias Invoice = OvationSchemaV4.Invoice
+typealias Invoice = OvationSchemaV5.Invoice

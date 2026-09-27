@@ -172,8 +172,12 @@ actor PaymentAllocator {
 
         if let beforeWriting { await beforeWriting() }
 
+        // MONEY ALREADY RECEIVED AND NOT YET SPOKEN FOR IS HELD MONEY (PRD 14a), so
+        // an allocation made here, after the payment was recorded, is held money
+        // applied, and the invoice offers `Remove` on it (PRD 14i).
         let allocation = PaymentAllocation(payment: payment, invoice: invoice,
-                                           amount: amount, allocatedOn: day)
+                                           amount: amount, allocatedOn: day,
+                                           source: .heldMoney)
         modelContext.insert(allocation)
         try modelContext.save()
     }
@@ -230,7 +234,8 @@ actor PaymentAllocator {
         modelContext.insert(payment)
         let share = amount < owed ? amount : owed
         modelContext.insert(PaymentAllocation(payment: payment, invoice: invoice,
-                                              amount: share, allocatedOn: day))
+                                              amount: share, allocatedOn: day,
+                                              source: .recordedWithThePayment))
         try modelContext.save()
         return RecordedPayment(payment: payment.persistentModelID,
                                allocated: share, held: amount - share)

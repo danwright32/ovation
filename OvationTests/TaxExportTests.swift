@@ -599,7 +599,8 @@ struct TaxExportTests {
             context.insert(payment)
             let allocation = PaymentAllocation(payment: payment, invoice: invoice,
                                                amount: amount,
-                                               allocatedOn: .stamping(instant))
+                                               allocatedOn: .stamping(instant),
+                                               source: .recordedWithThePayment)
             context.insert(allocation)
             payment.allocations.append(allocation)
             invoice.allocations.append(allocation)
