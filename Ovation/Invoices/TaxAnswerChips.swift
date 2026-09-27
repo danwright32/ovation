@@ -31,6 +31,12 @@ struct TaxAnswerChips: View {
     /// What pressing one does, handed the answer it names.
     let press: (TaxStatus) -> Void
 
+    /// The focus ring, `.taxpick:focus-visible`'s `outline: 2px; outline-offset:
+    /// 1px`. A stroke straddles its path, so the path sits at the middle of the
+    /// ring, 2 points out, and the ring runs from 1 to 3 points out.
+    static let focusRingWidth: CGFloat = 2
+    static let focusRingPathOutset: CGFloat = 2
+
     var body: some View {
         HStack(spacing: 6) {
             ForEach(answers, id: \.self) { answer in
@@ -70,8 +76,8 @@ private struct TaxAnswerChipStyle: ButtonStyle {
                 // edge. A stroke straddles its path, so the path sits 2 points out.
                 .overlay(
                     RoundedRectangle(cornerRadius: 7)
-                        .stroke(OvationPalette.accent, lineWidth: 2)
-                        .padding(-2)
+                        .stroke(OvationPalette.accent, lineWidth: TaxAnswerChips.focusRingWidth)
+                        .padding(-TaxAnswerChips.focusRingPathOutset)
                         .opacity(focused ? 1 : 0)
                 )
                 .fixedSize()
