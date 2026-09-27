@@ -65,12 +65,13 @@ private struct TaxAnswerChipStyle: ButtonStyle {
                         .overlay(RoundedRectangle(cornerRadius: 5)
                             .stroke(OvationPalette.rule, lineWidth: 1))
                 )
-                // The record's focus ring: 2 points of the accent, 1 point clear
-                // of the chip's own edge.
+                // The record's focus ring, `outline: 2px; outline-offset: 1px`:
+                // 2 points of the accent from 1 to 3 points outside the chip's
+                // edge. A stroke straddles its path, so the path sits 2 points out.
                 .overlay(
                     RoundedRectangle(cornerRadius: 7)
                         .stroke(OvationPalette.accent, lineWidth: 2)
-                        .padding(-3)
+                        .padding(-2)
                         .opacity(focused ? 1 : 0)
                 )
                 .fixedSize()

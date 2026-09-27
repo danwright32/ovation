@@ -8,7 +8,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "one tax chip tests" 21
+harness_begin "one tax chip tests" 27
 
 TARGET="scripts/check-one-tax-chip.sh"
 require_target "$TARGET"
@@ -75,6 +75,35 @@ printf 'ForEach(TaxStatus.allCases, id: \\.self) { a in chip(a) }\n' \
 OUT="$(run_check "$ROOT")"
 check "a question's answers drawn by hand are named" "$(says "$OUT" "InvoiceScreenView.swift:1")" "yes"
 check "and so are the enum's whole list drawn by hand" "$(says "$OUT" "RosterPassView.swift:1")" "yes"
+
+# 3b. THE SAME LOOP WRAPPED ACROSS LINES, which a line by line reading passed
+#     (found in review of #587): the list it loops over is on the next line.
+ROOT="$(stage wrapped)"
+printf 'HStack {\n    ForEach(\n        TaxStatus.answers, id: \\.self\n    ) { s in Button(s.exportLabel) {} }\n}\n' \
+    > "$ROOT/Ovation/Roster/RosterPassView.swift"
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "a loop over the answers wrapped across lines is refused" "$STATUS" "1"
+check "and named at the line the loop starts" "$(says "$OUT" "RosterPassView.swift:2")" "yes"
+
+# 3c. THE TWO ANSWERS WRITTEN OUT BY HAND, with no loop at all. A pair of
+#     buttons each naming one status is the same second treatment.
+ROOT="$(stage byhand)"
+printf 'HStack {\n    Button(TaxStatus.exempt.exportLabel) { pick(.exempt) }\n    Button(TaxStatus.notExempt.exportLabel) { pick(.notExempt) }\n}\n' \
+    > "$ROOT/Ovation/Invoices/InvoiceScreenView.swift"
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "answers written out by hand are refused" "$STATUS" "1"
+check "and the first is named at its line" "$(says "$OUT" "InvoiceScreenView.swift:2")" "yes"
+check "and so is the second" "$(says "$OUT" "InvoiceScreenView.swift:3")" "yes"
+
+# 3d. A COMMENT DESCRIBING THE OLD SHAPE IS PROSE, not a copy.
+ROOT="$(stage commented)"
+printf '// it used to be ForEach(TaxStatus.answers) with its own chip\n/* and Button(TaxStatus.exempt.exportLabel) */\nTaxAnswerChips(answers: TaxStatus.answers) { record($0) }\n' \
+    > "$ROOT/Ovation/Roster/RosterPassView.swift"
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "a comment naming the old shape is not accused" "$STATUS" "0"
 
 # 4. A NEAR MISS IS NOT ACCUSED. A list of other answers drawn by hand, the
 #    payment methods, is a different question and must pass, or the guard is one

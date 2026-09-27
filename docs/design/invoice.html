@@ -3021,7 +3021,7 @@ function buildMenu() {
 
 /* THE FOOT OF THE RAIL: EACH OPEN THING BY A SHORT NAME, WITH READ BESIDE IT,
    AND READ OPENING A POPOVER (Dan, 2026-09-26, four rendered rounds on ovation#99
-   and ovation#566, PRD 44c to 44f). Each answer is quoted from the comment that
+   and ovation#566, PRD 44c to 44g). Each answer is quoted from the comment that
    records it.
 
    THE FORM. Asked "How should the first problem and Read sit at the bottom of the
@@ -3051,6 +3051,19 @@ function buildMenu() {
    the whole foot disappears (the zero rule). This retires both "1 more to read"
    and "1 other problem" in the foot." (ovation#99, ovation#566)
 
+   THE LAST LOOKED LINE STAYS. Asked "On a day with nothing open, should the
+   sidebar still say when Ovation last looked for bookings and receipts?", answer
+   "Keep that line": "the zero rule removes only the problem and notice lines:
+   the "Last looked for bookings and receipts ... Ovation only looks while it is
+   open." line stays on every day (PRD 32), so a quiet foot still proves Ovation
+   is checking." (Dan, 2026-09-27, ovation#566)
+
+   A NOTICE UNREAD AT LAUNCH. Asked "When Ovation opens with an unread notice
+   waiting, what happens?", answer "Foot, like the rest": "a notice unread at
+   launch goes in the rail foot with Read like any other, and Ovation opens
+   straight onto the shell". So nothing here tells a launch notice apart.
+   (Dan, 2026-09-26, ovation#566)
+
    WHAT "AND N MORE" DOES. Asked "What should 'and N more' at the foot of the
    sidebar do?", answer "Opens a list pop-up": ""and N more" is a control like
    Read: it opens a popover beside it listing every open item, each with its full
@@ -3063,13 +3076,16 @@ function buildMenu() {
    CARRIED BY: invoice-list.html, invoice.html, clients.html */
 
 /* The lines the foot draws for the items open, newest first. `drawn` false is
-   the zero rule: no foot at all, not a foot saying nothing. `listed` is what
+   the zero rule: no problem or notice line, not a line saying nothing. `looked`
+   is drawn on every day, open items or none. `listed` is what
    "and N more" opens: every open item, the two named above it included, and
    nothing when there is no such line. */
 function footLines(items) {
   var names = items.slice(0, 2);
   var rest = items.length - names.length;
   return { drawn: items.length > 0, names: names,
+           looked: "Last looked for bookings and receipts 2 minutes ago. "
+             + "Ovation only looks while it is open.",
            more: rest > 0 ? "and " + rest + " more" : null,
            listed: rest > 0 ? items.slice() : [] };
 }
@@ -3111,11 +3127,11 @@ function railEl(tag, cls, text) {
 
 /* The foot and, while one is being read, its popover. The caller puts the foot
    at the bottom of the rail and the popover in the window's `.app`, then calls
-   placeRailPop once both are on the page. A settled day has nothing open. */
+   placeRailPop once both are on the page. A settled day has nothing open, and
+   its foot is the last looked line alone. */
 function railFootFor(quiet, redraw) {
   var items = quiet ? [] : RAIL_OPEN;
   var lines = footLines(items);
-  if (!lines.drawn) return { foot: null, pop: null };
   var st = railEl("div", "status");
   var pop = null;
   lines.names.forEach(function (it) {
@@ -3175,8 +3191,7 @@ function railFootFor(quiet, redraw) {
       pop.append(railEl("div", "railarrow"));
     }
   }
-  st.append(railEl("div", "looked", "Last looked for bookings and receipts 2 minutes ago. "
-    + "Ovation only looks while it is open."));
+  st.append(railEl("div", "looked", lines.looked));
   return { foot: st, pop: pop };
 }
 

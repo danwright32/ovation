@@ -675,16 +675,22 @@ it governs**, with the question he was asked and his answer quoted beside the co
 (L249), and in the PRD as a numbered requirement (`ovation#580`). The rounds' own working files were
 not committed: the chooser is not the design.
 
-**The foot of the rail** (`ovation#99`, `ovation#566`, PRD 44c to 44f). Four rounds, all drawn in the
+**The foot of the rail** (`ovation#99`, `ovation#566`, PRD 44c to 44g). Four rounds, all drawn in the
 invoice window with the real sentences. The first problem is a one line short name with `Read`
 beside it ("Shortened beside Read"); a notice that arrives while an invoice is open goes there
 rather than over the content ("In the sidebar's foot"); `Read` opens a popover anchored to it with
 the whole sentence and `I have read this` ("Popover from Read"); and the foot counts nothing, naming
-each open thing on its own line, newest first, two at most and then `and N more`, and is not drawn
-at all when nothing is open ("Name each open thing"); and `and N more` is a control like `Read`
+each open thing on its own line, newest first, two at most and then `and N more`, and draws no such
+line when nothing is open ("Name each open thing"); and `and N more` is a control like `Read`
 that opens a popover listing every open thing with its sentence and `I have read this` ("Opens a
 list pop-up"). A third open item, the drafted bookings notice, is in the fixture so that line is
-drawn and can be pressed. It is one rule, `rules/rail-foot.js`, carried
+drawn and can be pressed. A notice unread at LAUNCH is no different: asked "When Ovation opens
+with an unread notice waiting, what happens?", he answered "Foot, like the rest", so it goes in the
+foot with `Read` and Ovation opens straight onto the shell, retiring the rule from `ovation#564`
+that gave the window to an unread launch notice (PRD 44g). And on 2026-09-27, asked whether a day
+with nothing open should still say when Ovation last looked for bookings and receipts, "Keep that
+line": the zero rule takes away the problem and notice lines only, and the last looked line stays
+every day (PRD 44f, 32). It is one rule, `rules/rail-foot.js`, carried
 verbatim by `invoice-list.html`, `invoice.html` and `clients.html`, because the rail is chrome, and
 `scripts/check-design-rules-inline.sh` holds each copy to it; its cases run in
 `scripts/test-design-rules.sh`. Its look is in `shell/window.css`. Retired with it: `1 other problem`

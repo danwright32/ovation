@@ -3,7 +3,9 @@
    own line, its short name with its own Read beside it, newest first, at most two
    lines, then "and N more". Read and unread items look the same (a notice closes
    once read, so what stays is standing problems). Nothing open: the whole foot
-   disappears (the zero rule)."
+   disappears (the zero rule)." Narrowed by Dan on 2026-09-27 ("Keep that line"):
+   the zero rule takes away the problem and notice lines, never the last looked
+   line.
 
    Each case: the open items, newest first, then the names the foot draws, then
    the line under them (null for none), then why.
@@ -13,7 +15,7 @@
    screen's rules, no screen runs its own copy of the foot's cases. */
 var RAIL_FOOT_CASES = [
   [[], [], null,
-   "nothing open: the whole foot disappears, and an empty list is not a foot with nothing in it"],
+   "nothing open: no problem or notice line is drawn, and an empty list is not a line with nothing in it"],
   [["2026 export written"], ["2026 export written"], null,
    "one open thing is named, with no line under it"],
   [["2026 export written", "Backup 3 days behind"],
@@ -67,6 +69,17 @@ function runRailFootTests() {
     if (JSON.stringify(listed) !== JSON.stringify(want))
       failures.push(c[3] + ": the list behind the line held " + JSON.stringify(listed)
         + ", expected " + JSON.stringify(want));
+  });
+
+  /* THE LAST LOOKED LINE STAYS ON EVERY DAY (Dan, 2026-09-27, ovation#566: "Keep
+     that line"). The zero rule takes away the problem and notice lines only, so a
+     quiet foot still says when Ovation last looked for bookings and receipts. */
+  RAIL_FOOT_CASES.forEach(function (c) {
+    ran++;
+    var items = c[0].map(function (s) { return { key: s, short: s }; });
+    var looked = footLines(items).looked;
+    if (typeof looked !== "string" || looked.indexOf("Last looked for bookings and receipts") !== 0)
+      failures.push(c[3] + ": the foot's last looked line was " + JSON.stringify(looked));
   });
 
   /* THE RETIRED WORDS NEVER COME BACK. "1 more to read" and "1 other problem"

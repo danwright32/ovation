@@ -23,7 +23,11 @@ TWO HALVES, because the question is drawn in two places.
 IN THE APP'S SWIFT, a copy is recognised by what it has to do to exist at all:
 draw the answers itself, which means a `ForEach` over a list of tax answers,
 reached as `TaxStatus.answers`, `TaxStatus.allCases`, or a question's own
-`answers`. Not by the chip's geometry, which other controls share on purpose
+`answers`, or the two answers written out by hand, each as
+`TaxStatus.exempt.exportLabel` and its sibling. Each file is read WHOLE, with its
+comments blanked out and its line numbers kept, because a review of #587 found
+that reading line by line passed a `ForEach(` whose list sat on the next line,
+and a comment describing the old shape is prose rather than a copy. Not by the chip's geometry, which other controls share on purpose
 (the discount line and the payment sheet use the same rounded, ruled box), so a
 guard keyed on it would accuse them and be learned to be skipped. The allowed
 file is one, `TaxAnswerChips.swift`, and it must still draw the answers that
@@ -57,9 +61,18 @@ REPO = os.environ.get("OVATION_REPO_ROOT") or os.path.dirname(
 OWNER = "Ovation/Invoices/TaxAnswerChips.swift"
 DESIGN_OWNER = "docs/design/invoice.html"
 
-# A hand drawn pair: a ForEach over the tax answers, however they are reached.
+# A hand drawn pair: a ForEach over the tax answers, however they are reached and
+# however the call is wrapped, or one answer's word written out by hand.
 DRAWS_ANSWERS = re.compile(
     r"ForEach\(\s*(?:TaxStatus\.(?:answers|allCases)\b|[A-Za-z_][\w.]*\.answers\b|answers\b)")
+WRITES_ONE = re.compile(r"\bTaxStatus\s*\.\s*(?:exempt|notExempt)\s*\.\s*exportLabel\b")
+SWIFT_COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.S)
+
+
+def code_of(text):
+    """The file with its comments blanked to spaces, newlines kept, so a match's
+    offset still gives the line it is on."""
+    return SWIFT_COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group()), text)
 
 STYLE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.S | re.I)
 SCRIPT = re.compile(r"<script\b[^>]*>.*?</script>", re.S | re.I)
@@ -104,7 +117,7 @@ def main():
         print("REFUSED: %s is not there, so this guard is checking nothing." % OWNER)
         print("    It names the one file allowed to draw the tax status answers.")
         return 1
-    if not DRAWS_ANSWERS.search(read(OWNER)):
+    if not DRAWS_ANSWERS.search(code_of(read(OWNER))):
         print("REFUSED: %s no longer draws the answers with a ForEach over them, so the" % OWNER)
         print("         shape this guard recognises is not there and every other file is")
         print("         now exempt by accident. Either the component moved or the idiom")
@@ -116,9 +129,11 @@ def main():
         rel = os.path.relpath(path, REPO)
         if rel == OWNER:
             continue
-        for number, line in enumerate(read(rel).splitlines(), 1):
-            if DRAWS_ANSWERS.search(line.split("//", 1)[0]):
-                copies.append("    %s:%d" % (rel, number))
+        code = code_of(read(rel))
+        found = sorted({code.count("\n", 0, m.start()) + 1
+                        for pattern in (DRAWS_ANSWERS, WRITES_ONE)
+                        for m in pattern.finditer(code)})
+        copies.extend("    %s:%d" % (rel, number) for number in found)
     if copies:
         faults.append(["REFUSED: a second hand drawn chip for the tax status question.",
                        "         Its answers are TaxAnswerChips and nothing else, so the two",
