@@ -73,6 +73,27 @@ final class InvoiceScreenPresenter {
         /// one of them twice and the other not at all.
         var id: String { key ?? label }
         var key: String?
+        /// The invoice `Remove` on this row takes the client's held money back off,
+        /// or nil where the row offers no such thing (PRD 14i). Only the held money
+        /// line carries one.
+        var takesOffHeld: PersistentIdentifier?
+        /// What pressing this row's word puts the client's held money on, or nil
+        /// where it offers nothing (PRD 14i and 14j).
+        var offersHeld: HeldOffer?
+        /// A sentence rather than a label and a figure: what stays held, or why
+        /// nothing was put on this invoice (PRD 14j, 14k). Drawn quiet, across the
+        /// block, with no figure beside it.
+        var isSentence = false
+    }
+
+    /// The word that puts a client's held money on this invoice, and the invoice
+    /// it is addressed to, carried rather than looked up again when it is pressed
+    /// (L166).
+    struct HeldOffer: Equatable {
+        /// `Use it here` where the client has more than one open invoice (14j), and
+        /// `Use it` where Dan took it off this one with `Remove` (14i).
+        let word: String
+        let invoice: PersistentIdentifier
     }
 
     /// What the foot's main action is (round 9, and ovation#510 for a sent one).
@@ -315,7 +336,14 @@ final class InvoiceScreenPresenter {
         client = invoiceClient?.name ?? "No client"
         shoot = Self.shootLine(invoice)
         lines = Self.rows(of: invoice)
-        money = Self.moneyRows(invoice) + Self.paymentRows(invoice)
+        let charged = Self.moneyRows(invoice)
+        // HELD MONEY IS DRAWN ONLY BENEATH A TOTAL WITH A FIGURE, for the reason
+        // the design record gives the Total itself: a figure taken off a price
+        // nobody has established asserts something the screen cannot support.
+        let totalHasAFigure = charged.contains { $0.label == "Total" && !$0.value.isEmpty }
+        money = charged
+            + (totalHasAFigure ? Self.heldRows(invoice, today: today) : [])
+            + Self.paymentRows(invoice)
         footAction = Self.footAction(for: invoice)
         paymentStarts = footAction == .recordPayment
             ? PaymentStart(amount: PDFText.amount(invoice.amountOutstanding),
@@ -644,7 +672,16 @@ final class InvoiceScreenPresenter {
         // WHERE OUTSTANDING IS DRAWN IT CARRIES THE WEIGHT, and Total drops to an
         // ordinary line (PRD 14m). Only then: on almost every invoice the Total IS
         // what is owed and stays heavy (ovation#510).
-        let outstandingIsDrawn = invoice.amountPaid > .zero && invoice.amountOutstanding > .zero
+        //
+        // HELD MONEY DRAWS ITS OWN Outstanding where no payment stands beside it,
+        // at 0.00 too, which is the design record's own treatment: it states what
+        // the held money left owed rather than leaving a subtraction (14k).
+        let standing = invoice.allocations.filter { $0.releasedOn == nil && $0.payment != nil }
+        let payments = standing.filter { !$0.isHeldMoney }
+        let heldIsOn = standing.contains(where: \.isHeldMoney)
+        let outstandingIsDrawn = payments.isEmpty
+            ? heldIsOn
+            : invoice.amountOutstanding > .zero
         rows.append(MoneyRow(label: "Total", value: figure(invoice.total),
                              isTotal: !outstandingIsDrawn))
         return rows
@@ -675,8 +712,11 @@ final class InvoiceScreenPresenter {
     /// quiet line for each check still waiting to clear (round 2), in the same
     /// words, which Dan chose for both.
     private static func paymentRows(_ invoice: Invoice) -> [MoneyRow] {
+        // HELD MONEY IS NOT A PAYMENT LINE. It has its own line, carrying Remove,
+        // drawn by `heldRows` (PRD 14i), and drawn here too it would be the same
+        // money stated twice.
         let standing = invoice.allocations
-            .filter { $0.releasedOn == nil && $0.payment != nil }
+            .filter { $0.releasedOn == nil && $0.payment != nil && !$0.isHeldMoney }
             .sorted { ($0.payment?.receivedOn.dayKey ?? "", $0.allocatedOn.dayKey)
                     < ($1.payment?.receivedOn.dayKey ?? "", $1.allocatedOn.dayKey) }
         guard !standing.isEmpty else { return [] }
@@ -707,6 +747,67 @@ final class InvoiceScreenPresenter {
         }
         rows.append(MoneyRow(label: "Outstanding", value: PDFText.amount(invoice.amountOutstanding),
                              isTotal: true))
+        return rows
+    }
+
+    /// The client's held money on this invoice, under the Total (PRD 14h to 14k),
+    /// in the design record's order: the applied line carrying Remove, then
+    /// Outstanding where no payment line will draw it, then what stays held; or,
+    /// where nothing is applied, the offer and why.
+    ///
+    /// A PAID INVOICE GETS NO OFFER, and a client holding nothing gets nothing
+    /// here at all (14h). Refusing only the arithmetic left the design record
+    /// reading Paid in full beside a control asking whether to put more money on
+    /// it, which is the same money counted twice.
+    ///
+    /// WHICH INVOICES ARE OPEN is the allocator's own reading,
+    /// `InvoiceStanding.invoicesOpenForHeldMoney`, so the sentence saying how many
+    /// are open and the pass that declined to choose between them cannot disagree
+    /// (L16).
+    private static func heldRows(_ invoice: Invoice, today: BusinessDate) -> [MoneyRow] {
+        guard let client = invoice.client else { return [] }
+        let held = client.moneyHeld
+        let on = Money.sum(of: invoice.allocations
+            .filter { $0.releasedOn == nil && $0.isHeldMoney }.map(\.amount))
+        let payments = invoice.allocations
+            .filter { $0.releasedOn == nil && $0.payment != nil && !$0.isHeldMoney }
+
+        if on > .zero {
+            var rows = [MoneyRow(label: "Held money applied", value: "-" + PDFText.amount(on),
+                                 isTotal: false, key: "held-applied",
+                                 takesOffHeld: invoice.persistentModelID)]
+            // Where a payment stands too, its block draws the one Outstanding, so
+            // the figure is stated once (the design record's own rule).
+            if payments.isEmpty {
+                rows.append(MoneyRow(label: "Outstanding",
+                                     value: PDFText.amount(max(invoice.amountOutstanding, .zero)),
+                                     isTotal: true))
+            }
+            // WHAT IS LEFT IS SAID, never left as a subtraction (14k, 5.14e).
+            if held > .zero {
+                rows.append(MoneyRow(label: "$\(PDFText.amount(held)) stays held on the client.",
+                                     value: "", isTotal: false, isSentence: true))
+            }
+            return rows
+        }
+
+        guard held > .zero else { return [] }
+        let open = InvoiceStanding.invoicesOpenForHeldMoney(of: client, on: today)
+        guard open.contains(where: { $0.id == invoice.id }) else { return [] }
+        let manyOpen = open.count > 1
+        var rows = [MoneyRow(label: "\(client.name) is holding", value: "$" + PDFText.amount(held),
+                             isTotal: false, key: "held-offer",
+                             offersHeld: HeldOffer(word: manyOpen ? "Use it here" : "Use it",
+                                                   invoice: invoice.persistentModelID))]
+        // Round C3: nothing was applied anywhere, and the invoice says why, or it
+        // reads as the money having gone missing. With one open invoice the money
+        // is off because Dan took it off, which he knows.
+        if manyOpen {
+            let which = open.count == 2 ? "either" : "any of them"
+            rows.append(MoneyRow(
+                label: "\(open.count) invoices are open for this client, so it was not put on \(which).",
+                value: "", isTotal: false, isSentence: true))
+        }
         return rows
     }
 

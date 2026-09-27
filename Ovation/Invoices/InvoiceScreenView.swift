@@ -141,6 +141,22 @@ struct InvoiceScreenView: View {
         var edited: () -> Void = {}
     }
 
+    /// ovation#185, PRD 14i and 14j. Putting the client's held money on this
+    /// invoice and taking it back off, or nil where the caller has nowhere for
+    /// either to go, in which case the held money lines are still said and
+    /// neither `Remove` nor `Use it here` is offered (L109).
+    var heldMoney: HeldMoneyControls?
+
+    struct HeldMoneyControls {
+        /// Why the last press did nothing, in the allocator's own words, said
+        /// under the lines it answers (L109).
+        var refused: String?
+        /// `Use it here` or `Use it`, handed the invoice the offer was made on.
+        var apply: (PersistentIdentifier) -> Void
+        /// `Remove`, handed the invoice the applied line is on.
+        var remove: (PersistentIdentifier) -> Void
+    }
+
     /// Opening the review, or nil where the caller has nowhere for it to go yet.
     /// NIL DRAWS THE WORD QUIET RATHER THAN HIDING IT, so the foot does not change
     /// shape depending on what is wired (L678).
@@ -679,45 +695,123 @@ struct InvoiceScreenView: View {
     private var money: some View {
         VStack(alignment: .trailing, spacing: 0) {
             ForEach(presenter.money, id: \.id) { row in
-                HStack(spacing: Column.gap) {
-                    Spacer(minLength: 0)
-                    Text(row.label)
-                        .font(.system(size: row.isTotal ? 14 : (row.isQuiet ? 12.5 : 13),
-                                      weight: row.isTotal ? .semibold : .regular))
-                        .foregroundStyle(row.isTotal ? OvationPalette.ink : OvationPalette.quiet)
-                    // BESIDE THE WORDS IT ACTS ON, the way held money carries
-                    // Remove (PRD 51n, rounds 2 and 5). Only a check that has not
-                    // cleared carries one, and only where something can clear it.
-                    // ActionWord, the one underlined control (ovation#450).
-                    if let check = row.clears, let payment {
-                        ActionWord(word: "Mark cleared", size: 12,
-                                   press: { payment.markCleared(check) }, notYet: nil)
-                    }
-                    Text(row.value)
-                        .font(.system(size: row.isTotal ? 15 : 13.5, design: .monospaced))
-                        .monospacedDigit()
-                        .fontWeight(row.isTotal ? .semibold : .regular)
-                        .foregroundStyle(OvationPalette.ink)
-                        .frame(width: Column.amount, alignment: .trailing)
+                if row.isSentence {
+                    heldSentence(row.label)
+                } else if let offer = row.offersHeld {
+                    heldOffer(row, offer)
+                } else {
+                    moneyRow(row)
                 }
-                .padding(.vertical, row.isTotal ? 8 : 4)
-                .overlay(alignment: .top) {
-                    if row.isTotal { Divider().overlay(OvationPalette.rule) }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(row.label), \(row.value)")
-                // BENEATH THE ROW IT BELONGS TO, above the tax and the total,
-                // which is where the design record puts it. It was beneath the
-                // whole block until the picture was looked at, which put it
-                // four rows from the figure it changes.
-                if row.isDiscount, let editing = presenter.discountBeingEdited,
-                   setDiscount != nil {
-                    discountControls(editing)
-                }
+            }
+            if let refused = heldMoney?.refused {
+                heldSentence(refused)
             }
         }
         .padding(.horizontal, Column.sideMargin)
         .padding(.top, 10)
+    }
+
+    /// The width of the totals block, the design record's own 318px, which every
+    /// held money line is laid out against so each shares the one right edge.
+    private static let totalsWidth: CGFloat = 318
+
+    /// What stays held, or why nothing was put on this invoice (PRD 14j, 14k):
+    /// quiet, under the figures, the design record's `.heldwhy`.
+    private func heldSentence(_ words: String) -> some View {
+        Text(words)
+            .font(.system(size: 12))
+            .foregroundStyle(OvationPalette.quiet)
+            .frame(width: Self.totalsWidth, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 2)
+    }
+
+    /// The client's holding and the word that puts it here (PRD 14i and 14j), the
+    /// design record's `.heldoffer`: the words, the figure in the mono face, and
+    /// the word at the right edge.
+    private func heldOffer(_ row: InvoiceScreenPresenter.MoneyRow,
+                           _ offer: InvoiceScreenPresenter.HeldOffer) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(row.label)
+                    .font(.system(size: 13))
+                    .foregroundStyle(OvationPalette.soft)
+                Text(row.value)
+                    .font(.system(size: 13, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(OvationPalette.ink)
+            }
+            Spacer(minLength: 0)
+            if let heldMoney {
+                Button { heldMoney.apply(offer.invoice) } label: {
+                    Text(offer.word)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(OvationPalette.accent)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(OvationPalette.background)
+                                .overlay(RoundedRectangle(cornerRadius: 4)
+                                    .stroke(OvationPalette.accent, lineWidth: 1))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(width: Self.totalsWidth)
+        .padding(.top, 9)
+        .padding(.bottom, 2)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func moneyRow(_ row: InvoiceScreenPresenter.MoneyRow) -> some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            HStack(spacing: Column.gap) {
+                Spacer(minLength: 0)
+                Text(row.label)
+                    .font(.system(size: row.isTotal ? 14 : (row.isQuiet ? 12.5 : 13),
+                                  weight: row.isTotal ? .semibold : .regular))
+                    .foregroundStyle(row.isTotal ? OvationPalette.ink : OvationPalette.quiet)
+                // BESIDE THE WORDS IT ACTS ON, the way held money carries
+                // Remove (PRD 51n, rounds 2 and 5). Only a check that has not
+                // cleared carries one, and only where something can clear it.
+                // ActionWord, the one underlined control (ovation#450).
+                if let check = row.clears, let payment {
+                    ActionWord(word: "Mark cleared", size: 12,
+                               press: { payment.markCleared(check) }, notYet: nil)
+                }
+                // PRD 14i: Remove sits on the held money line, beside the
+                // words it acts on, and is the same word the discount uses.
+                if let invoice = row.takesOffHeld, let heldMoney {
+                    ActionWord(word: "Remove", size: 11.5,
+                               press: { heldMoney.remove(invoice) }, notYet: nil)
+                }
+                Text(row.value)
+                    .font(.system(size: row.isTotal ? 15 : 13.5, design: .monospaced))
+                    .monospacedDigit()
+                    .fontWeight(row.isTotal ? .semibold : .regular)
+                    // The held money figure is the design's softer ink
+                    // (`.heldline .fig`): money moved, not money charged.
+                    .foregroundStyle(row.takesOffHeld == nil ? OvationPalette.ink
+                                                             : OvationPalette.soft)
+                    .frame(width: Column.amount, alignment: .trailing)
+            }
+            .padding(.vertical, row.isTotal ? 8 : 4)
+            .overlay(alignment: .top) {
+                if row.isTotal { Divider().overlay(OvationPalette.rule) }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(row.label), \(row.value)")
+            // BENEATH THE ROW IT BELONGS TO, above the tax and the total,
+            // which is where the design record puts it. It was beneath the
+            // whole block until the picture was looked at, which put it
+            // four rows from the figure it changes.
+            if row.isDiscount, let editing = presenter.discountBeingEdited,
+               setDiscount != nil {
+                discountControls(editing)
+            }
+        }
     }
 
     // MARK: the discount

@@ -167,8 +167,16 @@ struct InvoiceStanding: Equatable, Hashable, Sendable {
     var isDrawn: Bool { ending != .deleted }
 
     /// Whether the invoice is still waiting on money.
+    ///
+    /// PAID BY A CHECK THAT HAS NOT CLEARED IS PAID HERE (Dan, 2026-09-26, on
+    /// ovation#185): asked whether Ovation should offer a client's held money
+    /// against such an invoice, he answered "No, treat it as paid". The check
+    /// still waits in its own band for Mark cleared; what it does not do is make
+    /// the invoice one that held money could settle. A bounce, once one can be
+    /// recorded, releases the check's allocation, and the invoice reads as owed
+    /// and open again through the ordinary arithmetic.
     var isOpen: Bool {
-        ending == nil && money != .allOfItCleared
+        ending == nil && (money == .nothing || money == .some)
     }
 
     /// Whether this is one of the open invoices a client's held money could
@@ -193,6 +201,23 @@ struct InvoiceStanding: Equatable, Hashable, Sendable {
         switch sent {
         case .notSent, .sent: return isOpen
         case .couldNotDetermine, .attempting: return false
+        }
+    }
+}
+
+extension InvoiceStanding {
+
+    /// The client's invoices that their held money could settle, which is the set
+    /// PRD 14h and 14j count: exactly one and Ovation applies it there, more than
+    /// one and it applies it to none of them and asks on each.
+    ///
+    /// ONE READING, used by `PaymentAllocator` when it applies the money and by
+    /// the invoice screen when it says why it did not, so the two cannot disagree
+    /// about how many are open (L16). The list's held money band asks the same
+    /// predicate of standings it has already read.
+    static func invoicesOpenForHeldMoney(of client: Client, on day: BusinessDate) -> [Invoice] {
+        client.invoices.filter {
+            InvoiceStanding(of: $0, today: day, couldSettleMoreThanOne: false).isOpenForHeldMoney
         }
     }
 }

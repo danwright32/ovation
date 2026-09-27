@@ -475,7 +475,8 @@ struct InvoiceListPresenterTests {
         context.insert(payment)
         if cleared, method.gainsAClearedStep { _ = payment.markCleared(on: day) }
         let allocation = PaymentAllocation(payment: payment, invoice: invoice, amount: paid,
-                                           allocatedOn: day)
+                                           allocatedOn: day,
+                                           source: .recordedWithThePayment)
         context.insert(allocation)
         invoice.allocations.append(allocation)
         payment.allocations.append(allocation)

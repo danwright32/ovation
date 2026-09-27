@@ -220,7 +220,8 @@ struct InvoiceScreenShotTests {
                                 receivedOn: today)
             context.insert(check)
             context.insert(PaymentAllocation(payment: check, invoice: invoice,
-                                             amount: paidByCheck, allocatedOn: today))
+                                             amount: paidByCheck, allocatedOn: today,
+                                             source: .recordedWithThePayment))
         }
         return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today,
                                       serviceTypes: types)

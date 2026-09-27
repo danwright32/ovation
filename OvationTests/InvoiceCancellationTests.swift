@@ -509,7 +509,8 @@ struct InvoiceCancellationTests {
                                   method: .zelle, receivedOn: .stamping(Self.now))
             context.insert(payment)
             let allocation = PaymentAllocation(payment: payment, invoice: invoice,
-                                               amount: amount, allocatedOn: .stamping(Self.now))
+                                               amount: amount, allocatedOn: .stamping(Self.now),
+                                               source: .recordedWithThePayment)
             context.insert(allocation)
             payment.allocations.append(allocation)
             invoice.allocations.append(allocation)

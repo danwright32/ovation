@@ -431,7 +431,8 @@ struct TaxExportReconciliationTests {
                                   method: .zelle, receivedOn: .stamping(instant))
             context.insert(payment)
             let allocation = PaymentAllocation(payment: payment, invoice: invoice,
-                                               amount: amount, allocatedOn: .stamping(instant))
+                                               amount: amount, allocatedOn: .stamping(instant),
+                                               source: .recordedWithThePayment)
             context.insert(allocation)
             payment.allocations.append(allocation)
             invoice.allocations.append(allocation)
@@ -447,7 +448,8 @@ struct TaxExportReconciliationTests {
             let instant = BusinessCalendar.startOfDay(forDayKey: dayKey)!
             let allocation = PaymentAllocation(payment: payment, invoice: nil,
                                                amount: amount,
-                                               allocatedOn: .stamping(instant))
+                                               allocatedOn: .stamping(instant),
+                                               source: .recordedWithThePayment)
             context.insert(allocation)
             payment.allocations.append(allocation)
             return payment
@@ -460,7 +462,8 @@ struct TaxExportReconciliationTests {
             let instant = BusinessCalendar.startOfDay(forDayKey: dayKey)!
             let allocation = PaymentAllocation(payment: payment, invoice: nil,
                                                amount: amount,
-                                               allocatedOn: .stamping(instant))
+                                               allocatedOn: .stamping(instant),
+                                               source: .recordedWithThePayment)
             allocation.releasedOn = .stamping(instant)
             context.insert(allocation)
             payment.allocations.append(allocation)

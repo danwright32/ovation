@@ -81,7 +81,8 @@ struct InvoicePaymentViewTests {
                               method: .zelle, receivedOn: Self.today)
         context.insert(payment)
         context.insert(PaymentAllocation(payment: payment, invoice: invoice,
-                                         amount: Money(cents: 40_828), allocatedOn: Self.today))
+                                         amount: Money(cents: 40_828), allocatedOn: Self.today,
+                                         source: .recordedWithThePayment))
         let view = InvoiceScreenView(presenter: Self.present(invoice), close: {},
                                      payment: Asked().controls())
         let drawn = try Self.text(in: view)
@@ -144,7 +145,8 @@ struct InvoicePaymentViewTests {
                             method: .check, receivedOn: Self.today)
         context.insert(check)
         context.insert(PaymentAllocation(payment: check, invoice: invoice,
-                                         amount: Money(dollars: 200), allocatedOn: Self.today))
+                                         amount: Money(dollars: 200), allocatedOn: Self.today,
+                                         source: .recordedWithThePayment))
         try context.save()
         let asked = Asked()
         let view = InvoiceScreenView(presenter: Self.present(invoice), close: {},
@@ -162,7 +164,8 @@ struct InvoicePaymentViewTests {
                             method: .check, receivedOn: Self.today)
         context.insert(check)
         context.insert(PaymentAllocation(payment: check, invoice: invoice,
-                                         amount: Money(dollars: 200), allocatedOn: Self.today))
+                                         amount: Money(dollars: 200), allocatedOn: Self.today,
+                                         source: .recordedWithThePayment))
         let view = InvoiceScreenView(presenter: Self.present(invoice), close: {})
         #expect(throws: (any Error).self) { try Self.button("Mark cleared", in: view) }
     }
