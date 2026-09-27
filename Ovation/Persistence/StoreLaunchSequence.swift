@@ -63,7 +63,10 @@ struct StoreLaunchSequence {
     /// SKIPPED because today's backup was already taken was indistinguishable
     /// from one that backed up, and a folder that could not be read looked like
     /// either (L98, L11).
-    let takeBackup: @Sendable (Date) async throws -> BackupService.Attempt
+    ///
+    /// TOLD WHAT THE LAUNCH NEEDS (ovation#592): today's backup on an ordinary
+    /// open, and one taken now before an open that rewrites the store.
+    let takeBackup: @Sendable (Date, BackupService.Demand) async throws -> BackupService.Attempt
     /// ovation#230. Whether the archives have kept up with the store, asked after
     /// the backup so that today's counts. Injected like every other step.
     let backupCurrency: @Sendable (Date) -> BackupService.Currency
@@ -244,7 +247,22 @@ struct StoreLaunchSequence {
                 onStep?(.preparing)
                 try prepareDataDirectory()
                 onStep?(.backingUp)
-                switch try await takeBackup(now) {
+                // AN UPGRADE ASKS FOR A BACKUP TAKEN NOW (ovation#592). Today's
+                // earlier one is from before whatever was written since, which is
+                // exactly what the rewrite could lose.
+                let demand: BackupService.Demand = opensRewriteTheStore ? .beforeARewrite : .onceToday
+                let attempt = try await takeBackup(now, demand)
+                if demand == .beforeARewrite, case .alreadyTakenToday = attempt {
+                    // FAIL CLOSED ON THE ANSWER (L42): a step that handed back an
+                    // earlier backup did not take the one this upgrade needs, so
+                    // it refuses exactly as it would with none.
+                    noBackup = (.backupFailed,
+                                "Ovation found an earlier backup from today and did not take a new "
+                                    + "one, so nothing written since that backup has been copied.")
+                }
+                switch attempt {
+                case .alreadyTakenToday where noBackup != nil:
+                    break
                 case .taken, .alreadyTakenToday:
                     // A BACKUP HAPPENING IS PROOF A FOLDER EXISTS, so the standing
                     // "no folder chosen" notice is settled here rather than only

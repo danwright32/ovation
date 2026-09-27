@@ -180,7 +180,7 @@ struct OvationApp: App {
                     if let storeURL = StoreLocation.liveStoreURL() {
                         var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
                         sequence.onOpened = { opened.container = $0 }
-                        sequence.takeBackup = { now in
+                        sequence.takeBackup = { now, demand in
                             _ = await BlockingWork.run { true }
                             return .taken(storeURL)
                         }
@@ -266,7 +266,7 @@ struct OvationApp: App {
                     if let storeURL = StoreLocation.liveStoreURL() {
                         var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
                         sequence.onOpened = { opened.container = $0 }
-                        sequence.takeBackup = { now in
+                        sequence.takeBackup = { now, demand in
                             _ = await BlockingWork.run { true }
                             return .taken(storeURL)
                         }
@@ -340,7 +340,7 @@ said_on() {
 mentions() {
   if grep -q -- "$2" <<< "$1"; then echo yes; else echo no; fi
 }
-sed '/takeBackup = /,/}/ s/_ = await BlockingWork.run { true }/let attempt = try service().takeBackupIfDueToday(now: now)/' \
+sed '/takeBackup = /,/}/ s/_ = await BlockingWork.run { true }/let attempt = try service().attemptBackup(demand, now: now)/' \
     "${WORK}/task-guarded.swift" > "${WORK}/backup-on-the-main-actor.swift"
 check "a backup kept on the main actor is refused though the re-check leaves it" 6 \
     "$(run_on "${WORK}/backup-on-the-main-actor.swift")"
@@ -361,7 +361,7 @@ check "the real entry point with its backup moved onto the main actor is refused
     "$(run_on "${WORK}/real-backup-on-the-main-actor.swift")"
 # A HEAVY CALL AFTER THE CLOSURE DOES NOT COUNT FOR IT. The closure ends at its
 # own closing brace, so BlockingWork written just below it is a neighbour.
-sed '/takeBackup = /,/}/ s/_ = await BlockingWork.run { true }/let attempt = try service().takeBackupIfDueToday(now: now)/' \
+sed '/takeBackup = /,/}/ s/_ = await BlockingWork.run { true }/let attempt = try service().attemptBackup(demand, now: now)/' \
     "${WORK}/task-guarded.swift" \
   | sed 's/^                        await sequence.run(now: Date())$/                        _ = await BlockingWork.run { true }\
                         await sequence.run(now: Date())/' > "${WORK}/heavy-call-beside-the-closure.swift"
@@ -401,7 +401,7 @@ struct OvationApp: App {
                     if let storeURL = StoreLocation.liveStoreURL() {
                         var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
                         sequence.onOpened = { opened.container = $0 }
-                        sequence.takeBackup = { now in
+                        sequence.takeBackup = { now, demand in
                             _ = await BlockingWork.run { true }
                             return .taken(storeURL)
                         }
@@ -438,7 +438,7 @@ struct OvationApp: App {
                     if let storeURL = StoreLocation.liveStoreURL() {
                         var sequence = StoreLaunchSequence(storeURL: storeURL, problems: store)
                         sequence.onOpened = { opened.container = $0 }
-                        sequence.takeBackup = { now in
+                        sequence.takeBackup = { now, demand in
                             _ = await BlockingWork.run { true }
                             return .taken(storeURL)
                         }

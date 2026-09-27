@@ -85,10 +85,107 @@ struct InvoiceStandingTests {
         // follows `paymentState` rather than deciding it again here (L370).
         let context = try Self.store()
         let invoice = Self.invoice(context)
+        // A COMP IS PRICED, AT NOTHING (ovation#582): a line charging zero, which
+        // is what PRD 5.1b protects. An invoice with nothing on it at all is a
+        // different thing, and an unpriced draft is a third.
+        invoice.add(LineItem.flat(.zero, describedAs: "Photography, comped"))
         #expect(invoice.total == .zero)
+        #expect(!invoice.isUnpriced)
         let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
                                        couldSettleMoreThanOne: false)
         #expect(standing.money == .allOfItCleared)
+    }
+
+    // MARK: a draft waiting on its shoot times (ovation#582)
+
+    /// A draft with one shoot and no times, which is what the Downbeat drain
+    /// makes: PRD 3c's unpriced draft, with no hours and so no amount.
+    private static func unpriced(_ context: ModelContext) -> Invoice {
+        let invoice = Self.invoice(context)
+        invoice.add(Shoot(name: "Autumn Evensong", when: nil, venue: "St Anne's"))
+        return invoice
+    }
+
+    /// PAID NEEDS MONEY RECORDED, NOT A ZERO TOTAL. An unpriced draft comes to
+    /// 0.00 only because nothing has been charged yet, and reading that as paid
+    /// took it out of the held money count (PRD 14h, 14j) and would have put
+    /// money on it automatically the moment it was priced. PRD 5.1b's zero is the
+    /// comped invoice above, which IS priced, at nothing.
+    @Test("a draft waiting on its shoot times is owed, never paid by coming to nothing")
+    func anUnpricedDraftIsNotPaid() throws {
+        let context = try Self.store()
+        let invoice = Self.unpriced(context)
+        // The premise the defect needed: it is unpriced AND it totals zero.
+        #expect(invoice.isUnpriced)
+        #expect(invoice.total == .zero)
+
+        #expect(invoice.paymentState == .unpaid)
+        let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
+                                       couldSettleMoreThanOne: false)
+        #expect(standing.money == .nothing)
+        #expect(standing.isOpen)
+        #expect(standing.isOpenForHeldMoney)
+    }
+
+    /// EVERY STANDING AN UNPRICED DRAFT CAN BE IN, asserted rather than the one a
+    /// fixture happens to hold (L517). It is never paid, whatever else is true of
+    /// it; it is open wherever it has not ended; and it counts for held money
+    /// exactly where any draft does, which is not on an unsettled send.
+    @Test("every standing an unpriced draft can be in reads it as owed, and open wherever it has not ended")
+    func everyStandingOfAnUnpricedDraft() throws {
+        let noon = Date(timeIntervalSince1970: 1_794_531_600)
+        let attempt = SendAttempt(destination: ["booker@client.example"],
+                                  wasRedirected: false, renderSHA256: "abc", startedAt: noon)
+        let sends: [SentStatus] = [.notSent, .couldNotDetermine(checkedAt: noon),
+                                   .attempting(attempt)]
+        let endings: [InvoiceClosure?] = [
+            nil,
+            .cancelled(on: Self.dayAfter, reason: "shoot did not happen"),
+            .deleted(on: Self.dayAfter, reason: "never going to bill it"),
+        ]
+        for sent in sends {
+            for ending in endings {
+                let context = try Self.store()
+                let invoice = Self.unpriced(context)
+                invoice.sentStatus = sent
+                invoice.closure = ending
+                let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
+                                               couldSettleMoreThanOne: false)
+                let label = "\(sent), \(String(describing: ending))"
+
+                #expect(invoice.paymentState == .unpaid, "\(label)")
+                #expect(standing.money == .nothing, "\(label)")
+                #expect(standing.isOpen == (ending == nil), "\(label)")
+                let counted: Bool
+                if case .notSent = sent { counted = ending == nil } else { counted = false }
+                #expect(standing.isOpenForHeldMoney == counted, "\(label)")
+                // AND NO BAND FILES IT AMONG THE SETTLED.
+                #expect(!InvoiceBand.allCases.filter { $0.claims(standing) }
+                    .contains(.paidOrCleared), "\(label)")
+            }
+        }
+    }
+
+    /// MONEY ON A DRAFT WHOSE PRICE IS NOT KNOWN IS PART OF IT, never all of it.
+    /// A combined draft with one priced shoot and one untimed shoot can have its
+    /// priced part covered while the rest is still to be charged.
+    @Test("money covering the priced part of a draft still waiting on a shoot's times is part paid")
+    func moneyOnAPartlyPricedDraftIsPart() throws {
+        let context = try Self.store()
+        let invoice = Self.unpriced(context)
+        let priced = Shoot(name: "Morning Rehearsal", when: nil, venue: "St Anne's")
+        invoice.add(priced)
+        invoice.add(LineItem.hourly(hours: Hours(whole: 1), at: invoice.hourlyRate,
+                                    describedAs: "Photography", for: priced))
+        #expect(invoice.isUnpriced)
+        #expect(invoice.total > .zero)
+        Self.pay(invoice, in: context, method: .zelle, cleared: true)
+        #expect(invoice.amountPaid == invoice.total)
+
+        #expect(invoice.paymentState == .partlyPaid)
+        let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
+                                       couldSettleMoreThanOne: false)
+        #expect(standing.money == .some)
     }
 
     @Test("an uncleared check against a fully paid invoice is its own answer")
