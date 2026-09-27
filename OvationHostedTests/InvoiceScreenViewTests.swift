@@ -167,6 +167,18 @@ struct InvoiceScreenViewTests {
                 "the window offered \(pressable)")
     }
 
+    /// ovation#480, PRD 5a2. THE INVOICE ASKS WITH THE ONE CHIP, the same
+    /// component the roster pass asks with, so the two screens cannot draw the
+    /// question two ways again.
+    @Test("the invoice draws its answers with the one chip")
+    func theInvoiceUsesTheOneChip() throws {
+        let view = InvoiceScreenView(presenter: try Self.draft(taxStatus: .neverRecorded),
+                                     close: {}, setTime: { _, _, _ in },
+                                     answerTax: { _, _ in })
+
+        #expect(try view.inspect().findAll(TaxAnswerChips.self).count == 1)
+    }
+
     /// THE POSITIVE CONTROL, without which a screen that never asks would pass the
     /// case above (L159).
     @Test("and a client whose status is recorded is asked nothing")

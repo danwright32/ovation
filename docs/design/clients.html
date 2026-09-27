@@ -175,6 +175,13 @@ color: var(--faint); }
 .status .fault .read { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .status .also, .status .looked { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
 
+.status .fault b { white-space: nowrap; }
+.status .fault button.read { font: inherit; font-weight: 600; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
+.app { position: relative; }
+.railpop { position: absolute; z-index: 8; width: 300px; background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.10), 0 12px 28px rgba(0,0,0,.18); }
+.railsay { font-size: 13px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
+.railack { font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; align-self: flex-start; cursor: pointer; }
+.railarrow { position: absolute; left: -7px; width: 12px; height: 12px; background: var(--bg); border-left: 1px solid var(--rule); border-bottom: 1px solid var(--rule); transform: rotate(45deg); }
 .main { background: var(--bg); display: flex; flex-direction: column; min-width: 0; overflow: visible; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px 12px; border-bottom: 1px solid var(--rule); flex: none; }
 .toolbar h4 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: 29px; font-weight: 400; color: var(--ink); line-height: 1; }
@@ -303,10 +310,10 @@ color: var(--faint); }
    word beside a read only value, which is one more press for the same list. */
 .termhold { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
             position: relative; min-width: 0; }
-.termbtn { font: inherit; font-size: 13.5px; color: var(--ink); padding: 2px 9px;
+.termbtn, .taxval { font: inherit; font-size: 13.5px; color: var(--ink); padding: 2px 9px;
            border: 1px solid var(--rule); border-radius: 4px; background: var(--sunk);
            cursor: pointer; }
-.termbtn[aria-expanded="true"] { border-color: var(--accent); }
+.termbtn[aria-expanded="true"], .taxval[aria-expanded="true"] { border-color: var(--accent); }
 .termlist { position: absolute; top: 100%; left: 0; z-index: 5; margin-top: 4px;
             background: var(--bg); border: 1px solid var(--rule); border-radius: 6px;
             box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 4px 0; min-width: 140px;
@@ -314,6 +321,27 @@ color: var(--faint); }
 .termitem { font: inherit; font-size: 13px; text-align: left; padding: 5px 14px;
             border: 0; background: none; color: var(--ink); cursor: pointer; }
 .termitem.on { font-weight: 600; background: var(--selbg); }
+
+/* A TAX STATUS RECORDED WRONGLY IS CORRECTED HERE, BY PRESSING ITS VALUE (Dan,
+   2026-09-26, ovation#482, PRD 51j1), following round D's precedent just above.
+   Quoted from the decision: "the correction follows the payment terms precedent
+   on the same page (round D of ovation#98, PRD 51j). Asked how a wrong tax status
+   is corrected; answer: "Follow the terms precedent". So pressing the client
+   page's Sales tax VALUE opens the tax status chip pair (the invoice chip, per
+   the ovation#480 decision of the same day); before the change is saved, Ovation
+   states how many SENT invoices to that client were charged under the old
+   status, per the 2026-09-23 decision above. No separate Change word and no
+   chips always shown, for the reasons 51j records."
+   The value is drawn with round D's own treatment, so the two values on this
+   page that are controls look like one kind of thing. The pair sits beside the
+   value rather than hanging below it, because two chips are not a list. */
+.taxval.absent { color: var(--faint); }
+.taxhold { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.taxask { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
+          border: 1px solid var(--rule); background: var(--sunk); font-size: 13px; color: var(--soft); }
+.taxask .asks { display: flex; gap: 18px; }
+.taxask .act { font: inherit; font-size: 12.5px; font-weight: 600; background: none; border: 0;
+               padding: 0; cursor: pointer; }
 
 .dhead { font-size: 10.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--rule); padding-bottom: 6px; }
 .drow { display: grid; grid-template-columns: 44px minmax(0,1fr) 120px 92px 108px; gap: 12px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px; }
@@ -355,8 +383,25 @@ color: var(--faint); }
 .prow { display: grid; grid-template-columns: minmax(0,1fr) 216px; gap: 16px; align-items: center; padding: 7px 24px; border-bottom: 1px solid var(--rule-soft); }
 .prow .pname { font-size: 14px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .choice { display: flex; gap: 6px; justify-content: flex-end; }
-.chip { font-size: 12px; padding: 3px 11px; border: 1px solid var(--rule); border-radius: 4px; background: var(--bg); color: var(--soft); white-space: nowrap; }
-.chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-ink); font-weight: 600; }
+/* ONE CHIP ANSWERS THE TAX STATUS QUESTION, WHEREVER IT IS ASKED, AND IT IS THE
+   INVOICE'S (Dan, 2026-09-26, ovation#480, PRD 5a2). Quoted from the decision:
+   "Decided by Dan, 2026-09-26, by looking at a rendered round: both treatments
+   applied to both surfaces in the real windows (the roster pass at the record's
+   25 row fixture day, and the invoice totals block), switched in place. Asked:
+   "Which chip should answer the tax status question on both screens?" Answer:
+   "Invoice chip"."
+   So these three rules are docs/design/invoice.html's `.taxpick`, verbatim, and
+   scripts/check-one-tax-chip.sh refuses a copy that differs from that file's and
+   any return of the roster's own `.chip`, which this replaces. It is a real
+   button, where `.chip` was a div, so it keeps its hover and its focus ring.
+   Measured in the round: each roster row is centred on its chip, so rows go from
+   41.6 to 39.6 points and a 25 row pass is 50 points shorter; nothing else on the
+   roster moves. */
+.taxpick { font: inherit; font-size: 12px; font-family: "Archivo", ui-sans-serif, sans-serif;
+           padding: 2px 9px; border-radius: 5px;
+           border: 1px solid var(--rule); background: var(--chrome); color: var(--ink); }
+.taxpick:hover { background: var(--selbg); }
+.taxpick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* An email problem is a DIFFERENT problem per client, so its row says which
    rather than carrying a shared needs attention flag. */
@@ -400,7 +445,8 @@ color: var(--faint); }
   <div class="notice">
     <p><b>Click the sidebar to move between the two, and click a name to change the
     client.</b> That is navigation rather than a chooser: it is what the real window does.
-    <b>Press 14 days</b> to change a client's standing payment terms, and click Harborlight,
+    <b>Press 14 days</b> to change a client's standing payment terms, <b>press Not recorded or
+    Not exempt</b> beside Sales tax to answer or correct a tax status, and click Harborlight,
     Ashgrove and Zephyr Hall to see the three shapes money held can take.</p>
     <p><b>Use the day switch.</b> On a settled day there is no roster screen at all, because
     the rule this design keeps arriving at is that a quantity of nothing is not drawn. That now
@@ -444,8 +490,24 @@ color: var(--faint); }
     </div>
     <div><h3>This screen is read, not acted on</h3>
       <p>Applying held money to an invoice lives <b>on the invoice</b>, settled 10 September.
-      So the sidebar count still counts down, and the one action here is the payment terms,
-      which PRD 51h put on this screen rather than on any invoice.</p>
+      So the sidebar count still counts down, and the actions here are the two facts that belong
+      to the client rather than to any invoice: the payment terms, which PRD 51h put on this
+      screen, and the tax status, corrected here since 26 September.</p>
+    </div>
+    <div><h3>A tax status recorded wrongly is corrected here</h3>
+      <p><b>By pressing the value</b>, as the payment terms are, which opens the two answers beside
+      it. Changing an answer already recorded first says how many invoices already sent to that
+      client were charged under it, and that they stay as they were sent: re-sending one is your
+      decision, never automatic.</p>
+      <p>Dan, 2026-09-23 and 2026-09-26 (ovation#482): "Follow the terms precedent". PRD 51j1. No
+      separate Change word and no answers always shown, for the reasons the payment terms record.</p>
+    </div>
+    <div><h3>One chip answers the tax status question</h3>
+      <p><b>The invoice's</b>, on the roster pass, on the client's page and on the invoice itself.
+      Chosen by looking, with both chips drawn on both screens in the real windows: "Invoice chip".
+      Each is a real button, so it shows when it is pointed at and when the keyboard is on it, and
+      each roster row is 2 points shorter than it was, so a 25 row pass is 50 shorter.</p>
+      <p>Dan, 2026-09-26 (ovation#480). PRD 5a2.</p>
     </div>
     <div><h3>Where the money came from, only when it says something</h3>
       <p>A deposit and an overpayment behave identically once received, so the box names the
@@ -457,8 +519,14 @@ color: var(--faint); }
   <section class="closing">
     <h2>What is deliberately still open</h2>
     <ol>
-      <li><b>The detail pane scrolls sideways once the window is narrowed</b>, from 874px.
-      ovation#110, and it needs a decision from Dan about a minimum window width.</li>
+      <li><b>The words of the tax status correction were not chosen in a round.</b> The decision
+      settled where it lives and what it must say before a change is saved; the sentence and the
+      two words under it, "Change to" and "Keep", are this file's drafting of that, and have not
+      been looked at by Dan as a question of their own (PRD 51j1).</li>
+      <li><b>How a sent invoice keeps the tax it went out with.</b> A client's status is read when
+      an invoice is drawn (PRD 5a1), so a corrected status would re-draw invoices already sent
+      unless the build keeps what each was sent with. The decision says what went out is what it
+      says; how is the build's to settle (PRD 51j1).</li>
       <li><b>The roster pass covers what BLOCKS a send, and nothing else</b> (Dan, 2026-09-10,
       PRD 5a). This entry used to sit here as a gap. It is a decision: the shared address is a
       question rather than a fault, it can never stop an invoice going out, and it is answered
@@ -479,6 +547,10 @@ color: var(--faint); }
    A. The two balances keep their boxes and the FIGURES tell them apart.
    D. The payment terms VALUE is the control (PRD 51h had assigned this screen
       the control and nothing had drawn it).
+   And on 2026-09-26, three decisions this file now draws, each quoted where it
+   is drawn: the invoice's chip is the one tax status chip (ovation#480), a tax
+   status is corrected by pressing its value (ovation#482), and referral credit is
+   spelled by the shared hours rule (ovation#565).
    E. The held money box names the arrival it came from, and lists them when
       there is more than one.
    A fourth question was asked here and answered somewhere else: applying held
@@ -511,17 +583,17 @@ var CLIENTS = [
   { c: "Cormorant Bay Singers",        m: "sing@cormorantbay.example",        o: null, t: null,         h: null,        r: null },
   { c: "Drayton Wind Ensemble",        m: "office@draytonarts.example",       o: null, t: null,         h: null,        r: null, shared: true },
   { c: "Eastvale Opera Workshop",      m: "office@draytonarts.example",       o: null, t: null,         h: null,        r: null, shared: true },
-  { c: "Fenwick Early Music Society",  m: "consort@fenwickearly.example",     o: null, t: null,         h: null,        r: "2.5 hrs" },
+  { c: "Fenwick Early Music Society",  m: "consort@fenwickearly.example",     o: null, t: null,         h: null,        r: 2.5     },
   { c: "Gallowmere Brass Band",        m: "band@gallowmerebrass.example",     o: null, t: null,         h: null,        r: null },
-  { c: "Harborlight Ballet",           m: "studio@harborlightballet.example", o: "treasurer@harborlightballet.example", t: "Not exempt", h: 1250,        r: "3.0 hrs" },
+  { c: "Harborlight Ballet",           m: "studio@harborlightballet.example", o: "treasurer@harborlightballet.example", t: "Not exempt", h: 1250,        r: 3.0     },
   { c: "Inglenook Jazz Collective",    m: "gigs@inglenookjazz.example",       o: null, t: null,         h: null,        r: null },
   { c: "Juniper Row Playhouse",        m: "stage@juniperrow.example",         o: null, t: null,         h: null,        r: null },
   { c: "Kestrel Lane Quartet",         m: "quartet@kestrellane.example",      o: null, t: null,         h: null,        r: null },
   { c: "Larkspur Community Chorus",    m: "chorus@larkspurcommunity.example", o: null, t: "Exempt",     h: null,        r: null },
-  { c: "Marisol Okonkwo-Reyes",        m: "marisol@okonkworeyes.example",     o: null, t: null,         h: null,        r: "4.0 hrs" },
+  { c: "Marisol Okonkwo-Reyes",        m: "marisol@okonkworeyes.example",     o: null, t: null,         h: null,        r: 4.0     },
   { c: "Marrowbone Percussion Group",  m: "kit@marrowbonepercussion.example", o: null, t: null,         h: null,        r: null },
   { c: "Nettlefield Baroque Consort",  m: "info@nettlefieldbaroque.example",  o: null, t: null,         h: null,        r: null },
-  { c: "Orchard Hill Symphonia",       m: "office@orchardhillsym.example",    o: null, t: null,         h: null,        r: "1.0 hrs" },
+  { c: "Orchard Hill Symphonia",       m: "office@orchardhillsym.example",    o: null, t: null,         h: null,        r: 1.0     },
   { c: "Pennywhistle Folk Circle",     m: "ask at the box office",            o: null, t: null,         h: null,        r: null, bad: "notaddress", fixed: "folk@pennywhistlecircle.example" },
   { c: "Priya Raghunathan",            m: "priya@raghunathanviolin.example",  o: null, t: null,         h: null,        r: null },
   { c: "Quillon Contemporary Dance",   m: "co@quillondance.example",          o: null, t: null,         h: null,        r: null },
@@ -531,12 +603,48 @@ var CLIENTS = [
   { c: "Tobias Fenn",                  m: "tobias@fennpiano.example",         o: null, t: null,         h: null,        r: null },
   { c: "Underhill Gospel Choir",       m: "choir@underhillgospel.example",    o: null, t: "Exempt",     h: null,        r: null },
   { c: "Vesper Lane Chamber Society",  m: "society@vesperlane.example",       o: null, t: null,         h: null,        r: null },
-  { c: "Westfield Choral Society",     m: "music@westfieldchoral.example",    o: null, t: "Not exempt", h: null,        r: "3.0 hrs" },
+  { c: "Westfield Choral Society",     m: "music@westfieldchoral.example",    o: null, t: "Not exempt", h: null,        r: 3.0     },
   { c: "Wrenfield Academy of Dance",   m: "school@wrenfieldacademy.example",  o: null, t: null,         h: null,        r: null },
   { c: "Yarrow Street Collective",     m: "make@yarrowstreet.example",        o: null, t: null,         h: null,        r: null },
   { c: "Zephyr Hall Concerts",         m: "hall@zephyrhall.example",          o: null, t: "Not exempt", h: 87.5,        r: null }
 ];
 
+/* THE NUMBER A DURATION IS WRITTEN AS, ON THE SCREEN AND ON THE PDF (Dan,
+   2026-09-19, ovation#322, PRD 51k; held together by ovation#413).
+
+   ONE DECIMAL UNLESS THE QUARTER HOUR NEEDS TWO, so 1.5 and 1.25 rather than
+   1.50 and 1.3. The invoice screen wrote `toFixed(2)` in two places while the
+   PDF the client receives wrote its own rule, and Dan reads the screen and then
+   the PDF of one invoice one after the other, so one fact in two spellings reads
+   as two different numbers, which a unit or a qualifier cannot separate (L118).
+   A quarter hour written to one decimal printed 1.3, and the hours times the rate
+   stopped adding up to the amount beside them (PRD 50c).
+
+   THE UNIT IS NOT PART OF THE FIGURE. The screen's column is already headed
+   Hours, so a unit on every row would be the same fact twice on one surface
+   (L605), chosen with all three spellings drawn. Where a figure is read with no
+   column header above it, it carries its unit, written once in `hoursWithUnit`
+   below: the PDF's lines (through `hours` in rules/pdf-text.js), and the Clients
+   screen's referral credit (Dan, 2026-09-26, ovation#565: "Clients writes "1.0
+   hr"").
+
+   ONE RULE, TWO SCREENS, so each is held to it on its own rather than the
+   better copy answering for both:
+   CARRIED BY: invoice.html, invoice-pdf.html, review-send.html, clients.html */
+function hoursFigure(h) {
+  var hundredths = Math.round(h * 100);
+  return hundredths % 10 === 0 ? h.toFixed(1) : h.toFixed(2);
+}
+
+function hoursWithUnit(h) {
+  return hoursFigure(h) + (Math.round(h * 100) === 100 ? " hr" : " hrs");
+}
+
+/* REFERRAL CREDIT IS HELD AS HOURS AND SPELLED BY THE SHARED RULE (Dan,
+   2026-09-26, ovation#565): "apply the settled duration spelling (PRD 51k,
+   rules/hours-figure.js) to review-send.html and clients.html without a separate
+   round. ... Clients writes "1.0 hr"." It was typed here as "1.0 hrs" while the
+   PDF wrote "1.0 hr" for the same hour. */
 var SELECTED = "Drayton Wind Ensemble";
 /* HELD MONEY IS A NUMBER, and the "$1,250.00" on screen is DERIVED from it.
    It was stored as the display string until 2026-09-10, and the rail's total
@@ -555,7 +663,16 @@ function dollars(n) {
   return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 var HELD = CLIENTS.filter(function (k) { return k.h; });
-var NO_TAX = CLIENTS.filter(function (k) { return !k.t; });
+/* WHO HAS NO TAX STATUS IS ASKED EVERY DRAW, never counted once at load, since
+   the roster's answers are real buttons now (ovation#480) and each one takes a
+   client out of the pass. What the pass STARTED with is kept apart from it, as
+   the status each client arrived with, so the foot's number does not count down
+   as the answers go in, which is the whole of PRD 5a's wording. */
+function noTax() { return CLIENTS.filter(function (k) { return !k.t; }); }
+CLIENTS.forEach(function (k) { k.arrived = k.t; });
+function startedWith() {
+  return CLIENTS.filter(function (k) { return !k.arrived || addressBroken(k); }).length;
+}
 
 /* A BROKEN ADDRESS IS A FACT ABOUT THE DAY, not about the client (ovation#209).
    Dan fixed the one unsendable address in Downbeat on 2026-09-11, at source, so
@@ -605,6 +722,10 @@ var ARRIVALS = {
    invoice's own due date that offer different terms would be two vocabularies
    for one thing. */
 var TERMS = ["On receipt", "7 days", "14 days", "30 days"];
+/* The tax status control, round D's shape: the value opens the pair, and a
+   change to a status already recorded asks first (ovation#482). */
+var TAX_OPEN = false;
+var TAX_ASKING = null;
 var TERM = "14 days";
 var TERMS_OPEN = false;
 
@@ -612,19 +733,32 @@ var TERMS_OPEN = false;
 function rosterCount() { return QUIET ? 0 : toSettle().length; }
 function goesTo(k) { return k.o || (k.bad && !addressBroken(k) ? k.fixed : k.m); }
 
-function taxChoice(k) {
+/* THE TWO ANSWERS, ONE LIST AND ONE CHIP (ovation#480). Each is a real button,
+   and pressing one records it, which takes the client out of the pass. The
+   roster's old chip drew a chosen state too, which no client in the pass could
+   ever reach, since the pass is built from the clients with no answer. */
+var TAX_ANSWERS = ["Exempt", "Not exempt"];
+
+function taxPair(pick) {
   var w = el("div", "choice");
-  ["Exempt", "Not exempt"].forEach(function (label) {
-    w.append(el("div", "chip" + (k.t === label ? " on" : ""), label));
+  TAX_ANSWERS.forEach(function (label) {
+    var b = el("button", "taxpick", label);
+    b.type = "button";
+    b.addEventListener("click", function () { pick(label); });
+    w.append(b);
   });
   return w;
+}
+
+function taxChoice(k) {
+  return taxPair(function (label) { k.t = label; draw(); });
 }
 
 // ---------------------------------------------------------------- the roster
 function rosterScreen() {
   var main = el("div", "main");
   var tbar = el("div", "toolbar");
-  var settle = toSettle(), bad = badAddresses(), untaxed = NO_TAX;
+  var settle = toSettle(), bad = badAddresses(), untaxed = noTax();
   var left = QUIET ? 0 : settle.length;
   tbar.append(el("h4", null, "Settle the roster"),
               el("div", "meta", left === 0 ? "Settled"
@@ -689,7 +823,7 @@ function rosterScreen() {
      address sits in both sections, so the number the pass started with is the
      clients in it, never the two section counts added together. */
   var foot = el("div", "passfoot");
-  foot.append(el("b", null, "Started with " + settle.length + " of " + CLIENTS.length),
+  foot.append(el("b", null, "Started with " + startedWith() + " of " + CLIENTS.length),
               el("span", null, "Ovation says the number it began with, so this reads as a one "
                 + "time pass rather than a standing nag. Once it is empty this screen is gone."));
   scroll.append(foot);
@@ -756,6 +890,59 @@ function termsRow() {
   return row;
 }
 
+/* ovation#482. The Sales tax VALUE is the control, as the payment terms value
+   is. Pressing it opens the two answers beside it. An answer given where none
+   was recorded is saved at once, since nothing sent can have been charged under
+   a status nobody recorded. A change to a recorded status asks first. */
+function taxRow(k) {
+  var row = el("div", "fact");
+  row.append(el("span", "flabel", "Sales tax"));
+  var hold = el("span", "fval taxhold");
+  var btn = el("button", "taxval" + (k.t ? "" : " absent"), k.t || "Not recorded");
+  btn.type = "button";
+  btn.setAttribute("aria-expanded", String(TAX_OPEN));
+  btn.addEventListener("click", function () { TAX_OPEN = !TAX_OPEN; TAX_ASKING = null; draw(); });
+  hold.append(btn);
+  if (TAX_OPEN) {
+    hold.append(taxPair(function (label) {
+      if (label === k.t) { TAX_OPEN = false; draw(); return; }
+      if (!k.t) { k.t = label; TAX_OPEN = false; draw(); return; }
+      TAX_ASKING = label; TAX_OPEN = false; draw();
+    }));
+  }
+  row.append(hold);
+  return row;
+}
+
+/* BEFORE A RECORDED STATUS CHANGES, OVATION SAYS HOW MANY SENT INVOICES WERE
+   CHARGED UNDER IT (Dan, 2026-09-23, ovation#482): "Before it is saved, Ovation
+   states how many SENT invoices to that client were charged under the old
+   status; the change then applies to drafts and every invoice from now on, and
+   re-sending a corrected invoice stays Dan's decision (no automatic reissue)."
+   The count is taken from the invoices this page lists, never written beside
+   them, so it cannot say a number the list does not hold (L180). The sentence
+   names the sent invoices and what the change reaches; how a sent invoice keeps
+   the tax it went out with is the build's to settle (PRD 51j1). */
+function taxAsk(k) {
+  var sent = INVOICES.filter(function (iv) { return iv.w !== "Draft"; }).length;
+  var charged = k.t === "Exempt" ? "not charged sales tax" : "charged sales tax";
+  var box = el("div", "taxask");
+  box.append(el("div", null, sent + (sent === 1 ? " invoice" : " invoices")
+    + " already sent to this client " + (sent === 1 ? "was " : "were ") + charged
+    + ", and stay as they were sent. Drafts and every invoice from now on will be "
+    + TAX_ASKING + "."));
+  var asks = el("div", "asks");
+  var yes = el("button", "act", "Change to " + TAX_ASKING);
+  yes.type = "button";
+  yes.addEventListener("click", function () { k.t = TAX_ASKING; TAX_ASKING = null; draw(); });
+  var no = el("button", "act", "Keep " + k.t);
+  no.type = "button";
+  no.addEventListener("click", function () { TAX_ASKING = null; draw(); });
+  asks.append(yes, no);
+  box.append(asks);
+  return box;
+}
+
 function detailFor(k) {
   var detail = el("div", "detail");
   detail.append(el("h5", null, k.c));
@@ -785,15 +972,12 @@ function detailFor(k) {
     facts.append(ov);
   }
 
-  var tax = el("div", "fact");
-  tax.append(el("span", "flabel", "Sales tax"));
-  var tv = el("span", "fval", k.t || "Not recorded");
-  if (!k.t) tv.classList.add("absent");
-  tax.append(tv);
-  facts.append(tax);
+  facts.append(taxRow(k));
 
   facts.append(termsRow());
   detail.append(facts);
+
+  if (TAX_ASKING) detail.append(taxAsk(k));
 
   if (k.shared) {
     var warn = el("div", "warn");
@@ -808,7 +992,7 @@ function detailFor(k) {
     if (k.r) {
       var cred = el("div", "mbox");
       /* NOT the money face: this balance is counted in hours, not dollars. */
-      cred.append(el("div", "mlabel", "Referral credit"), el("div", "mval notmoney", k.r),
+      cred.append(el("div", "mlabel", "Referral credit"), el("div", "mval notmoney", hoursWithUnit(k.r)),
                   el("div", "mnote", "Earned by referring. Comes off an invoice in its own "
                                    + "block above the subtotal"));
       wrap.append(cred);
@@ -887,7 +1071,9 @@ function clientsScreen() {
     n.dataset.client = k.c;
     fillRow(n, k);
     if (k.c === chosen) n.classList.add("sel");
-    n.addEventListener("click", function () { chosen = k.c; paint(); });
+    n.addEventListener("click", function () {
+      chosen = k.c; TAX_OPEN = false; TAX_ASKING = null; paint();
+    });
     names.append(n);
   });
 
@@ -895,6 +1081,138 @@ function clientsScreen() {
   scroll.append(split);
   main.append(scroll);
   return main;
+}
+
+/* THE FOOT OF THE RAIL: EACH OPEN THING BY A SHORT NAME, WITH READ BESIDE IT,
+   AND READ OPENING A POPOVER (Dan, 2026-09-26, four rendered rounds on ovation#99
+   and ovation#566, PRD 44c to 44f). Each answer is quoted from the comment that
+   records it.
+
+   THE FORM. Asked "How should the first problem and Read sit at the bottom of the
+   sidebar?", answer "Shortened beside Read": "the rail foot shows a one line
+   short name for the first problem with Read beside it, Read looking like a
+   control at rest, and the full sentence only behind Read. It fits at the 620
+   point minimum window height with the longest real sentence, which the two full
+   sentence options did not." (ovation#99)
+
+   A NOTICE THAT ARRIVES MID SESSION. Asked "Where does a notice go when it
+   arrives while an invoice is open?", answer "In the sidebar's foot": "an unread
+   notice mid session becomes the rail foot's first line in the form settled on
+   ovation#99 ... nothing drawn over the content, the invoice left open."
+   (ovation#566)
+
+   WHAT READ OPENS. Asked "What should pressing Read in the sidebar's foot
+   open?", answer "Popover from Read": "Read opens a popover anchored to Read
+   holding the full sentence and "I have read this", and nothing else moves; the
+   invoice stays open." Measured in that round: 300 by 207 points, 8 lines for
+   the export sentence. (ovation#99, ovation#566)
+
+   THE WORDS. Asked "What should the lines at the foot of the sidebar say?",
+   answer "Name each open thing": "the foot carries no count. Each open item gets
+   its own line, its short name with its own Read beside it, newest first, at
+   most two lines, then "and N more". Read and unread items look the same (a
+   notice closes once read, so what stays is standing problems). Nothing open:
+   the whole foot disappears (the zero rule). This retires both "1 more to read"
+   and "1 other problem" in the foot." (ovation#99, ovation#566)
+
+   ONE COPY FOR EVERY SCREEN THAT DRAWS THE RAIL, because the rail is chrome and
+   the foot is part of it: three files drawing it by hand is three places for the
+   retired count to come back.
+   CARRIED BY: invoice-list.html, invoice.html, clients.html */
+
+/* The lines the foot draws for the items open, newest first. `drawn` false is
+   the zero rule: no foot at all, not a foot saying nothing. */
+function footLines(items) {
+  var names = items.slice(0, 2);
+  var rest = items.length - names.length;
+  return { drawn: items.length > 0, names: names,
+           more: rest > 0 ? "and " + rest + " more" : null };
+}
+
+/* What is still open once one item is read. A notice closes once read; a
+   standing problem stays open until its condition clears. A new list, never the
+   one given changed in place. */
+function afterRead(items, key) {
+  return items.filter(function (it) { return !(it.key === key && it.closesOnceRead); });
+}
+
+/* THE TWO REAL ITEMS THE ROUNDS WERE DRAWN WITH, newest first: the year end
+   export's result (YearEndExportCommand's sentence for a written export, a
+   notice) and the stale backup (StoreLaunchSequence's, a standing problem). The
+   short names are the ones the rounds wrote; the folder is written from the home
+   folder rather than as one person's full path. */
+var RAIL_OPEN = [
+  { key: "export", short: "2026 export written", closesOnceRead: true,
+    sentence: "The 2026 export is written: income.csv, expenses.csv, manifest.json in "
+      + "~/Library/Application Support/Ovation/exports. Every row was read back off the "
+      + "disk and reconciled against a second reading of the store before this was said." },
+  { key: "backup", short: "Backup 3 days behind", closesOnceRead: false,
+    sentence: "Your work on 2026-09-23 is in no backup: the newest was taken on 2026-09-20." }
+];
+var RAIL_READING = null;
+
+function railEl(tag, cls, text) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+/* The foot and, while one is being read, its popover. The caller puts the foot
+   at the bottom of the rail and the popover in the window's `.app`, then calls
+   placeRailPop once both are on the page. A settled day has nothing open. */
+function railFootFor(quiet, redraw) {
+  var items = quiet ? [] : RAIL_OPEN;
+  var lines = footLines(items);
+  if (!lines.drawn) return { foot: null, pop: null };
+  var st = railEl("div", "status");
+  var pop = null;
+  lines.names.forEach(function (it) {
+    var row = railEl("div", "fault");
+    var read = railEl("button", "read", "Read");
+    read.type = "button";
+    read.setAttribute("aria-expanded", String(RAIL_READING === it.key));
+    read.addEventListener("click", function () {
+      RAIL_READING = RAIL_READING === it.key ? null : it.key;
+      redraw();
+      placeRailPop();
+    });
+    row.append(railEl("b", null, it.short), read);
+    st.append(row);
+    if (RAIL_READING === it.key) {
+      pop = railEl("div", "railpop");
+      pop.setAttribute("role", "dialog");
+      pop.setAttribute("aria-label", it.short);
+      var ack = railEl("button", "railack", "I have read this");
+      ack.type = "button";
+      ack.addEventListener("click", function () {
+        RAIL_OPEN = afterRead(RAIL_OPEN, it.key);
+        RAIL_READING = null;
+        redraw();
+        placeRailPop();
+      });
+      pop.append(railEl("div", "railsay", it.sentence), ack, railEl("div", "railarrow"));
+    }
+  });
+  if (lines.more) st.append(railEl("div", "also", lines.more));
+  st.append(railEl("div", "looked", "Last looked for bookings and receipts 2 minutes ago. "
+    + "Ovation only looks while it is open."));
+  return { foot: st, pop: pop };
+}
+
+/* Anchored to the Read that opened it, pointing at it, and kept inside the
+   window. Measured from the page, so it has to run once the window is on it. */
+function placeRailPop() {
+  var pop = document.querySelector(".railpop");
+  var read = document.querySelector('.status .read[aria-expanded="true"]');
+  if (!pop || !read) return;
+  var a = pop.parentElement.getBoundingClientRect(), r = read.getBoundingClientRect();
+  var mid = r.top + r.height / 2 - a.top;
+  var h = pop.getBoundingClientRect().height;
+  var top = Math.max(12, Math.min(mid - h + 30, a.height - h - 12));
+  pop.style.left = Math.round(r.right - a.left + 14) + "px";
+  pop.style.top = Math.round(top) + "px";
+  pop.querySelector(".railarrow").style.top = Math.round(mid - top - 7) + "px";
 }
 
 // ----------------------------------------------------------------- the window
@@ -979,14 +1297,13 @@ function buildClientsScreen() {
   });
 
   side.append(el("div", "spacer"));
-  var st = el("div", "status");
-  var f = el("div", "fault");
-  f.append(el("b", null, "Backup failed 3 days ago"), el("span", "read", "Read"));
-  st.append(f, el("div", "also", "1 other problem"),
-    el("div", "looked", "Last looked for bookings and receipts 2 minutes ago. Ovation only looks while it is open."));
-  side.append(st);
+  /* THE FOOT NAMES EACH OPEN THING, and Read opens a popover beside it (PRD 44c
+     to 44f), drawn by rules/rail-foot.js, whose record says why. */
+  var railParts = railFootFor(QUIET, draw);
+  if (railParts.foot) side.append(railParts.foot);
 
   app.append(side, tb, onRoster ? rosterScreen() : clientsScreen());
+  if (railParts.pop) app.append(railParts.pop);
   win.append(app);
   screen.append(bar, win);
   return screen;
@@ -994,7 +1311,7 @@ function buildClientsScreen() {
 
 var stage = document.getElementById("stage");
 var tabs = document.getElementById("tabs");
-function draw() { stage.replaceChildren(buildClientsScreen()); }
+function draw() { stage.replaceChildren(buildClientsScreen()); placeRailPop(); }
 
 /* THE DAY SWITCH CHANGES THE DATA, NEVER THE DESIGN, and it has three days.
    The third, the address fixed, is ovation#209: the live export's one broken

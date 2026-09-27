@@ -668,18 +668,57 @@ ovation#172, which is why this paragraph sits ABOVE the heading rather than insi
 runs in CI rather than on every push, because it asks GitHub and a gate that refuses on every
 machine without a network is one people learn to skip.
 
+## Seven decisions of 2026-09-26, and where each is drawn
+
+**Each was made by Dan by looking at a rendered round, or by a picker, and each is now in the file
+it governs**, with the question he was asked and his answer quoted beside the code it produced
+(L249), and in the PRD as a numbered requirement (`ovation#580`). The rounds' own working files were
+not committed: the chooser is not the design.
+
+**The foot of the rail** (`ovation#99`, `ovation#566`, PRD 44c to 44f). Four rounds, all drawn in the
+invoice window with the real sentences. The first problem is a one line short name with `Read`
+beside it ("Shortened beside Read"); a notice that arrives while an invoice is open goes there
+rather than over the content ("In the sidebar's foot"); `Read` opens a popover anchored to it with
+the whole sentence and `I have read this` ("Popover from Read"); and the foot counts nothing, naming
+each open thing on its own line, newest first, two at most and then `and N more`, and is not drawn
+at all when nothing is open ("Name each open thing"). It is one rule, `rules/rail-foot.js`, carried
+verbatim by `invoice-list.html`, `invoice.html` and `clients.html`, because the rail is chrome, and
+`scripts/check-design-rules-inline.sh` holds each copy to it; its cases run in
+`scripts/test-design-rules.sh`. Its look is in `shell/window.css`. Retired with it: `1 other problem`
+and `1 more to read`.
+
+**One tax status chip** (`ovation#480`, PRD 5a2). "Invoice chip": `invoice.html`'s `.taxpick` is the
+chip wherever the question is asked, so `clients.html` now carries it verbatim for the roster pass
+and the client page, as a real button, and its old `.chip` is deleted. `scripts/check-one-tax-chip.sh`
+refuses a copy that differs from the owner's, the old `.chip` returning, and, in the app, any screen
+drawing the answers itself instead of `TaxAnswerChips`.
+
+**Correcting a tax status** (`ovation#482`, PRD 51j1). "Follow the terms precedent": on the client's
+page the Sales tax value is the control, as the payment terms value is (round D), and it opens the
+chip pair. A change to a status already recorded first says how many invoices already sent to that
+client were charged under it, counted from the invoices the page lists. The wording of that sentence
+was drafted in the file, not chosen in a round, and `clients.html` lists it as open.
+
+**The duration spelling in two more files** (`ovation#565`, PRD 51k1). "Just apply it":
+`review-send.html` writes `2.5` and `billed as 2.5 hours`, and `clients.html` writes referral credit
+as `1.0 hr`. Both now carry `rules/hours-figure.js` and are named on its carried by line. The unit
+is written once, as `hoursWithUnit` in that rule, which the PDF's `hours` now draws on too, and the
+invoice screen's own money formatter is `screenMoney`, no longer sharing the PDF rule's name.
+
 ## What is still open
 
-The receipts queue, `ovation#100`, is the only screen not designed at all. The Clients detail pane
-scrolls sideways once the window is narrowed, `ovation#110`: Dan decided on 2026-09-23 that the
-window's minimum is measured and must reach half his screen, 860 points, so the pane has to fit at
-that width rather than the window being held wider, and it does not yet.
+The receipts queue, `ovation#100`, is the only screen not designed at all.
 
 ## What was open here and is now settled
 
 **Everything below was in the section above and is not any more.** It is kept rather than deleted,
 because what a decision REPLACED is part of the decision, and moved rather than left, because the
 heading above is read as a list of what is outstanding.
+
+**The Clients detail pane no longer scrolls sideways at a narrow window** (`ovation#110`, closed
+2026-09-26). Dan decided on 2026-09-23 that the window's minimum is measured and must reach half
+his screen, 860 points, and on 2026-09-26 that below a 1020 point window a client's invoice row puts
+its shoot on a line of its own (PRD 47c), which `clients.html` records beside the rule.
 
 **Where the venue and the real shoot times live is settled and shipped** (`ovation#95`, closed
 2026-09-22). The invoice screen carries both, and draws them the same on a dark Mac.
@@ -1199,8 +1238,7 @@ a second round, on the stated grounds that it is four words in one place.
 
 ### What the screen still is not
 
-The detail pane scrolls sideways once the window is narrowed, from 874px (`ovation#110`). The
-roster pass does not cover the shared contract email: two clients share one, and that is asked
+The roster pass does not cover the shared contract email: two clients share one, and that is asked
 about on the client rather than in the pass, so the one screen that exists to be cleared once does
 not hold every question about the roster. A first attempt drew a shared email one shade quieter,
 which measured as no difference at all on screen and was removed rather than left as a distinction

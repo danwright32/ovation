@@ -18,6 +18,9 @@
 #                  tax and must never be merged (PRD 5.4b)
 #   hours-figure.js  the number a duration is written as, which the invoice
 #                  screen and the PDF both draw (PRD 51k, ovation#413)
+#   rail-foot.js   what the foot of the rail names: each open thing, newest
+#                  first, at most two, and what reading one leaves open
+#                  (PRD 44f, ovation#99, ovation#566)
 #
 # JUDGED BY EXIT CODE. And a missing node is a REFUSAL, never a pass: a suite
 # that reports success when it found nothing to run is indistinguishable from
@@ -40,6 +43,7 @@ fi
 
 cat "${RULES}"/duration.js "${RULES}"/time-field.js "${RULES}"/tax-line.js "${RULES}"/money.js \
     "${RULES}"/waiting.js "${RULES}"/hours-figure.js "${RULES}"/pdf-text.js \
+    "${RULES}"/rail-foot.js "${RULES}"/rail-foot.cases.js \
     "${RULES}"/duration.cases.js "${RULES}"/time-field.cases.js "${RULES}"/typing.cases.js \
     "${RULES}"/tax-line.cases.js "${RULES}"/money.cases.js "${RULES}"/waiting.cases.js \
     "${RULES}"/suite-isolation.js \
@@ -105,7 +109,8 @@ var suites = [
   ["tax line", runTaxTests()],
   ["waiting on", runWaitingTests()],
   ["money", runMoneyTests()],
-  ["pdf text", runPdfTextTests()]
+  ["pdf text", runPdfTextTests()],
+  ["rail foot", runRailFootTests()]
 ];
 var ran = suites.reduce(function (a, s) { return a + s[1].ran; }, 0);
 var bad = isolation.slice();
@@ -120,8 +125,8 @@ if (bad.length) {
 /* The count is asserted, not just the absence of failures: a suite that runs
    half of itself and reports no failures reads exactly like a green one (L288,
    and ovation#106 filed for the same shape in the main suite). */
-if (ran < 185) {
-  console.log("only " + ran + " cases ran, which is fewer than the 185 these files carry.");
+if (ran < 200) {
+  console.log("only " + ran + " cases ran, which is fewer than the 200 these files carry.");
   process.exit(1);
 }
 console.log("design rules: " + ran + " cases pass across " + suites.length + " suites, isolation checked");

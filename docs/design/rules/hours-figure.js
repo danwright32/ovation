@@ -11,14 +11,20 @@
 
    THE UNIT IS NOT PART OF THE FIGURE. The screen's column is already headed
    Hours, so a unit on every row would be the same fact twice on one surface
-   (L605), chosen with all three spellings drawn. The PDF adds its unit in
-   `hours` (rules/pdf-text.js), because a client reads one line there without a
-   column header above it.
+   (L605), chosen with all three spellings drawn. Where a figure is read with no
+   column header above it, it carries its unit, written once in `hoursWithUnit`
+   below: the PDF's lines (through `hours` in rules/pdf-text.js), and the Clients
+   screen's referral credit (Dan, 2026-09-26, ovation#565: "Clients writes "1.0
+   hr"").
 
    ONE RULE, TWO SCREENS, so each is held to it on its own rather than the
    better copy answering for both:
-   CARRIED BY: invoice.html, invoice-pdf.html */
+   CARRIED BY: invoice.html, invoice-pdf.html, review-send.html, clients.html */
 function hoursFigure(h) {
   var hundredths = Math.round(h * 100);
   return hundredths % 10 === 0 ? h.toFixed(1) : h.toFixed(2);
+}
+
+function hoursWithUnit(h) {
+  return hoursFigure(h) + (Math.round(h * 100) === 100 ? " hr" : " hrs");
 }

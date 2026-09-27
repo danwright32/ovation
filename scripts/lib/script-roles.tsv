@@ -74,6 +74,7 @@ check-backup-grant.sh	gated	Whether anybody has ever proved the backup folder gr
 record-backup-grant-check.sh	tool	Writes what a relaunch actually showed into docs/backup-grant-checks.tsv, run by Dan from docs/BACKUP-GRANT-CHECK.md and by nothing automatic, because the whole point is that a person relaunched a real installed build and looked (ovation#232). It records a date and a verdict and no path: this repository is public and where Dan's records are copied to is his business. test-backup-grant.sh covers it, including that it refuses a verdict its reader would not understand.
 check-ci-workflow.sh	gated	A repo wide guard.
 check-one-action-word.sh	gated	Run by the push gate. A control in this product is a WORD carrying an underline at rest (L49), and ActionWord owns both halves of that pair, the pressable treatment and the quiet one a word gets when nothing does what it says yet (ovation#450). There were two hand rolled copies when it was written and they had already drifted, one saying why it could not be pressed and the other silent, so a shared component without this scan converts the site in front of whoever built it and leaves the rest (L613). test-one-action-word.sh drives every outcome over staged trees.
+check-one-tax-chip.sh	gated	Run by the push gate. Two screens asked the tax status question and each drew its own chip until Dan chose the invoice's by looking (ovation#480, PRD 5a2). `TaxAnswerChips` is the one component in the app and `.taxpick` in docs/design/invoice.html the one look in the design record; this refuses any other Swift file that draws the answers itself, any design file whose chip differs from the owner's, and the retired roster `.chip` coming back. test-one-tax-chip.sh drives every outcome over staged trees.
 check-xcode-project-current.sh	gated	A repo wide guard. Also asked by run-tests.sh before either Swift suite, so a direct run meets a stale project by name rather than as a compiler error about the wrong subject (ovation#206).
 check-package-resolution.sh	gated	A repo wide guard. Also asked by build-products.sh after both builds, which is what makes it CI's question as well as the push gate's (ovation#421).
 check-ci-liveness.sh	workflow	Run by .github/workflows/ci-liveness.yml on a schedule and on every push to main. It judges whether a commit has landed that no successful CI run has followed; test-ci-liveness.sh drives it with dates rather than by pushing and waiting (ovation#155).
@@ -128,6 +129,7 @@ check-schema-registered.sh	gated	A repo wide guard.
 check-problem-kinds-raised.sh	gated	A repo wide guard.
 check-review-samples-absent.sh	gated	Run by the push gate. The review sheet's samples are #if DEBUG, which is a claim nobody checks, so this reads the sample terms out of the sources and requires every one of them to be IN the Debug product and NONE in Release (ovation#318). Its own suite stages both products; on a machine that has built neither it answers CANNOT MEASURE rather than clean.
 test-one-action-word.sh	suite
+test-one-tax-chip.sh	suite
 test-problem-kinds-raised.sh	suite
 test-xcode-phase-inputs.sh	suite
 check-sibling-installs.sh	gated	A repo wide guard.
