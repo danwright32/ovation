@@ -298,4 +298,45 @@ struct InvoiceStandingTests {
         #expect(!InvoiceStanding(ending: .cancelled, sent: .notSent).isOpenForHeldMoney)
         #expect(!InvoiceStanding(sent: .notSent, money: .allOfItCleared).isOpenForHeldMoney)
     }
+
+    /// Dan, 2026-09-26, on ovation#185: "An invoice paid in full by a check that
+    /// hasn't cleared yet: should Ovation offer to use a client's held money
+    /// against it?" "No, treat it as paid". So the uncleared check is paid for
+    /// this question, which is PRD 14h's "a PAID invoice is not one".
+    @Test("an invoice paid in full by a check that has not cleared is not open for held money")
+    func anUnclearedCheckPaysForHeldMoney() {
+        let sent = SentStatus.sent(route: .ovationSentIt,
+                                   at: Date(timeIntervalSince1970: 1_794_531_600))
+        #expect(!InvoiceStanding(sent: sent, money: .allOfItAwaitingAClearedCheck)
+            .isOpenForHeldMoney)
+        // AND WHAT IS STILL OWED STILL COUNTS, so the rule is about being paid
+        // and not about a check being involved.
+        #expect(InvoiceStanding(sent: sent, money: .some).isOpenForHeldMoney)
+        #expect(InvoiceStanding(sent: sent, money: .nothing).isOpenForHeldMoney)
+    }
+
+    /// THE CHECK BOUNCING IS THE WAY BACK TO OPEN, which is the other half of
+    /// Dan's answer: "If the check is later recorded as bounced, the invoice
+    /// becomes open again." Nothing records a bounce yet, and what one has to do
+    /// to the money is what releasing the check's allocation does, so that is
+    /// what this drives, read through the stored invoice rather than a value.
+    @Test("the same invoice is open for held money again once the check's money stops standing")
+    func abouncedCheckReopensTheInvoice() throws {
+        let context = try Self.store()
+        let invoice = Self.invoice(context)
+        invoice.sentStatus = .sent(route: .ovationSentIt,
+                                   at: Date(timeIntervalSince1970: 1_794_531_600))
+        invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
+        Self.pay(invoice, in: context, method: .check, cleared: false)
+        let paid = InvoiceStanding(of: invoice, today: Self.shootDay,
+                                   couldSettleMoreThanOne: false)
+        #expect(paid.money == .allOfItAwaitingAClearedCheck)
+        #expect(!paid.isOpenForHeldMoney)
+
+        invoice.releaseActiveAllocations(on: Self.dayAfter)
+        let bounced = InvoiceStanding(of: invoice, today: Self.shootDay,
+                                      couldSettleMoreThanOne: false)
+        #expect(bounced.money == .nothing)
+        #expect(bounced.isOpenForHeldMoney)
+    }
 }

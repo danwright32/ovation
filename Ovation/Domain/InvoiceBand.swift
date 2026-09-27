@@ -167,8 +167,16 @@ struct InvoiceStanding: Equatable, Hashable, Sendable {
     var isDrawn: Bool { ending != .deleted }
 
     /// Whether the invoice is still waiting on money.
+    ///
+    /// PAID BY A CHECK THAT HAS NOT CLEARED IS PAID HERE (Dan, 2026-09-26, on
+    /// ovation#185): asked whether Ovation should offer a client's held money
+    /// against such an invoice, he answered "No, treat it as paid". The check
+    /// still waits in its own band for Mark cleared; what it does not do is make
+    /// the invoice one that held money could settle. A bounce, once one can be
+    /// recorded, releases the check's allocation, and the invoice reads as owed
+    /// and open again through the ordinary arithmetic.
     var isOpen: Bool {
-        ending == nil && money != .allOfItCleared
+        ending == nil && (money == .nothing || money == .some)
     }
 
     /// Whether this is one of the open invoices a client's held money could
