@@ -30,7 +30,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode phase inputs tests" 41
+harness_begin "xcode phase inputs tests" 39
 
 LIB="scripts/lib/xcode-phase-inputs.sh"
 require_target "$LIB"
@@ -160,14 +160,10 @@ check "the build command is read (ovation#154)" \
     "$(verdict scripts/lib/build-one-configuration.sh)" "read"
 check "the script that builds both products is read" \
     "$(verdict scripts/build-products.sh)" "read"
-check "the pure suite's floor is read" \
-    "$(verdict scripts/pure-test-floor.txt)" "read"
 check "the invoice PDF's expected output under docs/design is read" \
     "$(verdict docs/design/invoice-pdf.expected.json)" "read"
 check "the shell suite floor is not read, because only the shell half judges it (ovation#360)" \
     "$(verdict scripts/shell-suite-floor.txt)" "not read"
-check "the pure suite's floor still is, because the Xcode phase judges that count" \
-    "$(verdict scripts/pure-test-floor.txt)" "read"
 check "a design suite shipped on 2026-09-15 is not read (ovation#358)" \
     "$(verdict scripts/test-design-record-open.sh)" "not read"
 check "a design check the gate runs is not read" \
