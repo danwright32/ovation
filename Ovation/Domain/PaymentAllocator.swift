@@ -383,7 +383,7 @@ actor PaymentAllocator {
                 touched.append(invoice.persistentModelID)
             }
 
-            let open = live.filter { Self.isOpenForHeldMoney($0, on: day) }
+            let open = InvoiceStanding.invoicesOpenForHeldMoney(of: client, on: day)
             guard open.count == 1, let only = open.first,
                   only.heldMoneyRemovedOn == nil else { continue }
             let fits = min(client.moneyHeld, only.amountOutstanding)

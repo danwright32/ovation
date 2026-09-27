@@ -205,6 +205,23 @@ struct InvoiceStanding: Equatable, Hashable, Sendable {
     }
 }
 
+extension InvoiceStanding {
+
+    /// The client's invoices that their held money could settle, which is the set
+    /// PRD 14h and 14j count: exactly one and Ovation applies it there, more than
+    /// one and it applies it to none of them and asks on each.
+    ///
+    /// ONE READING, used by `PaymentAllocator` when it applies the money and by
+    /// the invoice screen when it says why it did not, so the two cannot disagree
+    /// about how many are open (L16). The list's held money band asks the same
+    /// predicate of standings it has already read.
+    static func invoicesOpenForHeldMoney(of client: Client, on day: BusinessDate) -> [Invoice] {
+        client.invoices.filter {
+            InvoiceStanding(of: $0, today: day, couldSettleMoreThanOne: false).isOpenForHeldMoney
+        }
+    }
+}
+
 extension InvoiceBand {
 
     /// Whether this band claims that invoice, written as a standalone description
