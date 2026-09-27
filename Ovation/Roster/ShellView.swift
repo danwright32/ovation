@@ -823,7 +823,12 @@ struct FootReadingList: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(open.enumerated()), id: \.element.id) { index, problem in
                     if index > 0 { Divider().overlay(OvationPalette.rule) }
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        // Headed by the name the foot calls it, as the design record
+                        // draws the list (rules/rail-foot.js, PRD 44f).
+                        Text(problem.shortName)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(OvationPalette.ink)
                         Text(problem.sentence)
                             .font(.system(size: 13))
                             .foregroundStyle(OvationPalette.ink)

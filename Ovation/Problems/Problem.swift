@@ -210,6 +210,7 @@ extension ProblemKind {
         .problemsJournalUnwritable: "Problems unsaved",
         .invoicesUnreadable: "Invoices unreadable",
         .rosterUnreadable: "Clients unreadable",
+        .heldMoneyNotPlaced: "Held money stuck",
         .bookingsDrafted: "Bookings drafted",
         .bookingDraftRefused: "No drafts made",
         .bookingRecordUnreadable: "Booking unreadable",

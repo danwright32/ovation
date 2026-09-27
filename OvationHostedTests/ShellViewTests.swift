@@ -313,6 +313,10 @@ struct ShellViewTests {
         let list = view.everything()
         #expect(throws: Never.self) { try list.inspect().find(text: "the oldest sentence") }
         #expect(throws: Never.self) { try list.inspect().find(text: "the newest sentence") }
+        // Each entry is headed by the name the foot calls it, as the design record
+        // draws the list (docs/design/rules/rail-foot.js, PRD 44f).
+        #expect(throws: Never.self) { try list.inspect().find(text: "Backups are behind") }
+        #expect(throws: Never.self) { try list.inspect().find(text: "2026 export failed") }
         let reads = try list.inspect().findAll(ViewType.Button.self)
             .filter { (try? $0.labelView().text().string()) == RailFoot.readIt }
         #expect(reads.count == 3)
