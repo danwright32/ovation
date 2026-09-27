@@ -175,11 +175,12 @@ struct ShellViewTests {
         #expect(words.filter { $0 == RailFoot.readWord }.count == 2)
     }
 
-    /// The zero rule. A rail with nothing open says nothing at all, not even the line
-    /// about when Ovation looks, rather than saying nothing is wrong in the one place
-    /// reserved for things that are.
-    @Test("with nothing open there is no foot at all")
-    func nothingOpenNoFoot() throws {
+    /// The zero rule removes only the problem and notice lines. The line saying
+    /// Ovation only looks while it is open stays every day (Dan, 2026-09-27, on
+    /// ovation#566, "Keep that line"), so a quiet foot still says Ovation is
+    /// checking. This reverses "no foot at all", and the test that held it (L252).
+    @Test("with nothing open, no problem lines, and the line about when Ovation looks stays")
+    func nothingOpenKeepsTheLookingLine() throws {
         let problems = Self.noProblems()
         let read = problems.raise(kind: .exportWritten, subject: "year-end-export-2026",
                                   sentence: "done", now: Self.at(1))
@@ -188,9 +189,9 @@ struct ShellViewTests {
         let words = try Self.texts(in: Self.shell(problems))
 
         #expect(!words.contains(RailFoot.readWord))
-        #expect(!words.contains(RailFoot.onlyWhileOpen))
-        // It really did draw the rail, so the absence above means something (L98).
-        #expect(words.contains("Nothing waiting"))
+        #expect(!words.contains("2026 export written"))
+        #expect(!words.contains { $0.hasPrefix("and ") && $0.hasSuffix(" more") })
+        #expect(words.contains(RailFoot.onlyWhileOpen))
     }
 
     @Test("pressing Read opens that thing's sentence, and only that one")

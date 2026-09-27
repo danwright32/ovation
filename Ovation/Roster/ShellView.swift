@@ -33,6 +33,10 @@ struct ShellView: View {
     /// When "I have read this" was pressed, stamped on the acknowledgement. The app
     /// passes the real clock and a test a fixed one, the same seam `RootView` has.
     var now: () -> Date = Date.init
+    /// ovation#162. The year end export, so a run in progress is said at the foot
+    /// of the rail. Nil where this launch has no export control, and in hosted tests
+    /// written before the shell carried it.
+    var exportCommand: YearEndExportCommand?
 
     /// The invoice list, or nil where it could not be read out of the store.
     /// NOT OPTIONAL BECAUSE IT IS OPTIONAL TO PASS: the nil means one thing only,
@@ -326,8 +330,16 @@ struct ShellView: View {
 
     // MARK: what is open, at the foot of the rail (ovation#99, ovation#566)
 
-    /// THE ZERO RULE. A rail with nothing open says nothing at all, rather than
-    /// saying nothing is wrong in the one place reserved for things that are.
+    /// THE ZERO RULE, FOR THE PROBLEM AND NOTICE LINES ONLY. With nothing open none
+    /// is drawn, rather than saying nothing is wrong in the place reserved for
+    /// things that are. The line saying Ovation only looks while it is open stays
+    /// every day (Dan, 2026-09-27, "Keep that line", PRD 32), so a quiet foot still
+    /// says Ovation is checking.
+    ///
+    /// A RUNNING YEAR END EXPORT IS SAID HERE, as a live line counting its seconds,
+    /// because the shell now always owns the window and the problems window that
+    /// used to carry it is never shown beside a store. Its outcome arrives as a
+    /// notice in this same foot when it ends.
     ///
     /// EACH OPEN THING ON ITS OWN LINE, by its short name with its own Read beside
     /// it, newest first, at most two, then "and N more" (Dan, 2026-09-26). No count:
@@ -338,8 +350,10 @@ struct ShellView: View {
     @ViewBuilder
     private var status: some View {
         let lines = RailFoot.lines(for: problems.open)
-        if !lines.shown.isEmpty {
-            VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 5) {
+                if let command = exportCommand, case .running = command.progress {
+                    RunningExportView(command: command, onRail: true)
+                }
                 ForEach(lines.shown) { problem in
                     footLine(problem)
                 }
@@ -364,7 +378,6 @@ struct ShellView: View {
             .padding(.bottom, 4)
             .overlay(alignment: .top) { Divider().overlay(OvationPalette.railStatusBorder) }
             .padding(.horizontal, RailFoot.footInset)
-        }
     }
 
     /// One open thing, with what its Read opens anchored to that Read.

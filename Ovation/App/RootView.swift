@@ -111,6 +111,7 @@ struct RootView: View {
             StartingView(progress: progress)
         } else if shellOwnsTheWindow, let shell, let roster {
             ShellView(shell: shell, roster: roster, problems: store, now: now,
+                      exportCommand: exportCommand,
                       invoices: invoices, heldMoney: heldMoney,
                       openInvoice: openInvoice, writeTime: writeTime,
                       writeDueDate: writeDueDate, writeTaxStatus: writeTaxStatus,
@@ -220,12 +221,27 @@ struct ProblemsListView: View {
 /// second place the result is stated (L605).
 struct RunningExportView: View {
     let command: YearEndExportCommand
+    /// Drawn at the foot of the rail (ovation#566), in the rail's own colours and
+    /// the foot's size, with a spinner that reads on the dark rail.
+    var onRail = false
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text(sentence(at: context.date))
+            HStack(spacing: onRail ? 6 : 8) {
+                ProgressView()
+                    .controlSize(onRail ? .mini : .small)
+                    // The rail is dark and the product's appearance is light, so the
+                    // spinner there is drawn for a dark ground or it cannot be seen.
+                    .environment(\.colorScheme, onRail ? .dark : scheme)
+                if onRail {
+                    Text(sentence(at: context.date))
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(OvationPalette.railFault)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(sentence(at: context.date))
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(sentence(at: context.date))

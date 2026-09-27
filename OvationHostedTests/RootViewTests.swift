@@ -206,6 +206,43 @@ struct RootViewTests {
         #expect(throws: (any Error).self) { try view.inspect().find(LaunchNoticeView.self) }
     }
 
+    /// THE RUNNING EXPORT STAYS ON SCREEN WITH THE SHELL. Its progress lived only in
+    /// the problems window, which the shell now always replaces, so a year end
+    /// export running for minutes would have shown nothing at all: started, still
+    /// alive and finished would look the same. It is a live line at the foot of the
+    /// rail while it runs; its outcome then arrives there as a notice.
+    @Test("a running export's progress is on screen with the shell")
+    func aRunningExportIsOnScreenWithTheShell() throws {
+        let (store, presenter) = make()
+        let roster = Self.rosterNeeding(0)
+        let shell = ShellPresenter(selected: .invoices, rosterHasWork: { !roster.isSettled })
+        let command = YearEndExportCommand(directory: nil, runRecord: nil)
+        command.began(at: at(10))
+
+        let view = RootView(presenter: presenter, store: store, now: { at(11) },
+                            exportCommand: command, roster: roster, shell: shell)
+
+        let shellView = try view.inspect().find(ShellView.self)
+        let running = try shellView.find(RunningExportView.self).actualView()
+        #expect(running.sentence(at: at(22)) == "Exporting the year. 12s so far.")
+        // A quiet day otherwise: nothing open, so no Read, but the export is said.
+        #expect(throws: (any Error).self) { try shellView.find(button: RailFoot.readWord) }
+    }
+
+    @Test("with no export running, the shell draws no export line")
+    func noExportRunningNoLine() throws {
+        let (store, presenter) = make()
+        let roster = Self.rosterNeeding(0)
+        let shell = ShellPresenter(selected: .invoices, rosterHasWork: { !roster.isSettled })
+        let command = YearEndExportCommand(directory: nil, runRecord: nil)
+
+        let view = RootView(presenter: presenter, store: store, now: { at(11) },
+                            exportCommand: command, roster: roster, shell: shell)
+
+        #expect(throws: Never.self) { try view.inspect().find(ShellView.self) }
+        #expect(throws: (any Error).self) { try view.inspect().find(RunningExportView.self) }
+    }
+
     /// The problems window is still what a launch with NO store gets, where there is
     /// no shell to carry anything, or its refusal would reach nobody (ovation#59).
     @Test("with no shell, the notice window is still what shows")
