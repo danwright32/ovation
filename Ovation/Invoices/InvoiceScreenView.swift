@@ -218,6 +218,10 @@ struct InvoiceScreenView: View {
                         historyPane(history, covering: true)
                     }
                 }
+                // THE WHOLE WIDTH, SAID HERE rather than left to whatever the body
+                // inside happens to ask for, because keeping it is the promise the
+                // cover makes (PRD 51d): the push branch below says the same.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -263,6 +267,23 @@ struct InvoiceScreenView: View {
             foot
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // THE WIDTH IT WAS LAID OUT AT, published so the promise that the invoice
+        // keeps its full width under the covering pane is measured on the laid out
+        // screen rather than read off the source (ovation#597, L606).
+        .background {
+            GeometryReader { laid in
+                Color.clear.preference(key: InvoiceBodyWidth.self, value: laid.size.width)
+            }
+        }
+    }
+
+    /// The width the invoice's lines, money and foot were laid out at, or -1 before
+    /// any layout.
+    struct InvoiceBodyWidth: PreferenceKey {
+        static let defaultValue: CGFloat = -1
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
     }
 
     // MARK: the history (ovation#556)

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftData
 import SwiftUI
@@ -113,6 +114,45 @@ struct InvoiceFootAndHistoryViewTests {
     private static func history(isOpen: Bool, marked: Set<String> = [], asked: Asked)
         -> InvoiceScreenView.HistoryControls {
         InvoiceScreenView.HistoryControls(isOpen: isOpen, marked: marked, toggle: { asked.toggled += 1 })
+    }
+
+    /// Lays the screen out at `width`, in an offscreen window as the screen pictures
+    /// are, and returns the width the invoice's body was laid out at.
+    @MainActor
+    private static func invoiceBodyWidth(of view: InvoiceScreenView, at width: CGFloat) -> CGFloat {
+        final class Seen { var width: CGFloat = -1 }
+        let seen = Seen()
+        let measured = view
+            .frame(width: width, height: 560)
+            .onPreferenceChange(InvoiceScreenView.InvoiceBodyWidth.self) { seen.width = $0 }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 560),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: measured)
+        window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
+        window.orderBack(nil)
+        window.layoutIfNeeded()
+        window.displayIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        window.close()
+        return seen.width
+    }
+
+    /// Dan, 2026-09-28 (ovation#597, PRD 51d): at half screen the pane covers the
+    /// right of the invoice and the invoice KEEPS ITS FULL WIDTH underneath; at the
+    /// full window it pushes, leaving the invoice 556. Measured on the laid out screen.
+    @Test("under the covering pane the invoice keeps the whole width, and beside the pushing pane it keeps 556")
+    @MainActor
+    func theinvoiceKeepsItsWidthUnderTheCover() throws {
+        let asked = Asked()
+        func open() throws -> InvoiceScreenView {
+            InvoiceScreenView(presenter: Self.present(Self.sent(try Self.context())), close: {},
+                              history: Self.history(isOpen: true, asked: asked))
+        }
+        let half = OvationWindow.minimumWidth - OvationWindow.railWidth
+        #expect(Self.invoiceBodyWidth(of: try open(), at: half) == half,
+                "at half screen the invoice is narrowed rather than covered")
+        #expect(Self.invoiceBodyWidth(of: try open(), at: 856) == 856 - InvoiceScreenView.historyWidth)
     }
 
     @Test("History is a word in the header, and pressing it asks for the pane")
