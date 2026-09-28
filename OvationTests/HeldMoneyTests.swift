@@ -266,6 +266,107 @@ struct HeldMoneyTests {
         #expect(try world.held() == Money(dollars: 500))
     }
 
+    // MARK: drafts waiting on their shoot times (ovation#582)
+
+    /// A draft carrying one shoot with no times, which is what the Downbeat drain
+    /// makes: it has no hours and so no amount (PRD 3c).
+    @discardableResult
+    private static func unpricedDraft(_ world: World) -> Invoice {
+        let invoice = Invoice(client: world.client, kind: .fromABooking,
+                              invoiceDate: today, hourlyRate: Money(dollars: 250),
+                              taxRate: .newYorkCity, createdOn: today)
+        world.context.insert(invoice)
+        invoice.add(Shoot(name: "Autumn Evensong", when: nil, venue: "St Anne's"))
+        return invoice
+    }
+
+    /// Prices an unpriced draft by giving its shoot hours, through a context of
+    /// its own as a screen would.
+    private static func price(_ invoice: Invoice, in world: World) throws {
+        let context = world.fresh()
+        let editing = try #require(try context.fetch(FetchDescriptor<Invoice>())
+            .first { $0.id == invoice.id })
+        let shoot = try #require(editing.shoots.first)
+        editing.add(LineItem.hourly(hours: Hours(whole: 2), at: editing.hourlyRate,
+                                    describedAs: "Photography", for: shoot))
+        try context.save()
+        #expect(!editing.isUnpriced, "the fixture has to price it for this to prove anything")
+    }
+
+    /// THE DRAIN'S OWN CASE. Two drafts from Downbeat, both still waiting on their
+    /// times, are two open invoices, so the client's held money waits on Dan (PRD
+    /// 14j). Read as paid, they counted as none, and pricing one then made it the
+    /// only open invoice and the money went onto it by itself: the choice PRD 14j
+    /// gives Dan was taken for him.
+    @Test("two drafts waiting on their times are two open invoices, and pricing one does not take the choice from Dan")
+    func twoUnpricedDraftsWaitOnDan() async throws {
+        let world = try Self.world()
+        Self.holding(world, Money(dollars: 500))
+        let first = Self.unpricedDraft(world)
+        let second = Self.unpricedDraft(world)
+        try world.context.save()
+
+        #expect(InvoiceStanding.invoicesOpenForHeldMoney(of: world.client, on: Self.today).count == 2)
+        #expect(try await world.allocator.placeHeldMoney(on: Self.today).isEmpty)
+
+        try Self.price(first, in: world)
+
+        #expect(try await world.allocator.placeHeldMoney(on: Self.today).isEmpty,
+                "the other draft is still open, so this is still PRD 14j's question")
+        #expect(try world.read(first).amountPaid == .zero)
+        #expect(try world.read(second).amountPaid == .zero)
+        #expect(try world.held() == Money(dollars: 500))
+    }
+
+    @Test("a priced invoice beside a draft waiting on its times is one of two, so nothing is applied")
+    func anUnpricedDraftMakesItTwo() async throws {
+        let world = try Self.world()
+        Self.holding(world, Money(dollars: 500))
+        let priced = Self.invoice(world, owing: Money(dollars: 300))
+        Self.unpricedDraft(world)
+        try world.context.save()
+
+        #expect(try await world.allocator.placeHeldMoney(on: Self.today).isEmpty)
+        #expect(try world.read(priced).amountPaid == .zero)
+        #expect(try world.held() == Money(dollars: 500))
+    }
+
+    /// PRD 14h WITH ITS ONE OPEN INVOICE UNPRICED. Nothing can go on it yet,
+    /// because it owes an amount nobody knows; once priced it is still the one
+    /// open invoice, and 14h applies the money there as it always did.
+    @Test("a client's only open invoice waiting on its times takes nothing until it is priced, then takes it")
+    func theOnlyOpenInvoiceUnpriced() async throws {
+        let world = try Self.world()
+        Self.holding(world, Money(dollars: 100))
+        let draft = Self.unpricedDraft(world)
+        try world.context.save()
+
+        #expect(try await world.allocator.placeHeldMoney(on: Self.today).isEmpty)
+        #expect(try world.held() == Money(dollars: 100))
+
+        try Self.price(draft, in: world)
+
+        #expect(try await world.allocator.placeHeldMoney(on: Self.today) == [draft.persistentModelID])
+        #expect(try world.read(draft).amountPaid == Money(dollars: 100))
+    }
+
+    /// USE IT HERE ON AN UNPRICED DRAFT SAYS WHY, rather than that nothing is owed,
+    /// which would be untrue: something is owed, and nobody knows how much (L11).
+    @Test("Use it here on a draft waiting on its times is refused because it has no price, and writes nothing")
+    func useItHereOnAnUnpricedDraft() async throws {
+        let world = try Self.world()
+        Self.holding(world, Money(dollars: 500))
+        let draft = Self.unpricedDraft(world)
+        Self.unpricedDraft(world)
+        try world.context.save()
+
+        await #expect(throws: HeldMoneyRefusal.invoiceIsUnpriced) {
+            try await world.allocator.applyHeldMoney(to: draft.persistentModelID, on: Self.today)
+        }
+        #expect(try world.allocations().isEmpty)
+        #expect(try world.held() == Money(dollars: 500))
+    }
+
     @Test("Use it here applies it to that invoice alone, and pressing it again adds nothing")
     func useItHere() async throws {
         let world = try Self.world()
@@ -486,6 +587,39 @@ struct HeldMoneyTests {
         }
     }
 
+    /// ovation#589. THE GUARD LIVES WITH THE WRITE (L42). The invoice screen offers
+    /// no Remove on a cancelled invoice, but the writer must refuse on its own, as
+    /// `applyHeldMoney` already does: releasing a closed invoice's held money would
+    /// change a closed record's figures and stamp a decision on it.
+    @Test("Remove on a cancelled invoice is refused by name and changes nothing")
+    func removeOnAClosedInvoiceIsRefused() async throws {
+        let world = try Self.world()
+        Self.holding(world, Money(dollars: 500))
+        let invoice = Self.invoice(world, owing: Money(dollars: 300))
+        try world.context.save()
+        try await world.allocator.placeHeldMoney(on: Self.today)
+        #expect(try world.read(invoice).amountPaid == Money(dollars: 300),
+                "held money has to be on it for the refusal to protect anything")
+
+        // Closed straight in the store, as the premise needs: InvoiceCloser would
+        // release the money itself, and this is about a closed invoice still
+        // carrying some, which the writer cannot assume never exists.
+        let context = world.fresh()
+        let closing = try #require(try context.fetch(FetchDescriptor<Invoice>())
+            .first { $0.id == invoice.id })
+        closing.closure = .cancelled(on: Self.today, reason: "the concert was called off")
+        try context.save()
+        let before = try world.allocations().map { $0.releasedOn }
+
+        await #expect(throws: HeldMoneyRefusal.invoiceIsClosed) {
+            try await world.allocator.removeHeldMoney(from: invoice.persistentModelID,
+                                                      on: Self.tomorrow)
+        }
+        #expect(try world.allocations().map { $0.releasedOn } == before)
+        #expect(try world.read(invoice).heldMoneyRemovedOn == nil)
+        #expect(try world.read(invoice).amountPaid == Money(dollars: 300))
+    }
+
     @Test("Remove on an invoice carrying no held money is refused by name and writes nothing")
     func nothingToRemove() async throws {
         let world = try Self.world()
@@ -504,7 +638,7 @@ struct HeldMoneyTests {
     func everyRefusalHasItsOwnSentence() {
         let all: [HeldMoneyRefusal] = [.noSuchInvoice, .invoiceIsClosed, .invoiceHasNoClient,
                                        .nothingIsOwed, .sendIsUnsettled, .clientHoldsNothing,
-                                       .nothingToRemove]
+                                       .nothingToRemove, .invoiceIsUnpriced]
         let sentences = all.map(\.sentence)
         #expect(Set(sentences).count == all.count)
         #expect(sentences.allSatisfy { !$0.isEmpty })

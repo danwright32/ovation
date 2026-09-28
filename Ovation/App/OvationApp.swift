@@ -183,7 +183,7 @@ struct OvationApp: App {
                 // the real data directory had no `documents` at all, and nothing
                 // in the app created one until a receipt is filed (ovation#78).
                 prepareDataDirectory: { try DataDirectory.prepare(storeURL.deletingLastPathComponent()) },
-                takeBackup: { now in
+                takeBackup: { now, demand in
                     // ovation#225 and ovation#228. The folder Dan chose, and one
                     // backup a day taken from it.
                     //
@@ -246,7 +246,7 @@ struct OvationApp: App {
                         measuring: { try service().sizeOfWhatIsBackedUp() },
                         recording: { LaunchBackupLog.record($0) }
                     ) {
-                        try service().takeBackupIfDueToday(now: now)
+                        try service().attemptBackup(demand, now: now)
                     }
                 },
                 // ovation#230. Whether the archives have kept up with the store,

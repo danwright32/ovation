@@ -111,6 +111,9 @@ enum HeldMoneyRefusal: Error, Equatable {
     case clientHoldsNothing
     /// `Remove` pressed where no held money stands on the invoice.
     case nothingToRemove
+    /// A draft still waiting on a shoot's times (PRD 3c, ovation#582): it is owed
+    /// something and nobody knows how much yet, which is not "nothing is owed".
+    case invoiceIsUnpriced
 
     /// What the invoice says when nothing was applied or taken off, in the words of
     /// the thing that stopped it (L109).
@@ -130,6 +133,8 @@ enum HeldMoneyRefusal: Error, Equatable {
             return "This client is holding no money, so none was put on the invoice."
         case .nothingToRemove:
             return "No held money is on this invoice, so there was nothing to remove."
+        case .invoiceIsUnpriced:
+            return "This invoice has no price until its shoot times are in, so no held money was put on it."
         }
     }
 }
@@ -436,6 +441,12 @@ actor PaymentAllocator {
             case .notSent, .sent: throw HeldMoneyRefusal.nothingIsOwed
             }
         }
+        // AN UNPRICED DRAFT IS OPEN AND OWES AN AMOUNT NOBODY KNOWS YET
+        // (ovation#582), so nothing fits on it, and "nothing is owed" would be
+        // untrue. Asked before the arithmetic, which cannot tell the two apart.
+        guard !invoice.isUnpriced || invoice.amountOutstanding > .zero else {
+            throw HeldMoneyRefusal.invoiceIsUnpriced
+        }
         let fits = min(client.moneyHeld, invoice.amountOutstanding)
         guard fits > .zero else {
             throw invoice.amountOutstanding > .zero
@@ -475,6 +486,10 @@ actor PaymentAllocator {
         guard let invoice = try find(invoiceID, as: Invoice.self) else {
             throw HeldMoneyRefusal.noSuchInvoice
         }
+        // A CLOSED INVOICE'S FIGURES ARE NOT CHANGED BY THIS (ovation#589), exactly
+        // as `applyHeldMoney` refuses one. The screen offers no Remove on a closed
+        // invoice, but the guard lives with the write, not only the control (L42).
+        guard invoice.closure == nil else { throw HeldMoneyRefusal.invoiceIsClosed }
         let standing = invoice.allocations.filter { $0.releasedOn == nil && $0.isHeldMoney }
         guard !standing.isEmpty else {
             if invoice.heldMoneyRemovedOn != nil { return .zero }

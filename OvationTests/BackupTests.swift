@@ -489,7 +489,7 @@ struct BackupTests {
     func theFirstBackupOfTheDayIsTaken() throws {
         let world = try World()
 
-        let outcome = try world.service.takeBackupIfDueToday(now: world.instant)
+        let outcome = try world.service.attemptBackup(.onceToday, now: world.instant)
 
         guard case .taken(let archive) = outcome else {
             Issue.record("expected a backup to be taken, got \(outcome)")
@@ -503,7 +503,7 @@ struct BackupTests {
         let world = try World()
         let first = try world.service.takeBackup(now: world.instant)
 
-        let outcome = try world.service.takeBackupIfDueToday(
+        let outcome = try world.service.attemptBackup(.onceToday,
             now: world.instant.addingTimeInterval(3600))
 
         #expect(outcome == .alreadyTakenToday(first))
@@ -519,7 +519,7 @@ struct BackupTests {
         let world = try World()
         _ = try world.service.takeBackup(now: world.instant)
 
-        let outcome = try world.service.takeBackupIfDueToday(
+        let outcome = try world.service.attemptBackup(.onceToday,
             now: world.instant.addingTimeInterval(24 * 3600))
 
         guard case .taken = outcome else {
@@ -545,7 +545,7 @@ struct BackupTests {
         }
         world.service.willVerify = nil
 
-        let outcome = try world.service.takeBackupIfDueToday(
+        let outcome = try world.service.attemptBackup(.onceToday,
             now: world.instant.addingTimeInterval(3600))
 
         guard case .taken = outcome else {
@@ -564,13 +564,54 @@ struct BackupTests {
         try FileManager.default.removeItem(at: world.backupsDirectory)
         try Data("a file where the folder was".utf8).write(to: world.backupsDirectory)
 
-        let outcome = try world.service.takeBackupIfDueToday(now: world.instant)
+        let outcome = try world.service.attemptBackup(.onceToday, now: world.instant)
 
         guard case .folderUnreachable(let detail) = outcome else {
             Issue.record("expected a named refusal, got \(outcome)")
             return
         }
         #expect(!detail.isEmpty)
+    }
+
+    // MARK: before a rewrite, a backup taken now (ovation#592)
+
+    /// On 2026-09-27 an upgrade at 16:45 went ahead on the 10:59 backup, so the
+    /// work written between them was in no copy from before the rewrite. Before a
+    /// rewrite the question is not whether today has a backup but whether the
+    /// store AS IT IS NOW has one, and only a backup taken now answers that.
+    @Test("before a rewrite a backup is taken even though one was taken earlier today, and it holds what was written since")
+    func beforeARewriteTakesOneNow() throws {
+        let world = try World()
+        let morning = try world.service.takeBackup(now: world.instant)
+        let since = Data("the store after the afternoon's work".utf8)
+        try since.write(to: world.dataDirectory.appendingPathComponent("Ovation.store"))
+
+        let outcome = try world.service.attemptBackup(
+            .beforeARewrite, now: world.instant.addingTimeInterval(6 * 3600))
+
+        guard case .taken(let fresh) = outcome else {
+            Issue.record("this morning's backup answered for the rewrite, got \(outcome)")
+            return
+        }
+        #expect(fresh != morning)
+        #expect(try world.service.archives() == [morning, fresh])
+        #expect(try Data(contentsOf: fresh.appendingPathComponent("Ovation.store")) == since)
+    }
+
+    /// AND A FOLDER IT CANNOT READ IS STILL ITS OWN OUTCOME, never a backup, so
+    /// the launch refuses the upgrade by name rather than rewriting uncopied.
+    @Test("before a rewrite a folder that cannot be read is its own outcome, not a backup")
+    func beforeARewriteAnUnreachableFolderIsNotABackup() throws {
+        let world = try World()
+        try FileManager.default.removeItem(at: world.backupsDirectory)
+        try Data("a file where the folder was".utf8).write(to: world.backupsDirectory)
+
+        let outcome = try world.service.attemptBackup(.beforeARewrite, now: world.instant)
+
+        guard case .folderUnreachable = outcome else {
+            Issue.record("expected a named refusal, got \(outcome)")
+            return
+        }
     }
 
     // MARK: are the backups behind the data (ovation#230)

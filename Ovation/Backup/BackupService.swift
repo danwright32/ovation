@@ -387,7 +387,22 @@ final class BackupService {
         case folderUnreachable(String)
     }
 
-    /// Take today's backup, unless today's has already been taken.
+    /// What a launch needs from the backup step (ovation#592).
+    enum Demand: Equatable, Sendable {
+        /// Today's backup, taken only if today has none yet (ovation#228).
+        case onceToday
+        /// A backup of the store AS IT IS NOW, because the open that follows
+        /// rewrites it. On 2026-09-27 an upgrade at 16:45 went ahead on the 10:59
+        /// backup, so everything written between them was in no copy from before
+        /// the rewrite (L5). The question here is not whether today has a backup
+        /// but whether this state of the store has one, and only a backup taken
+        /// now answers that. It costs one extra archive on an upgrade day, which
+        /// rotation counts like any other.
+        case beforeARewrite
+    }
+
+    /// Take today's backup, unless today's has already been taken; or, before a
+    /// rewrite, take one now whatever today already has.
     ///
     /// Dan's answer, 2026-09-11: at launch, at most once a day. At launch because
     /// the backup runs BEFORE the store is opened, which is the whole reason it is
@@ -404,13 +419,18 @@ final class BackupService {
     ///
     /// IT ASKS THE FOLDER RATHER THAN A STORED FLAG, so there is no second source
     /// of truth that can disagree with the files (L58, L70).
-    func takeBackupIfDueToday(now: Date) throws -> Attempt {
+    ///
+    /// THE FOLDER IS READ FIRST WHATEVER THE DEMAND, so a folder that cannot be
+    /// read is the same named outcome before a rewrite as on any other launch.
+    func attemptBackup(_ demand: Demand, now: Date) throws -> Attempt {
         let existing: [URL]
         do {
             existing = try archives()
         } catch {
             return .folderUnreachable("\(backupsDirectory.path): \(error)")
         }
+
+        if demand == .beforeARewrite { return .taken(try takeBackup(now: now)) }
 
         let today = BusinessCalendar.dayKey(for: now)
         if let already = existing.last(where: { archive in

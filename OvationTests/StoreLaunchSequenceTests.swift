@@ -543,6 +543,95 @@ struct StoreLaunchSequenceTests {
         #expect(world.store.open.isEmpty)
     }
 
+    // MARK: an upgrade takes its own backup, whatever today already has (ovation#592)
+
+    /// WHAT EACH KIND OF OPEN ASKS FOR. On 2026-09-27 the installed app upgraded
+    /// Dan's store at 16:45 on the strength of a 10:59 backup, so nothing written
+    /// in between was in any copy from before the rewrite. An upgrade asks for a
+    /// backup of the store as it is now; an ordinary open keeps once a day.
+    @Test("an upgrade asks for a backup taken now, and an ordinary open for today's")
+    func eachOpenAsksForItsOwnBackup() async throws {
+        let upgrade = try World(recordedVersion: Schema.Version(1, 0, 0),
+                                runningVersion: Schema.Version(2, 0, 0))
+        let ordinary = try World()
+
+        _ = await upgrade.sequence.run(now: upgrade.instant)
+        _ = await ordinary.sequence.run(now: ordinary.instant)
+
+        #expect(upgrade.recorder.demands == [.beforeARewrite])
+        #expect(ordinary.recorder.demands == [.onceToday])
+    }
+
+    /// FAIL CLOSED ON THE SEAM'S ANSWER (L42). An upgrade handed today's earlier
+    /// backup has no copy of what was written since it, which is exactly the loss
+    /// ovation#505 exists to prevent, so it refuses as it would with no backup.
+    @Test("an upgrade answered with an earlier backup from today REFUSES, and the store is never opened")
+    func anUpgradeAnsweredWithTodaysEarlierBackupRefuses() async throws {
+        let world = try World(recordedVersion: Schema.Version(1, 0, 0),
+                              runningVersion: Schema.Version(2, 0, 0),
+                              backup: { _ in .alreadyTakenToday(URL(fileURLWithPath: "/dev/null")) })
+
+        let outcome = await world.sequence.run(now: world.instant)
+
+        guard case .refused(let step, let detail) = outcome else {
+            Issue.record("the launch upgraded on this morning's backup, got \(outcome)")
+            return
+        }
+        #expect(step == .backup)
+        #expect(detail.contains("Nothing has been changed"), "\(detail)")
+        #expect(!world.recorder.steps.contains("open"))
+        #expect(StoreVersionMarker.read(besideStoreAt: world.storeURL) == .version(Schema.Version(1, 0, 0)))
+    }
+
+    /// THE ISSUE'S OWN CASE, THROUGH THE REAL BACKUP SERVICE. A store with a
+    /// backup from this morning and work written since, opened by a build that
+    /// upgrades it, gets a new backup holding that work before anything opens.
+    @Test("a store backed up this morning and written since gets a new backup before an upgrade opens it")
+    func aSameDayBackupOlderThanTheStoreIsNotEnough() async throws {
+        let backups = URL.temporaryDirectory
+            .appending(path: "ovation-launch-backups-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: backups) }
+        // The data directory is the World's, which exists only once it is built,
+        // so the step reads it from here. A service is built per call, as the
+        // app builds one per launch.
+        let dataDirectory = DataDirectoryBox()
+        let world = try World(recordedVersion: Schema.Version(1, 0, 0),
+                              runningVersion: Schema.Version(2, 0, 0),
+                              backupAsked: { now, demand in
+            guard let data = dataDirectory.url else { throw FixtureFailure.noDataDirectory }
+            return try Self.backupService(of: data, into: backups).attemptBackup(demand, now: now)
+        })
+        dataDirectory.url = world.directory
+        try DataDirectory.prepare(world.directory)
+        let service = Self.backupService(of: world.directory, into: backups)
+
+        // This morning's backup, then the afternoon's work written after it.
+        let morning = try service.takeBackup(now: world.instant)
+        let schema = Schema([Client.self])
+        do {
+            let container = try ModelContainer(
+                for: schema, configurations: ModelConfiguration(schema: schema, url: world.storeURL))
+            let context = ModelContext(container)
+            context.insert(Client(name: "Riverside Chorale", taxStatus: .exempt))
+            try context.save()
+        }
+        #expect(await world.waitUntilTheStoreIsLetGo() == .checkpointed)
+        let afternoon = try Data(contentsOf: world.storeURL)
+        #expect(try Data(contentsOf: morning.appending(path: "Ovation.store")) != afternoon,
+                "the afternoon's work has to be missing from the morning backup for this to prove anything")
+
+        let outcome = await world.sequence.run(now: world.instant.addingTimeInterval(6 * 3600))
+
+        #expect(outcome == .opened)
+        let archives = try service.archives()
+        #expect(archives.count == 2, "\(archives.map(\.lastPathComponent))")
+        let fresh = try #require(archives.last)
+        #expect(fresh != morning)
+        #expect(try Data(contentsOf: fresh.appending(path: "Ovation.store")) == afternoon,
+                "the upgrade's backup holds the store as it was just before the rewrite")
+    }
+
     /// A BUILD THAT NEVER BACKS UP UPGRADES ANYWAY, AND SAYS SO (Dan, 2026-09-23).
     /// The Debug build's store is throwaway by decision (2026-09-11) and it can
     /// never take a backup, so refusing would stop it opening after every schema
@@ -994,7 +1083,10 @@ struct StoreLaunchSequenceTests {
 
         final class Recorder: @unchecked Sendable {
             private(set) var steps: [String] = []
+            /// What each launch asked the backup step for (ovation#592).
+            private(set) var demands: [BackupService.Demand] = []
             func record(_ step: String) { steps.append(step) }
+            func record(_ demand: BackupService.Demand) { demands.append(demand) }
         }
 
         @MainActor
@@ -1008,6 +1100,7 @@ struct StoreLaunchSequenceTests {
              runningVersion: Schema.Version = Schema.Version(1, 0, 0),
              checkpoint: (@Sendable (URL) -> StoreCheckpoint.Outcome)? = nil,
              backup: (@Sendable (Date) throws -> BackupService.Attempt)? = nil,
+             backupAsked: (@Sendable (Date, BackupService.Demand) throws -> BackupService.Attempt)? = nil,
              prepareDataDirectory: (@Sendable () throws -> Void)? = nil,
              backupCurrency: (@Sendable (Date) -> BackupService.Currency)? = nil,
              reverify: (@Sendable (Date) -> BackupService.Reverification)? = nil,
@@ -1067,8 +1160,10 @@ struct StoreLaunchSequenceTests {
                     recorder.record("prepare")
                     if let prepareDataDirectory { return try prepareDataDirectory() }
                 },
-                takeBackup: { now in
+                takeBackup: { now, demand in
                     recorder.record("backup")
+                    recorder.record(demand)
+                    if let backupAsked { return try backupAsked(now, demand) }
                     if let backup { return try backup(now) }
                     return .taken(URL(fileURLWithPath: "/dev/null"))
                 },
@@ -1171,6 +1266,20 @@ struct StoreLaunchSequenceTests {
 
     enum FixtureFailure: Error {
         case couldNotBuildForeignStore
+        case noDataDirectory
+    }
+
+    /// Where a real backup step finds the data directory of a World built after
+    /// the step was written.
+    final class DataDirectoryBox: @unchecked Sendable {
+        var url: URL?
+    }
+
+    /// A real backup service over a World's data directory, referencing no
+    /// documents, as a store with no receipts filed does.
+    nonisolated static func backupService(of data: URL, into backups: URL) -> BackupService {
+        BackupService(dataDirectory: data, backupsDirectory: backups,
+                      dailyKeep: BackupService.defaultDailyKeep, referencedDocuments: { [] })
     }
     // MARK: the data directory is prepared before the backup (ovation#222)
 

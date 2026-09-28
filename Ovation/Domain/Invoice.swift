@@ -494,9 +494,17 @@ extension OvationSchemaV5 {
         /// CLEARED IS DELIBERATELY NOT ONE OF THESE. PRD 5.15 puts cleared on the
         /// payment, so one check clears once however many invoices it settled, and an
         /// invoice can never be cleared on its own.
+        ///
+        /// AN UNPRICED DRAFT IS NEVER PAID (ovation#582). It totals 0.00 only because
+        /// nothing has been charged yet, and `0 >= 0` read it as paid, which took it
+        /// out of PRD 14j's count of open invoices and let 14h put held money on the
+        /// other one by itself. Paid needs money recorded against a known amount;
+        /// PRD 5.1b's legitimate zero is a PRICED comp, which still reads as paid.
+        /// Money on an invoice whose price is not yet known is part of it, never all.
+        /// Asked here, where standing is derived, so every reader agrees (L16).
         var paymentState: InvoicePaymentState {
-            if amountPaid <= .zero && total > .zero { return .unpaid }
-            if amountPaid >= total { return .paid }
+            if amountPaid <= .zero && (total > .zero || isUnpriced) { return .unpaid }
+            if amountPaid >= total && !isUnpriced { return .paid }
             return .partlyPaid
         }
 
