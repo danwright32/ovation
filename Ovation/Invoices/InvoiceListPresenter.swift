@@ -243,7 +243,7 @@ final class InvoiceListPresenter {
         ///
         /// TOTAL, AND EACH ANSWER IS A DECISION. A word added later has to be
         /// answered here rather than taking a default that reads as considered
-        /// (L113, L129). Today three have somewhere to go, and this is the
+        /// (L113, L129). Today four have somewhere to go, and this is the
         /// measurement rather than an impression:
         ///
         ///   `Add hours`        the invoice screen, which the list already opens
@@ -259,7 +259,8 @@ final class InvoiceListPresenter {
         ///   `Mark cleared`     ovation#48.
         ///   `Mark unsent` settles the send in place, after Dan
         ///                      confirms (ovation#471). LIVE.
-        ///   `Remind`           nothing anywhere sends a reminder.
+        ///   `Remind`           the review sheet on a reminder, over the list,
+        ///                      the invoice screen's own Remind (ovation#548). LIVE.
         ///   `Add tax status`   the roster pass, which IS built and IS in the
         ///                      rail, and the list cannot navigate to another
         ///                      pane. Named here rather than left out, because
@@ -270,6 +271,7 @@ final class InvoiceListPresenter {
             case addHours: return .theInvoiceScreen
             case markUnsent: return .settleTheSend
             case send: return .theReviewSheet
+            case remind: return .theReminderSheet
             default: return nil
             }
         }
@@ -281,6 +283,8 @@ final class InvoiceListPresenter {
             case settleTheSend
             /// The review sheet over that invoice, opened over the list (ovation#517).
             case theReviewSheet
+            /// The same sheet on a reminder about that invoice (ovation#548).
+            case theReminderSheet
         }
     }
 

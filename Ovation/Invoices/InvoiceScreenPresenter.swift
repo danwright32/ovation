@@ -141,6 +141,15 @@ final class InvoiceScreenPresenter {
     let lines: [Line]
     let money: [MoneyRow]
     let footAction: FootAction
+    /// ovation#548. The word beside the main action, or nil where the design draws
+    /// none: `Remind` beside Record a payment, `Send a copy` beside Paid in full
+    /// (round 9, `footFor`). Each opens the one review sheet on that kind of send.
+    ///
+    /// DERIVED FROM `footAction` rather than decided again, so the second word can
+    /// never sit beside a main action it does not belong with (L16).
+    let footSecond: InvoiceMailKind?
+    /// ovation#556. What the history pane lists, read from this invoice.
+    let history: InvoiceHistory
     /// Nil wherever the foot does not offer Record a payment.
     let paymentStarts: PaymentStart?
     /// The due date as a date, or empty where there is none. BLANK RATHER THAN A
@@ -345,6 +354,12 @@ final class InvoiceScreenPresenter {
             + (totalHasAFigure ? Self.heldRows(invoice, today: today) : [])
             + Self.paymentRows(invoice)
         footAction = Self.footAction(for: invoice)
+        switch footAction {
+        case .recordPayment: footSecond = .reminder
+        case .paidInFull: footSecond = .copy
+        case .review, .none: footSecond = nil
+        }
+        history = InvoiceHistory(invoice)
         paymentStarts = footAction == .recordPayment
             ? PaymentStart(amount: PDFText.amount(invoice.amountOutstanding),
                            received: today, method: .zelle,
@@ -741,7 +756,7 @@ final class InvoiceScreenPresenter {
             }
             // A DAY IT CANNOT READ IS LEFT OUT, never drawn as a gap: "Paid by
             // Zelle" claims only what is known (L11).
-            let method = Self.methodWord(payment.method)
+            let method = payment.method.inASentence
             let label = BusinessCalendar.dayAndMonth(payment.receivedOn)
                 .map { "Paid \($0) by \(method)" } ?? "Paid by \(method)"
             return MoneyRow(label: label, value: figure, isTotal: false, key: key(payment))
@@ -810,12 +825,6 @@ final class InvoiceScreenPresenter {
                 value: "", isTotal: false, isSentence: true))
         }
         return rows
-    }
-
-    /// A method named inside a sentence: "by check", while the names that are
-    /// brands keep their capitals.
-    private static func methodWord(_ method: PaymentMethod) -> String {
-        method == .check ? "check" : method.exportLabel
     }
 
     /// The discount as the field shows it.

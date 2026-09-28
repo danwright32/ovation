@@ -69,7 +69,8 @@ struct InvoiceScreenShotTests {
                                   answerTax: { _, _ in },
                                   addLine: { _, _ in }, createType: { _, _ in },
                                   setDiscount: { _ in }, payment: Self.payment(for: state),
-                                  review: {}),
+                                  review: {}, resend: { _ in },
+                                  history: Self.history(for: state, presenter: presenter)),
                 size: Self.windowSize, scheme: .light, to: file)
             written.append(file.lastPathComponent)
 
@@ -83,7 +84,8 @@ struct InvoiceScreenShotTests {
                                   answerTax: { _, _ in },
                                   addLine: { _, _ in }, createType: { _, _ in },
                                   setDiscount: { _ in }, payment: Self.payment(for: state),
-                                  review: {}),
+                                  review: {}, resend: { _ in },
+                                  history: Self.history(for: state, presenter: presenter)),
                 size: Self.windowSize, scheme: .dark, to: darkFile)
             let light = try Data(contentsOf: file)
             let dark = try Data(contentsOf: darkFile)
@@ -98,14 +100,16 @@ struct InvoiceScreenShotTests {
         // AND EACH STATE AT THE HALF SCREEN MINIMUM (ovation#110), the width Dan
         // works at, which no picture of this screen had ever been taken at.
         for state in State.allCases {
+            let presenter = try Self.presenter(for: state)
             let file = directory.appending(path: "invoice-\(state.rawValue)-half-screen.png")
             try OffscreenShot.capture(
-                InvoiceScreenView(presenter: try Self.presenter(for: state), close: {},
+                InvoiceScreenView(presenter: presenter, close: {},
                                   setTime: { _, _, _ in },
                                   answerTax: { _, _ in },
                                   addLine: { _, _ in }, createType: { _, _ in },
                                   setDiscount: { _ in }, payment: Self.payment(for: state),
-                                  review: {}),
+                                  review: {}, resend: { _ in },
+                                  history: Self.history(for: state, presenter: presenter)),
                 size: Self.halfScreenSize, scheme: .light, to: file)
             written.append(file.lastPathComponent)
         }
@@ -146,13 +150,26 @@ struct InvoiceScreenShotTests {
         /// Paid in full by one check that has not cleared: the quiet line under
         /// the Total, and Paid in full in the foot (round 2).
         case paidByACheckWaiting
+        /// ovation#556, PRD 51o. Just after Record: the history pane open beside
+        /// the invoice, pushing it across, with the new payment marked.
+        case historyOpenAfterRecording
+    }
+
+    /// The history pane, open with the payment marked for the state that shows it,
+    /// and closed everywhere else so the History word is in every picture.
+    private static func history(for state: State, presenter: InvoiceScreenPresenter)
+        -> InvoiceScreenView.HistoryControls {
+        let open = state == .historyOpenAfterRecording
+        let marked = open ? Set(presenter.history.entries.filter(\.isPayment).map(\.id)) : []
+        return InvoiceScreenView.HistoryControls(isOpen: open, marked: marked, toggle: {})
     }
 
     /// Payment controls that do nothing, open only for the state that shows the
     /// sheet, and nil for the drafts, which offer no payment.
     private static func payment(for state: State) -> InvoiceScreenView.PaymentControls? {
         switch state {
-        case .sentAndOwed, .recordingAPayment, .partPaidByACheck, .paidByACheckWaiting:
+        case .sentAndOwed, .recordingAPayment, .partPaidByACheck, .paidByACheckWaiting,
+             .historyOpenAfterRecording:
             return InvoiceScreenView.PaymentControls(
                 isOpen: state == .recordingAPayment,
                 open: {}, record: { _ in }, close: {}, markCleared: { _ in })
@@ -178,7 +195,9 @@ struct InvoiceScreenShotTests {
         client.email = "booker@example.com"
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: today,
-                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity,
+                              createdOn: state == .historyOpenAfterRecording
+                                  ? .stamping(noon.addingTimeInterval(-20 * 86_400)) : nil)
         invoice.dueDate = .stamping(noon.addingTimeInterval(14 * 86_400))
         context.insert(invoice)
 
@@ -208,13 +227,13 @@ struct InvoiceScreenShotTests {
             invoice.discount = Discount(dollars: Money(dollars: 50))
         }
         let sentStates: [State] = [.sentAndOwed, .recordingAPayment, .partPaidByACheck,
-                                   .paidByACheckWaiting]
+                                   .paidByACheckWaiting, .historyOpenAfterRecording]
         if sentStates.contains(state) {
             invoice.number = 1_123
             invoice.recordSendState(.sent(route: .ovationSentIt, at: noon))
         }
         let paidByCheck: Money? = state == .partPaidByACheck ? Money(dollars: 200)
-            : state == .paidByACheckWaiting ? invoice.total : nil
+            : state == .paidByACheckWaiting || state == .historyOpenAfterRecording ? invoice.total : nil
         if let paidByCheck {
             let check = Payment(client: client, amount: paidByCheck, method: .check,
                                 receivedOn: today)

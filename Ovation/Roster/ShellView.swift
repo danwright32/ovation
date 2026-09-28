@@ -157,6 +157,15 @@ struct ShellView: View {
     /// control that silently does nothing leaves pressing it again as the only
     /// diagnosis (L109, L148).
     @State private var refusedReview: String?
+    /// ovation#548. Why the last Remind or Send a copy could not open the sheet, said
+    /// at the foot beside the word that was pressed (L109).
+    @State private var refusedResend: String?
+    /// ovation#556. Whether the invoice's history pane is open, and which of its
+    /// entries are the payment just recorded (PRD 51o). Held here rather than in the
+    /// screen because it is Record, which finishes here, that opens it, and the screen
+    /// is rebuilt after every write.
+    @State private var historyIsOpen = false
+    @State private var historyMarks: Set<String> = []
 
     /// What a destination with no screen behind it says about itself. A constant
     /// because a test counts them, and because the same words appear once per
@@ -211,17 +220,27 @@ struct ShellView: View {
     /// ovation#517. Send from the list: the same review, opened over the list, so
     /// closing it leaves Dan on the list (Dan, 2026-09-24). A refusal is said on
     /// the list, where the press was.
-    private func startReviewFromTheList(_ invoiceID: PersistentIdentifier) {
+    private func startReviewFromTheList(_ invoiceID: PersistentIdentifier,
+                                        as kind: InvoiceMailKind? = nil) {
         refusedOnTheList = nil
-        review(invoiceID) { refusal in refusedOnTheList = refusal }
+        review(invoiceID, as: kind) { refusal in refusedOnTheList = refusal }
+    }
+
+    /// ovation#548. Remind or Send a copy from the invoice screen's foot: the same
+    /// review, on that kind of send, with a refusal said beside the word pressed.
+    private func startResend(_ kind: InvoiceMailKind) {
+        guard let openedInvoiceID else { return }
+        refusedResend = nil
+        review(openedInvoiceID, as: kind) { refusal in refusedResend = refusal }
     }
 
     /// Opens the review of one invoice, whichever screen asked, through the one
     /// reviewer, so what is sent never depends on where the press came from.
-    private func review(_ invoiceID: PersistentIdentifier, refused: @escaping (String) -> Void) {
+    private func review(_ invoiceID: PersistentIdentifier, as kind: InvoiceMailKind? = nil,
+                        refused: @escaping (String) -> Void) {
         guard let reviewer else { return }
         Task {
-            switch await reviewer.open(invoiceID) {
+            switch await reviewer.open(invoiceID, as: kind) {
             case .success(let review):
                 reviewOnScreen.opened(review)
                 openReview = review
@@ -476,14 +495,39 @@ struct ShellView: View {
     /// the foot and the sheet all change together or not at all (L14). The sheet
     /// says Recording while the write is in flight and closes only on success; a
     /// refusal stays in the sheet, beside the Record it answers (L608).
+    ///
+    /// ovation#556, PRD 51o. ONCE RECORD IS PRESSED THE HISTORY OPENS WITH THE NEW
+    /// PAYMENT MARKED. The new payment is whatever payment entry the re-read has that
+    /// the screen before it did not, found by identity (L237); a refused press finds
+    /// none and opens nothing.
     private func paid(_ entry: PaymentEntry) async {
         guard let openedInvoiceID, !paymentIsRecording else { return }
+        let before = openedInvoice?.history.entries ?? []
         paymentIsRecording = true
         refusedPayment = await writePayment?(openedInvoiceID, entry)
         paymentIsRecording = false
         if refusedPayment == nil { payingIsOpen = false }
         openedInvoice = openInvoice?(openedInvoiceID)
+        let recorded = InvoiceHistory.newlyRecorded(before: before,
+                                                    after: openedInvoice?.history.entries ?? [])
+        if refusedPayment == nil, !recorded.isEmpty {
+            historyMarks = recorded
+            historyIsOpen = true
+        }
         publishWhatIsOpen()
+    }
+
+    /// ovation#556. The history pane's state and its one control.
+    ///
+    /// THE MARK LASTS UNTIL THE HISTORY IS CLOSED (PRD 51o), so a payment is not still
+    /// marked new an hour of edits later.
+    private var historyControls: InvoiceScreenView.HistoryControls {
+        InvoiceScreenView.HistoryControls(
+            isOpen: historyIsOpen, marked: historyMarks,
+            toggle: {
+                historyIsOpen.toggle()
+                if !historyIsOpen { historyMarks = [] }
+            })
     }
 
     /// ovation#185. The held money controls, or nil where nothing can write them.
@@ -619,6 +663,9 @@ struct ShellView: View {
                         refusedPayment = nil
                         refusedClearing = nil
                         refusedHeldMoney = nil
+                        refusedResend = nil
+                        historyIsOpen = false
+                        historyMarks = []
                         publishWhatIsOpen()
                     },
                     setTime: writeTime == nil ? nil : { shoot, edge, time in
@@ -647,7 +694,10 @@ struct ShellView: View {
                     payment: paymentControls,
                     heldMoney: heldMoneyControls,
                     review: reviewer == nil ? nil : { startReview() },
-                    refusedReview: refusedReview)
+                    refusedReview: refusedReview,
+                    resend: reviewer == nil ? nil : { kind in startResend(kind) },
+                    refusedResend: refusedResend,
+                    history: historyControls)
             } else if let invoices {
                 InvoiceListView(presenter: invoices, heldMoney: heldMoney,
                                 selected: $selectedInvoice,
@@ -657,7 +707,10 @@ struct ShellView: View {
                                     publishWhatIsOpen()
                                 },
                                 settle: reviewer == nil ? nil : { id in askToSettle(id) },
-                                review: reviewer == nil ? nil : { id in startReviewFromTheList(id) })
+                                review: reviewer == nil ? nil : { id in startReviewFromTheList(id) },
+                                remind: reviewer == nil ? nil : { id in
+                                    startReviewFromTheList(id, as: .reminder)
+                                })
                     .confirmationDialog("Mark unsent?", isPresented: settlingIsAsked,
                                         presenting: settling) { asked in
                         Button("Mark unsent", role: .destructive) { settle(asked.invoiceID) }

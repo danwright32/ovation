@@ -131,6 +131,89 @@ actor InvoiceSender {
                       then: .sent(at: sentAt, to: recipients))
     }
 
+    /// ovation#548. A sent invoice going out again, as a reminder or a copy, through the
+    /// same Gmail route as the first send.
+    ///
+    /// THE FIRST SEND'S REFUSALS, IN THE FIRST SEND'S ORDER, and then NOTHING WRITTEN.
+    /// The invoice's sent state records the send that ISSUED it, which is what the
+    /// accrual basis and the number sequence rest on (PRD 24, 10c); a reminder is a
+    /// second message about a document the client already holds, so it must never
+    /// move that state, take or hand back a number, or leave an attempt behind. With
+    /// nothing written there is nothing to write before the call either, so an
+    /// unanswered reminder is said and left: Ovation cannot tell whether it went, and
+    /// Gmail's Sent folder can.
+    func resend(_ invoiceID: PersistentIdentifier, as kind: InvoiceMailKind, render: RenderedInvoice,
+                message: String, settings: SendingSettings, footer: InvoiceFooter,
+                approvedRecipients: [String], through route: SendingRoute,
+                clock: @Sendable () -> Date) async -> InvoiceSendOutcome {
+        let sender = route.sender
+        guard let invoice = try? modelContext.fetch(FetchDescriptor<Invoice>())
+            .first(where: { $0.persistentModelID == invoiceID }) else {
+            return .refused("That invoice is no longer there, so nothing was sent.")
+        }
+        if let refusal = kind.refusal(for: invoice) { return .refused(refusal) }
+        guard let number = invoice.number else {
+            return .refused("This invoice has no number, so nothing was sent.")
+        }
+        if let waiting = ReviewGate.refusal(for: invoice, footer: footer) {
+            return .refused(waiting)
+        }
+        let client = invoice.client
+        let recipients = settings.destination.recipients(forClient: client?.recipientsForInvoices ?? [])
+        guard !recipients.isEmpty else {
+            return .refused("This client has no address to send to, so nothing was sent.")
+        }
+        guard recipients == approvedRecipients else {
+            return .refused(InvoiceMail.recipientsChanged)
+        }
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .refused(InvoiceMail.emptyMessage)
+        }
+        guard let attachment = MailAttachment(filename: InvoiceMail.filename(number: number),
+                                              mimeType: "application/pdf", data: render.bytes),
+              let mail = OutgoingMail(to: recipients,
+                                      subject: kind.subject(number: number,
+                                                            shoots: invoice.shoots.map(\.name)),
+                                      body: message, attachments: [attachment])
+        else {
+            return .refused("The message could not be put together, so nothing was sent.")
+        }
+        do {
+            let size = try sender.measure(mail)
+            guard size.fits else {
+                return .refused("The invoice is too large for Gmail to send (\(size.encodedBytes) bytes of \(size.limitBytes)), so nothing was sent.")
+            }
+        } catch {
+            return .refused("The message could not be measured for sending, so nothing was sent: \(error.localizedDescription)")
+        }
+        if let unavailable = await route.ready() {
+            return .refused(unavailable.sentence)
+        }
+        do {
+            _ = try await sender.send(mail)
+        } catch let refusal as GmailSendError {
+            return .refused(Self.resentSentence(for: refusal))
+        } catch let refusal as MailSenderError {
+            return .refused("\(refusal.localizedDescription) Nothing was sent.")
+        } catch {
+            return .couldNotTell("Gmail did not answer (\(error.localizedDescription)), so Ovation cannot tell whether the \(kind.noun) went. Look in Gmail's Sent folder before sending it again.")
+        }
+        return .sent(at: clock(), to: recipients)
+    }
+
+    /// Gmail's refusals of a reminder or a copy, which say nothing about a draft: the
+    /// invoice is sent and stays sent.
+    private static func resentSentence(for refusal: GmailSendError) -> String {
+        switch refusal {
+        case .authExpired:
+            return "Gmail access has expired, so connect Gmail again. Nothing was sent."
+        case .tooLarge(let encoded, let limit):
+            return "The invoice is too large for Gmail to send (\(encoded) bytes of \(limit)). Nothing was sent."
+        case .api(let detail):
+            return "Gmail refused it: \(detail). Nothing was sent."
+        }
+    }
+
     /// Records how the attempt ended. A save that fails AFTER Gmail accepted leaves the
     /// invoice attempting, which is the honest state: it went, and Ovation could not write
     /// that down, so it needs a person rather than a guess (L12).
@@ -175,6 +258,76 @@ enum InvoiceSendOutcome: Equatable, Sendable {
     case refused(String)
     /// It may have gone. The invoice is left attempting.
     case couldNotTell(String)
+}
+
+/// ovation#548. The two ways a SENT invoice goes out again: `Remind` beside Record a
+/// payment, and `Send a copy` beside Paid in full (the design record's `footFor`).
+///
+/// NOT A THIRD CASE BESIDE THE FIRST SEND, deliberately. The first send issues the
+/// invoice and writes its sent state; these write nothing, so a review carrying no
+/// kind is the first send and one carrying a kind never touches that state.
+enum InvoiceMailKind: Equatable, Hashable, Sendable, CaseIterable {
+    case reminder
+    case copy
+
+    /// The design record's own word for the foot.
+    var footWord: String {
+        switch self {
+        case .reminder: return "Remind"
+        case .copy: return "Send a copy"
+        }
+    }
+
+    /// What it is called inside a sentence.
+    var noun: String {
+        switch self {
+        case .reminder: return "reminder"
+        case .copy: return "copy"
+        }
+    }
+
+    /// "Reminder: Invoice 1123, Autumn Evensong", the first send's subject with what
+    /// this message is put in front of it, so the client can tell the two apart.
+    func subject(number: Int64, shoots: [String]) -> String {
+        switch self {
+        case .reminder: return "Reminder: " + InvoiceMail.subject(number: number, shoots: shoots)
+        case .copy: return "Copy: " + InvoiceMail.subject(number: number, shoots: shoots)
+        }
+    }
+
+    /// What the sheet says once Gmail accepted. It names no record, because nothing
+    /// was recorded (the first send's line says "recorded against invoice N").
+    func sentLine(time: String, to recipients: [String]) -> String {
+        let heading = self == .reminder ? "Reminder" : "Copy"
+        return "\(heading) sent at \(time) to \(recipients.joined(separator: ", "))."
+    }
+
+    /// What the sheet's outcome is headed once Gmail accepted.
+    var sentHeading: String {
+        switch self {
+        case .reminder: return "Reminder sent"
+        case .copy: return "Copy sent"
+        }
+    }
+
+    static let reminderPaidInFull = "This invoice is paid in full, so there is nothing to remind anyone about. Nothing was sent."
+
+    /// Why this invoice cannot be sent again as this kind, or nil when it can.
+    ///
+    /// ASKED AT OPENING AND AGAIN AT THE PRESS (L567): the invoice can be paid or
+    /// cancelled between the two.
+    func refusal(for invoice: Invoice) -> String? {
+        guard invoice.sentStatus.wasSent else {
+            return "This invoice has not been sent, so there is no \(noun) to send. Nothing was sent."
+        }
+        if invoice.closure != nil {
+            return "This invoice was cancelled, so no \(noun) was sent."
+        }
+        if self == .reminder, invoice.amountOutstanding <= .zero {
+            return Self.reminderPaidInFull
+        }
+        return nil
+    }
 }
 
 /// The message's own words and names, in one place, so the sheet shows what the send uses.
