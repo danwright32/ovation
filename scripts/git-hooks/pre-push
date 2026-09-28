@@ -290,7 +290,7 @@ gate_check check-writers-wired.sh "a writer the app declares is used by nothing 
 # place. Two records each carried their own copy and the copies disagreed, which
 # is how staged faults were counted as real. Fast: it reads the scripts only.
 gate_check check-durable-records.sh "a script appends to a durable record without asking whether a staged run may write it."
-gate_check check-problem-kinds-raised.sh "a problem kind is resolved in the app and raised nowhere."
+gate_check check-problem-kinds-raised.sh "a problem kind is declared in the app and raised nowhere."
 
 # ovation#124. Ovation has one slide and one fade, and one file that knows whether
 # the person asked their Mac to reduce motion. A transition written on a screen

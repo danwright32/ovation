@@ -365,7 +365,7 @@ struct StoreLaunchSequenceTests {
         let launches = LaunchCounter()
         let world = try World(backup: { _ in
             if launches.next() == 1 { throw BackupError.noFolderChosen }
-            return .taken(URL(fileURLWithPath: "/dev/null"))
+            return .taken(URL(fileURLWithPath: "/dev/null"), retention: .ran(.init()))
         })
 
         let first = await world.sequence.run(now: world.instant)
@@ -515,7 +515,7 @@ struct StoreLaunchSequenceTests {
                               runningVersion: Schema.Version(2, 0, 0),
                               backup: { _ in
             if launches.next() == 1 { throw BackupError.noFolderChosen }
-            return .taken(URL(fileURLWithPath: "/dev/null"))
+            return .taken(URL(fileURLWithPath: "/dev/null"), retention: .ran(.init()))
         })
 
         let first = await world.sequence.run(now: world.instant)
@@ -607,7 +607,7 @@ struct StoreLaunchSequenceTests {
         let service = Self.backupService(of: world.directory, into: backups)
 
         // This morning's backup, then the afternoon's work written after it.
-        let morning = try service.takeBackup(now: world.instant)
+        let morning = try service.takeBackup(now: world.instant).archive
         let schema = Schema([Client.self])
         do {
             let container = try ModelContainer(
@@ -852,6 +852,116 @@ struct StoreLaunchSequenceTests {
         _ = await world.sequence.run(now: world.instant)
 
         #expect(!world.store.open.contains { $0.kind.rawValue.hasPrefix("backup.") })
+    }
+
+    // MARK: what retention could not do is said (ovation#583)
+
+    /// A rotation outcome carrying the failure a case is about, and nothing else.
+    nonisolated private static func rotation(couldNotDelete: [String] = [],
+                                 refusedOnAShortRead: Bool = false) -> BackupService.Retention {
+        var outcome = BackupService.RotationOutcome()
+        outcome.couldNotDelete = couldNotDelete
+        outcome.refusedOnAShortRead = refusedOnAShortRead
+        return .ran(outcome)
+    }
+
+    /// RAISED BY THE APP, NOT BY THE TEST (L159). Both kinds were declared for
+    /// ovation#227 and nothing raised either, so a folder where deletions fail
+    /// grew with nothing said.
+    @Test("an archive retention decided to remove and could not is said, by name")
+    func aFailedRetentionDeletionIsSaid() async throws {
+        let world = try World(backup: { _ in
+            .taken(URL(fileURLWithPath: "/dev/null"),
+                   retention: Self.rotation(couldNotDelete: ["Ovation-backup-2026-03-02-090000"]))
+        })
+
+        let outcome = await world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        let problem = try #require(world.store.open.first { $0.kind == .archiveCouldNotBeRemoved })
+        #expect(problem.sentence.contains("Ovation-backup-2026-03-02-090000"))
+        // TODAY'S BACKUP IS FINE, and the sentence says so, because a notice that
+        // reads like the backups are broken sends Dan to the wrong place (L11).
+        #expect(problem.sentence.hasPrefix("Today's backup was taken"))
+        #expect(!world.store.open.contains { $0.kind == .retentionCouldNotRun })
+        #expect(!world.store.open.contains { $0.kind == .backupFailed })
+    }
+
+    @Test("retention that could not read the backup folder is said, as its own kind")
+    func retentionThatCouldNotRunIsSaid() async throws {
+        let world = try World(backup: { _ in
+            .taken(URL(fileURLWithPath: "/dev/null"),
+                   retention: .couldNotRun("/Volumes/Backups could not be read."))
+        })
+
+        let outcome = await world.sequence.run(now: world.instant)
+
+        #expect(outcome == .opened)
+        let problem = try #require(world.store.open.first { $0.kind == .retentionCouldNotRun })
+        #expect(problem.sentence.contains("/Volumes/Backups could not be read."))
+        #expect(problem.sentence.contains("Nothing was removed"))
+        #expect(!world.store.open.contains { $0.kind == .archiveCouldNotBeRemoved })
+        #expect(!world.store.open.contains { $0.kind == .backupFailed })
+        #expect(!world.store.open.contains { $0.kind == .backupCouldNotBeWritten })
+    }
+
+    /// A SHORT LISTING IS RETENTION THAT DID NOT RUN, not a clean one: nothing was
+    /// judged, so nothing that should have gone went (L211, L98).
+    @Test("a rotation refused on a short listing is retention that could not run")
+    func aShortListingIsRetentionThatCouldNotRun() async throws {
+        let world = try World(backup: { _ in
+            .taken(URL(fileURLWithPath: "/dev/null"),
+                   retention: Self.rotation(refusedOnAShortRead: true))
+        })
+
+        _ = await world.sequence.run(now: world.instant)
+
+        let problem = try #require(world.store.open.first { $0.kind == .retentionCouldNotRun })
+        #expect(problem.sentence.contains("could not be listed completely"))
+    }
+
+    /// THE TWO SENTENCES DIFFER, because the two facts do: one is a deletion that
+    /// failed, the other is a judgement never made (L11).
+    @Test("the two retention problems say different things")
+    func theTwoRetentionSentencesDiffer() throws {
+        let removed = try #require(StoreLaunchSequence.retentionCondition(
+            for: Self.rotation(couldNotDelete: ["Ovation-backup-2026-03-02-090000"])))
+        let notRun = try #require(StoreLaunchSequence.retentionCondition(
+            for: .couldNotRun("/Volumes/Backups could not be read.")))
+        let short = try #require(StoreLaunchSequence.retentionCondition(
+            for: Self.rotation(refusedOnAShortRead: true)))
+
+        #expect(removed.kind == .archiveCouldNotBeRemoved)
+        #expect(notRun.kind == .retentionCouldNotRun)
+        #expect(short.kind == .retentionCouldNotRun)
+        #expect(Set([removed.sentence, notRun.sentence, short.sentence]).count == 3)
+        #expect(StoreLaunchSequence.retentionCondition(for: Self.rotation()) == nil)
+    }
+
+    /// AND A LATER BACKUP WHOSE RETENTION WORKED CLEARS THEM, because the
+    /// condition was measured again and is gone; left open, the list says the
+    /// folder is failing while it is not (L152).
+    @Test("a retention problem is cleared by a later backup whose retention worked")
+    func retentionProblemsClearOnceRetentionWorks() async throws {
+        let launches = LaunchCounter()
+        let world = try World(backup: { _ in
+            if launches.next() == 1 {
+                return .taken(URL(fileURLWithPath: "/dev/null"),
+                              retention: Self.rotation(couldNotDelete: ["Ovation-backup-2026-03-02-090000"]))
+            }
+            return .taken(URL(fileURLWithPath: "/dev/null"), retention: Self.rotation())
+        })
+
+        let first = await world.sequence.run(now: world.instant)
+        #expect(first == .opened)
+        #expect(world.store.open.contains { $0.kind == .archiveCouldNotBeRemoved })
+
+        // A later launch, once the first one's container has let go (ovation#279).
+        #expect(await world.waitUntilTheStoreIsLetGo() == .checkpointed)
+        let second = await world.sequence.run(now: world.instant.addingTimeInterval(86_400))
+        #expect(second == .opened)
+        #expect(!world.store.open.contains { $0.kind == .archiveCouldNotBeRemoved })
+        #expect(!world.store.open.contains { $0.kind == .retentionCouldNotRun })
     }
 
     // MARK: an older archive is checked again (ovation#233)
@@ -1165,7 +1275,7 @@ struct StoreLaunchSequenceTests {
                     recorder.record(demand)
                     if let backupAsked { return try backupAsked(now, demand) }
                     if let backup { return try backup(now) }
-                    return .taken(URL(fileURLWithPath: "/dev/null"))
+                    return .taken(URL(fileURLWithPath: "/dev/null"), retention: .ran(.init()))
                 },
                 backupCurrency: { now in
                     recorder.record("currency")

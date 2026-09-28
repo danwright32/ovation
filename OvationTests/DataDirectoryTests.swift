@@ -39,7 +39,7 @@ struct DataDirectoryTests {
 
         // No throw is the assertion. Before ovation#222 this threw
         // `requiredMemberMissing("documents")`.
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         #expect(FileManager.default.fileExists(atPath: archive.path))
     }
 
@@ -129,7 +129,7 @@ struct DataDirectoryTests {
 
         try DataDirectory.prepare(world.dataDirectory)
 
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         #expect(FileManager.default.fileExists(atPath: archive.path))
     }
 

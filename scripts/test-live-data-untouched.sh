@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "live data guard tests" 27
+harness_begin "live data guard tests" 37
 
 TARGET="scripts/check-live-data-untouched.sh"
 require_target "$TARGET"
@@ -32,11 +32,26 @@ printf '#!/bin/bash\nprintf "/sbin/launchd\\n/Users/x/DerivedData/Build/Products
 printf '#!/bin/bash\nexit 1\n' > "$WORK/ps-broken"
 chmod +x "$WORK/ps-running" "$WORK/ps-not-running" "$WORK/ps-broken"
 
+# WHEN THE INSTALLED APP WAS LAST LAUNCHED IS INJECTED TOO (ovation#591), for the
+# same reason as the process list: the real answer is whenever Dan last opened
+# Ovation. Each stub prints what `mdls -raw -name kMDItemLastUsedDate` would.
+# "now" is computed when it is ASKED, which is at the compare, so it always falls
+# after the snapshot: an app opened and quit inside the run.
+printf '#!/bin/bash\nprintf "2020-01-01 00:00:00 +0000"\n' > "$WORK/used-long-ago"
+printf '#!/bin/bash\ndate -u "+%%Y-%%m-%%d %%H:%%M:%%S +0000"\n' > "$WORK/used-now"
+printf '#!/bin/bash\nprintf "(null)"\n' > "$WORK/used-never"
+printf '#!/bin/bash\nexit 1\n' > "$WORK/used-broken"
+chmod +x "$WORK/used-long-ago" "$WORK/used-now" "$WORK/used-never" "$WORK/used-broken"
+# Every case asks the stub named here unless it names another.
+USED="$WORK/used-long-ago"
+
 with_ps() {
-    OVATION_LIVE_DATA_ROOT="$ROOT" OVATION_LIVE_DATA_PROCESS_LIST="$1" "./$TARGET" "${@:2}" 2>&1
+    OVATION_LIVE_DATA_ROOT="$ROOT" OVATION_LIVE_DATA_PROCESS_LIST="$1" \
+        OVATION_LIVE_DATA_LAST_USED="$USED" "./$TARGET" "${@:2}" 2>&1
 }
 with_ps_status() {
-    OVATION_LIVE_DATA_ROOT="$ROOT" OVATION_LIVE_DATA_PROCESS_LIST="$1" "./$TARGET" "${@:2}"
+    OVATION_LIVE_DATA_ROOT="$ROOT" OVATION_LIVE_DATA_PROCESS_LIST="$1" \
+        OVATION_LIVE_DATA_LAST_USED="$USED" "./$TARGET" "${@:2}"
 }
 run() { with_ps "$WORK/ps-not-running" "$@"; }
 status() { with_ps_status "$WORK/ps-not-running" "$@"; }
@@ -101,45 +116,98 @@ run snapshot "$WORK/f8.json" >/dev/null
 check_exit "a fingerprint taken under another root is refused, not compared" \
     2 env OVATION_LIVE_DATA_ROOT="$WORK/elsewhere" "./$TARGET" compare "$WORK/f8.json"
 
+# A WATCHED FOLDER THAT CANNOT BE READ IS NOT AN EMPTY ONE (ovation#581). The walk
+# used to skip a directory it could not list, so a documents folder it was barred
+# from read as holding nothing, at both ends, and the run passed unmeasured (L98).
+mkdir -p "$ROOT/Ovation/documents/barred"
+chmod 000 "$ROOT/Ovation/documents/barred"
+harness_on_exit "chmod 755 '$ROOT/Ovation/documents/barred' 2>/dev/null"
+check_exit "a snapshot that cannot read a watched folder refuses rather than recording it" \
+    2 status snapshot "$WORK/barred.json"
+check "and it says it cannot measure, naming the folder" \
+    "$(run snapshot "$WORK/barred.json" | grep -c '^CANNOT MEASURE: .*Ovation/documents/barred')" "1"
+chmod 755 "$ROOT/Ovation/documents/barred"
+rmdir "$ROOT/Ovation/documents/barred"
+
 check_exit "an unknown command is refused" 2 status wibble "$WORK/f1.json"
 
 # ---------------------------------------------------------------------------
-# THE INSTALLED APP (ovation#266). Since 2026-09-13 the Release build lives in
-# /Applications and is in daily use, and merely having it open, or quitting it,
-# changes Ovation.store-shm. The run for ovation#262 was refused for exactly
-# that, and only a second run with the app confirmed closed showed no test had
-# reached live data.
+# THE INSTALLED APP (ovation#266, ovation#591). Since 2026-09-13 the Release build
+# lives in /Applications and is in daily use, and merely having it open, or
+# quitting it, changes Ovation.store-shm.
 #
-# A change while the app was running cannot be told from a test having written
-# there, so it is still not a pass. It is its OWN outcome, saying so and naming
-# what changed, rather than an accusation of the suite.
+# A change the installed app explains is DAN'S OWN USE, and it does not fail the
+# run: on 2026-09-27 two pre-push runs were refused for exactly that, each a
+# twenty minute rerun. It explains a change only under the folder it writes,
+# Ovation/, and only when it ran during the run: open at either end, or launched
+# after the snapshot. Anything else is still refused as a leak, which is the case
+# this guard exists for (L2).
 # ---------------------------------------------------------------------------
 touch_shm() { printf 'shm %s\n' "$1" > "$ROOT/Ovation/Ovation.store-shm"; }
 
 with_ps "$WORK/ps-running" snapshot "$WORK/app1.json" >/dev/null
 touch_shm one
-check_exit "a change while the installed app was open is its own outcome, not a leak" \
+check_exit "a change while the installed app was open is Dan's own use, its own outcome" \
     3 with_ps_status "$WORK/ps-running" compare "$WORK/app1.json"
 check "and it says the installed app was running, naming it by its executable path" \
     "$(with_ps "$WORK/ps-running" compare "$WORK/app1.json" \
         | grep -c "^The installed app ($INSTALLED_EXE) was running at the start and at the end of the run\.$")" "1"
 check "and it names which watched path changed" \
     "$(with_ps "$WORK/ps-running" compare "$WORK/app1.json" | grep -c '^  Ovation/Ovation.store-shm$')" "1"
+check "and it says the run is not failed for it" \
+    "$(with_ps "$WORK/ps-running" compare "$WORK/app1.json" | grep -c 'use of Ovation and this run is not failed for it\.$')" "1"
 
 with_ps "$WORK/ps-running" snapshot "$WORK/app2.json" >/dev/null
 touch_shm two
 check_exit "a change when the app was open at the start and quit before the end is the same outcome" \
     3 with_ps_status "$WORK/ps-not-running" compare "$WORK/app2.json"
 
-# THE SAME CHANGE WITH THE APP CLOSED AT BOTH ENDS IS STILL A LEAK. This is the
-# half that keeps the new outcome from becoming a way to excuse a real one.
+# OPENED AND QUIT INSIDE THE RUN. The process list at the two ends cannot see it,
+# and this is how the 2026-09-27 refusals looked: the store written in the same
+# second as the app's last used date. macOS records that date on launch.
+with_ps "$WORK/ps-not-running" snapshot "$WORK/app6.json" >/dev/null
+touch_shm six
+USED="$WORK/used-now"
+check_exit "a change when the installed app was launched during the run, and quit, is Dan's own use" \
+    3 with_ps_status "$WORK/ps-not-running" compare "$WORK/app6.json"
+check "and it says the app was launched during the run" \
+    "$(with_ps "$WORK/ps-not-running" compare "$WORK/app6.json" \
+        | grep -c "^The installed app ($INSTALLED_EXE) was launched during the run, at ")" "1"
+USED="$WORK/used-long-ago"
+
+# THE SAME CHANGE WITH THE APP CLOSED AT BOTH ENDS, AND NOT LAUNCHED BETWEEN, IS
+# STILL A LEAK. This is the half that keeps the new outcome from becoming a way to
+# excuse a real one.
 with_ps "$WORK/ps-not-running" snapshot "$WORK/app3.json" >/dev/null
 touch_shm three
-check_exit "the same change with the installed app closed at both ends is still refused as a leak" \
+check_exit "the same change with the installed app closed throughout is still refused as a leak" \
     1 with_ps_status "$WORK/ps-not-running" compare "$WORK/app3.json"
-check "and that refusal says the installed app was not running at either end" \
+check "and that refusal says the installed app did not run during the run" \
     "$(with_ps "$WORK/ps-not-running" compare "$WORK/app3.json" \
-        | grep -c '^The installed app was not running at the start or at the end of the run\.$')" "1"
+        | grep -c '^The installed app was not running at the start or at the end of the run, and was not launched during it\.$')" "1"
+USED="$WORK/used-never"
+check_exit "and so it is when macOS holds no launch date for the app at all" \
+    1 with_ps_status "$WORK/ps-not-running" compare "$WORK/app3.json"
+USED="$WORK/used-broken"
+check_exit "and when the launch date could not be read, which is not evidence it ran" \
+    1 with_ps_status "$WORK/ps-not-running" compare "$WORK/app3.json"
+check "and that refusal says the launch date could not be read, rather than that it did not run" \
+    "$(with_ps "$WORK/ps-not-running" compare "$WORK/app3.json" \
+        | grep -c '^When the installed app was last launched could not be read')" "1"
+USED="$WORK/used-long-ago"
+
+# THE INSTALLED APP NEVER WRITES Ovation-Debug, so it explains nothing there, open
+# or not. A change there while it ran is refused, and named as the one it does not
+# explain.
+with_ps "$WORK/ps-running" snapshot "$WORK/app7.json" >/dev/null
+touch_shm seven
+printf 'a debug store a test wrote\n' > "$ROOT/Ovation-Debug/Ovation.store"
+check_exit "a change under Ovation-Debug while the installed app was open is still refused" \
+    1 with_ps_status "$WORK/ps-running" compare "$WORK/app7.json"
+check "and it names Ovation-Debug as the change the installed app does not explain" \
+    "$(with_ps "$WORK/ps-running" compare "$WORK/app7.json" \
+        | sed -n '/^Not explained by the installed app/,$p' | grep -c '^  Ovation-Debug$')" "1"
+rm "$ROOT/Ovation-Debug/Ovation.store"
 
 # A process list that could not be read is not "the app was closed" (L98): the
 # change stays a refusal, and the message says what could not be told.
@@ -170,9 +238,22 @@ check "and a compare adds nothing, so each line is one bracket opened" \
     "$(wc -l < "$BRACKETS" 2>/dev/null | tr -d ' ')" "1"
 
 # The real root, once (L246).
+#
+# WHETHER DAN IS USING OVATION IS NOT THIS SUITE'S TO SET (ovation#581, L411). With
+# the installed app open its store changes under this case, which used to fail it
+# at random. The question here is whether the real root can be fingerprinted and
+# compared at all, and both "nothing changed" and "changed, and the installed app
+# explains it" are answers to that. Anything else is a failure and keeps its words.
 REAL="$WORK/real.json"
 "./$TARGET" snapshot "$REAL" >/dev/null 2>&1
-check_exit "the real Application Support root can be fingerprinted and compared" \
-    0 "./$TARGET" compare "$REAL"
+REAL_SAID="$("./$TARGET" compare "$REAL" 2>&1)"; REAL_STATUS=$?
+case "$REAL_STATUS" in
+    0) REAL_VERDICT="compared" ;;
+    3) REAL_VERDICT="compared"
+       echo "    (the real root changed under Dan's own use of the installed app, which it explains)" ;;
+    *) REAL_VERDICT="exit $REAL_STATUS: $(head -n 12 <<< "$REAL_SAID")" ;;
+esac
+check "the real Application Support root can be fingerprinted and compared" \
+    "$REAL_VERDICT" "compared"
 
 harness_end

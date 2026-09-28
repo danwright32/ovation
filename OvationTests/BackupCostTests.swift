@@ -162,7 +162,7 @@ struct BackupCostTests {
         let world = try World(documents: count)
         defer { world.cleanUp() }
 
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         let manifest = try world.manifest(of: archive)
         let documents = manifest.files.filter { $0.path.hasPrefix("documents/") }
         #expect(documents.count == count,
@@ -248,7 +248,7 @@ struct BackupCostTests {
         /// what Dan actually waits through.
         func timeOneBackupAndVerification() throws -> Double {
             let started = ContinuousClock.now
-            let archive = try service.takeBackup(now: instant)
+            let archive = try service.takeBackup(now: instant).archive
             _ = try service.verify(archive: archive)
             let elapsed = ContinuousClock.now - started
             return Double(elapsed.components.seconds)

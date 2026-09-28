@@ -51,6 +51,25 @@ final class UnlistableFileManager: FileManager {
     }
 }
 
+/// A file manager that refuses to REMOVE one item, by name, so a retention
+/// deletion can be made to fail without damaging a disk (ovation#583). Every other
+/// operation is the real one.
+final class UndeletableFileManager: FileManager {
+    private let refusedName: String
+
+    init(refusing name: String) {
+        refusedName = name
+        super.init()
+    }
+
+    override func removeItem(at url: URL) throws {
+        if url.lastPathComponent == refusedName {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.removeItem(at: url)
+    }
+}
+
 /// Plan 1.8, ovation#57. Dated backups, verified by enumerating every referenced
 /// document rather than by asking whether anything opens.
 struct BackupTests {
@@ -73,7 +92,7 @@ struct BackupTests {
             to: world.dataDirectory.appendingPathComponent("documents/scan.pdf"))
 
         let size = try world.service.sizeOfWhatIsBackedUp()
-        let manifest = try world.manifest(of: try world.service.takeBackup(now: world.instant))
+        let manifest = try world.manifest(of: try world.service.takeBackup(now: world.instant).archive)
 
         #expect(size.files == manifest.files.count)
         #expect(size.bytes == manifest.files.reduce(0) { $0 + $1.byteCount })
@@ -84,7 +103,7 @@ struct BackupTests {
     @Test("a backup copies every member that exists and records the ones that do not")
     func theArchiveSaysWhatItHolds() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let manifest = try world.manifest(of: archive)
         #expect(manifest.dayKey == BusinessCalendar.dayKey(for: world.instant))
@@ -154,7 +173,7 @@ struct BackupTests {
         // refuse every healthy backup, which is a guard failing in the
         // direction nobody expects.
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let report = try world.service.verify(archive: archive)
         #expect(report.failures.isEmpty)
@@ -170,7 +189,7 @@ struct BackupTests {
         try Data("fabricated log".utf8).write(
             to: world.dataDirectory.appendingPathComponent("Ovation.store-wal"))
 
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let manifest = try world.manifest(of: archive)
         let log = try #require(manifest.members.first { $0.path == "Ovation.store-wal" })
@@ -183,7 +202,7 @@ struct BackupTests {
     @Test("the files land on disk, not only in the manifest")
     func theArchiveHoldsRealBytes() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         #expect(FileManager.default.fileExists(
             atPath: archive.appendingPathComponent("problems.jsonl").path))
@@ -226,7 +245,7 @@ struct BackupTests {
     @Test("a backup verifies when every file it recorded is there and unchanged")
     func agoodArchiveVerifies() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let report = try world.service.verify(archive: archive)
         #expect(report.isVerified)
@@ -240,7 +259,7 @@ struct BackupTests {
         // receipt files that are not there. Asking whether the database opens
         // cannot see it.
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         try FileManager.default.removeItem(
             at: archive.appendingPathComponent("documents/\(world.receiptPath)"))
 
@@ -252,7 +271,7 @@ struct BackupTests {
     @Test("a receipt whose bytes changed FAILS, at the same length")
     func aTamperedDocumentFailsVerification() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         let receipt = archive.appendingPathComponent("documents/\(world.receiptPath)")
         let original = try Data(contentsOf: receipt)
         let tampered = Data(String(repeating: "x", count: original.count).utf8)
@@ -267,7 +286,7 @@ struct BackupTests {
     @Test("an archive with no manifest is refused, never treated as empty")
     func aManifestlessArchiveIsRefused() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         try FileManager.default.removeItem(
             at: archive.appendingPathComponent(BackupManifest.filename))
 
@@ -283,7 +302,7 @@ struct BackupTests {
         let world = try World()
         try Data("{\"refresh_token\":\"fabricated\"}".utf8).write(
             to: world.dataDirectory.appendingPathComponent("gmail-tokens.json"))
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         // It is not a member, so it is not copied. The verification says so
         // rather than trusting that.
@@ -301,7 +320,7 @@ struct BackupTests {
         let tokenURL = world.dataDirectory.appendingPathComponent("gmail-tokens.json")
         try token.write(to: tokenURL)
 
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         // Somebody puts it in the archive wearing an innocent name.
         try token.write(to: archive.appendingPathComponent("custody/notes-backup.json"))
 
@@ -316,7 +335,7 @@ struct BackupTests {
         // A guard handed nothing to look for examines nothing, and reporting
         // "clean" would be indistinguishable from having checked (L98).
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let report = try world.service.verify(archive: archive, secrets: [])
         #expect(report.secretsChecked == 0)
@@ -333,9 +352,9 @@ struct BackupTests {
     @Test("rotation keeps the newest and evicts the oldest")
     func rotationKeepsTheNewest() throws {
         let world = try World(dailyKeep: 2)
-        let first = try world.service.takeBackup(now: world.instant)
-        let second = try world.service.takeBackup(now: world.instant.addingTimeInterval(60))
-        let third = try world.service.takeBackup(now: world.instant.addingTimeInterval(120))
+        let first = try world.service.takeBackup(now: world.instant).archive
+        let second = try world.service.takeBackup(now: world.instant.addingTimeInterval(60)).archive
+        let third = try world.service.takeBackup(now: world.instant.addingTimeInterval(120)).archive
 
         let remaining = try world.service.archives()
         // All three are in one calendar month, so the last of that month is the
@@ -457,13 +476,60 @@ struct BackupTests {
         #expect(try world.service.archives().count == 2)
     }
 
+    /// WHAT RETENTION DID TRAVELS WITH THE BACKUP (ovation#583). `takeBackup`
+    /// rotated with `_ =`, so a deletion that failed was silence.
+    @Test("a backup reports an archive retention decided to remove and could not")
+    func aBackupReportsAFailedRetentionDeletion() throws {
+        let world = try World(dailyKeep: 1)
+        // March's first archive is neither among the newest nor the last of its
+        // month, so retention decides to remove it, and the file manager refuses.
+        world.plantArchive(named: "Ovation-backup-2026-03-02-090000")
+        world.plantArchive(named: "Ovation-backup-2026-03-17-090000")
+        let reference = world.receiptReference
+        let service = BackupService(
+            dataDirectory: world.dataDirectory, backupsDirectory: world.backupsDirectory,
+            dailyKeep: 1, referencedDocuments: { [reference] },
+            fileManager: UndeletableFileManager(refusing: "Ovation-backup-2026-03-02-090000"))
+
+        let taken = try service.takeBackup(now: world.instant)
+
+        guard case .ran(let outcome) = taken.retention else {
+            Issue.record("retention did not run: \(taken.retention)")
+            return
+        }
+        #expect(outcome.couldNotDelete == ["Ovation-backup-2026-03-02-090000"])
+        #expect(FileManager.default.fileExists(atPath: taken.archive.path))
+    }
+
+    /// A ROTATION THAT THROWS IS RETENTION FAILING, NEVER THE BACKUP FAILING. The
+    /// archive has been written and verified before rotation starts, and it used to
+    /// leave by the same throw as a backup that failed.
+    @Test("a folder that cannot be listed after the archive is written is retention that could not run")
+    func anUnlistableFolderAfterTheBackupIsRetentionFailing() throws {
+        let world = try World()
+        let reference = world.receiptReference
+        let service = BackupService(
+            dataDirectory: world.dataDirectory, backupsDirectory: world.backupsDirectory,
+            dailyKeep: 3, referencedDocuments: { [reference] },
+            fileManager: UnlistableFileManager(refusing: world.backupsDirectory))
+
+        let taken = try service.takeBackup(now: world.instant)
+
+        guard case .couldNotRun(let detail) = taken.retention else {
+            Issue.record("retention reported running: \(taken.retention)")
+            return
+        }
+        #expect(detail.contains(world.backupsDirectory.lastPathComponent))
+        #expect(FileManager.default.fileExists(atPath: taken.archive.path))
+    }
+
     @Test("a backup that does not verify evicts NOTHING")
     func rotationWaitsForVerification() throws {
         // L5: never destroy good state before its replacement is verified to
         // exist. A run that produced an unverifiable archive must not also have
         // deleted the last good one.
         let world = try World(dailyKeep: 1)
-        let good = try world.service.takeBackup(now: world.instant)
+        let good = try world.service.takeBackup(now: world.instant).archive
         // The seam is named for what it is: a hook that runs after staging and
         // before verification. The test uses it to damage the archive, which is
         // the only way to reach the failure path without corrupting a disk.
@@ -491,7 +557,7 @@ struct BackupTests {
 
         let outcome = try world.service.attemptBackup(.onceToday, now: world.instant)
 
-        guard case .taken(let archive) = outcome else {
+        guard case .taken(let archive, _) = outcome else {
             Issue.record("expected a backup to be taken, got \(outcome)")
             return
         }
@@ -501,7 +567,7 @@ struct BackupTests {
     @Test("a second launch the same day takes nothing")
     func aSecondLaunchTheSameDayTakesNothing() throws {
         let world = try World()
-        let first = try world.service.takeBackup(now: world.instant)
+        let first = try world.service.takeBackup(now: world.instant).archive
 
         let outcome = try world.service.attemptBackup(.onceToday,
             now: world.instant.addingTimeInterval(3600))
@@ -582,14 +648,14 @@ struct BackupTests {
     @Test("before a rewrite a backup is taken even though one was taken earlier today, and it holds what was written since")
     func beforeARewriteTakesOneNow() throws {
         let world = try World()
-        let morning = try world.service.takeBackup(now: world.instant)
+        let morning = try world.service.takeBackup(now: world.instant).archive
         let since = Data("the store after the afternoon's work".utf8)
         try since.write(to: world.dataDirectory.appendingPathComponent("Ovation.store"))
 
         let outcome = try world.service.attemptBackup(
             .beforeARewrite, now: world.instant.addingTimeInterval(6 * 3600))
 
-        guard case .taken(let fresh) = outcome else {
+        guard case .taken(let fresh, _) = outcome else {
             Issue.record("this morning's backup answered for the rewrite, got \(outcome)")
             return
         }
@@ -708,7 +774,7 @@ struct BackupTests {
     @Test("the newest archive's date comes from its manifest")
     func theArchiveDateComesFromItsManifest() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         // Push the file dates far into the future, the way a sync client would.
         try FileManager.default.setAttributes(
             [.modificationDate: world.instant.addingTimeInterval(500_000)],
@@ -762,7 +828,7 @@ struct BackupTests {
     @Test("an archive that still verifies is reported as checked")
     func anArchiveThatStillVerifiesIsChecked() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let outcome = try world.service.reverifyOneArchive(now: world.instant)
 
@@ -774,7 +840,7 @@ struct BackupTests {
     @Test("an archive that has been damaged since is reported, by name")
     func aDamagedArchiveIsReported() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         try FileManager.default.removeItem(
             at: archive.appendingPathComponent("Ovation.store"))
 
@@ -1003,7 +1069,7 @@ struct BackupTests {
     func aGoodBackupIsAnArchive() throws {
         let world = try World()
 
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         #expect(try world.service.archives() == [archive])
         let left = try FileManager.default.contentsOfDirectory(
@@ -1016,7 +1082,7 @@ struct BackupTests {
     @Test("restoring puts the archived bytes back")
     func restoringReplacesTheData() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         try Data("{\"action\":\"something else\"}\n".utf8).write(
             to: world.dataDirectory.appendingPathComponent("problems.jsonl"))
@@ -1033,7 +1099,7 @@ struct BackupTests {
         // L5. The state being overwritten may be the only copy of something, and
         // it is certainly the only evidence of what went wrong.
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         try Data("the state at the moment of the restore".utf8).write(
             to: world.dataDirectory.appendingPathComponent("problems.jsonl"))
 
@@ -1052,7 +1118,7 @@ struct BackupTests {
         // full backup first would refuse the remedy precisely when it is needed
         // (L362). The snapshot copies whatever is there, in whatever state.
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         try FileManager.default.removeItem(
             at: world.dataDirectory.appendingPathComponent("problems.jsonl"))
 
@@ -1065,7 +1131,7 @@ struct BackupTests {
     func aBadArchiveIsNotRestored() throws {
         // Never destroy good state before its replacement is verified to exist.
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         try FileManager.default.removeItem(
             at: archive.appendingPathComponent("documents/\(world.receiptPath)"))
         try Data("the live state".utf8).write(
@@ -1091,7 +1157,7 @@ struct BackupTests {
         let token = Data("{\"refresh_token\":\"fabricated\"}".utf8)
         let tokenURL = world.dataDirectory.appendingPathComponent("gmail-tokens.json")
         try token.write(to: tokenURL)
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         try world.service.restore(from: archive, now: world.instant.addingTimeInterval(60))
 
@@ -1103,7 +1169,7 @@ struct BackupTests {
         let world = try World()
         let tokenURL = world.dataDirectory.appendingPathComponent("gmail-tokens.json")
         try Data("{\"refresh_token\":\"fabricated\"}".utf8).write(to: tokenURL)
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         try world.service.restore(from: archive, now: world.instant.addingTimeInterval(60))
 
@@ -1125,7 +1191,7 @@ struct BackupTests {
         let queued = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000001", "a queued booking", in: world)
         try Data("{\"queued\":[]}".utf8).write(to: downbeatLedger(in: world))
 
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         #expect(FileManager.default.fileExists(atPath: archive
             .appendingPathComponent("booking-queue/\(queued.lastPathComponent)").path))
@@ -1142,7 +1208,7 @@ struct BackupTests {
         // them would refuse every backup on a fresh installation (L98).
         let world = try World()
 
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let members = try world.manifest(of: archive).members
         #expect(members.first { $0.path == "booking-queue" }?.status == .legitimatelyAbsent)
@@ -1161,7 +1227,7 @@ struct BackupTests {
         let world = try World()
         let lost = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000002", "lost since the backup", in: world)
         let rewritten = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000003", "as it was at the backup", in: world)
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         try FileManager.default.removeItem(at: lost)
         try Data("rewritten by Downbeat since".utf8).write(to: rewritten)
@@ -1185,7 +1251,7 @@ struct BackupTests {
         // over (Dan, 2026-09-12).
         let world = try World()
         try Data("as Downbeat had it at the backup".utf8).write(to: downbeatLedger(in: world))
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         // The positive half in the same fixture, so a ledger that never reached
         // the archive cannot pass the half below (L159).
         #expect(FileManager.default.fileExists(atPath: archive
@@ -1212,7 +1278,7 @@ struct BackupTests {
         let ledger = world.dataDirectory.appendingPathComponent("consumed-bookings.jsonl")
         let lost = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000005", "possibly already invoiced", in: world)
         if !ledgerIsLive { try Data("{}\n".utf8).write(to: ledger) }
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         try FileManager.default.removeItem(at: lost)
         if ledgerIsLive {
             try Data("{}\n".utf8).write(to: ledger)
@@ -1252,7 +1318,7 @@ struct BackupTests {
     @Test("a restore that stops partway names what it put back, where it stopped, and the snapshot")
     func aRestoreThatStopsPartwaySaysHowFarItGot() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         let reference = world.receiptReference
         // `problems.jsonl` is the first member put back and `documents` the second.
         let service = BackupService(
@@ -1291,7 +1357,7 @@ struct BackupTests {
     func aPartwayCauseFromOvationItselfNamesThePath() throws {
         let world = try World()
         _ = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000021", "a queued booking", in: world)
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         let archivedQueue = archive.appendingPathComponent("booking-queue", isDirectory: true)
         let reference = world.receiptReference
         let service = BackupService(
@@ -1324,7 +1390,7 @@ struct BackupTests {
         // TRUE when the snapshot itself fails, because nothing is replaced until
         // it exists, and that must stay a different outcome from a partway stop.
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         let live = world.dataDirectory.appendingPathComponent("problems.jsonl")
         try Data("the live state".utf8).write(to: live)
         let when = world.instant.addingTimeInterval(60)
@@ -1385,7 +1451,7 @@ struct BackupTests {
         // reached it damaged (L11).
         let world = try World()
         let service = world.service(referencing: [world.receiptReference])
-        let archive = try service.takeBackup(now: world.instant)
+        let archive = try service.takeBackup(now: world.instant).archive
         let copied = archive.appendingPathComponent("documents/\(world.receiptPath)")
         try Data(String(repeating: "x", count: 9).utf8).write(to: copied)
 
@@ -1408,7 +1474,7 @@ struct BackupTests {
         let world = try World()
         let service = world.service(referencing: [])
 
-        let archive = try service.takeBackup(now: world.instant)
+        let archive = try service.takeBackup(now: world.instant).archive
         let report = try service.verify(archive: archive)
 
         #expect(report.isVerified)
@@ -1422,7 +1488,7 @@ struct BackupTests {
         // the check refused every archive ever taken (L159).
         let world = try World()
         let service = world.service(referencing: [world.receiptReference])
-        let archive = try service.takeBackup(now: world.instant)
+        let archive = try service.takeBackup(now: world.instant).archive
 
         let report = try service.verify(archive: archive)
 

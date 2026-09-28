@@ -264,6 +264,7 @@ start_held_pure_suite() {
         OVATION_UNLOCKED_COMMAND=true \
         OVATION_LIVE_DATA_ROOT="$LIVE_DATA_ROOT" \
         OVATION_LIVE_DATA_PROCESS_LIST=/usr/bin/true \
+        OVATION_LIVE_DATA_LAST_USED=/usr/bin/true \
         OVATION_LIVE_DATA_BRACKET_LOG="$LIVE_BRACKETS" \
         OVATION_TEST_COMMAND="touch '$PURE_STARTED'; n=0; while [ -e '$PURE_HOLD' ] && [ \$n -lt 600 ]; do n=\$((n+1)); sleep 0.05; done" \
         OVATION_XCODE_PROJECT="$TREE_PROJECT" OVATION_XCODEGEN="$WORK/xcodegen" \

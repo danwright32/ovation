@@ -10,7 +10,7 @@ struct LaunchBackupOutcomeTests {
 
     @Test("a backup that answered is the answer")
     func answeredPassesThrough() throws {
-        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"))
+        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"), retention: .ran(.init()))
 
         #expect(try LaunchBackupOutcome.attempt(from: .answered(taken)) == taken)
     }
@@ -91,7 +91,7 @@ struct LaunchBackupOutcomeTests {
     @Test("the launch waits on the backup for the deadline its size calls for")
     func theLaunchWaitsForTheMeasuredDeadline() async throws {
         let waits = RecordedWaits()
-        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"))
+        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"), retention: .ran(.init()))
         let size = BackupSize(files: 4_000, bytes: 1_000_000_000)
 
         let attempt = try await LaunchBackupOutcome.run(
@@ -115,7 +115,7 @@ struct LaunchBackupOutcomeTests {
     func anUnmeasuredSizeWaitsTheFloor() async throws {
         struct Unreadable: Error {}
         let waits = RecordedWaits()
-        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"))
+        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"), retention: .ran(.init()))
 
         let attempt = try await LaunchBackupOutcome.run(
             at: Self.launch,
@@ -142,7 +142,7 @@ struct LaunchBackupOutcomeTests {
                 sleeping: { _ in },
                 recording: { _ in }) {
                     release.wait()
-                    return .taken(URL(fileURLWithPath: "/tmp/a"))
+                    return .taken(URL(fileURLWithPath: "/tmp/a"), retention: .ran(.init()))
                 }
         }
     }
@@ -222,7 +222,7 @@ struct LaunchBackupOutcomeTests {
 
     @Test("work that answers is the answer, through the real helper")
     func workThatAnswersPassesThrough() async throws {
-        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"))
+        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"), retention: .ran(.init()))
 
         #expect(try await LaunchBackupOutcome.run(at: Self.launch, measuring: { .init(files: 0, bytes: 0) },
                                               recording: { _ in }) { taken } == taken)

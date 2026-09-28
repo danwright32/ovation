@@ -377,14 +377,41 @@ final class BackupService {
     /// been taken was indistinguishable from one that backed up, and a folder
     /// that could not be read looked like either (L98, L11).
     enum Attempt: Equatable {
-        /// A backup was taken just now.
-        case taken(URL)
+        /// A backup was taken just now, and what retention did after it
+        /// (ovation#583). Carried with the archive rather than beside it, because
+        /// the two happen in one call and a retention outcome with no backup, or
+        /// a backup reported without what retention did, is half a fact (L544).
+        case taken(URL, retention: Retention)
         /// One had already been taken today, and here it is.
         case alreadyTakenToday(URL)
         /// The folder could not be read, so the question could not be answered.
         /// NOT a skip: "there is no archive for today" and "I could not look" are
         /// the same silence otherwise.
         case folderUnreachable(String)
+    }
+
+    /// What retention did after a backup was taken (ovation#583).
+    ///
+    /// THE OUTCOME USED TO BE DISCARDED. `takeBackup` rotated with `_ =`, so an
+    /// archive retention decided to remove and could not, and a rotation refused on
+    /// a short listing, were silence, and the two problem kinds declared for them
+    /// were raised by nothing (L90). And a rotation that THREW left `takeBackup` by
+    /// the same throw as a backup that failed, although the archive was written and
+    /// verified by then, so a backup that worked was reported as one that did not.
+    enum Retention: Equatable, Sendable {
+        /// Retention ran, and this is what it did: possibly refused on a short
+        /// listing, possibly with deletions that failed.
+        case ran(RotationOutcome)
+        /// Retention could not run at all, because the folder could not be read
+        /// to decide anything. Nothing was removed. The detail is a whole
+        /// sentence, ending in a full stop.
+        case couldNotRun(String)
+    }
+
+    /// A backup just taken, with what retention did after it.
+    struct Taken: Equatable, Sendable {
+        let archive: URL
+        let retention: Retention
     }
 
     /// What a launch needs from the backup step (ovation#592).
@@ -430,7 +457,7 @@ final class BackupService {
             return .folderUnreachable("\(backupsDirectory.path): \(error)")
         }
 
-        if demand == .beforeARewrite { return .taken(try takeBackup(now: now)) }
+        if demand == .beforeARewrite { return Self.attempt(try takeBackup(now: now)) }
 
         let today = BusinessCalendar.dayKey(for: now)
         if let already = existing.last(where: { archive in
@@ -441,13 +468,17 @@ final class BackupService {
             return .alreadyTakenToday(already)
         }
 
-        return .taken(try takeBackup(now: now))
+        return Self.attempt(try takeBackup(now: now))
+    }
+
+    private static func attempt(_ taken: Taken) -> Attempt {
+        .taken(taken.archive, retention: taken.retention)
     }
 
     // MARK: taking one
 
     @discardableResult
-    func takeBackup(now: Date) throws -> URL {
+    func takeBackup(now: Date) throws -> Taken {
         // STAGED UNDER A NAME THE ARCHIVE PREFIX DOES NOT MATCH, and renamed only
         // once it has verified (ovation#226).
         //
@@ -562,8 +593,18 @@ final class BackupService {
         // The archive just created is handed to the rotation as the thing that
         // MUST be in the listing, so an incomplete enumeration refuses instead of
         // deleting on it (L211).
-        _ = try rotate(now: now, mustSurvive: archive)
-        return archive
+        //
+        // A ROTATION THAT THROWS DOES NOT UNDO THE BACKUP (ovation#583). The
+        // archive exists and verified by this line, so a folder that cannot be
+        // listed now is retention failing, said as its own outcome, never the
+        // backup failing.
+        let retention: Retention
+        do {
+            retention = .ran(try rotate(now: now, mustSurvive: archive))
+        } catch {
+            retention = .couldNotRun(Self.cause(of: error))
+        }
+        return Taken(archive: archive, retention: retention)
     }
 
     // MARK: verifying

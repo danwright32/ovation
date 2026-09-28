@@ -288,6 +288,21 @@ struct StoreLaunchSequence {
                                              because: "a backup was taken on a later launch",
                                              now: now)
                     }
+                    // WHAT RETENTION DID AFTER A BACKUP TAKEN NOW (ovation#583).
+                    // Only a backup taken runs retention, so a launch that found
+                    // today's already taken says nothing either way.
+                    if case .taken(_, let retention) = attempt {
+                        for standing in problems.open
+                        where Self.clearedByRetention(retention).contains(standing.kind) {
+                            _ = problems.resolve(standing.id,
+                                                 because: "retention ran again on a later backup",
+                                                 now: now)
+                        }
+                        if let condition = Self.retentionCondition(for: retention) {
+                            _ = problems.raise(kind: condition.kind, subject: storeURL.path,
+                                               sentence: condition.sentence, now: now)
+                        }
+                    }
                     // Nothing to say. A notice on the commonest case is one Dan
                     // learns to click past (L36).
                     break
@@ -536,6 +551,53 @@ struct StoreLaunchSequence {
     static func backupCondition(for error: Error) -> (kind: ProblemKind, sentence: String) {
         let cause = backupCause(for: error)
         return (cause.kind, sentence(for: cause, then: .openedAnyway))
+    }
+
+    /// WHAT RETENTION COULD NOT DO, as a kind and a sentence, or nil when it did
+    /// everything it decided to (ovation#583).
+    ///
+    /// Both kinds were declared for ovation#227 and raised by nothing, so a folder
+    /// where deletions fail grew with nothing said, and a rotation that could not
+    /// judge anything was indistinguishable from one that had nothing to remove
+    /// (L90, L98). Each sentence starts from today's backup being taken, because
+    /// it was, and a notice reading like the backups are broken sends Dan to the
+    /// wrong place (L11).
+    static func retentionCondition(for retention: BackupService.Retention)
+        -> (kind: ProblemKind, sentence: String)? {
+        switch retention {
+        case .couldNotRun(let detail):
+            return (.retentionCouldNotRun,
+                    "Today's backup was taken, but Ovation could not tidy the backup folder "
+                        + "afterwards: \(detail) Nothing was removed, so older backups are kept "
+                        + "until the folder can be read.")
+        case .ran(let outcome) where outcome.refusedOnAShortRead:
+            return (.retentionCouldNotRun,
+                    "Today's backup was taken, but the backup folder could not be listed "
+                        + "completely afterwards, so Ovation removed nothing from it. Deleting "
+                        + "from a partial list could remove backups that are still wanted.")
+        case .ran(let outcome) where !outcome.couldNotDelete.isEmpty:
+            let names = outcome.couldNotDelete.joined(separator: ", ")
+            let one = outcome.couldNotDelete.count == 1
+            return (.archiveCouldNotBeRemoved,
+                    "Today's backup was taken, but Ovation could not delete "
+                        + (one ? "an old backup" : "\(outcome.couldNotDelete.count) old backups")
+                        + " it had decided to remove: \(names). "
+                        + (one ? "It is" : "They are")
+                        + " still in the backup folder, which keeps growing until "
+                        + (one ? "it" : "they") + " can be deleted.")
+        case .ran:
+            return nil
+        }
+    }
+
+    /// The retention kinds a rotation that RAN has measured again and found clear
+    /// (ovation#583), so they end when their cause does rather than waiting to be
+    /// dismissed (L152). A rotation that could not judge clears nothing.
+    static func clearedByRetention(_ retention: BackupService.Retention) -> Set<ProblemKind> {
+        guard case .ran(let outcome) = retention, !outcome.refusedOnAShortRead else { return [] }
+        return outcome.couldNotDelete.isEmpty
+            ? [.archiveCouldNotBeRemoved, .retentionCouldNotRun]
+            : [.retentionCouldNotRun]
     }
 
     /// Which kind, and what went wrong, without saying what happened next.
