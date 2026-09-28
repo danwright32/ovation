@@ -90,7 +90,7 @@ struct ClientsView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 14)
-        .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.rule) }
+        .overlay(alignment: .bottom) { Rectangle().fill(OvationPalette.rule).frame(height: 1) }
     }
 
     // MARK: the names
@@ -131,7 +131,12 @@ struct ClientsView: View {
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(isHere ? OvationPalette.selection : Color.clear)
-            .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.ruleSoft) }
+            // A RULE DRAWN AS A RECTANGLE, never a Divider: a Divider takes its
+            // direction from the stack it lands in, and in this row's HStack it drew
+            // a vertical line through every name (seen in the first capture).
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(OvationPalette.ruleSoft).frame(height: 1)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -439,7 +444,7 @@ struct ClientsView: View {
                 .foregroundStyle(OvationPalette.faint)
                 .padding(.bottom, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.rule) }
+                .overlay(alignment: .bottom) { Rectangle().fill(OvationPalette.rule).frame(height: 1) }
             ForEach(page.invoices) { line in
                 invoiceRow(line)
             }
@@ -448,29 +453,54 @@ struct ClientsView: View {
 
     private func invoiceRow(_ line: ClientsPresenter.InvoiceLine) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            if shootUnderneath { shoot(line) }
-            HStack(alignment: .firstTextBaseline, spacing: Column.gap) {
-                figure(line.number).frame(width: Column.number, alignment: .leading)
-                if shootUnderneath {
-                    Spacer(minLength: 0)
-                } else {
-                    shoot(line).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                figure(line.date).frame(width: Column.date, alignment: .leading)
-                Text(line.amount)
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundStyle(OvationPalette.ink)
-                    .frame(width: Column.amount, alignment: .trailing)
-                Text(line.status)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(OvationPalette.faint)
-                    .lineLimit(1)
-                    .frame(width: Column.status, alignment: .trailing)
+            if shootUnderneath {
+                shoot(line)
+                narrowFigures(line)
+            } else {
+                wideFigures(line)
             }
         }
         .padding(.vertical, 7)
-        .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.ruleSoft) }
+        .overlay(alignment: .bottom) { Rectangle().fill(OvationPalette.ruleSoft).frame(height: 1) }
         .accessibilityElement(children: .combine)
+    }
+
+    /// Under the shoot, at the half screen: the date at its own width and the room
+    /// after it, so no date is ever cut (the fixed columns cut "14 Nov 2026" at 860
+    /// in the second capture).
+    private func narrowFigures(_ line: ClientsPresenter.InvoiceLine) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Column.gap) {
+            figure(line.number).frame(width: Column.number, alignment: .leading)
+            figure(line.date).fixedSize()
+            Spacer(minLength: 0)
+            // FIXED ON THE RIGHT, so the amounts still stand in one column down the
+            // list; a little narrower than the wide row's, which is what makes room.
+            amount(line).frame(width: 84, alignment: .trailing)
+            status(line).frame(width: 100, alignment: .trailing)
+        }
+    }
+
+    private func amount(_ line: ClientsPresenter.InvoiceLine) -> some View {
+        Text(line.amount)
+            .font(.system(size: 13, weight: .medium, design: .monospaced))
+            .foregroundStyle(OvationPalette.ink)
+    }
+
+    private func status(_ line: ClientsPresenter.InvoiceLine) -> some View {
+        Text(line.status)
+            .font(.system(size: 12.5))
+            .foregroundStyle(OvationPalette.faint)
+            .lineLimit(1)
+    }
+
+    private func wideFigures(_ line: ClientsPresenter.InvoiceLine) -> some View {
+            HStack(alignment: .firstTextBaseline, spacing: Column.gap) {
+                figure(line.number).frame(width: Column.number, alignment: .leading)
+                shoot(line).frame(maxWidth: .infinity, alignment: .leading)
+                figure(line.date).frame(width: Column.date, alignment: .leading)
+                amount(line).frame(width: Column.amount, alignment: .trailing)
+                status(line).frame(width: Column.status, alignment: .trailing)
+            }
     }
 
     private func shoot(_ line: ClientsPresenter.InvoiceLine) -> some View {
