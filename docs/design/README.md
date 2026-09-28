@@ -1386,6 +1386,14 @@ improving, so 330 was drawn and is dominated. It was 272 until that day, which w
 272 the sent entry still wrapped to three lines. The invoice works at 556px as well as at 856px, and
 that is measured rather than assumed.
 
+**At half screen the pane covers the right of the invoice instead of pushing it, and that is Dan's**,
+settled 2026-09-28 (ovation#597) from a round drawing four behaviours in the real 860 window, each
+also at 1064: the push, which leaves the invoice 352 wide with every description cut to its first
+letter; covering the right of the invoice below its head; taking the invoice's place; and a push at
+a narrower 240. He chose covering, with a shadow, the invoice keeping its full width underneath and
+the head staying whole. The width left to the invoice beside the pane decides it: 556 or more
+pushes, less covers.
+
 **The entries say what the SYSTEM did, and that is Dan's too**, settled 2026-09-08 by keeping it
 against three alternatives drawn beside it at the same 300px and judged at one entry and at four: the
 same events said as what HAPPENED rather than as what the record did (Booked, Invoiced, Paid, Cleared

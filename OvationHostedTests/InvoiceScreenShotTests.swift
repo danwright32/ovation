@@ -153,14 +153,19 @@ struct InvoiceScreenShotTests {
         /// ovation#556, PRD 51o. Just after Record: the history pane open beside
         /// the invoice, pushing it across, with the new payment marked.
         case historyOpenAfterRecording
+        /// ovation#596. Sent and owed, with every message recorded: the first send
+        /// with who it went to, a reminder, and a copy to another address, so the
+        /// pane is seen at its real content rather than only saying what was not
+        /// recorded. Open, pushing at the full window and covering at half screen.
+        case historyWithRecordedSends
     }
 
     /// The history pane, open with the payment marked for the state that shows it,
     /// and closed everywhere else so the History word is in every picture.
     private static func history(for state: State, presenter: InvoiceScreenPresenter)
         -> InvoiceScreenView.HistoryControls {
-        let open = state == .historyOpenAfterRecording
-        let marked = open ? Set(presenter.history.entries.filter(\.isPayment).map(\.id)) : []
+        let open = state == .historyOpenAfterRecording || state == .historyWithRecordedSends
+        let marked = state == .historyOpenAfterRecording ? Set(presenter.history.entries.filter(\.isPayment).map(\.id)) : []
         return InvoiceScreenView.HistoryControls(isOpen: open, marked: marked, toggle: {})
     }
 
@@ -169,7 +174,7 @@ struct InvoiceScreenShotTests {
     private static func payment(for state: State) -> InvoiceScreenView.PaymentControls? {
         switch state {
         case .sentAndOwed, .recordingAPayment, .partPaidByACheck, .paidByACheckWaiting,
-             .historyOpenAfterRecording:
+             .historyOpenAfterRecording, .historyWithRecordedSends:
             return InvoiceScreenView.PaymentControls(
                 isOpen: state == .recordingAPayment,
                 open: {}, record: { _ in }, close: {}, markCleared: { _ in })
@@ -197,6 +202,7 @@ struct InvoiceScreenShotTests {
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: today,
                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity,
                               createdOn: state == .historyOpenAfterRecording
+                                  || state == .historyWithRecordedSends
                                   ? .stamping(noon.addingTimeInterval(-20 * 86_400)) : nil)
         invoice.dueDate = .stamping(noon.addingTimeInterval(14 * 86_400))
         context.insert(invoice)
@@ -227,10 +233,31 @@ struct InvoiceScreenShotTests {
             invoice.discount = Discount(dollars: Money(dollars: 50))
         }
         let sentStates: [State] = [.sentAndOwed, .recordingAPayment, .partPaidByACheck,
-                                   .paidByACheckWaiting, .historyOpenAfterRecording]
+                                   .paidByACheckWaiting, .historyOpenAfterRecording,
+                                   .historyWithRecordedSends]
         if sentStates.contains(state) {
             invoice.number = 1_123
-            invoice.recordSendState(.sent(route: .ovationSentIt, at: noon))
+            if state == .historyWithRecordedSends {
+                // EACH MESSAGE AS THE SENDER RECORDS ONE, the first on the day the
+                // invoice went out, which its sent state carries too.
+                let day: (Int) -> Date = { noon.addingTimeInterval(TimeInterval($0) * 86_400) }
+                invoice.recordSendState(.sent(route: .ovationSentIt, at: day(-12)))
+                let sends: [(SentMessageKind, [String], Int)] = [
+                    (.invoice, ["booker@example.com"], -12),
+                    (.reminder, ["booker@example.com"], -3),
+                    (.copy, ["accounts@example.com"], -1),
+                ]
+                for (kind, to, offset) in sends {
+                    let message = SentMessage(kind: kind, recipients: to, sentAt: day(offset),
+                                              subject: "Invoice 1123, Autumn Evensong",
+                                              gmailThreadID: "thread-1123",
+                                              messageID: "<\(offset)@messages.example>")
+                    context.insert(message)
+                    message.invoice = invoice
+                }
+            } else {
+                invoice.recordSendState(.sent(route: .ovationSentIt, at: noon))
+            }
         }
         let paidByCheck: Money? = state == .partPaidByACheck ? Money(dollars: 200)
             : state == .paidByACheckWaiting || state == .historyOpenAfterRecording ? invoice.total : nil

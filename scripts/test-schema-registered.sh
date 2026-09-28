@@ -138,7 +138,7 @@ check_exit "and an actually unregistered model is still caught in the same file"
 # The real sources, once, so the seams are not the only thing ever exercised.
 check_exit "the real tree passes" 0 env OVATION_SCHEMA_SCAN_ROOT= OVATION_SCHEMA_FILE= "./$TARGET"
 check "and it found every model, not a handful" \
-    "$(./$TARGET | grep -c '10 model type(s)')" "1"
+    "$(./$TARGET | grep -c '11 model type(s)')" "1"
 
 # ---------------------------------------------------------------------------
 # A VERSION MUST DESCRIBE ITS OWN SHAPE (ovation#134).

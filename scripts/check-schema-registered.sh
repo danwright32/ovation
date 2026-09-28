@@ -18,7 +18,7 @@ THE NAMING RULE IT RESTS ON. A persisted type is a `final class` carrying the
 Both are mechanical, so the scan is exact rather than heuristic.
 
 NOTHING SCANNED IS NOT A PASS (L98). A scan finding no models at all has stopped
-working rather than found a clean tree, because there are ten.
+working rather than found a clean tree, because there are eleven.
 
 Seams: OVATION_SCHEMA_SCAN_ROOT and OVATION_SCHEMA_FILE.
 
@@ -164,7 +164,7 @@ def main():
 
     if not declared:
         print(f"CANNOT SCAN: no @Model types found under {root}.")
-        print("             That is not a pass: there are ten, so a scan finding")
+        print("             That is not a pass: there are eleven, so a scan finding")
         print("             none has stopped working rather than found a clean tree.")
         return 2
 

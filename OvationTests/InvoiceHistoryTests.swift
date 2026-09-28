@@ -83,7 +83,7 @@ struct InvoiceHistoryTests {
         #expect(history.unrecorded.contains(InvoiceHistory.creationNotRecorded))
     }
 
-    @Test("a send Ovation made is Sent on its day, with no address, because a settled send keeps none")
+    @Test("a send with no record is Sent on its day, with no address rather than the client's")
     func sentByOvation() throws {
         let context = try Self.context()
         let entries = InvoiceHistory(Self.invoice(context)).entries
@@ -163,13 +163,86 @@ struct InvoiceHistoryTests {
         #expect(Self.said(InvoiceHistory(invoice).entries).last == "12 Nov | Cancelled")
     }
 
-    @Test("a sent invoice says reminders and copies are not recorded, and a draft does not")
-    func remindersAreNotRecorded() throws {
+    // MARK: where the pane goes (ovation#597)
+
+    /// Dan, 2026-09-28: at the full 1064 window the screen is 856 wide and the pane
+    /// pushes, leaving the invoice its 556; at the 860 half screen window the screen
+    /// is 652 and it covers the right of the invoice instead of squeezing it to 352.
+    @Test("the pane pushes at the full window and covers at half screen, decided by the width left to the invoice")
+    func thepaneCoversAtHalfScreen() {
+        typealias Layout = InvoiceScreenView.HistoryLayout
+        #expect(Layout.forWidth(OvationWindow.minimumWidth - OvationWindow.railWidth) == .cover)
+        #expect(Layout.forWidth(652) == .cover)
+        #expect(Layout.forWidth(856) == .push, "556 left beside the pane is PRD 51d's width, so it pushes")
+        #expect(Layout.forWidth(855.5) == .cover, "half a point short of 556 left is too narrow")
+        #expect(Layout.forWidth(1_200) == .push)
+    }
+
+    // MARK: the messages sent (ovation#596)
+
+    /// A message Gmail accepted, recorded against the invoice as the sender records one.
+    @discardableResult
+    private static func record(_ kind: SentMessageKind, on invoice: Invoice, dayOffset: Int,
+                               to recipients: [String] = ["booker@example.com"],
+                               in context: ModelContext) -> SentMessage {
+        let message = SentMessage(kind: kind, recipients: recipients,
+                                  sentAt: noon.addingTimeInterval(TimeInterval(dayOffset) * 86_400),
+                                  subject: "Invoice 1123", gmailThreadID: "thread-1", messageID: "<m1@messages.example>")
+        context.insert(message)
+        message.invoice = invoice
+        return message
+    }
+
+    @Test("a send Ovation recorded says who it went to, as it went, not the client's address today")
+    func sentSaysWhoItWentTo() throws {
         let context = try Self.context()
-        #expect(InvoiceHistory(Self.invoice(context)).unrecorded
-                    .contains(InvoiceHistory.resendsNotRecorded))
-        #expect(!InvoiceHistory(Self.invoice(context, sent: false)).unrecorded
-                    .contains(InvoiceHistory.resendsNotRecorded))
+        let invoice = Self.invoice(context)
+        Self.record(.invoice, on: invoice, dayOffset: -5, to: ["booker@example.com", "office@example.com"],
+                    in: context)
+        invoice.client?.email = "someone.new@example.com"
+
+        let history = InvoiceHistory(invoice)
+
+        #expect(Self.said(history.entries)
+                    == ["2 Nov | Draft created", "7 Nov | Sent | to booker@example.com, office@example.com"])
+        #expect(history.unrecorded.isEmpty, "nothing is missing once the first send was recorded")
+    }
+
+    @Test("each reminder and copy is its own entry, on its day, saying who it went to")
+    func remindersAndCopiesAreListed() throws {
+        let context = try Self.context()
+        let invoice = Self.invoice(context)
+        Self.record(.invoice, on: invoice, dayOffset: -5, in: context)
+        Self.record(.copy, on: invoice, dayOffset: -1, to: ["accounts@example.com"], in: context)
+        Self.record(.reminder, on: invoice, dayOffset: -3, in: context)
+        Self.record(.reminder, on: invoice, dayOffset: 0, in: context)
+
+        #expect(Self.said(InvoiceHistory(invoice).entries) == [
+            "2 Nov | Draft created",
+            "7 Nov | Sent | to booker@example.com",
+            "9 Nov | Reminder sent | to booker@example.com",
+            "11 Nov | Copy sent | to accounts@example.com",
+            "12 Nov | Reminder sent | to booker@example.com",
+        ])
+    }
+
+    /// An invoice sent before schema version 7, or found in the mailbox, has no record
+    /// of who its first send went to, and the pane says so rather than drawing it
+    /// from the client (L192). A reminder recorded since is still listed.
+    @Test("an invoice sent before sends were recorded says who it first went to was not recorded")
+    func anEarlierSendSaysItWasNotRecorded() throws {
+        let context = try Self.context()
+        let invoice = Self.invoice(context)
+        Self.record(.reminder, on: invoice, dayOffset: 0, in: context)
+
+        let history = InvoiceHistory(invoice)
+
+        #expect(Self.said(history.entries).suffix(2) == ["7 Nov | Sent", "12 Nov | Reminder sent | to booker@example.com"])
+        #expect(history.unrecorded == [InvoiceHistory.firstSendNotRecorded])
+        #expect(InvoiceHistory.firstSendNotRecorded
+                    == "Who this invoice first went to was not recorded, and neither was any reminder or copy sent before Ovation began recording them.")
+        #expect(InvoiceHistory(Self.invoice(context, sent: false)).unrecorded.isEmpty,
+                "a draft has not gone anywhere, so nothing about a send is missing")
     }
 
     /// PRD 51o. After Record, the history opens with the new payment marked, and the

@@ -29,11 +29,14 @@ struct InvoiceSenderTests {
         var answer: Answer = .accepts
         private(set) var sent: [OutgoingMail] = []
         var limit = GmailSendLimits.maxRequestBytes
+        /// What Gmail reports on an accepted send: the thread and the Message-ID it
+        /// stamped, which Ovation records as reported (L127).
+        var receipt = SentReceipt(threadId: "thread-1", messageID: "<first@messages.example>")
 
         func send(_ mail: OutgoingMail) async throws -> SentReceipt {
             sent.append(mail)
             switch answer {
-            case .accepts: return SentReceipt(threadId: "thread-1")
+            case .accepts: return receipt
             case .refuses(let error), .neverAnswers(let error): throw error
             }
         }
@@ -152,6 +155,63 @@ struct InvoiceSenderTests {
         #expect(attempt.destination == ["second@elsewhere.example"])
         #expect(attempt.wasRedirected)
         #expect(attempt.renderSHA256 == Self.render().sha256)
+    }
+
+    // MARK: who it went to, and its thread (ovation#596)
+
+    private static func messages(_ id: PersistentIdentifier, in container: ModelContainer) throws -> [SentMessage] {
+        try Self.stored(id, in: container).orderedSentMessages
+    }
+
+    @Test("an accepted send records who it went to and the thread and Message-ID Gmail reported")
+    func anacceptedSendRecordsTheMessage() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+        gmail.receipt = SentReceipt(threadId: "thread-77", messageID: "<abc@messages.example>")
+
+        _ = await Self.send(id, in: container, gmail: gmail)
+
+        let recorded = try Self.messages(id, in: container)
+        #expect(recorded.count == 1)
+        let message = try #require(recorded.first)
+        #expect(message.kind == .invoice)
+        #expect(message.recipients == ["booker@client.example"])
+        #expect(message.sentAt == Self.later)
+        #expect(message.sentOn == .stamping(Self.later))
+        #expect(message.gmailThreadID == "thread-77")
+        #expect(message.subject == gmail.sent.first?.subject, "the subject as it went, which a reminder replies under")
+        #expect(message.messageID == "<abc@messages.example>")
+    }
+
+    /// A DEGRADED RECEIPT RECORDS NOTHING IN PLACE OF WHAT GMAIL DID NOT SAY
+    /// (backstage#483, #2647): the receipt's "" stand in would be replied onto.
+    @Test("a receipt without a readable thread or Message-ID records neither, rather than a stand in")
+    func adegradedReceiptRecordsNoIdentifiers() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+        gmail.receipt = SentReceipt(threadId: "", messageID: nil, threadIdDegraded: true, messageIDDegraded: true)
+
+        _ = await Self.send(id, in: container, gmail: gmail)
+
+        let message = try #require(try Self.messages(id, in: container).first)
+        #expect(message.recipients == ["booker@client.example"], "it still went, to whom it went")
+        #expect(message.gmailThreadID == nil)
+        #expect(message.messageID == nil)
+    }
+
+    /// SENT IS OBSERVED, NEVER ASSERTED (ovation#45): a send Gmail refused, or never
+    /// answered, records no message.
+    @Test("a send Gmail refused or never answered records no message", arguments: ["refused", "unanswered"])
+    func anunacceptedSendRecordsNoMessage(answer: String) async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+        gmail.answer = answer == "refused" ? .refuses(GmailSendError.api("invalid recipient"))
+                                           : .neverAnswers(URLError(.timedOut))
+
+        _ = await Self.send(id, in: container, gmail: gmail)
+
+        #expect(try Self.messages(id, in: container).isEmpty)
+        #expect(try ModelContext(container).fetch(FetchDescriptor<SentMessage>()).isEmpty)
     }
 
     // MARK: the tax it went out with (ovation#482)

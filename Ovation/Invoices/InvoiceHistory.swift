@@ -7,13 +7,18 @@
 // store actually holds: `Invoice.createdOn`, `SentStatus`, each allocation and its
 // payment, a check's `clearedOn`, a release, a refund and the invoice's closure.
 //
+// EACH MESSAGE SENT IS LISTED FROM ITS OWN RECORD (ovation#596, schema version 7):
+// the send that issued the invoice says who it went to, and every reminder and copy
+// is an entry of its own, on the day Gmail accepted it, with who it went to as it
+// left rather than the client's CURRENT addresses, which are a different fact that
+// can have changed since (L443).
+//
 // A FACT THAT WAS NEVER RECORDED IS SAID TO BE MISSING, not drawn from a neighbour
-// (L192). Two are missing today and both are named in `unrecorded`: the day an
-// invoice written before schema version 4 was created (ovation#553), and the
-// reminders and copies ovation#548 sends, which write nothing to the store because
-// recording them would take a schema version of their own. A settled send does not
-// keep who it went to either, so `Sent` carries no address rather than the client's
-// CURRENT one, which is a different fact that can have changed since (L443).
+// (L192). Two can be missing and both are named in `unrecorded`: the day an invoice
+// written before schema version 4 was created (ovation#553), and who an invoice
+// sent before version 7 (or found in the mailbox) first went to, together with any
+// reminder or copy sent before version 7, which wrote nothing. Such a `Sent` carries
+// no address rather than the client's.
 //
 // IT HOLDS NO CONTEXT AND WRITES NOTHING, for the reason the presenter it feeds
 // gives (PRD 51l).
@@ -40,7 +45,7 @@ struct InvoiceHistory: Equatable {
     let unrecorded: [String]
 
     static let creationNotRecorded = "The day this invoice was created was not recorded."
-    static let resendsNotRecorded = "Reminders and copies sent from Ovation are not recorded here yet."
+    static let firstSendNotRecorded = "Who this invoice first went to was not recorded, and neither was any reminder or copy sent before Ovation began recording them."
 
     init(_ invoice: Invoice) {
         var found: [Sortable] = []
@@ -54,16 +59,30 @@ struct InvoiceHistory: Equatable {
                                   more: fromBooking ? "from a Downbeat booking" : nil))
         }
 
+        let issuing = invoice.issuingMessage
         switch invoice.sentStatus {
         case .sent(let route, let at):
-            found.append(Sortable(day: .stamping(at), rank: 1, id: "sent", what: "Sent",
-                                  more: route == .foundInTheMailbox ? "found in Gmail's Sent folder" : nil))
+            let more: String?
+            if route == .foundInTheMailbox {
+                more = "found in Gmail's Sent folder"
+            } else {
+                more = issuing.map { Self.goneTo($0.recipients) } ?? nil
+            }
+            found.append(Sortable(day: .stamping(at), rank: 1, id: "sent", what: "Sent", more: more))
         case .attempting(let attempt):
             found.append(Sortable(day: .stamping(attempt.startedAt), rank: 1, id: "sent",
                                   what: "Send started", more: "Gmail has not said whether it went"))
         // THE MAILBOX MATCH LOOKING IS NOT A SEND, and a draft has nothing to say.
         case .notSent, .couldNotDetermine:
             break
+        }
+
+        // EVERY REMINDER AND COPY, each from its own record. The send that issued
+        // the invoice is the `Sent` above, whose day is the sent state's.
+        for message in invoice.orderedSentMessages where message.kind != .invoice {
+            found.append(Sortable(day: message.sentOn, rank: 1, id: "message-\(message.id.uuidString)",
+                                  what: message.kind == .reminder ? "Reminder sent" : "Copy sent",
+                                  more: Self.goneTo(message.recipients)))
         }
 
         var clearedPayments: Set<String> = []
@@ -122,8 +141,13 @@ struct InvoiceHistory: Equatable {
 
         var missing: [String] = []
         if invoice.createdOn == nil { missing.append(Self.creationNotRecorded) }
-        if invoice.sentStatus.wasSent { missing.append(Self.resendsNotRecorded) }
+        if invoice.sentStatus.wasSent, issuing == nil { missing.append(Self.firstSendNotRecorded) }
         unrecorded = missing
+    }
+
+    /// "to a@b.example, c@d.example", or nil where no address was recorded.
+    private static func goneTo(_ recipients: [String]) -> String? {
+        recipients.isEmpty ? nil : "to " + recipients.joined(separator: ", ")
     }
 
     /// The payments in `after` that were not in `before`: what Record just wrote.

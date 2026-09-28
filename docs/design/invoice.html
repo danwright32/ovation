@@ -873,6 +873,22 @@ color: var(--faint); }
    where it opens from, that it pushes, its width, its wording
    and its control's placement are all Dan's, each settled
    against alternatives he saw.
+
+   AT HALF SCREEN IT COVERS INSTEAD, and that is Dan's as well,
+   settled 2026-09-28 (ovation#597) from a round drawing four
+   behaviours in the real 860 window, each also shown at 1064:
+   pushing as above, which leaves the invoice 352 wide with every
+   description cut to its first letter; covering the right of the
+   invoice below its head; taking the invoice's place; and pushing
+   at a narrower 240. He chose covering: the pane lies over the
+   right of the invoice below its head, with a shadow, and the
+   invoice keeps its full width underneath, so nothing reflows and
+   the head, with Hide history and Back to the list, stays whole.
+   The figures under the pane are read by closing it. Which one
+   happens is decided by the width left to the invoice beside the
+   pane, 556 or more pushes and less covers, which in this record
+   is every window narrower than 1064, so it answers to the WINDOW
+   through a container query on `win`.
    ============================================================ */
 
 .panewrap { flex: 1; min-height: 0; display: flex; align-items: stretch; min-width: 0; }
@@ -887,6 +903,15 @@ color: var(--faint); }
 .paneopen .hpane { width: 300px; border-left-color: var(--rule); }
 .hpane > * { width: 300px; }
 @media (prefers-reduced-motion: reduce) { .hpane { transition: none; } }
+
+/* HALF SCREEN (ovation#597): below a 1064 window the invoice would keep less
+   than 556 beside the pane, so the pane covers its right, below the head, whose
+   height `redraw` measures into --headh. The invoice keeps its full width. */
+@container win (max-width: 1063.98px) {
+  .panewrap { position: relative; }
+  .hpane { position: absolute; right: 0; bottom: 0; top: var(--headh, 0px); z-index: 2; }
+  .paneopen .hpane { box-shadow: -1px 0 0 var(--rule), -10px 0 26px rgba(31,24,18,.16); }
+}
 
 .hpane h6 { margin: 0; padding: 13px 18px 10px; font-size: 10.5px; font-weight: 700;
             letter-spacing: .13em; text-transform: uppercase; color: var(--faint);
@@ -2946,8 +2971,21 @@ function discountEdit() {
 function redraw(after) {
   document.getElementById("stage").replaceChildren(buildInvoiceScreen());
   placeRailPop();
+  placeCoveringPane();
   if (after) after();
 }
+
+/* Where the head ends, which is where the history starts when it covers the
+   invoice at half screen (ovation#597). Measured rather than written down,
+   because the head grows a line when the times wrap or a refusal is said. */
+function placeCoveringPane() {
+  var wrap = document.querySelector(".panewrap");
+  var head = document.querySelector(".invhd");
+  if (!wrap || !head) return;
+  var below = head.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top;
+  wrap.style.setProperty("--headh", Math.max(0, Math.round(below)) + "px");
+}
+window.addEventListener("resize", placeCoveringPane);
 
 /* THE EDIT MENU, holding the rare things round 5 put there. What it contains
    changes with the state, because cancelling a draft is dismissing it and

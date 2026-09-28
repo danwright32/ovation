@@ -47,6 +47,11 @@ enum OvationPalette {
     static let quiet = Color(hex: 0x766254)
     static let faint = Color(hex: 0x6E5F50)
 
+    /// The shadow the history pane casts where it lies over the invoice at half
+    /// screen (ovation#597): the design record's `rgba(31,24,18,.16)`, which is the
+    /// ink at sixteen percent, so it is derived from `ink` rather than restated.
+    static let coverShadow = ink.opacity(0.16)
+
     // THE REDIRECTED SEND (ovation#42). A send going to Dan's test address instead of
     // the client is a dangerous mode, and a band built from the ordinary palette reads
     // as chrome (L623), so it has a treatment found nowhere else: white on a deep red.

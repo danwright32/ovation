@@ -96,12 +96,14 @@ final class InvoiceReviewer {
                 message = InvoiceMail.message(amountDue: document.amountDue, dueLine: document.dueLine,
                                               shoots: shoots, signedBy: signedBy)
             case .reminder:
-                subject = InvoiceMailKind.reminder.subject(number: number, shoots: shoots)
+                subject = InvoiceMailKind.reminder.subject(number: number, shoots: shoots,
+                                                           onto: numbered.issuingMessage)
                 message = InvoiceMail.reminderMessage(amountDue: document.amountDue,
                                                       dueLine: document.dueLine,
                                                       shoots: shoots, signedBy: signedBy)
             case .copy:
-                subject = InvoiceMailKind.copy.subject(number: number, shoots: shoots)
+                subject = InvoiceMailKind.copy.subject(number: number, shoots: shoots,
+                                                       onto: numbered.issuingMessage)
                 message = InvoiceMail.copyMessage(amountDue: document.amountDue, dueLine: document.dueLine,
                                                   paidInFull: isPaid, shoots: shoots, signedBy: signedBy)
             }
@@ -207,7 +209,8 @@ final class InvoiceReviewer {
                 footer: footer, approvedRecipients: review.goingTo, through: route, clock: clock)
         }
         switch outcome {
-        case .sent(let at, let to): review.state = .sent(at: at, to: to)
+        case .sent(let at, let to, let notRecorded):
+            review.state = .sent(at: at, to: to, notRecorded: notRecorded)
         case .refused(let sentence): review.state = .refused(sentence)
         case .couldNotTell(let sentence): review.state = .couldNotTell(sentence)
         }
@@ -314,7 +317,8 @@ final class InvoiceReview: Identifiable {
 enum ReviewSendState: Equatable {
     case ready
     case working(since: Date)
-    case sent(at: Date, to: [String])
+    /// `notRecorded` is why the history will not show a reminder or a copy that went.
+    case sent(at: Date, to: [String], notRecorded: String? = nil)
     case refused(String)
     case couldNotTell(String)
 }

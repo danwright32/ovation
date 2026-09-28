@@ -201,12 +201,37 @@ struct InvoiceScreenView: View {
     }
 
     var body: some View {
-        // THE PANE PUSHES THE INVOICE ACROSS rather than covering it (PRD 51d, Dan
+        // WHERE THERE IS ROOM THE PANE PUSHES THE INVOICE ACROSS (PRD 51d, Dan
         // 2026-09-07): it takes its width from the layout, so the invoice beside it
         // genuinely narrows, and the two move together on the app's one slide.
-        HStack(spacing: 0) {
-            invoice
-            if let history { historyPane(history) }
+        // WHERE THERE IS NOT, IT COVERS THE RIGHT OF THE INVOICE BELOW ITS HEAD (Dan,
+        // 2026-09-28, ovation#597): the invoice keeps its full width underneath and
+        // nothing reflows, and the head, with Hide history and Back to the list,
+        // stays whole. Which one is decided by the width alone (`HistoryLayout`).
+        GeometryReader { space in
+            let layout = HistoryLayout.forWidth(space.size.width)
+            if let history, layout == .cover {
+                VStack(alignment: .leading, spacing: 0) {
+                    head
+                    ZStack(alignment: .topTrailing) {
+                        invoiceBody
+                        historyPane(history, covering: true)
+                    }
+                }
+                // THE WHOLE WIDTH, SAID HERE rather than left to whatever the body
+                // inside happens to ask for, because keeping it is the promise the
+                // cover makes (PRD 51d): the push branch below says the same.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                HStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        head
+                        invoiceBody
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    if let history { historyPane(history, covering: false) }
+                }
+            }
         }
         .ovationMotion(.slide, value: history?.isOpen ?? false)
         .background(OvationPalette.background)
@@ -223,9 +248,10 @@ struct InvoiceScreenView: View {
         .ovationAppearance()
     }
 
-    private var invoice: some View {
+    /// Everything below the head: the lines, the money and the foot, which the pane
+    /// covers the right of at half screen.
+    private var invoiceBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            head
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     columnHeader
@@ -241,6 +267,23 @@ struct InvoiceScreenView: View {
             foot
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // THE WIDTH IT WAS LAID OUT AT, published so the promise that the invoice
+        // keeps its full width under the covering pane is measured on the laid out
+        // screen rather than read off the source (ovation#597, L606).
+        .background {
+            GeometryReader { laid in
+                Color.clear.preference(key: InvoiceBodyWidth.self, value: laid.size.width)
+            }
+        }
+    }
+
+    /// The width the invoice's lines, money and foot were laid out at, or -1 before
+    /// any layout.
+    struct InvoiceBodyWidth: PreferenceKey {
+        static let defaultValue: CGFloat = -1
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
     }
 
     // MARK: the history (ovation#556)
@@ -248,7 +291,7 @@ struct InvoiceScreenView: View {
     /// THE WIDTH IS 300, DAN'S (PRD 51d), and the CONTENT is held at that width while
     /// the pane's own width slides, so the text does not squash and re-wrap on every
     /// frame of the slide, which is the design record's `.hpane > *` rule.
-    private func historyPane(_ history: HistoryControls) -> some View {
+    private func historyPane(_ history: HistoryControls, covering: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("History")
                 .font(.system(size: 10.5, weight: .bold))
@@ -289,6 +332,14 @@ struct InvoiceScreenView: View {
         .overlay(alignment: .leading) {
             if history.isOpen { Rectangle().fill(OvationPalette.rule).frame(width: 1) }
         }
+        // LYING OVER THE INVOICE IT CASTS A SHADOW, the round's own (ovation#597), so it
+        // reads as a pane above the page rather than the page ending there. Pushing,
+        // it sits beside the invoice and casts none. COMPOSITED FIRST, so the shadow
+        // is the pane's outline: without it every row with a background of its own,
+        // the payment just recorded among them, cast one of its own inside the pane.
+        .compositingGroup()
+        .shadow(color: covering && history.isOpen ? OvationPalette.coverShadow : .clear,
+                radius: 13, x: -10, y: 0)
         // CLOSED IS GONE for a screen reader too, not a list read out from behind
         // a pane nobody can see.
         .accessibilityHidden(!history.isOpen)
@@ -297,6 +348,24 @@ struct InvoiceScreenView: View {
 
     /// PRD 51d's width, settled against 220, 272 and 330.
     static let historyWidth: CGFloat = 300
+
+    /// Whether the history pushes the invoice across or covers the right of it.
+    enum HistoryLayout: Equatable {
+        case push
+        case cover
+
+        /// PRD 51d: the narrowest the invoice may be beside the pane, the width it has
+        /// in the full 1064 point window.
+        static let narrowestInvoice: CGFloat = 556
+
+        /// BY THE WIDTH LEFT TO THE INVOICE BESIDE THE PANE, never by a window size
+        /// named here (ovation#597): at 1064 the screen is 856 wide and the invoice
+        /// keeps 556 beside the pane, so it pushes; at 860 the screen is 652 and only
+        /// 352 would be left, so it covers.
+        static func forWidth(_ width: CGFloat) -> HistoryLayout {
+            width - historyWidth >= narrowestInvoice ? .push : .cover
+        }
+    }
 
     /// One entry: when, in the figures face, and what was done with the detail
     /// beneath it (the design record's `.hev`).

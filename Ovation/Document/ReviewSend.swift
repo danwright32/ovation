@@ -76,14 +76,20 @@ struct ReviewOutcome: View {
                         .font(.system(size: 13))
                         .foregroundStyle(OvationPalette.soft)
                 }
-            case .sent(let at, let to):
-                // A REMINDER OR A COPY NAMES NO RECORD, because it wrote none
-                // (ovation#548); only the first send is recorded against the invoice.
+            case .sent(let at, let to, let notRecorded):
+                // A REMINDER OR A COPY NAMES NO INVOICE NUMBER, because it issues
+                // nothing (ovation#548); it is kept in the invoice's history instead
+                // (ovation#596), and where that record failed, this says so.
                 let time = at.formatted(date: .omitted, time: .shortened)
                 big(review.kind?.sentHeading ?? "Sent")
                 Text(review.kind.map { $0.sentLine(time: time, to: to) }
                      ?? InvoiceMail.sentLine(time: time, to: to, number: review.number))
                     .font(.system(size: 13))
+                if let notRecorded {
+                    Text(notRecorded)
+                        .font(.system(size: 13))
+                        .foregroundStyle(OvationPalette.soft)
+                }
                 Button("Done", action: close).keyboardShortcut(.defaultAction)
             case .refused(let sentence):
                 big("Not sent")
