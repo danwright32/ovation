@@ -19,7 +19,7 @@ struct LaunchBackupLogTests {
         let clock = SteppingClock(step: .milliseconds(1_250))
         let recorded = Recorded()
         let size = BackupSize(files: 19, bytes: 372_000)
-        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"))
+        let taken = BackupService.Attempt.taken(URL(fileURLWithPath: "/tmp/a"), retention: .ran(.init()))
 
         let attempt = try await LaunchBackupOutcome.run(
             at: Self.launch,
@@ -64,7 +64,7 @@ struct LaunchBackupLogTests {
 
         var work: @Sendable () throws -> BackupService.Attempt {
             switch self {
-            case .taken: return { .taken(URL(fileURLWithPath: "/tmp/a")) }
+            case .taken: return { .taken(URL(fileURLWithPath: "/tmp/a"), retention: .ran(.init())) }
             case .alreadyTakenToday: return { .alreadyTakenToday(URL(fileURLWithPath: "/tmp/a")) }
             case .folderUnreachable: return { .folderUnreachable("/Volumes/Backups: not mounted") }
             case .refused: return { throw BackupError.noFolderChosen }
@@ -76,7 +76,7 @@ struct LaunchBackupLogTests {
                     // Held past the deadline, which fires at once, and then let
                     // go so no thread is left parked after the test.
                     Thread.sleep(forTimeInterval: 0.2)
-                    return .taken(URL(fileURLWithPath: "/tmp/a"))
+                    return .taken(URL(fileURLWithPath: "/tmp/a"), retention: .ran(.init()))
                 }
             }
         }
@@ -95,7 +95,7 @@ struct LaunchBackupLogTests {
             measuring: { throw Unreadable() },
             sleeping: Self.neverFires,
             clock: SteppingClock(step: .milliseconds(10)).now,
-            recording: recorded.record) { .taken(URL(fileURLWithPath: "/tmp/a")) }
+            recording: recorded.record) { .taken(URL(fileURLWithPath: "/tmp/a"), retention: .ran(.init())) }
 
         let timing = try #require(recorded.only)
         #expect(timing.files == nil)

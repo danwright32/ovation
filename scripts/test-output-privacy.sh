@@ -610,11 +610,20 @@ check "and none when it cannot measure" \
 LIVE_ROOT="$WORK/live-support"
 mkdir -p "$LIVE_ROOT/Ovation"
 printf 'a receipt for %s\n' "$CLIENT" > "$LIVE_ROOT/Ovation/problems.jsonl"
-OVATION_LIVE_DATA_ROOT="$LIVE_ROOT" ./scripts/check-live-data-untouched.sh \
+# Both of the guard's machine seams are stubs, so this case never asks this Mac
+# whether Ovation is open or when it was last launched (L284, ovation#591), and
+# the change below is refused as a leak, the outcome that prints the most.
+printf '#!/bin/bash\nexit 0\n' > "$WORK/live-no-processes"
+printf '#!/bin/bash\nprintf "(null)"\n' > "$WORK/live-never-launched"
+chmod +x "$WORK/live-no-processes" "$WORK/live-never-launched"
+OVATION_LIVE_DATA_ROOT="$LIVE_ROOT" OVATION_LIVE_DATA_PROCESS_LIST="$WORK/live-no-processes" \
+    OVATION_LIVE_DATA_LAST_USED="$WORK/live-never-launched" ./scripts/check-live-data-untouched.sh \
     snapshot "$WORK/live.json" >/dev/null 2>&1
 printf 'and another for %s at %s\n' "$CLIENT" "$VENUE" >> "$LIVE_ROOT/Ovation/problems.jsonl"
 check "the live data bracket prints no identity when it refuses" \
     "$(leaks_in "$(OVATION_LIVE_DATA_ROOT="$LIVE_ROOT" \
+        OVATION_LIVE_DATA_PROCESS_LIST="$WORK/live-no-processes" \
+        OVATION_LIVE_DATA_LAST_USED="$WORK/live-never-launched" \
         ./scripts/check-live-data-untouched.sh compare "$WORK/live.json" 2>&1)")" "clean"
 
 # ---------------------------------------------------------------------------

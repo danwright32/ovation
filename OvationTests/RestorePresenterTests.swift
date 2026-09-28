@@ -36,9 +36,9 @@ struct RestorePresenterTests {
     @Test("each archive says whether it verifies NOW")
     func saysWhetherItVerifiesNow() throws {
         let world = try World()
-        let good = try world.service.takeBackup(now: world.instant)
+        let good = try world.service.takeBackup(now: world.instant).archive
         let broken = try world.service.takeBackup(
-            now: world.instant.addingTimeInterval(86_400))
+            now: world.instant.addingTimeInterval(86_400)).archive
         try FileManager.default.removeItem(
             at: broken.appendingPathComponent("Ovation.store"))
 
@@ -56,7 +56,7 @@ struct RestorePresenterTests {
     @Test("the confirmation names what will be replaced, from the archive itself")
     func theConfirmationNamesWhatItReplaces() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let sentence = try world.presenter.consequence(of: archive.lastPathComponent)
 
@@ -69,7 +69,7 @@ struct RestorePresenterTests {
     @Test("the confirmation says the current state is kept first")
     func theConfirmationSaysASnapshotIsTaken() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let sentence = try world.presenter.consequence(of: archive.lastPathComponent)
 
@@ -81,7 +81,7 @@ struct RestorePresenterTests {
     @Test("a restore says what it put back")
     func restoreSaysWhatItDid() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let outcome = world.presenter.restore(archive.lastPathComponent)
 
@@ -101,7 +101,7 @@ struct RestorePresenterTests {
         try queue("0D5E7C21-5A3B-4C8E-9F10-000000000011", in: world)
         try Data("{}".utf8).write(
             to: world.dataDirectory.appendingPathComponent("downbeat-queued-bookings.json"))
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
 
         let sentence = try world.presenter.consequence(of: archive.lastPathComponent)
 
@@ -117,7 +117,7 @@ struct RestorePresenterTests {
     func restoreSaysWhatHappenedToTheQueue(heldBack: Bool) throws {
         let world = try World()
         let lost = try queue("0D5E7C21-5A3B-4C8E-9F10-000000000012", in: world)
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         try FileManager.default.removeItem(at: lost)
         if heldBack {
             try Data("{}\n".utf8).write(
@@ -149,7 +149,7 @@ struct RestorePresenterTests {
     @Test("an archive that does not verify is refused, and nothing is replaced")
     func aDamagedArchiveIsRefused() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         try FileManager.default.removeItem(
             at: archive.appendingPathComponent("Ovation.store"))
 
@@ -231,7 +231,7 @@ struct RestorePresenterTests {
     @Test("a restore that stops partway says it was partly restored and names the saved copy")
     func aPartlyRestoredArchiveSaysSo() throws {
         let world = try World()
-        let archive = try world.service.takeBackup(now: world.instant)
+        let archive = try world.service.takeBackup(now: world.instant).archive
         // `documents` is the first member put back here and `custody` the second.
         let presenter = presenter(for: world, refusingCopyOf: "custody")
 

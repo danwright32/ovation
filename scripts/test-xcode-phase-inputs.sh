@@ -206,6 +206,7 @@ traced_run() {
         OVATION_UNLOCKED_COMMAND=true \
         OVATION_XCODE_PROJECT="$T/standin.xcodeproj" \
         OVATION_LIVE_DATA_ROOT="$T/live-data" OVATION_LIVE_DATA_PROCESS_LIST=/usr/bin/true \
+        OVATION_LIVE_DATA_LAST_USED=/usr/bin/true \
         bash "$REPO_ROOT/scripts/run-tests.sh" > "$2" 2>&1
 }
 

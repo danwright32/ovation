@@ -238,8 +238,10 @@ fi
 STATUS=0
 
 # Same reason: the bracket is opened inside the locked phase, so the compare at
-# the end has to be able to see that it never was.
+# the end has to be able to see that it never was, and, when it was TRIED and
+# could not be opened, why (ovation#581).
 LIVE_DATA_FINGERPRINT=""
+LIVE_DATA_UNMEASURED=""
 
 DIR_LOCK_HELD=""
 FLOCK_FD=""
@@ -1019,12 +1021,24 @@ else
   # the thing being protected is that nothing lands in Dan's real store, not that a
   # particular function returns nil (L63). A test that builds its own path reaches
   # the folder without going through any resolver at all.
+  #
+  # A BRACKET THAT COULD NOT BE OPENED IS SAID, AND THE RUN IS CANNOT MEASURE
+  # (ovation#581). A failed snapshot, or a guard that is missing, used to empty
+  # the fingerprint and carry on without a word, so a run that never measured
+  # Dan's live data read exactly like one that measured it clean (L98, L411). Why
+  # it could not measure is kept, and said at the end beside the verdict.
   # ---------------------------------------------------------------------------
   LIVE_DATA_GUARD="${REPO_ROOT}/scripts/check-live-data-untouched.sh"
   LIVE_DATA_FINGERPRINT=""
-  if [ -x "${LIVE_DATA_GUARD}" ]; then
-    LIVE_DATA_FINGERPRINT="$(mktemp)"
-    "${LIVE_DATA_GUARD}" snapshot "${LIVE_DATA_FINGERPRINT}" >/dev/null || LIVE_DATA_FINGERPRINT=""
+  if [ ! -x "${LIVE_DATA_GUARD}" ]; then
+    LIVE_DATA_UNMEASURED="${LIVE_DATA_GUARD} is missing or not executable."
+  elif ! LIVE_DATA_FINGERPRINT="$(mktemp)" || [ -z "${LIVE_DATA_FINGERPRINT}" ]; then
+    LIVE_DATA_FINGERPRINT=""
+    LIVE_DATA_UNMEASURED="no file could be made to hold its fingerprint."
+  elif ! LIVE_DATA_SNAPSHOT_SAID="$("${LIVE_DATA_GUARD}" snapshot "${LIVE_DATA_FINGERPRINT}" 2>&1)"; then
+    rm -f "${LIVE_DATA_FINGERPRINT}"
+    LIVE_DATA_FINGERPRINT=""
+    LIVE_DATA_UNMEASURED="its snapshot failed: ${LIVE_DATA_SNAPSHOT_SAID}"
   fi
 
   # ---------------------------------------------------------------------------
@@ -1589,11 +1603,26 @@ fi
 # The other end of the bracket. A run that wrote to live data FAILS, whatever
 # the tests said, because a green suite that reached Dan's store is the worst of
 # both.
+#
+# THE GUARD'S OWN VERDICTS, READ BY CODE (L11). 0 is untouched. 3 is a change the
+# installed app explains, Dan's own use of Ovation during the run, which passes
+# with the guard's note above it (ovation#591): on 2026-09-27 it failed two
+# pushes for nothing else. 2 measured nothing and keeps CANNOT MEASURE's code.
+# Anything else, 1 above all, is a leak.
 if [ -n "${LIVE_DATA_FINGERPRINT}" ]; then
-  if ! "${LIVE_DATA_GUARD}" compare "${LIVE_DATA_FINGERPRINT}"; then
-    [ "${STATUS}" -eq 0 ] && STATUS=7
-  fi
+  "${LIVE_DATA_GUARD}" compare "${LIVE_DATA_FINGERPRINT}"
+  case $? in
+    0|3) ;;
+    2) [ "${STATUS}" -eq 0 ] && STATUS=2 ;;
+    *) [ "${STATUS}" -eq 0 ] && STATUS=7 ;;
+  esac
   rm -f "${LIVE_DATA_FINGERPRINT}"
+elif [ -n "${LIVE_DATA_UNMEASURED}" ]; then
+  # Never overwrites a real failure, and never reads as a pass (ovation#581).
+  echo "Error: the live data guard could not measure this run, so whether it wrote" >&2
+  echo "       to Dan's live data is not known. That is not a pass." >&2
+  printf '       %s\n' "${LIVE_DATA_UNMEASURED}" >&2
+  [ "${STATUS}" -eq 0 ] && STATUS=2
 fi
 
 # The other end of the preference domain bracket (ovation#263).

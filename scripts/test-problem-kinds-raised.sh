@@ -7,7 +7,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "problem kinds raised tests" 19
+harness_begin "problem kinds raised tests" 22
 
 TARGET="scripts/check-problem-kinds-raised.sh"
 require_target "$TARGET"
@@ -45,8 +45,8 @@ cat > "$CLEAN/Launch.swift" <<'SWIFT'
 problems.raise(kind: .folderMissing, subject: "backups", sentence: "No folder.", now: now)
 SWIFT
 check_exit "a kind that is resolved and raised passes" 0 status_on "$CLEAN"
-check "and it says how many matched kinds it checked" \
-    "$(run_on "$CLEAN" | grep -c '1 problem kind(s) matched on')" "1"
+check "and it says how many declared kinds it checked, and how many are matched on" \
+    "$(run_on "$CLEAN" | grep -c '1 problem kind(s) declared, every one raised somewhere; 1 of them matched on')" "1"
 
 # ---------------------------------------------------------------------------
 # THE CASE THE CHECK EXISTS FOR: resolved in the app and raised nowhere.
@@ -59,6 +59,31 @@ check "the refusal names the file, the line and the kind" \
     "$(run_on "$UNRAISED" | grep -c 'Settings.swift:1: folderMissing')" "1"
 check "the refusal does NOT print the source line" \
     "$(run_on "$UNRAISED" | grep -c 'problems.open')" "0"
+
+# ---------------------------------------------------------------------------
+# EVERY DECLARED KIND, NOT ONLY THE MATCHED ONES (ovation#583). Two backup
+# retention kinds were declared, named in the rail foot's table, and raised by
+# nothing, and nothing compared against them either, so the rule above never
+# looked at them. A kind nothing raises is either dead or a failure that passes
+# in silence, and neither is visible from the declaration (L90, L29).
+# ---------------------------------------------------------------------------
+DECLARED="$WORK/declared-only"
+declare_kind "$DECLARED"
+check_exit "a kind declared and raised nowhere is refused, even when nothing matches on it" \
+    1 status_on "$DECLARED"
+check "and the refusal names where it is declared" \
+    "$(run_on "$DECLARED" | grep -c '^  Problem.swift:2: folderMissing (declared here, raised nowhere)$')" "1"
+
+# The rail foot's table names every kind, and its keys are not raises.
+DECLARED_TABLE="$WORK/declared-table"
+declare_kind "$DECLARED_TABLE"
+cat > "$DECLARED_TABLE/Names.swift" <<'SWIFT'
+static let shortNames: [ProblemKind: String] = [
+    .folderMissing: "No backup folder",
+]
+SWIFT
+check_exit "a kind declared and named only in the short names table is still refused" \
+    1 status_on "$DECLARED_TABLE"
 
 # A != comparison is matching on the kind just as much as == is.
 NOTEQUAL="$WORK/notequal"
@@ -151,6 +176,9 @@ check_exit "a kind second in a case pattern list is counted as before" 0 status_
 OTHER="$WORK/other"
 declare_kind "$OTHER"
 printf 'let folders = members.filter { $0.kind == .directory }\n' > "$OTHER/Plan.swift"
+# Raised, so this case stays about the comparison rather than the declaration.
+printf 'problems.raise(kind: .folderMissing, subject: "b", sentence: "s", now: now)\n' \
+    > "$OTHER/Launch.swift"
 check_exit "a comparison on something that is not a problem kind is not a finding" \
     0 status_on "$OTHER"
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 ''''exec python3 "$0" "$@" #'''
 # Started with bash, the line above runs this file under python3 instead (ovation#257).
-__doc__ = """Refuse a problem kind that the app matches on and never raises.
+__doc__ = """Refuse a problem kind that the app declares and never raises.
 
 ovation#262. `backupFolderNotChosen` was declared, documented as the standing
 condition a launch with no backup folder raises, and resolved in two places:
@@ -25,6 +25,16 @@ tuple a helper returns, which `StoreLaunchSequence.backupCondition(for:)` does,
 and requiring the literal `kind: .name` would call every one of those unraised.
 The looseness costs a false negative: a kind mentioned in some other expression
 passes without being raised. That is accepted rather than a Swift parser.
+
+EVERY DECLARED KIND, NOT ONLY THE MATCHED ONES (ovation#583). The rule above
+held only kinds something compares against, and two backup retention kinds,
+`archiveCouldNotBeRemoved` and `retentionCouldNotRun`, were declared for
+ovation#227, named in the rail foot's table, compared against by nothing and
+raised by nothing. So a retention failure passed in silence and this check had
+nothing to say, because it never looked at them (L90, L13). A declared kind
+nothing produces is either dead code or a failure nobody hears, and neither is
+visible from the declaration (L29). So every DECLARED kind must be used, with a
+kind that is also matched on named at each place it is matched.
 
 A KIND AS A DICTIONARY KEY IS NOT A USE (ovation#99). The rail's foot names every
 kind in one table, `.name: "Short name"`, and a table naming every kind would
@@ -53,8 +63,9 @@ NOTHING SCANNED IS NOT A PASS (L98).
 Seams: OVATION_KINDS_SCAN_ROOT.
 
 Exit codes, one per outcome (L11):
-    0  every problem kind the app matches on is also used somewhere else
-    1  a problem kind is matched on and never raised
+    0  every problem kind the app declares is used somewhere, outside a comparison
+    1  a declared problem kind is raised nowhere, named where it is declared and
+       wherever it is matched on
     2  nothing was scanned: no root, no Swift files, or no problem kinds declared
 """
 import importlib.machinery
@@ -97,6 +108,14 @@ EXPLANATION = (
 )
 
 
+DECLARED_EXPLANATION = (
+    "problem kind declared and never raised: a kind exists to name a condition, and "
+    "nothing in the app produces this one, so either it is dead or its condition "
+    "happens in silence (ovation#583). Raise the kind where its condition occurs, or "
+    "delete the declaration."
+)
+
+
 def code_of(path):
     """The file's code with comments removed and string contents blanked, so a
     name in prose or in a sentence is not a use, and every offset still lines up."""
@@ -127,8 +146,13 @@ def main():
         return 2
 
     declared = set()
-    for code in sources.values():
-        declared.update(DECLARATION.findall(code))
+    # Where each kind is declared, so a refusal can point at it.
+    declared_at = {}
+    for relative, code in sorted(sources.items()):
+        for match in DECLARATION.finditer(code):
+            declared.add(match.group(1))
+            declared_at.setdefault(
+                match.group(1), (relative, code.count("\n", 0, match.start()) + 1))
     if not declared:
         print(f"CANNOT SCAN: no problem kinds are declared under {root}.")
         print("             With nothing to hold the comparisons to, nothing was checked.")
@@ -153,19 +177,22 @@ def main():
                 continue
             used.add(name)
 
-    unraised = [entry for entry in compared if entry[2] not in used]
+    unraised = sorted(declared - used)
     if unraised:
-        names = sorted({entry[2] for entry in unraised})
-        print(f"FOUND: {len(names)} problem kind(s) matched on and never raised, "
+        print(f"FOUND: {len(unraised)} declared problem kind(s) raised nowhere, "
               f"in {len(sources)} scanned file(s).")
-        for relative, line, name in unraised:
+        for name in unraised:
+            relative, line = declared_at[name]
+            print(f"  {relative}:{line}: {name} (declared here, raised nowhere)")
+        matched_unraised = [entry for entry in compared if entry[2] not in used]
+        for relative, line, name in matched_unraised:
             print(f"  {relative}:{line}: {name} (matched here, raised nowhere)")
-        print(EXPLANATION)
+        print(EXPLANATION if matched_unraised else DECLARED_EXPLANATION)
         return 1
 
     matched = len({entry[2] for entry in compared})
-    print(f"OK: scanned {len(sources)} Swift file(s) under {root}: {matched} problem "
-          f"kind(s) matched on, every one raised somewhere.")
+    print(f"OK: scanned {len(sources)} Swift file(s) under {root}: {len(declared)} problem "
+          f"kind(s) declared, every one raised somewhere; {matched} of them matched on.")
     return 0
 
 

@@ -80,7 +80,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 313
+harness_begin "test runner lock tests" 317
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -118,6 +118,11 @@ printf '#!/bin/bash\nexit 0\n' > "$WORK/no-processes"
 chmod +x "$WORK/no-processes"
 export OVATION_LIVE_DATA_ROOT="$LIVE_DATA_ROOT"
 export OVATION_LIVE_DATA_PROCESS_LIST="$WORK/no-processes"
+# And when the installed app was last launched (ovation#591), a stub saying macOS
+# holds no such date, so no case asks this Mac when Dan last opened Ovation.
+printf '#!/bin/bash\nprintf "(null)"\n' > "$WORK/never-launched"
+chmod +x "$WORK/never-launched"
+export OVATION_LIVE_DATA_LAST_USED="$WORK/never-launched"
 export OVATION_LIVE_DATA_BRACKET_LOG="$WORK/live-data-brackets.log"
 : > "$OVATION_LIVE_DATA_BRACKET_LOG"
 
@@ -2734,6 +2739,39 @@ OUT515L="$(ONLY_PATH="$APPBIN:$PATH" ONLY_PURE="" ONLY_APP_BUILD="" only_run --o
 check "the real app build is the Ovation scheme in Debug, before the pure scheme" \
     "$ST515L:$(sed -n 1p "$APPBIN/calls" 2>/dev/null | grep -c -- '-scheme Ovation -configuration Debug'):$(sed -n 2p "$APPBIN/calls" 2>/dev/null | grep -c -- '-scheme OvationCore')" "0:1:1"
 reset_app
+
+
+# THE LIVE DATA BRACKET'S THREE VERDICTS, AS THE RUNNER READS THEM.
+#
+# ovation#581. A bracket that could not be opened used to be dropped without a
+# word, so a run that never measured Dan's live data read exactly like one that
+# measured it clean (L98, L411). It is now named, and the run is CANNOT MEASURE.
+# A watched folder the guard cannot read is what makes the snapshot fail here.
+mkdir -p "$LIVE_DATA_ROOT/Ovation/documents/barred"
+chmod 000 "$LIVE_DATA_ROOT/Ovation/documents/barred"
+harness_on_exit "chmod 755 '$LIVE_DATA_ROOT/Ovation/documents/barred' 2>/dev/null"
+OUT581="$(run_runner)"; ST581=$?
+chmod 755 "$LIVE_DATA_ROOT/Ovation/documents/barred"
+rmdir "$LIVE_DATA_ROOT/Ovation/documents/barred"
+check "a run whose live data bracket could not be opened is CANNOT MEASURE, not a pass" "$ST581" "2"
+check "and it says the live data guard could not measure, by name" \
+    "$(count_of "$OUT581" '^Error: the live data guard could not measure')" "1"
+
+# ovation#591. Dan opening the installed app during a run is his own use, and the
+# run passes with the note; a change it does not explain still fails the run.
+printf '#!/bin/bash\nprintf "/sbin/launchd\\n/Applications/Ovation.app/Contents/MacOS/Ovation\\n"\n' \
+    > "$WORK/installed-open"
+chmod +x "$WORK/installed-open"
+mkdir -p "$LIVE_DATA_ROOT/Ovation" "$LIVE_DATA_ROOT/Ovation-Debug"
+OUT591="$(OVATION_LIVE_DATA_PROCESS_LIST="$WORK/installed-open" \
+    run_runner "printf '%s' \"\$\$\" > '$LIVE_DATA_ROOT/Ovation/Ovation.store-shm'; $HOSTED_PASSES")"; ST591=$?
+check "a live data change the installed app explains does not fail the run, and says why" \
+    "$ST591:$(count_of "$OUT591" 'your own use of Ovation and this run is not failed for it')" "0:1"
+OUT591B="$(OVATION_LIVE_DATA_PROCESS_LIST="$WORK/installed-open" \
+    run_runner "printf '%s' \"\$\$\" > '$LIVE_DATA_ROOT/Ovation-Debug/leaked'; $HOSTED_PASSES")"; ST591B=$?
+rm -f "$LIVE_DATA_ROOT/Ovation-Debug/leaked"
+check "but a change it does not explain still fails the run as a leak" \
+    "$ST591B:$(count_of "$OUT591B" '^LIVE DATA CHANGED while the tests ran')" "7:1"
 
 
 # EVERY INVOCATION OF THE REAL RUNNER SETS BOTH MACHINE SEAMS (ovation#152).
