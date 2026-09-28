@@ -49,8 +49,14 @@ struct ClientsPresenter: Equatable {
         let amount: String
         let status: String
         /// The tax status it went out under, or nil while it has not gone out
-        /// (ovation#482). What the correction sentence counts.
+        /// (ovation#482).
         let sentUnder: TaxStatus?
+        /// Whether its send is SETTLED as sent, which is what the status column
+        /// calls "Sent" (L629): an unsettled send is listed as "Send not settled".
+        let isSent: Bool
+        /// Whether it carries any sales tax at all, so "charged sales tax" is said
+        /// only of one that was.
+        let chargedTax: Bool
     }
 
     /// What pressing one of the two tax answers on a client's page does (PRD 51j1).
@@ -118,8 +124,14 @@ struct ClientsPresenter: Equatable {
         ///
         /// COUNTED FROM THE INVOICES THIS PAGE LISTS, never written beside them, so
         /// the sentence cannot say a number the list does not hold (L180, PRD 51j1).
+        ///
+        /// ONLY SENDS THE PAGE LISTS AS SENT, and under a taxed status only those
+        /// that carried tax, so the sentence says of each one exactly what is true
+        /// (review of ovation#600, L629).
         func sentCharged(under status: TaxStatus) -> Int {
-            invoices.filter { $0.sentUnder == status }.count
+            invoices.filter {
+                $0.isSent && $0.sentUnder == status && (!status.isTaxed || $0.chargedTax)
+            }.count
         }
 
         /// What pressing `answer` does (PRD 51j1).
@@ -187,7 +199,8 @@ struct ClientsPresenter: Equatable {
     /// were charged". That zero case is Claude's drafting under his instruction.
     static func correction(sent: Int, chargedUnder old: TaxStatus, becoming new: TaxStatus) -> String {
         guard sent > 0 else {
-            return "No invoice has been sent to this client under \(old.exportLabel), so none change. "
+            let what = old.isTaxed ? "was charged sales tax" : "went out without sales tax"
+            return "No invoice already sent to this client \(what), so none change. "
                 + "Drafts and every invoice from now on will be \(new.exportLabel)."
         }
         let charged = old.isTaxed ? "charged sales tax" : "not charged sales tax"
@@ -223,20 +236,13 @@ struct ClientsPresenter: Equatable {
             recipients: count > 1 ? (count == 2 ? "Two recipients" : "\(count) recipients") : nil,
             bookedBy: client.passedOverForInvoices,
             taxStatus: client.taxStatus,
-            paymentTerm: term(days: client.paymentTermDays),
+            paymentTerm: PaymentTerms.standing(days: client.paymentTermDays),
             sharedAddressAsks: client.shareNeedsAnswering(against: others),
             held: client.moneyHeld > .zero ? PDFText.money(client.moneyHeld) : nil,
             heldSaid: heldSaid,
             arrivals: arrivals.count > 1 ? arrivals : [],
             referral: client.referralBalance > .zero ? PDFText.hours(client.referralBalance) : nil,
             invoices: lines(of: client))
-    }
-
-    /// The client's standing term, or the default where none is recorded or the
-    /// recorded one is not a term the invoice's control offers (PRD 51j: one list).
-    static func term(days: Int?) -> PaymentTerm {
-        guard let days else { return PaymentTerms.standard }
-        return PaymentTerms.all.first { $0.days == days } ?? PaymentTerms.standard
     }
 
     /// Each payment still holding money, named by how it arrived (PRD 14l): money
@@ -283,7 +289,9 @@ struct ClientsPresenter: Equatable {
                     date: invoice.invoiceDate.flatMap(BusinessCalendar.shortDate) ?? "",
                     amount: PDFText.amount(invoice.total),
                     status: status(of: invoice),
-                    sentUnder: invoice.taxStatusWhenSent)
+                    sentUnder: invoice.taxStatusWhenSent,
+                    isSent: invoice.sentStatus.wasSent,
+                    chargedTax: invoice.tax > .zero)
             }
     }
 

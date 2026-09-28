@@ -73,6 +73,17 @@ struct ClientsView: View {
             interaction = ClientPageInteraction()
             refused = nil
         }
+        // SAID TO VOICEOVER AS IT APPEARS (L20): the question, a write in flight, and
+        // a refusal, none of which move the focus on their own.
+        .onChange(of: interaction.asking?.sentence) { _, said in
+            if let said { AccessibilityNotification.Announcement(said).post() }
+        }
+        .onChange(of: saving) { _, now in
+            if now != nil { AccessibilityNotification.Announcement("Saving").post() }
+        }
+        .onChange(of: refused) { _, said in
+            if let said { AccessibilityNotification.Announcement(said).post() }
+        }
         .ovationAppearance()
     }
 
@@ -240,7 +251,7 @@ struct ClientsView: View {
     private func taxValue(_ page: ClientsPresenter.Page) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             ValueButton(says: page.taxSaid, isAbsent: page.taxStatus == .neverRecorded,
-                        isOpen: interaction.taxIsOpen,
+                        isOpen: interaction.taxIsOpen, openSaid: "Answers showing",
                         press: writeTax == nil || saving != nil ? nil : {
                             interaction.pressTaxValue()
                             refused = nil
@@ -297,7 +308,7 @@ struct ClientsView: View {
     private func termValue(_ page: ClientsPresenter.Page) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             ValueButton(says: page.paymentTerm.says, isAbsent: false,
-                        isOpen: interaction.termsAreOpen,
+                        isOpen: interaction.termsAreOpen, openSaid: "Terms showing",
                         press: writeTerm == nil || saving != nil ? nil : {
                             interaction.termsAreOpen.toggle()
                             refused = nil
@@ -527,6 +538,8 @@ private struct ValueButton: View {
     let says: String
     let isAbsent: Bool
     let isOpen: Bool
+    /// What VoiceOver hears as the value's state while what it opens is showing.
+    let openSaid: String
     let press: (() -> Void)?
     let spoken: String
 
@@ -545,6 +558,9 @@ private struct ValueButton: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(spoken)
+            // WHETHER IT IS OPEN, said (review of ovation#600, L20): the answers or
+            // terms appearing beside it are otherwise silent to a screen reader.
+            .accessibilityValue(isOpen ? openSaid : "Closed")
             .accessibilityAddTraits(.isButton)
         } else {
             Text(says)

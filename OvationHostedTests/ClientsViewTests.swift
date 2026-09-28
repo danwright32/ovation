@@ -157,6 +157,29 @@ struct ClientsViewTests {
         #expect(drawn.contains("Keep Not exempt"))
     }
 
+    /// Review of ovation#600 (L20). A value that opens something says to VoiceOver
+    /// whether it is open, since the chips appearing beside it are otherwise silent.
+    @Test("the Sales tax value says to VoiceOver whether its answers are showing")
+    func thevalueSaysWhetherItIsOpen() throws {
+        let (clients, _) = try Self.population()
+        let harborlight = try Self.id(of: "Harborlight Ballet", in: clients)
+        let presenter = ClientsPresenter(clients: clients)
+        func value(_ state: ClientPageInteraction) throws -> String? {
+            let view = ClientsView(presenter: presenter, selected: .constant(harborlight),
+                                   writeTax: { _, _ in nil }, writeTerm: { _, _ in nil },
+                                   interaction: state)
+            let button = try view.inspect().find(ViewType.Button.self) {
+                (try? $0.accessibilityLabel().string()) == "Sales tax, Not exempt"
+            }
+            return try? button.accessibilityValue().string()
+        }
+        var open = ClientPageInteraction()
+        open.pressTaxValue()
+
+        #expect(try value(open) == "Answers showing")
+        #expect(try value(ClientPageInteraction()) == "Closed")
+    }
+
     @Test("with nothing that can write, the tax status is a value with nothing to press")
     func withoutAWriterNothingIsPressable() throws {
         let (clients, _) = try Self.population()

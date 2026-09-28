@@ -255,18 +255,45 @@ struct ClientsPresenterTests {
     /// Dan, 2026-09-27 on ovation#600: where nothing went out under the old status
     /// the sentence says so plainly, never "0 invoices ... were charged". The words
     /// are Claude's drafting under that instruction.
-    @Test("with nothing sent under the old status, the sentence says so plainly")
-    func thezeroCaseIsSaidPlainly() throws {
+    @Test("with nothing sent under the old status, the sentence says so plainly", arguments: [false, true])
+    func thezeroCaseIsSaidPlainly(exempt: Bool) throws {
         let context = try Self.store()
-        let client = Self.client(context, "Tobias Fenn", tax: .notExempt)
+        let client = Self.client(context, "Tobias Fenn", tax: exempt ? .exempt : .notExempt)
         Self.invoice(context, for: client, number: nil, dayKey: nil)
         let presenter = ClientsPresenter(clients: try context.fetch(FetchDescriptor<Client>()))
 
-        guard case .ask(let question) = try #require(presenter.pages[client.id]).press(.exempt) else {
+        guard case .ask(let question) = try #require(presenter.pages[client.id])
+            .press(exempt ? .notExempt : .exempt) else {
             Issue.record("not asked"); return
         }
-        #expect(question.sentence == "No invoice has been sent to this client under Not exempt, "
+        if exempt {
+            #expect(question.sentence == "No invoice already sent to this client went out without "
+                    + "sales tax, so none change. Drafts and every invoice from now on will be Not exempt.")
+            return
+        }
+        #expect(question.sentence == "No invoice already sent to this client was charged sales tax, "
                 + "so none change. Drafts and every invoice from now on will be Exempt.")
+    }
+
+    /// Review of ovation#600 (L629): the count is of invoices the same page lists as
+    /// SENT. A send not yet settled is listed as "Send not settled", so it is not
+    /// counted as sent; and "charged sales tax" is said only of an invoice that was.
+    @Test("the count takes only settled sends, and only those actually charged sales tax")
+    func thecountIsOfSettledChargedSends() throws {
+        let context = try Self.store()
+        let client = Self.client(context, "Calder Street Theatre", tax: .notExempt)
+        Self.sent(Self.invoice(context, for: client, number: 1_131, dayKey: "2026-11-14"))
+        Self.invoice(context, for: client, number: 1_130, dayKey: "2026-11-10")
+            .recordSendState(.couldNotDetermine(checkedAt: Self.noon))
+        Self.sent(Self.invoice(context, for: client, number: 1_129, dayKey: "2026-11-01",
+                               amount: .zero))
+        let presenter = ClientsPresenter(clients: try context.fetch(FetchDescriptor<Client>()))
+        let page = try #require(presenter.pages[client.id])
+
+        #expect(page.invoices.map(\.status).contains("Send not settled"))
+        guard case .ask(let question) = page.press(.exempt) else { Issue.record("not asked"); return }
+        #expect(question.sentence == "1 invoice already sent to this client was charged sales tax, "
+                + "and stay as they were sent. Drafts and every invoice from now on will be Exempt.")
     }
 
     @Test("the count is of invoices sent under the OLD status, and one reads in the singular")

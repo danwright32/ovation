@@ -63,6 +63,13 @@ actor InvoiceSender {
         guard recipients == approvedRecipients else {
             return .refused(InvoiceMail.recipientsChanged)
         }
+        // AND THE TAX STATUS IS THE ONE THE PAGE WAS RENDERED UNDER (review of
+        // ovation#600, L567). The attempt below records the status the invoice is
+        // charged under now; a correction on the client's page since the sheet
+        // opened would record a status the attached page does not show.
+        guard render.chargedUnder == invoice.taxStatusCharged else {
+            return .refused(InvoiceMail.taxStatusChanged)
+        }
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .refused(InvoiceMail.emptyMessage)
         }
@@ -182,6 +189,10 @@ enum InvoiceMail {
 
     /// Said when the send would go to anyone other than who the review sheet showed.
     static let recipientsChanged = "Who this would go to changed after it was opened, so nothing was sent. Close it and review it again."
+
+    /// Said when the client's sales tax status changed after the page was rendered, so
+    /// the attached page no longer says what the invoice would record (ovation#600).
+    static let taxStatusChanged = "This client's sales tax status changed after this was opened, so nothing was sent. Close it and review it again."
 
     /// What the sheet says once Gmail accepted. Built as a String, because a SwiftUI
     /// Text interpolating an integer groups it, and "invoice 1,123" names nothing issued.

@@ -207,8 +207,10 @@ struct WritersReachTheScreenTests {
 
         // THE LIST ABOVE COVERS EVERY WRITER ROOTVIEW DECLARES, read off RootView
         // rather than typed, so a new one fails here until it is routed.
+        // EVERY CLOSURE THAT WRITES, not only those named `write...`: the shared
+        // address's `acknowledgeSharedAddress` writes too (review of ovation#600).
         let declared = Set(Mirror(reflecting: root).children.compactMap(\.label)
-            .filter { $0.hasPrefix("write") })
+            .filter { $0.hasPrefix("write") || $0.hasPrefix("acknowledge") })
         #expect(!declared.isEmpty, "no writer was read off RootView, so nothing was judged")
         #expect(declared == Set(presses.map(\.writer)).union(Self.clientsScreenWriters),
                 "RootView's writers and the ones this test presses differ")
@@ -229,7 +231,7 @@ struct WritersReachTheScreenTests {
 
     /// ovation#568. The writes that reach the Clients screen rather than the invoice
     /// screen, pressed by the case below and counted by the one above.
-    private static let clientsScreenWriters: Set<String> = ["writePaymentTerm"]
+    private static let clientsScreenWriters: Set<String> = ["writePaymentTerm", "acknowledgeSharedAddress"]
 
     @Test("the Clients screen is given the tax status, payment terms and shared address writes")
     func theclientsScreenIsGivenItsWrites() async throws {

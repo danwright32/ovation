@@ -110,6 +110,9 @@ struct InvoiceDocument: Equatable, Sendable {
     /// Label and figure pairs, top to bottom.
     let money: [[String]]
     let foot: [FootBlock]
+    /// The sales tax status this page is charged under, so the send can refuse a
+    /// render taken under a status that has since moved (review of ovation#600).
+    let chargedUnder: TaxStatus?
 
     /// Why this invoice could never be drawn as a page, or nil where it can.
     ///
@@ -164,6 +167,7 @@ struct InvoiceDocument: Equatable, Sendable {
         guard let invoiceDate = invoice.invoiceDate else { throw Refusal.noInvoiceDate }
         guard let dueDate = invoice.dueDate else { throw Refusal.noDueDate }
         guard let client = invoice.client else { throw Refusal.noClient }
+        chargedUnder = invoice.taxStatusCharged
         // The invoice's own predicate, so the page and the send cannot disagree
         // about what an oversized discount is (L16).
         if invoice.refusals.contains(.discountExceedsSubtotal) { throw Refusal.discountExceedsSubtotal }

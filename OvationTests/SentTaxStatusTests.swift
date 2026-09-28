@@ -72,6 +72,21 @@ struct SentTaxStatusTests {
         #expect(invoice.taxStatusWhenSent == .notExempt)
     }
 
+    /// Review of ovation#600: "never recorded" is the ABSENCE of an answer, and a
+    /// stamp of it would stick for ever while the invoice screen hides the tax row for
+    /// it. The send gate refuses such a client, so only a route around the gate (a
+    /// Sent folder match, ovation#41) could reach this, and it records nothing.
+    @Test("a send for a client with no recorded status records none")
+    func neverRecordedIsNeverStamped() throws {
+        let context = try Self.store()
+        let invoice = Self.invoice(context, client: .neverRecorded)
+
+        invoice.recordSendState(.sent(route: .foundInTheMailbox, at: Self.noon))
+
+        #expect(invoice.taxStatusWhenSent == nil)
+        #expect(!invoice.stampSentTaxStatusIfMissing())
+    }
+
     @Test("a sent invoice keeps the tax it went out with when the client is corrected")
     func asentInvoiceKeepsItsTax() throws {
         let context = try Self.store()

@@ -507,7 +507,7 @@ color: var(--faint); }
       separate Change word and no answers always shown, for the reasons the payment terms record.</p>
       <p>The sentence and "Change to" and "Keep" were approved by Dan on 2026-09-27 (ovation#600),
       with one change: where nothing went out under the old status it says so plainly, "No invoice
-      has been sent to this client under Not exempt, so none change." Those words are Claude's
+      already sent to this client was charged sales tax, so none change." Those words are Claude's
       drafting under that instruction.</p>
     </div>
     <div><h3>One chip answers the tax status question</h3>
@@ -944,8 +944,9 @@ function taxAsk(k) {
      ovation#600, approving the rest of this wording): never "0 invoices ... were
      charged". The zero case's words are Claude's drafting under that instruction. */
   box.append(el("div", null, sent === 0
-    ? "No invoice has been sent to this client under " + k.t + ", so none change. "
-      + "Drafts and every invoice from now on will be " + TAX_ASKING + "."
+    ? "No invoice already sent to this client "
+      + (chargedTax(k) ? "was charged sales tax" : "went out without sales tax")
+      + ", so none change. Drafts and every invoice from now on will be " + TAX_ASKING + "."
     : sent + (sent === 1 ? " invoice" : " invoices")
     + " already sent to this client " + (sent === 1 ? "was " : "were ") + charged
     + ", and stay as they were sent. Drafts and every invoice from now on will be "

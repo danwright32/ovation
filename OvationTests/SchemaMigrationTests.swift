@@ -358,7 +358,7 @@ struct SchemaMigrationTests {
             let invoice = OvationSchemaV1.Invoice()
             invoice.number = 1_123
             invoice.hourlyRate = Money(dollars: 250)
-            invoice.sentStatus = (.sent(route: .ovationSentIt, at: sentAt))
+            invoice.sentStatus = .sent(route: .ovationSentIt, at: sentAt)
             invoice.client = client
             let payment = OvationSchemaV1.Payment()
             payment.amount = Money(dollars: 500)
@@ -474,8 +474,8 @@ struct SchemaMigrationTests {
             invoice.number = 1_042
             invoice.hourlyRate = Money(dollars: 250)
             invoice.client = client
-            invoice.sentStatus = (.sent(route: .ovationSentIt,
-                                       at: Date(timeIntervalSince1970: 1_789_920_000)))
+            invoice.sentStatus = .sent(route: .ovationSentIt,
+                                       at: Date(timeIntervalSince1970: 1_789_920_000))
             let shoot = OvationSchemaV3.Shoot()
             shoot.name = "Side by Side concert"
             shoot.shotFrom = ClockTime("19:00")
@@ -604,7 +604,7 @@ struct SchemaMigrationTests {
                 let invoice = OvationSchemaV5.Invoice()
                 invoice.number = number
                 invoice.client = client
-                invoice.sentStatus = (status)
+                invoice.sentStatus = status
                 return invoice
             }
             let rows: [any PersistentModel] = [

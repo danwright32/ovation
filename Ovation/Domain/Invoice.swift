@@ -469,7 +469,11 @@ extension OvationSchemaV6 {
         func stampSentTaxStatusIfMissing() -> Bool {
             guard sentStatus != .notSent, taxStatusWhenSent == nil else { return false }
             let client = self.client
-            guard let status = client?.taxStatus else { return false }
+            // NEVER THE ABSENCE OF AN ANSWER (review of ovation#600): a stamp of it
+            // would stick, while the invoice screen hides the tax row for it. The
+            // send gate refuses such a client, so only a route around the gate could
+            // reach here, and it records nothing and goes on reading the client.
+            guard let status = client?.taxStatus, status != .neverRecorded else { return false }
             taxStatusWhenSent = status
             return true
         }
