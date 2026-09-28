@@ -712,11 +712,12 @@ final class InvoiceScreenPresenter {
     private static func footAction(for invoice: Invoice) -> FootAction {
         if invoice.closure != nil { return .none }
         guard case .sent = invoice.sentStatus else { return .review }
-        if invoice.amountOutstanding > .zero { return .recordPayment }
         // A COMPED INVOICE WAS NOT PAID. One totalling nothing (PRD 5.1b) with no
         // payment against it owes nothing, and saying Paid in full would claim a
-        // payment that never arrived (L11), so the foot says nothing.
-        return invoice.amountPaid > .zero ? .paidInFull : .none
+        // payment that never arrived (L11), so the foot says nothing. Both are read
+        // from `isPaidInFull`, the one predicate the page and the sheet read (L16).
+        if invoice.isPaidInFull { return .paidInFull }
+        return invoice.amountOutstanding > .zero ? .recordPayment : .none
     }
 
     /// The payments under the Total (PRD 51n, 14k, 14m), oldest first.

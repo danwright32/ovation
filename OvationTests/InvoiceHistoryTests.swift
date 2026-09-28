@@ -203,4 +203,33 @@ struct InvoiceHistoryTests {
         #expect(InvoiceHistory.newlyRecorded(before: before, after: before).isEmpty)
         #expect(InvoiceHistory.newlyRecorded(before: before, after: after).isEmpty)
     }
+
+    // MARK: paid in full, one predicate (L16)
+
+    @Test("paid in full is money covering a priced total, never a comp and never an unpriced draft")
+    func paidInFull() throws {
+        let context = try Self.context()
+        let owed = Self.invoice(context)
+        #expect(!owed.isPaidInFull)
+        _ = Self.pay(owed, owed.total, by: .zelle, on: Self.day(0), in: context)
+        #expect(owed.isPaidInFull)
+
+        let part = Self.invoice(context)
+        _ = Self.pay(part, Money(dollars: 100), by: .zelle, on: Self.day(0), in: context)
+        #expect(!part.isPaidInFull)
+
+        // A PRICED COMP OWES NOTHING AND WAS NOT PAID (PRD 5.1b): no receipt, no Paid in full.
+        let comp = Self.invoice(context)
+        comp.lineItems.forEach { $0.unitAmount = .zero }
+        #expect(!comp.isPaidInFull)
+
+        // ovation#582. An unpriced draft with money on it is not paid, whatever it totals.
+        let unpriced = Invoice(client: owed.client, kind: .photography, invoiceDate: Self.day(0),
+                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
+        context.insert(unpriced)
+        unpriced.add(Shoot(name: "Autumn Evensong", when: .dayOnly(Self.day(0)), venue: nil))
+        _ = Self.pay(unpriced, Money(dollars: 50), by: .zelle, on: Self.day(0), in: context)
+        #expect(unpriced.isUnpriced)
+        #expect(!unpriced.isPaidInFull)
+    }
 }

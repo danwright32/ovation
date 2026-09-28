@@ -81,7 +81,7 @@ final class InvoiceReviewer {
             // A PAID INVOICE IS NOT LATE, so a copy of one carries no due date band:
             // "already 20 days past its due date" over an invoice paid in full would be
             // a warning about nothing (L11).
-            let isPaid = numbered.amountPaid > .zero && numbered.amountOutstanding <= .zero
+            let isPaid = numbered.isPaidInFull
             let presenter = ReviewSheetPresenter(session: session, document: document, client: client,
                                                  dueDate: isPaid ? nil : numbered.dueDate)
             let settings = settingsFile.map { SendingSettings.read(from: $0) }

@@ -164,4 +164,42 @@ struct InvoiceFootAndHistoryViewTests {
         let view = InvoiceScreenView(presenter: Self.present(Self.sent(try Self.context())), close: {})
         #expect(!(try Self.text(in: view).contains("History")))
     }
+
+    // MARK: reachable by VoiceOver (L20)
+
+    /// The one view that says what the invoice is to VoiceOver, carrying the label
+    /// "client, shoot, state". Whatever it holds is replaced by that one sentence, so
+    /// any button inside it is swallowed: VoiceOver can neither reach nor press it.
+    ///
+    /// READ FROM THE VIEW TREE, because the rendered accessibility tree is not built
+    /// offscreen: measured 2026-09-27, an NSHostingView ordered back off every display
+    /// answers with one bare AXGroup and no children, so walking it finds no button
+    /// whether or not one is reachable, which is no measurement at all (L411).
+    private static func buttonsInsideTheInvoiceLabel(of view: some View) throws -> [String] {
+        let labelled = try view.inspect().find(where: { node in
+            ((try? node.accessibilityLabel().string()) ?? "").hasPrefix("Cedar Hill Youth Orchestra, ")
+        })
+        return labelled.findAll(ViewType.Button.self)
+            .compactMap { try? $0.labelView().text().string() }
+    }
+
+    @Test("History and Back to the list are each their own button to VoiceOver, History saying whether the pane is expanded")
+    func historyIsReachable() throws {
+        let asked = Asked()
+        let closed = InvoiceScreenView(presenter: Self.present(Self.sent(try Self.context())), close: {},
+                                       history: Self.history(isOpen: false, asked: asked))
+        #expect(try Self.buttonsInsideTheInvoiceLabel(of: closed) == [],
+                "the invoice's one combined element swallows these buttons")
+        _ = try Self.button("Back to the list", in: closed)
+        #expect(try Self.button("History", in: closed).accessibilityValue().string() == "collapsed")
+
+        let open = InvoiceScreenView(presenter: Self.present(Self.sent(try Self.context())), close: {},
+                                     history: Self.history(isOpen: true, asked: asked))
+        #expect(try Self.button("Hide history", in: open).accessibilityValue().string() == "expanded")
+        // And the invoice itself is still said, once, as one element.
+        let spoken = try open.inspect().findAll(where: { (try? $0.accessibilityLabel().string()) != nil })
+            .compactMap { try? $0.accessibilityLabel().string() }
+        #expect(spoken.filter { $0.hasPrefix("Cedar Hill Youth Orchestra, ") && $0.hasSuffix(", Invoice 1123") }
+                    .count == 1)
+    }
 }

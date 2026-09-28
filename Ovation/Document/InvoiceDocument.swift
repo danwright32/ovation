@@ -197,8 +197,7 @@ struct InvoiceDocument: Equatable, Sendable {
         // The two are equal only when the deposit matches the bill exactly, and
         // a larger one would otherwise state this invoice is for an amount it is
         // not.
-        let settled = invoice.amountPaid > .zero && invoice.amountOutstanding <= .zero
-        if settled {
+        if invoice.isPaidInFull {
             // A RECEIPT WITHOUT THE DAY THE MONEY ARRIVED IS NOT DRAWN. The
             // placeholder for a missing required value is a detection, so it
             // refuses rather than printing a blank where a date belongs (L67).

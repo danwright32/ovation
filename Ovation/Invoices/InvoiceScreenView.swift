@@ -381,6 +381,11 @@ struct InvoiceScreenView: View {
                     .foregroundStyle(OvationPalette.quiet)
                     .lineLimit(1)
             }
+            // ONE ELEMENT FOR WHAT THE INVOICE IS, and the two words beside it stay
+            // buttons of their own (L20). Combining the whole row made VoiceOver read
+            // one label and swallowed History and Back to the list with it.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(presenter.client), \(presenter.shoot), \(presenter.state)")
             Spacer(minLength: 0)
             // WHICH THE INVOICE IS, which the design record draws at the top right
             // and which carries ovation#411's held number.
@@ -390,6 +395,8 @@ struct InvoiceScreenView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(OvationPalette.faint)
                 .fixedSize()
+                // Said once, in the element above, never twice (L605).
+                .accessibilityHidden(true)
             // THE WORD STAYS IN THE HEADER (PRD 51d), kept against the foot, an edge
             // pull and the View menu, and it says what pressing it will do.
             if let history {
@@ -407,8 +414,6 @@ struct InvoiceScreenView: View {
                 .fixedSize()
         }
         .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(presenter.client), \(presenter.shoot), \(presenter.state)")
     }
 
     /// THE TIMES SIT BESIDE THE SHOOT (round 4b), one labelled pair per shoot, and

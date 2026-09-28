@@ -322,6 +322,29 @@ struct InvoiceResendTests {
         #expect(draft.footSecond == nil)
     }
 
+    /// Held money counts as paid: `amountPaid` reads every standing allocation, held
+    /// money included, so an invoice settled wholly by what the client was holding is
+    /// paid in full and offers Send a copy (L16).
+    @Test("an invoice settled wholly by held money is paid in full and offers Send a copy")
+    func settledByHeldMoney() throws {
+        let (container, id) = try Self.sent()
+        let context = container.mainContext
+        let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>())
+            .first { $0.persistentModelID == id })
+        let day = BusinessDate.stamping(Self.noon)
+        let deposit = Payment(client: invoice.client, amount: invoice.total, method: .zelle,
+                              receivedOn: BusinessDate.stamping(Self.firstSent))
+        context.insert(deposit)
+        context.insert(PaymentAllocation(payment: deposit, invoice: invoice, amount: invoice.total,
+                                         allocatedOn: day, source: .heldMoney))
+        try context.save()
+
+        #expect(invoice.isPaidInFull)
+        let presenter = InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: day)
+        #expect(presenter.footAction == .paidInFull)
+        #expect(presenter.footSecond == .copy)
+    }
+
     @Test("the words on the foot are the design record's")
     func thewords() {
         #expect(InvoiceMailKind.reminder.footWord == "Remind")

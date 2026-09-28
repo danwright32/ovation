@@ -586,6 +586,16 @@ extension OvationSchemaV6 {
             return .partlyPaid
         }
 
+        /// Whether money recorded against this invoice covers what it came to, which is
+        /// what `Paid in full` on the page, on the screen's foot and on a copy all mean.
+        ///
+        /// ONE PREDICATE, read by the PDF, the invoice screen and the review sheet, so
+        /// no two of them can disagree about one invoice (L16). It is `paymentState`'s
+        /// paid, so ovation#582's rule holds here too: an unpriced draft is never paid.
+        /// AND MONEY MUST HAVE ARRIVED: a priced comp totalling nothing reads as paid
+        /// there, but nobody paid it, so nothing may say Paid in full of it (L11).
+        var isPaidInFull: Bool { paymentState == .paid && amountPaid > .zero }
+
         // MARK: what it says about itself
 
         /// Every reason THIS INVOICE must not go out as it stands, in one place.
