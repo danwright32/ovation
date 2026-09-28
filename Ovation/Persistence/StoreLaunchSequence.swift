@@ -371,12 +371,26 @@ struct StoreLaunchSequence {
             // Ovation. A re-check that examined nothing, or could not read one,
             // says nothing: neither is a finding Dan can act on, and the archives
             // it did not reach come round on later launches.
-            if case .failed(let name, let failures) = await reverifyAnArchive(now) {
+            //
+            // AND ONE THAT VERIFIES NOW CLEARS WHAT AN EARLIER CHECK RAISED about it
+            // (ovation#610). The condition was measured again and is gone, and a
+            // notice the app has itself disproved, left for Dan to dismiss, teaches
+            // him to dismiss everything (L152).
+            switch await reverifyAnArchive(now) {
+            case .failed(let name, let failures):
                 _ = problems.raise(
                     kind: .archiveNoLongerVerifies, subject: name,
-                    sentence: "The backup \(name) verified when it was written and "
-                        + "does not now: \(failures.count) problem(s) with what is in it. "
-                        + "Today's backup is unaffected.", now: now)
+                    sentence: Self.archiveNoLongerVerifiesSentence(name: name, failures: failures),
+                    now: now)
+            case .verified(let name):
+                for standing in problems.open
+                where standing.kind == .archiveNoLongerVerifies && standing.subject == name {
+                    _ = problems.resolve(standing.id,
+                                         because: "the backup was checked again and verifies",
+                                         now: now)
+                }
+            case .nothingToCheck, .couldNotRead:
+                break
             }
         }
 
@@ -493,6 +507,26 @@ struct StoreLaunchSequence {
     /// The kinds a launch that OPENS the store has disproved (ovation#503): each
     /// is raised by a step above that refuses to open, so reaching the open is
     /// that step measuring again and passing.
+    /// What Dan reads when an older archive no longer verifies (ovation#610).
+    ///
+    /// IT NAMES THE FILE AND WHAT IS WRONG WITH IT, and says whether the
+    /// archive's own files changed. It said "1 problem(s) with what is in it",
+    /// which sent Dan to the folder when the cause was a rule that had changed in
+    /// Ovation and every file was exactly as written. The two need opposite
+    /// actions, so the sentence has to tell them apart (L11). Three are named and
+    /// the rest counted, so one damaged archive cannot fill the panel.
+    static func archiveNoLongerVerifiesSentence(name: String,
+                                                failures: [BackupReport.Failure]) -> String {
+        let named = failures.prefix(3).map { "\($0.path) \($0.verdict.phrase)" }
+        var list = named.joined(separator: "; ")
+        if failures.count > named.count { list += "; and \(failures.count - named.count) more" }
+        let files = failures.contains { $0.verdict.meansARecordedFileChanged }
+            ? "Its files have changed since it was written."
+            : "Every file it recorded is still exactly as it was written."
+        return "The backup \(name) verified when it was written and does not now: \(list). "
+            + "\(files) Today's backup is unaffected."
+    }
+
     static let clearedByAnOpen: Set<ProblemKind> = [
         .foreignStore, .storeIsNotADatabase, .unreadableStore, .unidentifiableStore,
         .storeFromANewerVersion, .storeVersionUnreadable,

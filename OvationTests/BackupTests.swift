@@ -1077,6 +1077,112 @@ struct BackupTests {
         #expect(!left.contains { $0.hasPrefix(BackupService.stagingPrefix) })
     }
 
+    // MARK: an archive is judged by the plan it was written under (ovation#610)
+    //
+    // PR #573 added launch-backups.jsonl to the plan, and every archive written
+    // before it stopped verifying, although every file in it was exactly as
+    // written: the verifier held each archive to TODAY's plan. The restore runs the
+    // same verifier, so it refused all four of Dan's older archives.
+
+    /// Dan's case. An archive from before the launch backup record was declared
+    /// does not mention it at all, and that is correct for the plan it was
+    /// written under.
+    @Test("an archive written before an optional member was declared still verifies")
+    func anArchiveFromBeforeAnOptionalMemberVerifies() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        try Self.writtenByAnOlderBuild(archive, lacking: [LaunchBackupLog.filename],
+                                       createdAt: Self.noon(2026, 9, 17))
+
+        let report = try world.service.verify(archive: archive)
+
+        #expect(report.failures == [])
+    }
+
+    /// AN INSTALLED BUILD LAGS MAIN. The 2026-09-27 archive was written a day
+    /// after #573 merged, by a build installed before it, so a rule that compared
+    /// only the day a member was declared with the archive's own date would still
+    /// call that archive short. A build recorded every member it knew, so a member
+    /// the manifest does not mention at all is one its build did not know.
+    @Test("an archive written after a member was declared, by a build older than it, still verifies")
+    func anArchiveFromALaggingBuildVerifies() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        try Self.writtenByAnOlderBuild(archive, lacking: [LaunchBackupLog.filename],
+                                       createdAt: Self.noon(2026, 9, 27))
+
+        let report = try world.service.verify(archive: archive)
+
+        #expect(report.failures == [])
+    }
+
+    /// THE REFUSAL STAYS WHERE IT BELONGS. A manifest that names the plan it was
+    /// written under, and leaves out one of that plan's members, is short, and
+    /// says so with the verdict it always had. This is also what `takeBackup`'s
+    /// own check sees, because every backup it takes now names its plan.
+    @Test("a manifest that names its plan and omits one of its members is refused")
+    func aManifestNamingItsPlanIsHeldToIt() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        let named = try Self.manifestJSON(of: archive)["planVersion"] as? Int
+        let version = try #require(named, "a backup does not record the plan it was written under")
+        try Self.writtenByAnOlderBuild(archive, lacking: [LaunchBackupLog.filename],
+                                       createdAt: Self.noon(2026, 9, 27),
+                                       planVersion: version)
+
+        let report = try world.service.verify(archive: archive)
+
+        #expect(report.failures.map(\.path) == [LaunchBackupLog.filename])
+        #expect(report.failures.map(\.verdict.rawValue) == ["memberMissing"])
+    }
+
+    /// Part (4) of the issue. The archive holds no launch backup record, so the
+    /// restore has nothing to put back, and the live one is the only record of the
+    /// launches since: replacing it with nothing would lose them.
+    @Test("restoring an archive with no launch backup record leaves the live record alone")
+    func restoringAnOlderArchiveLeavesTheLaunchRecordAlone() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        try Self.writtenByAnOlderBuild(archive, lacking: [LaunchBackupLog.filename],
+                                       createdAt: Self.noon(2026, 9, 17))
+        let live = world.dataDirectory.appendingPathComponent(LaunchBackupLog.filename)
+        let timings = Data("{\"outcome\":\"taken\"}\n".utf8)
+        try timings.write(to: live)
+
+        try world.service.restore(from: archive, now: world.instant.addingTimeInterval(60))
+
+        #expect(try Data(contentsOf: live) == timings)
+    }
+
+    /// Rewrites an archive this suite took into what an older build would have
+    /// written: without the named members, without a plan version unless one is
+    /// given, and dated as given. Done on the JSON rather than the type, because
+    /// the point is the bytes an older build put on disk.
+    static func writtenByAnOlderBuild(_ archive: URL, lacking paths: Set<String>,
+                                      createdAt: Date, planVersion: Int? = nil) throws {
+        var json = try manifestJSON(of: archive)
+        let members = try #require(json["members"] as? [[String: Any]])
+        json["members"] = members.filter { !paths.contains($0["path"] as? String ?? "") }
+        let files = try #require(json["files"] as? [[String: Any]])
+        json["files"] = files.filter { record in
+            let path = record["path"] as? String ?? ""
+            return !paths.contains { path == $0 || path.hasPrefix($0 + "/") }
+        }
+        for path in paths {
+            try? FileManager.default.removeItem(at: archive.appendingPathComponent(path))
+        }
+        json["createdAt"] = createdAt.timeIntervalSinceReferenceDate
+        json["dayKey"] = BusinessCalendar.dayKey(for: createdAt)
+        json["planVersion"] = planVersion
+        try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+            .write(to: archive.appendingPathComponent(BackupManifest.filename))
+    }
+
+    static func manifestJSON(of archive: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: archive.appendingPathComponent(BackupManifest.filename))
+        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
     // MARK: restoring
 
     @Test("restoring puts the archived bytes back")

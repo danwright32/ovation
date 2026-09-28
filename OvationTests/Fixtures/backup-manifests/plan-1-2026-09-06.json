@@ -1,0 +1,65 @@
+{
+  "createdAt": 810435600.0,
+  "dayKey": "2026-09-06",
+  "files": [
+    {
+      "byteCount": 26,
+      "path": "custody/note.txt",
+      "sha256": "3e9b71ca8c743e34e452d7cd173ad3f244bdb708767db1144cf518a863e119d3"
+    },
+    {
+      "byteCount": 24,
+      "path": "problems.jsonl",
+      "sha256": "1e0ae9e4acb8763c67a3a354b2d81dcea25936b231917901a746db0824879b6d"
+    }
+  ],
+  "members": [
+    {
+      "path": "problems.jsonl",
+      "status": "copied"
+    },
+    {
+      "path": "documents",
+      "status": "copied"
+    },
+    {
+      "path": "custody",
+      "status": "copied"
+    },
+    {
+      "issue": "ovation#60",
+      "path": "Ovation.store",
+      "status": "notYetBuilt"
+    },
+    {
+      "issue": "ovation#60",
+      "path": "Ovation.store-wal",
+      "status": "notYetBuilt"
+    },
+    {
+      "issue": "ovation#60",
+      "path": "Ovation.store-shm",
+      "status": "notYetBuilt"
+    },
+    {
+      "issue": "ovation#31",
+      "path": "consumed-bookings.jsonl",
+      "status": "notYetBuilt"
+    },
+    {
+      "issue": "ovation#79",
+      "path": "consumed-messages.jsonl",
+      "status": "notYetBuilt"
+    },
+    {
+      "issue": "ovation#38",
+      "path": "referral-ledger.jsonl",
+      "status": "notYetBuilt"
+    },
+    {
+      "issue": "ovation#64",
+      "path": "export-runs.jsonl",
+      "status": "notYetBuilt"
+    }
+  ]
+}

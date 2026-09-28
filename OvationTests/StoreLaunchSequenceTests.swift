@@ -984,6 +984,77 @@ struct StoreLaunchSequenceTests {
         #expect(problem.sentence.contains("Today's backup is unaffected"))
     }
 
+    /// ovation#610. THE SENTENCE NAMES THE FILE AND WHAT IS WRONG WITH IT, and says
+    /// whether the archive's own files changed. "1 problem(s) with what is in it"
+    /// sent Dan to the folder when the cause was a rule change and every file was
+    /// exactly as written. Asserted whole, because this is the wording Dan reads.
+    @Test("an older archive's problem names the file, the verdict, and that its files are unchanged")
+    func anOlderArchiveProblemNamesTheFileAndVerdict() async throws {
+        let world = try World(reverify: { _ in
+            .failed("Ovation-backup-2026-09-17-091500",
+                    [.init(path: "launch-backups.jsonl", verdict: .memberMissing)])
+        })
+
+        _ = await world.sequence.run(now: world.instant)
+
+        let problem = try #require(
+            world.store.open.first { $0.kind == .archiveNoLongerVerifies })
+        #expect(problem.sentence
+                == "The backup Ovation-backup-2026-09-17-091500 verified when it was written "
+                + "and does not now: launch-backups.jsonl is not accounted for in its record "
+                + "of what it holds. Every file it recorded is still exactly as it was "
+                + "written. Today's backup is unaffected.")
+    }
+
+    /// And when the files DID change, it says that instead, since the remedies
+    /// are opposite: a file damaged on the disk is about the folder, and a rule
+    /// that changed is about Ovation (L11).
+    @Test("an older archive whose files changed says so")
+    func anOlderArchiveWhoseFilesChangedSaysSo() async throws {
+        let world = try World(reverify: { _ in
+            .failed("Ovation-backup-2026-09-17-091500",
+                    [.init(path: "Ovation.store", verdict: .mismatch),
+                     .init(path: "custody/note.txt", verdict: .absent)])
+        })
+
+        _ = await world.sequence.run(now: world.instant)
+
+        let problem = try #require(
+            world.store.open.first { $0.kind == .archiveNoLongerVerifies })
+        #expect(problem.sentence
+                == "The backup Ovation-backup-2026-09-17-091500 verified when it was written "
+                + "and does not now: Ovation.store has different contents; custody/note.txt "
+                + "is missing. Its files have changed since it was written. Today's backup "
+                + "is unaffected.")
+    }
+
+    /// THE PROBLEM CLEARS ITSELF when the same archive verifies on a later
+    /// re-check (ovation#610). Nothing resolved it before, so once the rule was
+    /// fixed Dan's three would have stood until he dismissed them, and a notice
+    /// the app itself has disproved teaches him to dismiss everything (L152).
+    @Test("an older archive's problem is resolved when that archive verifies again")
+    func anOlderArchiveProblemClearsWhenItVerifies() async throws {
+        let name = "Ovation-backup-2026-09-17-091500"
+        // The instant every World launches at, held here because the closure is
+        // built before the World it is handed to.
+        let firstLaunch = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let world = try World(reverify: { now in
+            now == firstLaunch
+                ? .failed(name, [.init(path: "launch-backups.jsonl", verdict: .memberMissing)])
+                : .verified(name)
+        })
+
+        try #require(world.instant == firstLaunch)
+
+        _ = await world.sequence.run(now: firstLaunch)
+        #expect(world.store.open.contains { $0.kind == .archiveNoLongerVerifies })
+
+        #expect(await world.waitUntilTheStoreIsLetGo() == .checkpointed)
+        _ = await world.sequence.run(now: firstLaunch.addingTimeInterval(86_400))
+
+        #expect(!world.store.open.contains { $0.kind == .archiveNoLongerVerifies })
+    }
+
     /// A RE-CHECK THAT FOUND NOTHING TO CHECK SAYS NOTHING, and neither does one
     /// that could not read an archive: neither is a finding Dan can act on, and
     /// the archives it did not reach come round on later launches (L36).

@@ -85,6 +85,12 @@ struct BackupMember: Equatable, Sendable {
 enum BackupPlan {
     /// Everything a backup carries. Adding a member here is what puts it in the
     /// archive AND in the verification, so the two cannot drift (L41).
+    ///
+    /// CHANGING THIS LIST IS A NEW PLAN VERSION (ovation#610). Archives written
+    /// under the list as it stands are judged by it for as long as they are kept,
+    /// so it is frozen into `earlierRevisions` in BackupPlanHistory.swift before
+    /// it changes. That file's header says how, and BackupPlanHistoryTests fails
+    /// until it is done.
     static let members: [BackupMember] = [
         // Built.
         //
