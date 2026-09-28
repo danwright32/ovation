@@ -187,7 +187,7 @@ struct InvoiceHistoryTests {
                                in context: ModelContext) -> SentMessage {
         let message = SentMessage(kind: kind, recipients: recipients,
                                   sentAt: noon.addingTimeInterval(TimeInterval(dayOffset) * 86_400),
-                                  gmailThreadID: "thread-1", messageID: "<m1@messages.example>")
+                                  subject: "Invoice 1123", gmailThreadID: "thread-1", messageID: "<m1@messages.example>")
         context.insert(message)
         message.invoice = invoice
         return message

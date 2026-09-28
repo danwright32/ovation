@@ -96,12 +96,14 @@ final class InvoiceReviewer {
                 message = InvoiceMail.message(amountDue: document.amountDue, dueLine: document.dueLine,
                                               shoots: shoots, signedBy: signedBy)
             case .reminder:
-                subject = InvoiceMailKind.reminder.subject(number: number, shoots: shoots)
+                subject = InvoiceMailKind.reminder.subject(number: number, shoots: shoots,
+                                                           onto: numbered.issuingMessage)
                 message = InvoiceMail.reminderMessage(amountDue: document.amountDue,
                                                       dueLine: document.dueLine,
                                                       shoots: shoots, signedBy: signedBy)
             case .copy:
-                subject = InvoiceMailKind.copy.subject(number: number, shoots: shoots)
+                subject = InvoiceMailKind.copy.subject(number: number, shoots: shoots,
+                                                       onto: numbered.issuingMessage)
                 message = InvoiceMail.copyMessage(amountDue: document.amountDue, dueLine: document.dueLine,
                                                   paidInFull: isPaid, shoots: shoots, signedBy: signedBy)
             }

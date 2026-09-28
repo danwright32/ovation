@@ -91,8 +91,10 @@ struct SchemaFingerprintTests {
     /// VALUE ABOVE DID NOT MOVE when its classes were frozen into
     /// `OvationSchemaV6Shape.swift`, and that is the proof the frozen copy
     /// describes the stores the installed app already wrote. This one is a
-    /// ratchet on the shape in force, as version 6's was until today.
-    static let whatVersionSevenProducesToday = "+iBUh42q/Zh3EXFCgL9ADU/srE8D0sgz54vsIRccKVE="
+    /// ratchet on the shape in force, as version 6's was until today. RE-RECORDED
+    /// ONCE BEFORE MERGE, when `SentMessage.subject` was added for Dan's reply subject
+    /// decision (2026-09-28): no store had been written by version 7 then.
+    static let whatVersionSevenProducesToday = "OBZnj3MxnnLs2FjPs+d6w7EaFMqComq3jYC1y0RkrqE="
 
     /// SPELLED OUT BECAUSE COCOA DOES NOT EXPORT IT TO SWIFT. `NSPersistentStore`
     /// declares this key in Objective-C only, so a Swift caller has to name the

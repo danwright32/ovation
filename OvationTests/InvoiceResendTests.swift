@@ -308,14 +308,50 @@ struct InvoiceResendTests {
     /// The send that issued the invoice, recorded as the first send records it.
     private static func recordIssuingSend(_ id: PersistentIdentifier, in container: ModelContainer,
                                           thread: String? = "thread-first",
-                                          messageID: String? = "<first@messages.example>") throws {
+                                          messageID: String? = "<first@messages.example>",
+                                          subject: String? = asItWent) throws {
         let context = ModelContext(container)
         let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>()).first { $0.persistentModelID == id })
         let issuing = SentMessage(kind: .invoice, recipients: ["booker@client.example"], sentAt: firstSent,
-                                  gmailThreadID: thread, messageID: messageID)
+                                  subject: subject, gmailThreadID: thread, messageID: messageID)
         context.insert(issuing)
         issuing.invoice = invoice
         try context.save()
+    }
+
+    /// The first send's subject AS RECORDED, deliberately unlike what composing it
+    /// today would give, so a reminder that re-composed its subject would not match.
+    private static let asItWent = "Invoice 1123, Autumn Evensong (as it went)"
+
+    /// Dan, 2026-09-28: a reminder's subject is "Re: " and the original send's subject
+    /// exactly, so Gmail files it in the original thread, whose subject must match.
+    @Test("a reminder's subject is Re: and the first send's recorded subject exactly, and is recorded")
+    func areminderSubjectIsAReply() async throws {
+        let (container, id) = try Self.sent()
+        try Self.recordIssuingSend(id, in: container)
+        let gmail = InvoiceSenderTests.FakeGmail()
+
+        _ = await Self.resend(.reminder, id, in: container, gmail: gmail)
+
+        #expect(gmail.sent.first?.subject == "Re: " + Self.asItWent)
+        #expect(try Self.messages(id, in: container).last?.subject == "Re: " + Self.asItWent)
+    }
+
+    @Test("Remind opens the sheet on the subject the reminder will be sent under")
+    func thesheetShowsTheReplySubject() async throws {
+        let (container, id) = try Self.sent()
+        try Self.recordIssuingSend(id, in: container)
+
+        let review = try await Self.reviewer(container, settings: try Self.settingsFile())
+            .open(id, as: .reminder).get()
+
+        #expect(review.subject == "Re: " + Self.asItWent)
+    }
+
+    @Test("with no recorded first send, a reminder keeps its own subject, since there is no thread to join")
+    func areminderWithNoRecordKeepsItsSubject() {
+        #expect(InvoiceMailKind.reminder.subject(number: 1_123, shoots: ["Autumn Evensong"], onto: nil)
+                    == "Reminder: Invoice 1123, Autumn Evensong")
     }
 
     @Test("a reminder or a copy Gmail accepted is recorded, with who it went to and what Gmail reported",
@@ -376,6 +412,7 @@ struct InvoiceResendTests {
         let mail = try #require(gmail.sent.first)
         #expect(mail.threadId == nil)
         #expect(mail.inReplyTo == nil)
+        #expect(mail.subject.hasPrefix("Copy: Invoice 1123"), "a copy keeps its own subject")
     }
 
     /// AN INVOICE SENT BEFORE SENDS WERE RECORDED HAS NO THREAD TO REPLY ONTO, and none

@@ -336,7 +336,9 @@ enum OvationSchemaV6: VersionedSchema {
 /// Version 7: version 6 plus a record of every message Ovation sent about an
 /// invoice (ovation#596, PRD 51d).
 ///
-/// THE ONE DIFFERENCE IS AN ADDED ENTITY, `SentMessage`, and the optional to-many
+/// THE ONE DIFFERENCE IS AN ADDED ENTITY, `SentMessage` (its kind, who it went to,
+/// when, the subject it went under, and the Gmail thread and Message-ID as Gmail
+/// reported them), and the optional to-many
 /// `Invoice.sentMessages` that points at it. Before this a reminder or a copy
 /// wrote nothing, so the history could not list one and Dan could remind twice
 /// without seeing it; a settled send kept neither who it went to nor the Gmail

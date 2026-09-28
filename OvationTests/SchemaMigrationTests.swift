@@ -712,7 +712,7 @@ struct SchemaMigrationTests {
         // AND THE NEW ENTITY IS WRITABLE AND READ BACK THROUGH THE INVOICE.
         let reminder = SentMessage(kind: .reminder, recipients: ["office@calder.example"],
                                    sentAt: sentAt.addingTimeInterval(86_400),
-                                   gmailThreadID: "thread-9", messageID: "<m9@messages.example>")
+                                   subject: "Re: Invoice 1131", gmailThreadID: "thread-9", messageID: "<m9@messages.example>")
         context.insert(reminder)
         reminder.invoice = sent
         try context.save()
@@ -721,6 +721,7 @@ struct SchemaMigrationTests {
         #expect(again.sentMessages.map(\.kind) == [.reminder])
         #expect(again.sentMessages.first?.recipients == ["office@calder.example"])
         #expect(again.sentMessages.first?.gmailThreadID == "thread-9")
+        #expect(again.sentMessages.first?.subject == "Re: Invoice 1131")
         #expect(again.sentMessages.first?.messageID == "<m9@messages.example>")
     }
 

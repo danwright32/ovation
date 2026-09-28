@@ -249,6 +249,7 @@ struct InvoiceScreenShotTests {
                 ]
                 for (kind, to, offset) in sends {
                     let message = SentMessage(kind: kind, recipients: to, sentAt: day(offset),
+                                              subject: "Invoice 1123, Autumn Evensong",
                                               gmailThreadID: "thread-1123",
                                               messageID: "<\(offset)@messages.example>")
                     context.insert(message)

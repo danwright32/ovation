@@ -179,6 +179,7 @@ struct InvoiceSenderTests {
         #expect(message.sentAt == Self.later)
         #expect(message.sentOn == .stamping(Self.later))
         #expect(message.gmailThreadID == "thread-77")
+        #expect(message.subject == gmail.sent.first?.subject, "the subject as it went, which a reminder replies under")
         #expect(message.messageID == "<abc@messages.example>")
     }
 

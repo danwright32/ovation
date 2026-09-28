@@ -44,18 +44,24 @@ extension OvationSchemaV7 {
         /// When Gmail accepted it, and the day that was.
         var sentAt: Date = Date.distantPast
         var sentOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        /// The subject the message went under, exactly. A reminder is sent as "Re: "
+        /// and the issuing send's subject AS RECORDED HERE, never re-composed from the
+        /// invoice as it stands, because Gmail joins a reply to a thread only when the
+        /// subjects match (Dan, 2026-09-28).
+        var subject: String?
         /// The thread Gmail reported the message in, or nil where it did not say.
         var gmailThreadID: String?
         /// The Message-ID header Gmail stamped, or nil where it could not be read back.
         var messageID: String?
         var invoice: Invoice?
 
-        init(kind: SentMessageKind, recipients: [String], sentAt: Date,
+        init(kind: SentMessageKind, recipients: [String], sentAt: Date, subject: String?,
              gmailThreadID: String?, messageID: String?) {
             self.kind = kind
             self.recipients = recipients
             self.sentAt = sentAt
             self.sentOn = .stamping(sentAt)
+            self.subject = subject
             self.gmailThreadID = gmailThreadID
             self.messageID = messageID
         }

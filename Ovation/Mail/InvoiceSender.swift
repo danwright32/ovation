@@ -132,7 +132,8 @@ actor InvoiceSender {
         // an invoice cannot be recorded as sent without who it went to, or the other
         // way round; a save that fails loses both, and says so.
         return settle(invoice, as: .sent(route: .ovationSentIt, at: sentAt),
-                      recording: Self.message(.invoice, to: recipients, at: sentAt, receipt: receipt),
+                      recording: Self.message(.invoice, to: recipients, at: sentAt, subject: mail.subject,
+                                              receipt: receipt),
                       then: .sent(at: sentAt, to: recipients))
     }
 
@@ -140,10 +141,10 @@ actor InvoiceSender {
     /// REPORTED THEM (L127): a degraded one is nil, never the empty stand in the
     /// receipt carries, because a thread id of "" would be replied onto.
     private static func message(_ kind: SentMessageKind, to recipients: [String], at sentAt: Date,
-                                receipt: SentReceipt) -> SentMessage {
+                                subject: String, receipt: SentReceipt) -> SentMessage {
         let thread = receipt.threadId.trimmingCharacters(in: .whitespacesAndNewlines)
         let messageID = receipt.messageID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return SentMessage(kind: kind, recipients: recipients, sentAt: sentAt,
+        return SentMessage(kind: kind, recipients: recipients, sentAt: sentAt, subject: subject,
                            gmailThreadID: receipt.threadIdDegraded || thread.isEmpty ? nil : thread,
                            messageID: receipt.messageIDDegraded || (messageID ?? "").isEmpty ? nil : messageID)
     }
@@ -210,7 +211,8 @@ actor InvoiceSender {
                                               mimeType: "application/pdf", data: render.bytes),
               let mail = OutgoingMail(to: recipients,
                                       subject: kind.subject(number: number,
-                                                            shoots: invoice.shoots.map(\.name)),
+                                                            shoots: invoice.shoots.map(\.name),
+                                                            onto: invoice.issuingMessage),
                                       body: message, attachments: [attachment],
                                       inReplyTo: thread?.inReplyTo, references: thread?.references,
                                       threadId: thread?.threadId)
@@ -242,7 +244,8 @@ actor InvoiceSender {
         // history lists what went, never what was tried. Nothing else is written, so
         // the invoice's sent state is untouched whatever happens here.
         let sentAt = clock()
-        let record = Self.message(SentMessageKind(kind), to: recipients, at: sentAt, receipt: receipt)
+        let record = Self.message(SentMessageKind(kind), to: recipients, at: sentAt, subject: mail.subject,
+                                  receipt: receipt)
         modelContext.insert(record)
         record.invoice = invoice
         do {
@@ -349,12 +352,30 @@ enum InvoiceMailKind: Equatable, Hashable, Sendable, CaseIterable {
         }
     }
 
-    /// "Reminder: Invoice 1123, Autumn Evensong", the first send's subject with what
-    /// this message is put in front of it, so the client can tell the two apart.
-    func subject(number: Int64, shoots: [String]) -> String {
+    /// The subject this message goes under, asked by the review sheet and by the send
+    /// alike, so the sheet shows exactly what is sent (L64).
+    ///
+    /// A REMINDER REPLIES: "Re: " and the issuing send's subject exactly as it went,
+    /// read from its record rather than composed again (Dan, 2026-09-28), because Gmail
+    /// joins a message to a thread only when the subjects match, and an invoice's
+    /// shoots can be renamed after it went. Where no issuing send was recorded (an
+    /// invoice sent before schema version 7) there is no thread to join, so it keeps
+    /// its own "Reminder: Invoice 1123, Autumn Evensong".
+    ///
+    /// A COPY KEEPS ITS OWN, "Copy: Invoice 1123, Autumn Evensong", since it may go to
+    /// someone who was not on the first message.
+    ///
+    /// `issuing` HAS NO DEFAULT, so a caller cannot forget it and silently send a
+    /// reminder outside the thread (L168).
+    func subject(number: Int64, shoots: [String], onto issuing: SentMessage?) -> String {
         switch self {
-        case .reminder: return "Reminder: " + InvoiceMail.subject(number: number, shoots: shoots)
-        case .copy: return "Copy: " + InvoiceMail.subject(number: number, shoots: shoots)
+        case .reminder:
+            if let sent = issuing?.subject, !sent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "Re: " + sent
+            }
+            return "Reminder: " + InvoiceMail.subject(number: number, shoots: shoots)
+        case .copy:
+            return "Copy: " + InvoiceMail.subject(number: number, shoots: shoots)
         }
     }
 
