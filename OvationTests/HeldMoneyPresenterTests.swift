@@ -158,6 +158,32 @@ struct HeldMoneyPresenterTests {
         #expect(offer.invoice == invoice.persistentModelID)
     }
 
+    /// ovation#595, Dan 2026-09-27: "Hide it entirely". A draft still waiting on its
+    /// shoot times says nothing about held money, because its Use it could only be
+    /// refused (L109). It still counts as open, so its priced sibling still asks.
+    @Test("an unpriced draft shows no held money line or control, and its priced sibling does")
+    func anunpricedDraftSaysNothing() throws {
+        let world = try Self.world()
+        Self.holding(world, Money(dollars: 500))
+        let priced = Self.invoice(world)
+        let draft = Invoice(client: world.client, kind: .fromABooking, invoiceDate: Self.today,
+                            hourlyRate: Money(dollars: 250), taxRate: .newYorkCity,
+                            createdOn: Self.today)
+        world.context.insert(draft)
+        draft.add(Shoot(name: "Autumn Evensong", when: nil, venue: "St Anne's"))
+        try world.context.save()
+        #expect(try world.read(draft).isUnpriced, "the fixture has to be unpriced")
+
+        let unpriced = Self.present(try world.read(draft))
+        #expect(unpriced.money.allSatisfy { $0.offersHeld == nil && $0.takesOffHeld == nil })
+        #expect(!unpriced.money.contains { $0.label.contains("holding") || $0.label.contains("held") })
+
+        let asked = Self.present(try world.read(priced))
+        #expect(asked.money.first { $0.offersHeld != nil }?.offersHeld?.word == "Use it here")
+        #expect(asked.money.last?.label
+                == "2 invoices are open for this client, so it was not put on either.")
+    }
+
     @Test("with three open invoices the reason does not say either")
     func threeOpenSaysAnyOfThem() throws {
         let world = try Self.world()

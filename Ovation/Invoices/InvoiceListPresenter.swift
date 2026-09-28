@@ -105,7 +105,15 @@ final class InvoiceListPresenter {
             // invoices too. Only the invoices the money could actually settle
             // move, drafts among them since ovation#453, which is the same
             // predicate the set was counted over (L16).
-            let moves = read.isOpenForHeldMoney
+            //
+            // A DRAFT WITH NO PRICE YET STAYS WHERE IT IS (Dan, 2026-09-27,
+            // ovation#595: "Hide it entirely"). Its `Use it here` could only be
+            // refused, because nothing can go on an amount nobody knows (L109). It
+            // is still COUNTED above, so its client's other open invoice is still
+            // asked about rather than having the money put on it by itself (14j).
+            // The invoice screen draws no held money beneath a blank Total, for
+            // the same reason.
+            let moves = read.isOpenForHeldMoney && !invoice.isUnpriced
                 && (invoice.client.map { waiting.contains($0) } ?? false)
             let standing = InvoiceStanding(of: invoice, today: today,
                                            couldSettleMoreThanOne: moves)
