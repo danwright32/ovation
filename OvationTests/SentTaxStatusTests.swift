@@ -188,8 +188,8 @@ struct SentTaxStatusTests {
         _ = Self.invoice(context, client: .notExempt)
         try context.save()
 
-        #expect(try SentTaxStatusBackfill.run(in: context) == 2)
-        #expect(try SentTaxStatusBackfill.run(in: context) == 0)
+        #expect(try SentTaxStatusBackfill.run(in: context, as: Invoice.self) == 2)
+        #expect(try SentTaxStatusBackfill.run(in: context, as: Invoice.self) == 0)
         #expect(first.taxStatusWhenSent == .exempt)
         #expect(second.taxStatusWhenSent == .notExempt)
     }

@@ -207,7 +207,8 @@ final class InvoiceReviewer {
                 footer: footer, approvedRecipients: review.goingTo, through: route, clock: clock)
         }
         switch outcome {
-        case .sent(let at, let to): review.state = .sent(at: at, to: to)
+        case .sent(let at, let to, let notRecorded):
+            review.state = .sent(at: at, to: to, notRecorded: notRecorded)
         case .refused(let sentence): review.state = .refused(sentence)
         case .couldNotTell(let sentence): review.state = .couldNotTell(sentence)
         }
@@ -314,7 +315,8 @@ final class InvoiceReview: Identifiable {
 enum ReviewSendState: Equatable {
     case ready
     case working(since: Date)
-    case sent(at: Date, to: [String])
+    /// `notRecorded` is why the history will not show a reminder or a copy that went.
+    case sent(at: Date, to: [String], notRecorded: String? = nil)
     case refused(String)
     case couldNotTell(String)
 }

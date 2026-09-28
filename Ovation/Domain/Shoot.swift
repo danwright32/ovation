@@ -28,7 +28,7 @@ enum ShootTimesMissing: String, CaseIterable, Hashable, Sendable {
     case start
 }
 
-extension OvationSchemaV6 {
+extension OvationSchemaV7 {
     @Model
     final class Shoot {
         var id: UUID = UUID()
@@ -141,4 +141,4 @@ extension OvationSchemaV6 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a newer version exists, this line moves to it and
 // every call site is already correct.
-typealias Shoot = OvationSchemaV6.Shoot
+typealias Shoot = OvationSchemaV7.Shoot

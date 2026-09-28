@@ -170,7 +170,7 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
 
 }
 
-extension OvationSchemaV6 {
+extension OvationSchemaV7 {
     @Model
     final class Invoice {
         /// Ovation's own identity, minted fresh and never derived from anything
@@ -290,6 +290,24 @@ extension OvationSchemaV6 {
 
         @Relationship(deleteRule: .cascade, inverse: \Refund.invoice)
         var refunds: [Refund] = []
+
+        /// Every message Ovation sent about this invoice and Gmail accepted
+        /// (ovation#596, schema version 7). EMPTY ON EVERY INVOICE SENT BEFORE
+        /// VERSION 7, and empty is the truth: those sends were not recorded.
+        @Relationship(deleteRule: .cascade, inverse: \SentMessage.invoice)
+        var sentMessages: [SentMessage] = []
+
+        /// The messages in the order they went, never the store's order (L343).
+        var orderedSentMessages: [SentMessage] {
+            sentMessages.sorted { ($0.sentAt, $0.id.uuidString) < ($1.sentAt, $1.id.uuidString) }
+        }
+
+        /// The send that issued this invoice, where Ovation recorded it: what a
+        /// reminder replies onto. Nil for an invoice sent before version 7 or found
+        /// in the mailbox, which Ovation did not record.
+        var issuingMessage: SentMessage? {
+            orderedSentMessages.last { $0.kind == .invoice }
+        }
 
         /// `createdOn` HAS NO DEFAULT, deliberately. Each constructor has to say
         /// what day it is creating on, because a default would let one that forgot
@@ -458,24 +476,12 @@ extension OvationSchemaV6 {
             }
         }
 
-        /// Records the client's status as the one this invoice went out under, where
-        /// it has gone out and nothing is recorded yet. Returns whether it recorded
-        /// anything.
-        ///
-        /// SHARED BY THE SEND AND BY THE STAGE THAT CARRIED EVERY EARLIER SENT
-        /// INVOICE INTO VERSION 6 (`SentTaxStatusBackfill`), so the two cannot come
-        /// to disagree about which invoices count as gone out (L370). It never
-        /// overwrites, so running it again changes nothing it already did.
-        func stampSentTaxStatusIfMissing() -> Bool {
-            guard sentStatus != .notSent, taxStatusWhenSent == nil else { return false }
+        /// The client's recorded status, which `SentTaxStamping` stamps from
+        /// (ovation#482). The rule itself lives on that protocol, shared with the
+        /// stage that carried version 5's sent invoices into version 6.
+        var clientTaxStatus: TaxStatus? {
             let client = self.client
-            // NEVER THE ABSENCE OF AN ANSWER (review of ovation#600): a stamp of it
-            // would stick, while the invoice screen hides the tax row for it. The
-            // send gate refuses such a client, so only a route around the gate could
-            // reach here, and it records nothing and goes on reading the client.
-            guard let status = client?.taxStatus, status != .neverRecorded else { return false }
-            taxStatusWhenSent = status
-            return true
+            return client?.taxStatus
         }
 
         var total: Money { taxableAmount + tax }
@@ -667,4 +673,6 @@ extension OvationSchemaV6 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a newer version exists, this line moves to it and
 // every call site is already correct.
-typealias Invoice = OvationSchemaV6.Invoice
+typealias Invoice = OvationSchemaV7.Invoice
+
+extension OvationSchemaV7.Invoice: SentTaxStamping {}

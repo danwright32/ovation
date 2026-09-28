@@ -30,9 +30,10 @@ enum OvationSchema {
         Refund.self,
         Expense.self,
         ReferralLedgerEntry.self,
+        SentMessage.self,
     ]
 
-    static var schema: Schema { Schema(models, version: OvationSchemaV6.versionIdentifier) }
+    static var schema: Schema { Schema(models, version: OvationSchemaV7.versionIdentifier) }
 
     /// Today's shape, with a NAME (ovation#105).
     ///
@@ -46,7 +47,7 @@ enum OvationSchema {
     ///
     /// It delegates to `models` rather than repeating the list, so the two
     /// cannot drift into disagreement about what the store holds (L41).
-    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV6.self }
+    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV7.self }
 
     /// A container over a store file, or an in memory one for tests.
     ///
@@ -307,23 +308,64 @@ enum OvationSchemaV5: VersionedSchema {
 /// status never recorded), and the send gate refuses a client whose status was
 /// never recorded, so no invoice went out before its client's answer existed.
 ///
-/// ITS TYPES ARE THE APP'S OWN, in `Ovation/Domain`, declared in extensions of
-/// THIS version with a `typealias` in each file pointing the bare name here. That
-/// is what makes "the shape in force" and "version 6" one thing rather than two
-/// that can drift.
-///
-/// WHAT THE NEXT VERSION COSTS, said here so it is not rediscovered. Version 7
-/// means taking a frozen copy of these ten classes the way the five shape files
-/// hold versions 1 to 5, because a version cannot reuse another's types for
-/// anything it is related to. That is measured rather than assumed; the
-/// measurement and its error message are on `OvationSchemaV1.models`.
+/// ITS CLASSES ARE IN `OvationSchemaV6Shape.swift`, frozen, moved there the day
+/// version 7 existed (ovation#596), for the reason every older version's were.
+/// VERSION 6 WAS WRITTEN TO DISK by the installed app, so its frozen copy is held
+/// to the fingerprint `SchemaFingerprintTests` pinned rather than to anybody's
+/// reading.
 enum OvationSchemaV6: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(6, 0, 0) }
 
     /// What version 6 holds, said by version 6.
     ///
+    /// NOT `OvationSchema.models`, for the reason version 1's list records.
+    static var models: [any PersistentModel.Type] { [
+        Client.self,
+        Invoice.self,
+        Shoot.self,
+        LineItem.self,
+        ServiceType.self,
+        Payment.self,
+        PaymentAllocation.self,
+        Refund.self,
+        Expense.self,
+        ReferralLedgerEntry.self,
+    ] }
+}
+
+/// Version 7: version 6 plus a record of every message Ovation sent about an
+/// invoice (ovation#596, PRD 51d).
+///
+/// THE ONE DIFFERENCE IS AN ADDED ENTITY, `SentMessage`, and the optional to-many
+/// `Invoice.sentMessages` that points at it. Before this a reminder or a copy
+/// wrote nothing, so the history could not list one and Dan could remind twice
+/// without seeing it; a settled send kept neither who it went to nor the Gmail
+/// thread it started, so a reminder could not reply onto it.
+///
+/// ITS STAGE IS LIGHTWEIGHT, and nothing is filled in for rows already there. An
+/// invoice sent before this version arrives with no message recorded, and that is
+/// the truth: who it went to and which thread it started were never kept, and a
+/// row drawn from the client's addresses today would be a different fact that can
+/// have changed since (L192, L443). `SchemaMigrationTests` carries a real version
+/// 6 store across and reads every row back.
+///
+/// ITS TYPES ARE THE APP'S OWN, in `Ovation/Domain`, declared in extensions of
+/// THIS version with a `typealias` in each file pointing the bare name here. That
+/// is what makes "the shape in force" and "version 7" one thing rather than two
+/// that can drift.
+///
+/// WHAT THE NEXT VERSION COSTS, said here so it is not rediscovered. Version 8
+/// means taking a frozen copy of these eleven classes the way the six shape files
+/// hold versions 1 to 6, because a version cannot reuse another's types for
+/// anything it is related to. That is measured rather than assumed; the
+/// measurement and its error message are on `OvationSchemaV1.models`.
+enum OvationSchemaV7: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(7, 0, 0) }
+
+    /// What version 7 holds, said by version 7.
+    ///
     /// NOT `OvationSchema.models`, for the reason version 1's list records. This
-    /// one and the app's list DO agree today, because version 6 is the shape in
+    /// one and the app's list DO agree today, because version 7 is the shape in
     /// force, and `check-schema-registered.sh` holds the NEWEST version to the app
     /// for exactly that reason.
     static var models: [any PersistentModel.Type] { [
@@ -337,6 +379,7 @@ enum OvationSchemaV6: VersionedSchema {
         Refund.self,
         Expense.self,
         ReferralLedgerEntry.self,
+        SentMessage.self,
     ] }
 }
 
@@ -365,7 +408,7 @@ enum OvationSchemaV6: VersionedSchema {
 enum OvationMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [OvationSchemaV1.self, OvationSchemaV2.self, OvationSchemaV3.self, OvationSchemaV4.self,
-         OvationSchemaV5.self, OvationSchemaV6.self]
+         OvationSchemaV5.self, OvationSchemaV6.self, OvationSchemaV7.self]
     }
 
     /// THE FIRST FOUR ARE LIGHTWEIGHT, AND THAT IS A MEASUREMENT RATHER THAN A HOPE.
@@ -388,7 +431,13 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
             // real version 5 store across and reads the field back.
             .custom(fromVersion: OvationSchemaV5.self, toVersion: OvationSchemaV6.self,
                     willMigrate: nil,
-                    didMigrate: { context in try SentTaxStatusBackfill.run(in: context) }),
+                    didMigrate: { context in
+                        try SentTaxStatusBackfill.run(in: context, as: OvationSchemaV6.Invoice.self)
+                    }),
+            // AN ADDED ENTITY AND AN OPTIONAL RELATIONSHIP TO IT (ovation#596), so
+            // lightweight, and nothing is filled: see `OvationSchemaV7`.
+            // `SchemaMigrationTests` carries a real version 6 store across.
+            .lightweight(fromVersion: OvationSchemaV6.self, toVersion: OvationSchemaV7.self),
         ]
     }
 }
@@ -404,15 +453,59 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
 /// IT FILLS ONLY WHAT IS EMPTY AND ONLY WHAT WENT OUT, so running it twice changes
 /// nothing the first run did (a migration that crashed part way can be re-run),
 /// and a draft is left reading its client, which is what a draft is for.
+///
+/// IT NAMES THE INVOICE TYPE IT RUNS OVER (ovation#596). The stage runs inside a
+/// version 6 store, whose invoice is `OvationSchemaV6.Invoice` once version 7 is in
+/// force, and a fetch of the app's own `Invoice` there dies casting the model (the
+/// measurement on `OvationSchemaV1.models`). So the stage names version 6's type
+/// and both types answer one rule, `SentTaxStamping.stampSentTaxStatusIfMissing`,
+/// rather than two copies of it (L370).
 enum SentTaxStatusBackfill {
     /// Returns how many invoices it stamped, so a caller can say so.
     @discardableResult
-    static func run(in context: ModelContext) throws -> Int {
+    static func run<Row: SentTaxStamping>(in context: ModelContext, as row: Row.Type) throws -> Int {
         var stamped = 0
-        for invoice in try context.fetch(FetchDescriptor<Invoice>()) {
+        for invoice in try context.fetch(FetchDescriptor<Row>()) {
             if invoice.stampSentTaxStatusIfMissing() { stamped += 1 }
         }
         if stamped > 0 { try context.save() }
         return stamped
+    }
+}
+
+/// The one rule for which invoices are stamped with the status they went out
+/// under, asked of any version's invoice that carries the field (ovation#482).
+protocol SentTaxStamping: PersistentModel {
+    var sentStatus: SentStatus { get }
+    var taxStatusWhenSent: TaxStatus? { get set }
+    /// The client's recorded status, or nil where there is no client.
+    var clientTaxStatus: TaxStatus? { get }
+}
+
+extension SentTaxStamping {
+    /// Records the client's status as the one this invoice went out under, where
+    /// it has gone out and nothing is recorded yet. Returns whether it recorded
+    /// anything.
+    ///
+    /// SHARED BY THE SEND AND BY THE STAGE THAT CARRIED EVERY EARLIER SENT
+    /// INVOICE INTO VERSION 6 (`SentTaxStatusBackfill`), so the two cannot come
+    /// to disagree about which invoices count as gone out (L370). It never
+    /// overwrites, so running it again changes nothing it already did.
+    func stampSentTaxStatusIfMissing() -> Bool {
+        guard sentStatus != .notSent, taxStatusWhenSent == nil else { return false }
+        // NEVER THE ABSENCE OF AN ANSWER (review of ovation#600): a stamp of it
+        // would stick, while the invoice screen hides the tax row for it. The
+        // send gate refuses such a client, so only a route around the gate could
+        // reach here, and it records nothing and goes on reading the client.
+        guard let status = clientTaxStatus, status != .neverRecorded else { return false }
+        taxStatusWhenSent = status
+        return true
+    }
+}
+
+extension OvationSchemaV6.Invoice: SentTaxStamping {
+    var clientTaxStatus: TaxStatus? {
+        let client = self.client
+        return client?.taxStatus
     }
 }

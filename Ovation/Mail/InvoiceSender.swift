@@ -114,8 +114,9 @@ actor InvoiceSender {
         }
 
         // 3. GMAIL, and the answer by its class.
+        let receipt: SentReceipt
         do {
-            _ = try await sender.send(mail)
+            receipt = try await sender.send(mail)
         } catch let refusal as GmailSendError {
             return settle(invoice, as: .notSent, then: .refused(Self.sentence(for: refusal)))
         } catch let refusal as MailSenderError {
@@ -127,21 +128,49 @@ actor InvoiceSender {
         }
 
         let sentAt = clock()
+        // THE MESSAGE IS RECORDED IN THE SAME SAVE AS THE SENT STATE (ovation#596), so
+        // an invoice cannot be recorded as sent without who it went to, or the other
+        // way round; a save that fails loses both, and says so.
         return settle(invoice, as: .sent(route: .ovationSentIt, at: sentAt),
+                      recording: Self.message(.invoice, to: recipients, at: sentAt, receipt: receipt),
                       then: .sent(at: sentAt, to: recipients))
+    }
+
+    /// The record of one message Gmail accepted, with the identifiers AS GMAIL
+    /// REPORTED THEM (L127): a degraded one is nil, never the empty stand in the
+    /// receipt carries, because a thread id of "" would be replied onto.
+    private static func message(_ kind: SentMessageKind, to recipients: [String], at sentAt: Date,
+                                receipt: SentReceipt) -> SentMessage {
+        let thread = receipt.threadId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let messageID = receipt.messageID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SentMessage(kind: kind, recipients: recipients, sentAt: sentAt,
+                           gmailThreadID: receipt.threadIdDegraded || thread.isEmpty ? nil : thread,
+                           messageID: receipt.messageIDDegraded || (messageID ?? "").isEmpty ? nil : messageID)
+    }
+
+    /// What a reminder is threaded with: the send that issued the invoice, where
+    /// Ovation recorded both its thread and its Message-ID (ovation#596). An invoice
+    /// sent before version 7 has neither, and its reminder starts a thread of its own
+    /// rather than replying onto a guess.
+    static func threading(_ kind: InvoiceMailKind,
+                          onto issuing: SentMessage?) -> (threadId: String, inReplyTo: String, references: String?)? {
+        guard kind == .reminder, let issuing,
+              let thread = issuing.gmailThreadID, let parent = issuing.messageID else { return nil }
+        return (thread, parent, MailThreading.references(parentReferences: nil, parentMessageID: parent))
     }
 
     /// ovation#548. A sent invoice going out again, as a reminder or a copy, through the
     /// same Gmail route as the first send.
     ///
-    /// THE FIRST SEND'S REFUSALS, IN THE FIRST SEND'S ORDER, and then NOTHING WRITTEN.
-    /// The invoice's sent state records the send that ISSUED it, which is what the
-    /// accrual basis and the number sequence rest on (PRD 24, 10c); a reminder is a
-    /// second message about a document the client already holds, so it must never
-    /// move that state, take or hand back a number, or leave an attempt behind. With
-    /// nothing written there is nothing to write before the call either, so an
+    /// THE FIRST SEND'S REFUSALS, IN THE FIRST SEND'S ORDER, and then NOTHING WRITTEN
+    /// until Gmail has accepted it. The invoice's sent state records the send that
+    /// ISSUED it, which is what the accrual basis and the number sequence rest on
+    /// (PRD 24, 10c); a reminder is a second message about a document the client
+    /// already holds, so it must never move that state, take or hand back a number,
+    /// or leave an attempt behind. So nothing is written before the call, and an
     /// unanswered reminder is said and left: Ovation cannot tell whether it went, and
-    /// Gmail's Sent folder can.
+    /// Gmail's Sent folder can. Once Gmail accepts, ONE row is written, the
+    /// `SentMessage` the history lists (ovation#596), and nothing else.
     func resend(_ invoiceID: PersistentIdentifier, as kind: InvoiceMailKind, render: RenderedInvoice,
                 message: String, settings: SendingSettings, footer: InvoiceFooter,
                 approvedRecipients: [String], through route: SendingRoute,
@@ -174,12 +203,17 @@ actor InvoiceSender {
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .refused(InvoiceMail.emptyMessage)
         }
+        // A REMINDER REPLIES ONTO THE SEND THAT ISSUED THE INVOICE, where Ovation
+        // recorded it (ovation#596); a copy starts its own thread.
+        let thread = Self.threading(kind, onto: invoice.issuingMessage)
         guard let attachment = MailAttachment(filename: InvoiceMail.filename(number: number),
                                               mimeType: "application/pdf", data: render.bytes),
               let mail = OutgoingMail(to: recipients,
                                       subject: kind.subject(number: number,
                                                             shoots: invoice.shoots.map(\.name)),
-                                      body: message, attachments: [attachment])
+                                      body: message, attachments: [attachment],
+                                      inReplyTo: thread?.inReplyTo, references: thread?.references,
+                                      threadId: thread?.threadId)
         else {
             return .refused("The message could not be put together, so nothing was sent.")
         }
@@ -194,8 +228,9 @@ actor InvoiceSender {
         if let unavailable = await route.ready() {
             return .refused(unavailable.sentence)
         }
+        let receipt: SentReceipt
         do {
-            _ = try await sender.send(mail)
+            receipt = try await sender.send(mail)
         } catch let refusal as GmailSendError {
             return .refused(Self.resentSentence(for: refusal))
         } catch let refusal as MailSenderError {
@@ -203,7 +238,24 @@ actor InvoiceSender {
         } catch {
             return .couldNotTell("Gmail did not answer (\(error.localizedDescription)), so Ovation cannot tell whether the \(kind.noun) went. Look in Gmail's Sent folder before sending it again.")
         }
-        return .sent(at: clock(), to: recipients)
+        // RECORDED ONLY NOW, once Gmail accepted it (ovation#596, PRD 10c): the
+        // history lists what went, never what was tried. Nothing else is written, so
+        // the invoice's sent state is untouched whatever happens here.
+        let sentAt = clock()
+        let record = Self.message(SentMessageKind(kind), to: recipients, at: sentAt, receipt: receipt)
+        modelContext.insert(record)
+        record.invoice = invoice
+        do {
+            try modelContext.save()
+        } catch {
+            // IT WENT, and that is said first; what failed is only the record of it
+            // (L12). Rolled back so a half written record is not saved by the next
+            // write.
+            modelContext.rollback()
+            return .sent(at: sentAt, to: recipients,
+                         notRecorded: InvoiceMail.notRecorded(kind.noun, error.localizedDescription))
+        }
+        return .sent(at: sentAt, to: recipients)
     }
 
     /// Gmail's refusals of a reminder or a copy, which say nothing about a draft: the
@@ -222,9 +274,13 @@ actor InvoiceSender {
     /// Records how the attempt ended. A save that fails AFTER Gmail accepted leaves the
     /// invoice attempting, which is the honest state: it went, and Ovation could not write
     /// that down, so it needs a person rather than a guess (L12).
-    private func settle(_ invoice: Invoice, as status: SentStatus,
+    private func settle(_ invoice: Invoice, as status: SentStatus, recording message: SentMessage? = nil,
                         then outcome: InvoiceSendOutcome) -> InvoiceSendOutcome {
         invoice.recordSendState(status)
+        if let message {
+            modelContext.insert(message)
+            message.invoice = invoice
+        }
         do {
             try modelContext.save()
             return outcome
@@ -258,7 +314,9 @@ struct SendingRoute: Sendable {
 /// How one press of Send ended. Three answers, because they need three different things
 /// from Dan (L11): nothing, nothing but a retry, and a decision only he can make.
 enum InvoiceSendOutcome: Equatable, Sendable {
-    case sent(at: Date, to: [String])
+    /// It went. `notRecorded` says why the history will not show it, where a reminder
+    /// or a copy went and its record could not be saved (ovation#596).
+    case sent(at: Date, to: [String], notRecorded: String? = nil)
     /// Nothing was sent, and the invoice is still a draft.
     case refused(String)
     /// It may have gone. The invoice is left attempting.
@@ -300,8 +358,9 @@ enum InvoiceMailKind: Equatable, Hashable, Sendable, CaseIterable {
         }
     }
 
-    /// What the sheet says once Gmail accepted. It names no record, because nothing
-    /// was recorded (the first send's line says "recorded against invoice N").
+    /// What the sheet says once Gmail accepted. It names no invoice number, which the
+    /// first send's line does ("recorded against invoice N"), because a reminder
+    /// issues nothing; it is recorded in the invoice's history instead (ovation#596).
     func sentLine(time: String, to recipients: [String]) -> String {
         let heading = self == .reminder ? "Reminder" : "Copy"
         return "\(heading) sent at \(time) to \(recipients.joined(separator: ", "))."
@@ -356,6 +415,12 @@ enum InvoiceMail {
     /// Text interpolating an integer groups it, and "invoice 1,123" names nothing issued.
     static func sentLine(time: String, to recipients: [String], number: Int64) -> String {
         "Sent at \(time) to \(recipients.joined(separator: ", ")), and recorded against invoice \(String(number))."
+    }
+
+    /// Said beneath a reminder or a copy that went when its record could not be saved,
+    /// so the history's silence about it is explained rather than believed (L12).
+    static func notRecorded(_ noun: String, _ reason: String) -> String {
+        "Ovation could not add this \(noun) to the invoice's history (\(reason)), so the history will not show it."
     }
 
     /// The design record's one sentence for an empty message (Dan, 2026-09-09).
