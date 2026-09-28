@@ -147,7 +147,7 @@ struct InvoiceStandingTests {
             for ending in endings {
                 let context = try Self.store()
                 let invoice = Self.unpriced(context)
-                invoice.sentStatus = sent
+                invoice.recordSendState(sent)
                 invoice.closure = ending
                 let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
                                                couldSettleMoreThanOne: false)
