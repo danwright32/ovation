@@ -88,9 +88,9 @@ enum BackupPlan {
     ///
     /// CHANGING THIS LIST IS A NEW PLAN VERSION (ovation#610). Archives written
     /// under the list as it stands are judged by it for as long as they are kept,
-    /// so it is frozen into `earlierRevisions` in BackupPlanHistory.swift before
-    /// it changes. That file's header says how, and BackupPlanHistoryTests fails
-    /// until it is done.
+    /// so every change, to any field of any member, is frozen as a new entry in
+    /// `frozenRevisions` in BackupPlanHistory.swift. That file's header says how,
+    /// and BackupPlanHistoryTests fails until it is done.
     static let members: [BackupMember] = [
         // Built.
         //

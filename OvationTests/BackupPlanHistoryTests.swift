@@ -101,6 +101,25 @@ struct BackupPlanHistoryTests {
                 "BackupPlan.members changed without a new plan version and a committed manifest of it")
     }
 
+    /// THE SAME GUARD OVER EVERY FIELD, not only what a manifest records. The
+    /// test above compares paths and recorded words, so a member promoted from
+    /// present sometimes to required while it happens to be present, a changed
+    /// restore policy or an edited reason all passed it (L247). Today's list must
+    /// equal the newest frozen plan member for member, every field compared
+    /// through `BackupMember`'s own equality, so any change that is not a new
+    /// plan version fails here.
+    @Test("today's plan is exactly the newest frozen plan, every field of every member")
+    func todaysPlanIsTheNewestFrozenPlan() throws {
+        let newest = try #require(BackupPlan.revisions.last)
+        #expect(newest.version == BackupPlan.version)
+        #expect(newest.day == BackupPlan.versionDay)
+        #expect(BackupPlan.members.count == newest.members.count)
+        for (today, frozen) in zip(BackupPlan.members, newest.members) {
+            #expect(today == frozen,
+                    "\(today.path) differs from plan version \(newest.version): a change to BackupPlan.members is a new plan version")
+        }
+    }
+
     /// The bookkeeping the guard above relies on: the versions are the whole run
     /// from 1 to today's, in the order they reached main, and every one has its
     /// committed manifest, so no version can be judged without a fixture.

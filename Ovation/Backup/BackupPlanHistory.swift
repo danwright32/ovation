@@ -9,18 +9,21 @@
 // rule changed; the archives did not.
 //
 // A VERSION IS IMMUTABLE ONCE ARCHIVES EXIST UNDER IT (L1010). Changing
-// `BackupPlan.members` is therefore a new version: the list as it stood is copied
-// into `earlierRevisions` below, unchanged, `version` goes up by one, `versionDay`
+// `BackupPlan.members` in any field, a path, a requirement, a restore policy or a
+// reason, is therefore a new version: the new list is frozen below as the next
+// entry in `frozenRevisions`, whole, `version` goes up by one, `versionDay`
 // becomes the day the change merges, and a manifest of the new plan is committed
 // under OvationTests/Fixtures/backup-manifests. BackupPlanHistoryTests fails until
-// all of that is done, because it takes a backup today and compares it with the
-// newest committed manifest.
+// all of that is done: it compares `BackupPlan.members` with the newest frozen
+// plan field for field, and takes a backup today and compares it with the newest
+// committed manifest.
 //
 // THE REVISIONS BELOW ARE COPIED FROM THE PLAN'S OWN HISTORY IN GIT, one per
-// commit that changed the list: 108cb40, 2c5ced0, 4058a4c, 7a5fd20, bdfcf74 and
-// 69ca8b7. Only what the verifier reads is carried, each member's path, kind and
-// expectation; what a restore does is today's plan's business, and restore asks
-// today's plan (`BackupPlan.restorePolicy(of:)`).
+// commit that changed the list: 108cb40, 2c5ced0, 4058a4c, 7a5fd20, bdfcf74,
+// 69ca8b7 and daa2386. Versions 1 to 6 carry what the verifier reads, each
+// member's path, kind and expectation; what a restore does is today's plan's
+// business, and restore asks today's plan (`BackupPlan.restorePolicy(of:)`).
+// Today's version is frozen whole, so the guard can compare every field.
 import Foundation
 
 /// One version of what a backup contains.
@@ -79,12 +82,17 @@ extension BackupPlan {
     /// The day version 7 reached main: #573, which added the launch backup record.
     static let versionDay = "2026-09-26"
 
+    /// Today's plan, as `members` declares it. Only a fallback, for a manifest
+    /// no frozen plan explains; BackupPlanHistoryTests holds it equal to the
+    /// newest frozen plan, field for field.
     static var current: BackupPlanRevision {
         BackupPlanRevision(version: version, day: versionDay, members: members)
     }
 
-    /// Every version, oldest first, today's last.
-    static var revisions: [BackupPlanRevision] { earlierRevisions + [current] }
+    /// Every version, oldest first, today's last, each FROZEN rather than read
+    /// from `members`. Deriving today's from `members` made the guard that
+    /// compares the two compare a list with itself (L70).
+    static var revisions: [BackupPlanRevision] { frozenRevisions }
 
     /// The plan a manifest was written under.
     ///
@@ -115,9 +123,9 @@ extension BackupPlan {
     private static let noProblemYet = "absent until the first problem has been recorded"
     private static let noBookingYet = "absent until Downbeat has queued its first booking"
 
-    /// Versions 1 to 6, frozen. Never edited: an archive written under one of
-    /// them is judged by it for as long as the archive is kept.
-    static let earlierRevisions: [BackupPlanRevision] = [
+    /// Every version, frozen. Never edited: an archive written under one of them
+    /// is judged by it for as long as the archive is kept.
+    static let frozenRevisions: [BackupPlanRevision] = [
         // 108cb40, the first plan.
         .init(version: 1, day: "2026-09-06", members: [
             .init(path: "problems.jsonl", kind: .file, expectation: .required),
@@ -201,6 +209,34 @@ extension BackupPlan {
             .init(path: "booking-queue", kind: .directory, expectation: .presentSometimes(reason: noBookingYet)),
             .init(path: "downbeat-queued-bookings.json", kind: .file,
                   expectation: .presentSometimes(reason: noBookingYet)),
+        ]),
+        // daa2386 (#573, ovation#557): the launch backup record. TODAY'S PLAN,
+        // frozen whole, restore policies and reasons included, because
+        // BackupPlanHistoryTests compares `BackupPlan.members` with it field for
+        // field. Literal paths rather than the constants the plan uses, so
+        // renaming a constant cannot rewrite a frozen plan.
+        .init(version: 7, day: "2026-09-26", members: [
+            .init(path: "problems.jsonl", kind: .file, expectation: .presentSometimes(reason: noProblemYet)),
+            .init(path: "documents", kind: .directory, expectation: .required),
+            .init(path: "custody", kind: .directory, expectation: .required),
+            .init(path: "Ovation.store", kind: .file, expectation: .required),
+            .init(path: "Ovation.store.version", kind: .file, expectation: .required),
+            .init(path: "export-runs.jsonl", kind: .file, expectation: .presentSometimes(reason: noExportYet)),
+            .init(path: "launch-backups.jsonl", kind: .file,
+                  expectation: .presentSometimes(reason: "absent until the first launch that backs up")),
+            .init(path: "Ovation.store-wal", kind: .file, expectation: .presentSometimes(reason: checkpointed)),
+            .init(path: "Ovation.store-shm", kind: .file, expectation: .presentSometimes(reason: checkpointed)),
+            .init(path: "consumed-bookings.jsonl", kind: .file, expectation: .notYetBuilt(issue: "ovation#31")),
+            .init(path: "consumed-messages.jsonl", kind: .file, expectation: .notYetBuilt(issue: "ovation#79")),
+            .init(path: "booking-queue", kind: .directory, expectation: .presentSometimes(reason: noBookingYet),
+                  restore: .addMissingBookings),
+            .init(path: "downbeat-queued-bookings.json", kind: .file,
+                  expectation: .presentSometimes(reason: noBookingYet),
+                  restore: .neverRestored(
+                    reason: "Downbeat's own file, rewritten by Downbeat at every commit, so an "
+                        + "older copy put back would erase every booking it recorded since, "
+                        + "and the reconciliation reads it as its independent record of what "
+                        + "was handed over (Dan, 2026-09-12)")),
         ]),
     ]
 }
