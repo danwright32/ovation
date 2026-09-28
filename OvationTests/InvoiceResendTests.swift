@@ -71,11 +71,12 @@ struct InvoiceResendTests {
                                in container: ModelContainer,
                                gmail: InvoiceSenderTests.FakeGmail,
                                approved: [String] = ["booker@client.example"],
+                               footer: InvoiceFooter = .fixed,
                                readiness: InvoiceSenderTests.Readiness = .init()) async -> InvoiceSendOutcome {
         let answeredAt = later
         return await InvoiceSender(modelContainer: container).resend(
             id, as: kind, render: render(), message: "Hello,\n\nA reminder.\n\nThank you,\nDan",
-            settings: settings, footer: .fixed, approvedRecipients: approved,
+            settings: settings, footer: footer, approvedRecipients: approved,
             through: readiness.route(gmail), clock: { answeredAt })
     }
 
@@ -132,6 +133,25 @@ struct InvoiceResendTests {
 
         #expect(outcome == .refused(InvoiceMailKind.reminderPaidInFull))
         #expect(gmail.sent.isEmpty)
+    }
+
+    /// THE REVIEW GATE IS ASKED AGAIN AT THE PRESS (L567): Settings emptied of its
+    /// payment instructions after the invoice was sent stops a reminder too, because the
+    /// page it attaches would no longer say how to pay.
+    @Test("the review gate refuses a reminder at the press, before Gmail is made ready")
+    func thegateRefuses() async throws {
+        let (container, id) = try Self.sent()
+        let gmail = InvoiceSenderTests.FakeGmail()
+        let readiness = InvoiceSenderTests.Readiness()
+        let fixed = InvoiceFooter.fixed
+        let emptied = InvoiceFooter(payment: "", note: fixed.note, contact: fixed.contact)
+
+        let outcome = await Self.resend(.reminder, id, in: container, gmail: gmail,
+                                        footer: emptied, readiness: readiness)
+
+        #expect(outcome == .refused(ReviewGate.sentence(for: .paymentInstructionsNotSet)))
+        #expect(gmail.sent.isEmpty)
+        #expect(readiness.calls == 0)
     }
 
     @Test("who it goes to changed after the sheet opened, so nothing goes")
