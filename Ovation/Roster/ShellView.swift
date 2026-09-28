@@ -181,8 +181,17 @@ struct ShellView: View {
     var body: some View {
         HStack(spacing: 0) {
             rail
-            content
+            VStack(spacing: 0) {
+                titleBar
+                content
+            }
         }
+        // THE RAIL RUNS TO THE TOP OF THE WINDOW (ovation#593, the design record's
+        // window top). The title bar is transparent, so the rail carries the traffic
+        // lights and `titleBar` is the chrome over the content. The rail's 34 point
+        // top padding was always the design's room for the traffic lights; it sat
+        // under a system title bar only because this never reached the top.
+        .ignoresSafeArea(.container, edges: .top)
         // THE MINIMUM IS HALF DAN'S SCREEN (ovation#110), from `OvationWindow`,
         // which the design record's check reads too. It was a literal 900 here,
         // chosen rather than measured and wider than the half screen he uses.
@@ -291,6 +300,23 @@ struct ShellView: View {
             if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
             publishWhatIsOpen()
         }
+    }
+
+    // MARK: the title bar
+
+    /// The design record's `.titlebar`: 38 points of `--chrome` over the content,
+    /// ending in a one point `--rule`, with no title (ovation#123). It draws nothing
+    /// else and is not a control, so a screen reader skips it and reads the
+    /// window's own hidden title instead.
+    static let titleBarHeight: CGFloat = 38
+
+    private var titleBar: some View {
+        OvationPalette.chrome
+            .frame(height: Self.titleBarHeight)
+            .overlay(alignment: .bottom) {
+                OvationPalette.rule.frame(height: 1)
+            }
+            .accessibilityHidden(true)
     }
 
     // MARK: the rail

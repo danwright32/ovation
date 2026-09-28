@@ -109,8 +109,17 @@ extension View {
     /// environment set it painted a black page under text the environment had made
     /// near black. So the window a screen lands in is pinned to light as well, from
     /// the screen, which means a window added later needs nothing of its own.
+    ///
+    /// AND A WINDOW SWIFTUI MAKES IS ASKED IN SWIFTUI'S OWN TERMS (ovation#593).
+    /// The main window is the `Window` scene's, and SwiftUI sets that window's
+    /// appearance from the preferred colour scheme of what it holds. The AppKit pin
+    /// alone did not hold there: measured in the test host with the pin at the
+    /// window's root, the window and its title bar still resolved dark, which is
+    /// the dark title bar Dan saw. So the preference is stated as well, and the
+    /// pin stays for the windows macOS makes (Settings, ovation#475).
     func ovationAppearance() -> some View {
         environment(\.colorScheme, .light)
+            .preferredColorScheme(.light)
             .background(LightWindowPin())
     }
 }

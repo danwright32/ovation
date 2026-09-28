@@ -244,6 +244,54 @@ struct InvoiceListPresenterTests {
         #expect(list.bands.count == 1)
     }
 
+    // A DRAFT WITH NO PRICE YET SAYS NOTHING ABOUT HELD MONEY (Dan, 2026-09-27,
+    // ovation#595): asked what an unpriced draft should show when its client is
+    // holding money, he answered "Hide it entirely". Its `Use it here` could only
+    // be refused (L109). It STILL COUNTS as open for PRD 14j, so a priced sibling
+    // is still asked about rather than having the money put on it by itself.
+
+    /// A draft whose one shoot has no times, so no hours and no amount (PRD 3c).
+    private static func unpricedDraft(_ context: ModelContext, for client: Client,
+                                      shoot day: BusinessDate) -> Invoice {
+        let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: day,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity,
+                              createdOn: nil)
+        context.insert(invoice)
+        invoice.add(Shoot(name: "Autumn Evensong", when: .dayOnly(day), venue: nil))
+        return invoice
+    }
+
+    @Test("an unpriced draft is not moved to To place, and its priced sibling still is")
+    func anunpricedDraftSaysNothingAboutHeldMoney() throws {
+        let context = try Self.store()
+        let client = Self.client(context, "Cedar Hill Youth Orchestra")
+        let sent = Self.invoice(context, for: client, shoot: Self.day(-10), due: Self.day(4),
+                                number: 1044, sent: true)
+        let draft = Self.unpricedDraft(context, for: client, shoot: Self.day(-2))
+        #expect(draft.isUnpriced, "the fixture has to be unpriced for this to prove anything")
+
+        let list = Self.present([sent, draft], held: [client: Money(dollars: 500)])
+        let place = try #require(list.bands.first { $0.band == .toPlace },
+                                 "the draft still counts as open, so the sent one is asked about")
+        #expect(place.rows.map(\.number) == ["1044"])
+        #expect(place.rows.map(\.action) == ["Use it here"])
+        let row = try #require(list.bands.flatMap(\.rows)
+            .first { $0.invoiceID == draft.persistentModelID })
+        #expect(row.action == "Add hours")
+    }
+
+    @Test("two unpriced drafts wait on Dan and neither offers the money")
+    func twounpricedDraftsOfferNothing() throws {
+        let context = try Self.store()
+        let client = Self.client(context, "Cedar Hill Youth Orchestra")
+        let a = Self.unpricedDraft(context, for: client, shoot: Self.day(-4))
+        let b = Self.unpricedDraft(context, for: client, shoot: Self.day(-2))
+
+        let list = Self.present([a, b], held: [client: Money(dollars: 500)])
+        #expect(!list.bands.contains { $0.band == .toPlace })
+        #expect(list.bands.flatMap(\.rows).map(\.action) == ["Add hours", "Add hours"])
+    }
+
     @Test("an invoice whose send is unsettled is neither a draft nor sent, and does not count")
     func anunsettledSendIsNotCounted() throws {
         // WHAT THE DECISION DOES NOT SAY IS LEFT AS IT WAS. Dan's words name drafts

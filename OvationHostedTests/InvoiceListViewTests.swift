@@ -43,7 +43,7 @@ struct InvoiceListViewTests {
         }
         func invoice(_ c: Client, _ shootName: String, on day: BusinessDate?,
                      due: BusinessDate? = nil, number: Int64? = nil, sent: Bool = false,
-                     amount: Int64 = 1_240) -> Invoice {
+                     amount: Int64 = 1_240, priced: Bool = true) -> Invoice {
             let i = Invoice(client: c, kind: .photography, invoiceDate: day,
                             hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
             i.dueDate = due
@@ -52,9 +52,18 @@ struct InvoiceListViewTests {
                 i.recordSendState(.sent(route: .ovationSentIt,
                                      at: Date(timeIntervalSince1970: 1_794_000_000)))
             }
-            i.add(LineItem.flat(Money(dollars: amount), describedAs: "Photography"))
-            if let day { i.add(Shoot(name: shootName, when: .dayOnly(day), venue: nil)) }
-            else { i.add(Shoot(name: shootName, when: nil, venue: nil)) }
+            let shoot = Shoot(name: shootName, when: day.map { .dayOnly($0) }, venue: nil)
+            i.add(shoot)
+            // PRICED THE WAY A REAL INVOICE IS: its charge is hours for its shoot, one
+            // hour at the amount, so the total is unchanged. A flat line beside a shoot
+            // with no hours is an UNPRICED draft by the app's own reading (PRD 3c), and
+            // since ovation#595 an unpriced draft is kept out of the held money band,
+            // so every invoice here had been standing in that state by accident (L48).
+            // The one that is unpriced on purpose says so at its call site.
+            if priced {
+                i.add(LineItem.hourly(hours: Hours(whole: 1), at: Money(dollars: amount),
+                                      describedAs: "Photography", for: shoot))
+            }
             context.insert(i)
             return i
         }
@@ -68,7 +77,10 @@ struct InvoiceListViewTests {
         let kestrel = client("Kestrel Quartet")
 
         var all: [Invoice] = []
-        all.append(invoice(harbor, "Tosca, opening night", on: today, amount: 3_700))
+        // TONIGHT'S SHOOT, STILL WAITING ON ITS TIMES: the everyday unpriced draft
+        // (PRD 3c), and the one row here whose word is `Add hours`.
+        all.append(invoice(harbor, "Tosca, opening night", on: today, amount: 3_700,
+                           priced: false))
         all.append(invoice(westfield, "Autumn Evensong", on: day(-34), due: day(-34),
                            number: 1021, sent: true))
         all.append(invoice(ninth, "The Winter Guest", on: day(-12), due: day(-12),

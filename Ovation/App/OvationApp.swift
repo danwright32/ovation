@@ -744,6 +744,13 @@ struct OvationApp: App {
                 // holds the title bar's height, style and lack of a toolbar at what
                 // they measured before this line existed.
                 .toolbar(removing: .title)
+                // LIGHT FROM THE WINDOW'S FIRST FRAME, whatever screen is in it
+                // (ovation#593, PRD 43). The pin used to live only on the screens,
+                // so the window the Starting screen opens in had no appearance of
+                // its own and its title bar drew in the Mac's Dark mode: measured in
+                // the test host, appearance nil and the title bar VibrantDark. Set
+                // here it covers Starting, the problems window and the shell alike.
+                .ovationAppearance()
                 // ovation#318 B5, PRD 52a: the sheet belongs to the WINDOW, so it is
                 // presented from the window's content above RootView and a launch
                 // finishing does not dismiss it. Debug only until ovation#42 gives
@@ -752,6 +759,12 @@ struct OvationApp: App {
                 .reviewSamples(samples)
                 #endif
         }
+        // THE TITLE BAR DRAWS NOTHING OF ITS OWN (ovation#593, the design record's
+        // window top). The rail runs the full height with the traffic lights on it
+        // and the shell draws the 38 point `--chrome` bar over the content, which is
+        // what macOS does whenever the sidebar carries a colour. The system's title
+        // bar material across the whole width was the dark bar Dan saw.
+        .windowStyle(.hiddenTitleBar)
 
         // ovation#231 and ovation#247. WHERE THE FOLDER IS CHOSEN AND A BACKUP IS
         // PUT BACK. Both presenters existed with tests and NOTHING PRESENTED
