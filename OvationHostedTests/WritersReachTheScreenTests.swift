@@ -88,7 +88,8 @@ struct WritersReachTheScreenTests {
         _ draft: Draft, heard: Heard, edits: InvoiceEditCommand, spying: Bool,
         writePayment: ((PersistentIdentifier, PaymentEntry) async -> String?)?? = nil,
         writeCleared: ((PersistentIdentifier) async -> String?)?? = nil,
-        openings: Heard? = nil, on destination: Destination = .invoices
+        openings: Heard? = nil, on destination: Destination = .invoices,
+        reviewer: InvoiceReviewer? = nil
     ) -> RootView {
         let store = ProblemsStore(journal: InMemoryProblemsJournal())
         let blocking = Client(name: "Client 0", taxStatus: .neverRecorded)
@@ -119,7 +120,7 @@ struct WritersReachTheScreenTests {
             clients: ClientsPresenter(clients: [draft.client]),
             writePaymentTerm: spying ? { _, _ in heard.record("writePaymentTerm"); return nil } : nil,
             acknowledgeSharedAddress: spying ? { _ in heard.record("acknowledgeSharedAddress"); return nil } : nil,
-            edits: edits)
+            edits: edits, reviewer: reviewer)
     }
 
     /// What an inspection found, carried out of its closure.
@@ -365,6 +366,7 @@ struct WritersReachTheScreenTests {
         #expect(screen.setDiscount == nil)
         #expect(screen.payment == nil, "no payment writer, so no Record a payment and no Mark cleared")
         #expect(screen.heldMoney == nil, "no held money writer, so no Use it here and no Remove")
+        #expect(screen.resend == nil, "no reviewer, so neither Remind nor Send a copy can send")
         #expect(edits.addDiscount == nil)
         #expect(edits.applyReferralCredit == nil)
         #expect(edits.removeReferralCredit == nil)
@@ -399,5 +401,80 @@ struct WritersReachTheScreenTests {
         #expect(shell.shell.reading == notice.id)
         let still = try await Self.current(in: shell)
         #expect(still != nil, "pressing Read closed the invoice")
+    }
+
+    /// ovation#548. Remind and Send a copy reach the screen through the one reviewer
+    /// RootView is given, the same one Review uses, so a reminder cannot travel a
+    /// second sending path (L263).
+    @Test("with a reviewer, the screen is given Remind and Send a copy")
+    func theReviewerReachesResend() async throws {
+        let draft = try Self.draft()
+        let container = draft.context.container
+        let noon = Self.noon
+        let reviewer = InvoiceReviewer(container: container, footer: { .fixed }, settingsFile: nil,
+                                       makeSender: { _ in .failure(SenderUnavailable(sentence: "no")) },
+                                       clock: { noon })
+        let shell = try Self.shell(of: Self.window(draft, heard: Heard(), edits: InvoiceEditCommand(),
+                                                   spying: false, reviewer: reviewer))
+        ViewHosting.host(view: shell)
+        defer { ViewHosting.expel() }
+        let screen = try await Self.open(draft, in: shell)
+        #expect(screen.resend != nil)
+        #expect(screen.history != nil, "the shell holds the history pane")
+    }
+
+    /// ovation#556, PRD 51o. ONCE RECORD IS PRESSED THE HISTORY OPENS WITH THE NEW
+    /// PAYMENT MARKED, and the mark clears when the history is closed. The writer here
+    /// writes a real payment into the store the screen is read from, so what is
+    /// marked is found by the same re-read the app does.
+    @Test("recording a payment opens the history with that payment marked, and closing clears the mark")
+    func recordingOpensTheHistory() async throws {
+        let draft = try Self.draft()
+        draft.shoot.shotUntil = ClockTime("20:00")
+        draft.invoice.number = 1_123
+        draft.invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
+        try draft.context.save()
+        let context = draft.context
+        let invoice = draft.invoice
+        let shell = try Self.shell(of: Self.window(
+            draft, heard: Heard(), edits: InvoiceEditCommand(), spying: false,
+            writePayment: .some({ _, entry in
+                let payment = Payment(client: invoice.client, amount: entry.amount,
+                                      method: entry.method, receivedOn: entry.received)
+                context.insert(payment)
+                context.insert(PaymentAllocation(payment: payment, invoice: invoice, amount: entry.amount,
+                                                 allocatedOn: entry.received,
+                                                 source: .recordedWithThePayment))
+                return nil
+            }),
+            writeCleared: .some({ _ in nil })))
+        ViewHosting.host(view: shell)
+        defer { ViewHosting.expel() }
+        let screen = try await Self.open(draft, in: shell)
+        #expect(screen.history?.isOpen == false, "the pane starts closed")
+
+        try #require(screen.payment).record(PaymentEntry(amount: Money(dollars: 100), method: .zelle,
+                                                         received: Self.today, press: UUID()))
+        var history: InvoiceScreenView.HistoryControls?
+        for _ in 0..<300 {
+            history = try await Self.current(in: shell)?.history
+            if history?.isOpen == true { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let opened = try #require(history)
+        #expect(opened.isOpen, "recording a payment did not open the history")
+        #expect(opened.marked.count == 1)
+        let entries = try #require(try await Self.current(in: shell)).presenter.history.entries
+        #expect(entries.filter { opened.marked.contains($0.id) }.map(\.what) == ["Payment recorded"])
+
+        opened.toggle()
+        var after: InvoiceScreenView.HistoryControls?
+        for _ in 0..<300 {
+            after = try await Self.current(in: shell)?.history
+            if after?.isOpen == false { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(after?.isOpen == false)
+        #expect(after?.marked.isEmpty == true, "closing the history left the payment marked")
     }
 }

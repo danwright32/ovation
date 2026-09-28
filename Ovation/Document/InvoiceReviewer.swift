@@ -43,12 +43,22 @@ final class InvoiceReviewer {
     }
 
     /// The review of this invoice, numbered, rendered once, or why it cannot be opened.
-    func open(_ invoiceID: PersistentIdentifier) async -> Result<InvoiceReview, ReviewOpenRefusal> {
+    ///
+    /// ovation#548. `kind` is nil for the first send, which issues the invoice, and
+    /// names a reminder or a copy of an invoice already sent. Either way it is THIS
+    /// sheet and THIS route to Gmail, so what goes to whom is shown before it goes
+    /// whichever word opened it (L64, L263). A reminder or a copy takes no number, since
+    /// a sent invoice has one, and is refused here if the invoice cannot be sent again.
+    func open(_ invoiceID: PersistentIdentifier,
+              as kind: InvoiceMailKind? = nil) async -> Result<InvoiceReview, ReviewOpenRefusal> {
         guard let invoice = Self.invoice(invoiceID, in: container.mainContext) else {
             return .failure(.noSuchInvoice)
         }
+        if let kind, let refusal = kind.refusal(for: invoice) {
+            return .failure(.cannotSendAgain(refusal))
+        }
         var taken: Int64?
-        if invoice.number == nil {
+        if kind == nil, invoice.number == nil {
             do {
                 taken = try await InvoiceNumberAllocator(modelContainer: container).allocate(to: invoiceID)
             } catch {
@@ -68,16 +78,37 @@ final class InvoiceReviewer {
                 if let taken { try? await InvoiceNumberAllocator(modelContainer: container).release(taken, from: invoiceID) }
                 return .failure(.couldNotRender("it has no client"))
             }
-            let presenter = ReviewSheetPresenter(session: session, document: document,
-                                                 client: client, dueDate: numbered.dueDate)
+            // A PAID INVOICE IS NOT LATE, so a copy of one carries no due date band:
+            // "already 20 days past its due date" over an invoice paid in full would be
+            // a warning about nothing (L11).
+            let isPaid = numbered.isPaidInFull
+            let presenter = ReviewSheetPresenter(session: session, document: document, client: client,
+                                                 dueDate: isPaid ? nil : numbered.dueDate)
             let settings = settingsFile.map { SendingSettings.read(from: $0) }
             let number = numbered.number ?? 0
+            let shoots = numbered.shoots.map(\.name)
+            let signedBy = (try? settings?.get())?.fromName
+            let subject: String
+            let message: String
+            switch kind {
+            case nil:
+                subject = InvoiceMail.subject(number: number, shoots: shoots)
+                message = InvoiceMail.message(amountDue: document.amountDue, dueLine: document.dueLine,
+                                              shoots: shoots, signedBy: signedBy)
+            case .reminder:
+                subject = InvoiceMailKind.reminder.subject(number: number, shoots: shoots)
+                message = InvoiceMail.reminderMessage(amountDue: document.amountDue,
+                                                      dueLine: document.dueLine,
+                                                      shoots: shoots, signedBy: signedBy)
+            case .copy:
+                subject = InvoiceMailKind.copy.subject(number: number, shoots: shoots)
+                message = InvoiceMail.copyMessage(amountDue: document.amountDue, dueLine: document.dueLine,
+                                                  paidInFull: isPaid, shoots: shoots, signedBy: signedBy)
+            }
             return .success(InvoiceReview(
                 invoiceID: invoiceID, number: number, numberTakenHere: taken, presenter: presenter,
-                subject: InvoiceMail.subject(number: number, shoots: numbered.shoots.map(\.name)),
-                message: InvoiceMail.message(amountDue: document.amountDue, dueLine: document.dueLine,
-                                             shoots: numbered.shoots.map(\.name),
-                                             signedBy: (try? settings?.get())?.fromName),
+                subject: subject,
+                message: message,
                 destinationWarning: (try? settings?.get())?.destination.warning,
                 // WHO IT GOES TO, from the same settings the send reads (L64, L455): the
                 // test address when redirected, the client's recipients otherwise, and the
@@ -88,7 +119,8 @@ final class InvoiceReviewer {
                 // makes no cycle, and a weak reference let a review outlive the reviewer
                 // that made it and turned Send into a silent no-op.
                 send: { review in await self.send(review, footer: footer) },
-                settle: { review in await self.markNotSent(review.invoiceID) }))
+                settle: { review in await self.markNotSent(review.invoiceID) },
+                kind: kind))
         } catch {
             if let taken { try? await InvoiceNumberAllocator(modelContainer: container).release(taken, from: invoiceID) }
             return .failure(.couldNotRender(String(describing: error)))
@@ -161,9 +193,19 @@ final class InvoiceReviewer {
             review.state = .refused(unavailable.sentence)
             return
         }
-        let outcome = await InvoiceSender(modelContainer: container).send(
-            review.invoiceID, render: render, message: review.message, settings: settings,
-            footer: footer, approvedRecipients: review.goingTo, through: route, clock: clock)
+        // ONE PRESS, ONE ROUTE: the first send and a reminder or a copy differ only in
+        // which of the sender's two entries is asked, never in how Gmail is reached.
+        let sender = InvoiceSender(modelContainer: container)
+        let outcome: InvoiceSendOutcome
+        if let kind = review.kind {
+            outcome = await sender.resend(
+                review.invoiceID, as: kind, render: render, message: review.message, settings: settings,
+                footer: footer, approvedRecipients: review.goingTo, through: route, clock: clock)
+        } else {
+            outcome = await sender.send(
+                review.invoiceID, render: render, message: review.message, settings: settings,
+                footer: footer, approvedRecipients: review.goingTo, through: route, clock: clock)
+        }
         switch outcome {
         case .sent(let at, let to): review.state = .sent(at: at, to: to)
         case .refused(let sentence): review.state = .refused(sentence)
@@ -181,6 +223,9 @@ final class InvoiceReviewer {
 @Observable
 final class InvoiceReview: Identifiable {
     let invoiceID: PersistentIdentifier
+    /// Nil for the first send, which issues the invoice; a reminder or a copy of one
+    /// already sent otherwise (ovation#548), which writes nothing to the invoice.
+    let kind: InvoiceMailKind?
     /// The invoice's number, which the outcome names.
     let number: Int64
     /// The number this review took, which closing hands back while nothing went. Nil
@@ -203,8 +248,10 @@ final class InvoiceReview: Identifiable {
     init(invoiceID: PersistentIdentifier, number: Int64, numberTakenHere: Int64?, presenter: ReviewSheetPresenter,
          subject: String, message: String, destinationWarning: String?, goingTo: [String],
          send: @escaping @MainActor (InvoiceReview) async -> Void,
-         settle: @escaping @MainActor (InvoiceReview) async -> String?) {
+         settle: @escaping @MainActor (InvoiceReview) async -> String?,
+         kind: InvoiceMailKind? = nil) {
         self.invoiceID = invoiceID
+        self.kind = kind
         self.number = number
         self.numberTakenHere = numberTakenHere
         self.presenter = presenter
@@ -237,8 +284,16 @@ final class InvoiceReview: Identifiable {
     /// that state. The invoice goes back to a draft that KEEPS its number, so this
     /// review stops holding the number as its own to hand back, and the sheet is
     /// ready again; a refusal is said in place of the outcome.
+    /// Whether Mark unsent is offered once Gmail never answered. Only on the FIRST
+    /// send: it says the invoice was not issued, and a reminder or a copy that may not
+    /// have gone says nothing about whether the invoice was (ovation#548).
+    var offersMarkUnsent: Bool {
+        guard kind == nil, case .couldNotTell = state else { return false }
+        return true
+    }
+
     func markNotSent() async {
-        guard case .couldNotTell = state else { return }
+        guard offersMarkUnsent else { return }
         // LET GO OF THE NUMBER BEFORE THE WRITE, not after it. A Close landing while
         // the settle saves would otherwise find the invoice a draft again and this
         // review still claiming the number, and hand it back (L157). A refused settle
@@ -268,9 +323,12 @@ enum ReviewOpenRefusal: Error, Equatable {
     case noSuchInvoice
     case couldNotNumber(String)
     case couldNotRender(String)
+    /// ovation#548. A reminder or a copy asked of an invoice that cannot be sent again.
+    case cannotSendAgain(String)
 
     var sentence: String {
         switch self {
+        case .cannotSendAgain(let sentence): return sentence
         case .noSuchInvoice: return "That invoice is no longer there."
         case .couldNotNumber(let detail): return "This invoice could not be given a number, so it cannot be reviewed: \(detail)"
         case .couldNotRender(let detail): return "This invoice could not be drawn, so there is nothing to review: \(detail)"
@@ -291,8 +349,42 @@ extension InvoiceMail {
         let named = shoots.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         let what = named.isEmpty ? "The invoice" : "The invoice for " + named.joined(separator: " and ")
         let due = dueLine.isEmpty ? "" : " and is due \(dueLine)"
-        let name = signedBy?.split(separator: " ").first.map(String.init)
         return "Hello,\n\n\(what) is attached. It comes to \(amountDue)\(due).\n\nThank you"
-            + (name.map { ",\n\($0)" } ?? "")
+            + signature(signedBy)
+    }
+
+    /// ovation#548. The reminder the sheet starts from, which Dan edits in place and
+    /// which owes its cold read like every outbound sentence (PRD 41a). Built from the
+    /// page's own wording of what is outstanding and when it was due, so the message
+    /// and the attachment cannot state two different figures.
+    static func reminderMessage(amountDue: String, dueLine: String, shoots: [String],
+                                signedBy: String?) -> String {
+        let named = shoots.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let what = named.isEmpty ? "the invoice" : "the invoice for " + named.joined(separator: " and ")
+        let due = dueLine.isEmpty ? "" : ", and was due \(dueLine)"
+        return "Hello,\n\nA reminder about \(what), attached again here. "
+            + "\(amountDue) is still outstanding\(due).\n\nThank you" + signature(signedBy)
+    }
+
+    /// ovation#548. The copy the sheet starts from. A paid invoice says it was paid,
+    /// in the page's own words; anything else says what it comes to and when it is
+    /// due, which is the first send's sentence.
+    static func copyMessage(amountDue: String, dueLine: String, paidInFull: Bool, shoots: [String],
+                            signedBy: String?) -> String {
+        let named = shoots.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let what = named.isEmpty ? "the invoice" : "the invoice for " + named.joined(separator: " and ")
+        let figure: String
+        if dueLine.isEmpty {
+            figure = paidInFull ? "It came to \(amountDue)." : "It comes to \(amountDue)."
+        } else {
+            figure = paidInFull ? "It came to \(amountDue) and was \(dueLine)."
+                                : "It comes to \(amountDue) and is due \(dueLine)."
+        }
+        return "Hello,\n\nA copy of \(what) is attached. \(figure)\n\nThank you" + signature(signedBy)
+    }
+
+    /// ",\nDan", from the first word of the sending name, or nothing where there is none.
+    private static func signature(_ signedBy: String?) -> String {
+        signedBy?.split(separator: " ").first.map { ",\n\($0)" } ?? ""
     }
 }

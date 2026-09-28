@@ -53,6 +53,10 @@ struct InvoiceListView: View {
     /// closing it leaves Dan here. Nil where nothing can review.
     var review: ((PersistentIdentifier) -> Void)?
 
+    /// ovation#548. Opening the same review sheet on a reminder, over the list, which
+    /// is the invoice screen's own Remind. Nil where nothing can send.
+    var remind: ((PersistentIdentifier) -> Void)?
+
     /// ovation#110. How wide the list is drawn, read back from layout, because the
     /// row changes shape with it. Zero until the first layout pass, and zero is
     /// read as unknown rather than as narrow, so the list does not open in its
@@ -357,7 +361,8 @@ struct InvoiceListView: View {
                 // treatment withdraws is the OFFER that the word itself will do
                 // what it says.
                 ActionWord(word: action, size: 12.5,
-                           press: Self.press(action, on: row, open: open, settle: settle, review: review),
+                           press: Self.press(action, on: row, open: open, settle: settle, review: review,
+                                             remind: remind),
                            notYet: Self.notYet(action))
             }
         }
@@ -372,7 +377,8 @@ struct InvoiceListView: View {
     private static func press(_ action: String, on row: InvoiceListPresenter.Row,
                               open: ((PersistentIdentifier) -> Void)?,
                               settle: ((PersistentIdentifier) -> Void)?,
-                              review: ((PersistentIdentifier) -> Void)?)
+                              review: ((PersistentIdentifier) -> Void)?,
+                              remind: ((PersistentIdentifier) -> Void)?)
         -> (() -> Void)? {
         switch InvoiceListPresenter.Action.destination(of: action) {
         case .theInvoiceScreen:
@@ -384,6 +390,9 @@ struct InvoiceListView: View {
         case .theReviewSheet:
             guard let review else { return nil }
             return { review(row.invoiceID) }
+        case .theReminderSheet:
+            guard let remind else { return nil }
+            return { remind(row.invoiceID) }
         case nil:
             return nil
         }

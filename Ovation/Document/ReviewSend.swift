@@ -77,9 +77,12 @@ struct ReviewOutcome: View {
                         .foregroundStyle(OvationPalette.soft)
                 }
             case .sent(let at, let to):
-                big("Sent")
-                Text(InvoiceMail.sentLine(time: at.formatted(date: .omitted, time: .shortened),
-                                          to: to, number: review.number))
+                // A REMINDER OR A COPY NAMES NO RECORD, because it wrote none
+                // (ovation#548); only the first send is recorded against the invoice.
+                let time = at.formatted(date: .omitted, time: .shortened)
+                big(review.kind?.sentHeading ?? "Sent")
+                Text(review.kind.map { $0.sentLine(time: time, to: to) }
+                     ?? InvoiceMail.sentLine(time: time, to: to, number: review.number))
                     .font(.system(size: 13))
                 Button("Done", action: close).keyboardShortcut(.defaultAction)
             case .refused(let sentence):
@@ -94,8 +97,11 @@ struct ReviewOutcome: View {
                 big("Could not tell whether it went")
                 Text(sentence).font(.system(size: 13))
                 // ovation#471. The one thing Dan may say about it: that it did not go.
+                // Only about the FIRST send, which issued the invoice (ovation#548).
                 HStack(spacing: 12) {
-                    Button("Mark unsent") { askingToSettle = true }
+                    if review.offersMarkUnsent {
+                        Button("Mark unsent") { askingToSettle = true }
+                    }
                     Button("Close", action: close)
                 }
                 .confirmationDialog("Mark unsent?", isPresented: $askingToSettle) {

@@ -95,6 +95,13 @@ enum PaymentMethod: String, CaseIterable, Codable, Hashable, Sendable {
         case .payPal: return "PayPal"
         }
     }
+
+    /// The method named inside a sentence: "by check", while the names that are
+    /// brands keep their capitals. One spelling, read by the invoice's payment line
+    /// and by its history, so the two cannot word one payment differently (L118).
+    var inASentence: String {
+        self == .check ? "check" : exportLabel
+    }
 }
 
 /// What an expense was for. PRD 5.19, Dan's own list.

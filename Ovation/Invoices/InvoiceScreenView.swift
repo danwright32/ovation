@@ -21,7 +21,7 @@
 // WHAT IS NOT HERE YET, and is deliberately not drawn as a control that does
 // nothing (L109, ovation#450): adding a line and choosing its type (round A),
 // the discount (round 5), the due date terms panel (round 8), the Edit menu's
-// rare actions, the history pane (round 7), and recording a payment. Each has
+// rare actions, and recording a payment. Each has
 // its own issue and each arrives as a control when it arrives at all. A word
 // that looks pressable and is not is the defect this screen must not ship.
 import SwiftData
@@ -165,6 +165,31 @@ struct InvoiceScreenView: View {
     /// beside the word it answers, so a press that opened nothing is never silent.
     var refusedReview: String?
 
+    /// ovation#548. Sending this sent invoice again, as a reminder or a copy, through
+    /// the one review sheet, or nil where this launch has nowhere to send from. NIL
+    /// DRAWS THE WORD UNPRESSABLE rather than hiding it, as Review's nil does, so the
+    /// foot does not change shape with what is wired (L678).
+    var resend: ((InvoiceMailKind) -> Void)?
+    /// Why the last Remind or Send a copy did not open the sheet, said beside it (L109).
+    var refusedResend: String?
+
+    /// ovation#556, PRD 51d and 51o. The history pane's state and its one control, or
+    /// nil where the caller holds no pane, in which case no History word is drawn.
+    var history: HistoryControls?
+
+    struct HistoryControls {
+        var isOpen: Bool
+        /// The entries marked as just recorded, which Record sets (PRD 51o).
+        var marked: Set<String>
+        /// History and Hide history. Closing clears the mark.
+        var toggle: () -> Void
+    }
+
+    /// How a test finds the pane.
+    static let historyPaneID = "invoice-history-pane"
+    /// What a screen reader hears after the payment just recorded.
+    static let justRecorded = "just recorded"
+
     /// The design record's own column widths, named once so the header and every
     /// row are laid out by one declaration and cannot drift apart (L553).
     private enum Column {
@@ -176,6 +201,29 @@ struct InvoiceScreenView: View {
     }
 
     var body: some View {
+        // THE PANE PUSHES THE INVOICE ACROSS rather than covering it (PRD 51d, Dan
+        // 2026-09-07): it takes its width from the layout, so the invoice beside it
+        // genuinely narrows, and the two move together on the app's one slide.
+        HStack(spacing: 0) {
+            invoice
+            if let history { historyPane(history) }
+        }
+        .ovationMotion(.slide, value: history?.isOpen ?? false)
+        .background(OvationPalette.background)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay {
+            // FLOATING OVER THE SCREEN, never a system sheet, which would hang
+            // from the title bar (PRD 48a).
+            if let payment, payment.isOpen, let starts = presenter.paymentStarts {
+                PaymentSheet(number: starts.number, starts: starts, refused: payment.refused,
+                             isRecording: payment.isRecording, record: payment.record,
+                             close: payment.close, edited: payment.edited)
+            }
+        }
+        .ovationAppearance()
+    }
+
+    private var invoice: some View {
         VStack(alignment: .leading, spacing: 0) {
             head
             ScrollView {
@@ -192,25 +240,136 @@ struct InvoiceScreenView: View {
             Spacer(minLength: 0)
             foot
         }
-        .background(OvationPalette.background)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay {
-            // FLOATING OVER THE SCREEN, never a system sheet, which would hang
-            // from the title bar (PRD 48a).
-            if let payment, payment.isOpen, let starts = presenter.paymentStarts {
-                PaymentSheet(number: starts.number, starts: starts, refused: payment.refused,
-                             isRecording: payment.isRecording, record: payment.record,
-                             close: payment.close, edited: payment.edited)
+    }
+
+    // MARK: the history (ovation#556)
+
+    /// THE WIDTH IS 300, DAN'S (PRD 51d), and the CONTENT is held at that width while
+    /// the pane's own width slides, so the text does not squash and re-wrap on every
+    /// frame of the slide, which is the design record's `.hpane > *` rule.
+    private func historyPane(_ history: HistoryControls) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("History")
+                .font(.system(size: 10.5, weight: .bold))
+                .tracking(1.37)
+                .textCase(.uppercase)
+                .foregroundStyle(OvationPalette.faint)
+                .padding(.horizontal, 18)
+                .padding(.top, 13)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.rule) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    let entries = presenter.history.entries
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                        historyRow(entry, marked: history.marked.contains(entry.id),
+                                   last: index == entries.count - 1)
+                    }
+                    // WHAT WAS NEVER RECORDED IS SAID, quietly, beneath what was,
+                    // rather than guessed at (L192).
+                    ForEach(presenter.history.unrecorded, id: \.self) { missing in
+                        Text(missing)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(OvationPalette.quiet)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 18)
+                            .padding(.top, 10)
+                    }
+                }
+                .padding(.vertical, 6)
             }
         }
-        .ovationAppearance()
+        .frame(width: Self.historyWidth, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(width: history.isOpen ? Self.historyWidth : 0, alignment: .leading)
+        .clipped()
+        .background(OvationPalette.chrome)
+        .overlay(alignment: .leading) {
+            if history.isOpen { Rectangle().fill(OvationPalette.rule).frame(width: 1) }
+        }
+        // CLOSED IS GONE for a screen reader too, not a list read out from behind
+        // a pane nobody can see.
+        .accessibilityHidden(!history.isOpen)
+        .accessibilityIdentifier(Self.historyPaneID)
+    }
+
+    /// PRD 51d's width, settled against 220, 272 and 330.
+    static let historyWidth: CGFloat = 300
+
+    /// One entry: when, in the figures face, and what was done with the detail
+    /// beneath it (the design record's `.hev`).
+    private func historyRow(_ entry: InvoiceHistory.Entry, marked: Bool, last: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(entry.when)
+                .font(.system(size: 11.5, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(OvationPalette.faint)
+                .frame(width: 74, alignment: .leading)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.what)
+                    .font(.system(size: 13))
+                    .foregroundStyle(OvationPalette.ink)
+                if let more = entry.more {
+                    Text(more)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(OvationPalette.quiet)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+        .background(marked ? OvationPalette.selection : Color.clear)
+        .overlay(alignment: .bottom) {
+            if !last { Divider().overlay(OvationPalette.ruleSoft) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Self.spoken(entry, marked: marked))
+    }
+
+    /// What a screen reader says for one entry, with the mark said rather than only
+    /// coloured, since a colour is not read out.
+    static func spoken(_ entry: InvoiceHistory.Entry, marked: Bool) -> String {
+        var parts = [entry.when, entry.what].filter { !$0.isEmpty }
+        if let more = entry.more { parts.append(more) }
+        if marked { parts.append(justRecorded) }
+        return parts.joined(separator: ", ")
     }
 
     // MARK: the head
 
     /// THE CLIENT IS THE HEADING AND THE SHOOT SITS UNDER IT, which is the Clients
     /// detail pane's treatment reused rather than a new one invented here.
+    /// THE TIMES RUN THE FULL WIDTH BENEATH THE HEADING ROW, not beside the words at
+    /// the right (ovation#556). With the history pane open the invoice is 556 wide,
+    /// and a head whose right hand words sat beside the times squeezed the duration
+    /// sentence into a column one word wide.
     private var head: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            headingRow
+            times
+            if let refused {
+                // NEVER RED. A refused write is not something that went wrong
+                // with the invoice, it is a state that changed underneath the
+                // screen, and red belongs only where something genuinely is
+                // (PRD 5.45).
+                Text(refused)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(OvationPalette.soft)
+                    .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Column.sideMargin)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+        .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.rule) }
+    }
+
+    private var headingRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(presenter.client)
@@ -221,35 +380,40 @@ struct InvoiceScreenView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(OvationPalette.quiet)
                     .lineLimit(1)
-                times
-                if let refused {
-                    // NEVER RED. A refused write is not something that went wrong
-                    // with the invoice, it is a state that changed underneath the
-                    // screen, and red belongs only where something genuinely is
-                    // (PRD 5.45).
-                    Text(refused)
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(OvationPalette.soft)
-                        .padding(.top, 4)
-                }
             }
+            // ONE ELEMENT FOR WHAT THE INVOICE IS, and the two words beside it stay
+            // buttons of their own (L20). Combining the whole row made VoiceOver read
+            // one label and swallowed History and Back to the list with it.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(presenter.client), \(presenter.shoot), \(presenter.state)")
             Spacer(minLength: 0)
             // WHICH THE INVOICE IS, which the design record draws at the top right
             // and which carries ovation#411's held number.
+            // THE WORDS AT THE RIGHT NEVER WRAP; the client's name gives way first,
+            // which is what its own one line limit is for.
             Text(presenter.state)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(OvationPalette.faint)
+                .fixedSize()
+                // Said once, in the element above, never twice (L605).
+                .accessibilityHidden(true)
+            // THE WORD STAYS IN THE HEADER (PRD 51d), kept against the foot, an edge
+            // pull and the View menu, and it says what pressing it will do.
+            if let history {
+                Button(history.isOpen ? "Hide history" : "History", action: history.toggle)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(OvationPalette.quiet)
+                    .accessibilityValue(history.isOpen ? "expanded" : "collapsed")
+                    .fixedSize()
+            }
             Button("Back to the list", action: close)
                 .buttonStyle(.plain)
                 .font(.system(size: 13))
                 .foregroundStyle(OvationPalette.quiet)
+                .fixedSize()
         }
-        .padding(.horizontal, Column.sideMargin)
-        .padding(.top, 14)
-        .padding(.bottom, 12)
-        .overlay(alignment: .bottom) { Divider().overlay(OvationPalette.rule) }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(presenter.client), \(presenter.shoot), \(presenter.state)")
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// THE TIMES SIT BESIDE THE SHOOT (round 4b), one labelled pair per shoot, and
@@ -948,6 +1112,8 @@ struct InvoiceScreenView: View {
                         .foregroundStyle(OvationPalette.soft)
                         .multilineTextAlignment(.trailing)
                 }
+                resendRefusal
+                secondWord
                 ActionWord(word: "Record a payment", size: 14, press: payment?.open, notYet: nil)
             case .paidInFull:
                 if let refusedClearing = payment?.refusedClearing {
@@ -956,9 +1122,11 @@ struct InvoiceScreenView: View {
                         .foregroundStyle(OvationPalette.soft)
                         .multilineTextAlignment(.trailing)
                 }
+                resendRefusal
                 Text("Paid in full")
                     .font(.system(size: 12.5))
                     .foregroundStyle(OvationPalette.quiet)
+                secondWord
             case .none:
                 EmptyView()
             }
@@ -975,6 +1143,31 @@ struct InvoiceScreenView: View {
     /// AND IT IS `ActionWord`, THE ONE COMPONENT, rather than the copy that used
     /// to be here. There were two of these, this and the list's action, and a
     /// second hand rolled one is what ovation#450's own guard now refuses (L613).
+    /// ovation#548. The word beside the main action, `Remind` or `Send a copy`, in
+    /// the design record's `.actsecond` treatment: a quiet word, not the underlined
+    /// one, which is reserved for the action the foot is for (ovation#450).
+    @ViewBuilder
+    private var secondWord: some View {
+        if let kind = presenter.footSecond {
+            Button(kind.footWord) { resend?(kind) }
+                .buttonStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundStyle(resend == nil ? OvationPalette.faint : OvationPalette.quiet)
+                .disabled(resend == nil)
+        }
+    }
+
+    /// Why Remind or Send a copy opened nothing, beside the word (L109, L148).
+    @ViewBuilder
+    private var resendRefusal: some View {
+        if let refusedResend {
+            Text(refusedResend)
+                .font(.system(size: 13))
+                .foregroundStyle(OvationPalette.soft)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
     private var reviewWord: some View {
         ActionWord(word: "Review", size: 14,
                    press: presenter.mayReview ? review : nil,

@@ -43,6 +43,16 @@ struct ActionDestinationTests {
         #expect(InvoiceListPresenter.cardLine(for: word) == "To send")
     }
 
+    /// ovation#548. REMIND OPENS THE SAME REVIEW SHEET, ON A REMINDER, which is the
+    /// invoice screen's own Remind: the two share one implementation, so a reminder
+    /// sent from the list and one sent from the invoice cannot differ.
+    @Test("Remind opens the review sheet on a reminder, and still counts under To chase")
+    func remindOpensTheReminder() {
+        let word = InvoiceListPresenter.Action.remind
+        #expect(InvoiceListPresenter.Action.destination(of: word) == .theReminderSheet)
+        #expect(InvoiceListPresenter.cardLine(for: word) == "To chase")
+    }
+
     /// AND EVERY OTHER WORD HAS NOWHERE TO GO TODAY. Enumerated from the same
     /// list the words themselves come from, so a word added later is answered
     /// here rather than taking a default that reads as a considered decision
@@ -50,7 +60,7 @@ struct ActionDestinationTests {
     @Test("every other word has nowhere to go, and is enumerated rather than assumed")
     func everyotherWordHasNowhereToGo() {
         let live = [InvoiceListPresenter.Action.addHours, InvoiceListPresenter.Action.markUnsent,
-                    InvoiceListPresenter.Action.send]
+                    InvoiceListPresenter.Action.send, InvoiceListPresenter.Action.remind]
         let expected = Set(InvoiceListPresenter.Action.all).subtracting(live)
 
         let nowhere = Set(InvoiceListPresenter.Action.all
