@@ -981,18 +981,22 @@ struct StoreLaunchSequenceTests {
         // IT SAYS TODAY'S BACKUP IS FINE, because it is, and a notice that reads
         // like the backups are broken when one old one is damaged sends Dan
         // looking in the wrong place (L11).
-        #expect(problem.sentence.contains("Today's backup is unaffected"))
+        // Worded "is fine" since Dan's plainer wording of 2026-09-28 (ovation#610).
+        #expect(problem.sentence.contains("Today's backup is fine"))
     }
 
-    /// ovation#610. THE SENTENCE NAMES THE FILE AND WHAT IS WRONG WITH IT, and says
-    /// whether the archive's own files changed. "1 problem(s) with what is in it"
-    /// sent Dan to the folder when the cause was a rule change and every file was
-    /// exactly as written. Asserted whole, because this is the wording Dan reads.
-    @Test("an older archive's problem names the file, the verdict, and that its files are unchanged")
-    func anOlderArchiveProblemNamesTheFileAndVerdict() async throws {
+    /// ovation#610. THE SENTENCE SAYS WHICH DAY'S BACKUP, WHICH FILE, AND WHETHER
+    /// ANYTHING IN THE BACKUP CHANGED. "1 problem(s) with what is in it" sent Dan to
+    /// the folder when the cause was a rule change and every file was exactly as
+    /// written. Asserted whole, because this is the wording Dan approved on
+    /// 2026-09-28. The day comes from the manifest, never the folder name, which a
+    /// sync or a rename can change.
+    @Test("an older archive's problem says the day, the file it never had, and that nothing changed")
+    func anOlderArchiveProblemNamesTheDayAndFile() async throws {
         let world = try World(reverify: { _ in
-            .failed("Ovation-backup-2026-09-17-091500",
-                    [.init(path: "launch-backups.jsonl", verdict: .memberMissing)])
+            .failed("Ovation-backup-2026-03-02-090000",
+                    [.init(path: "launch-backups.jsonl", verdict: .memberMissing)],
+                    writtenAt: BackupTests.noon(2026, 9, 17))
         })
 
         _ = await world.sequence.run(now: world.instant)
@@ -1000,21 +1004,21 @@ struct StoreLaunchSequenceTests {
         let problem = try #require(
             world.store.open.first { $0.kind == .archiveNoLongerVerifies })
         #expect(problem.sentence
-                == "The backup Ovation-backup-2026-09-17-091500 verified when it was written "
-                + "and does not now: launch-backups.jsonl is not accounted for in its record "
-                + "of what it holds. Every file it recorded is still exactly as it was "
-                + "written. Today's backup is unaffected.")
+                == "The backup from 17 Sep failed its check because Ovation expected a file "
+                + "(launch-backups.jsonl) that it never had. Nothing in that backup has "
+                + "changed. Today's backup is fine.")
     }
 
     /// And when the files DID change, it says that instead, since the remedies
     /// are opposite: a file damaged on the disk is about the folder, and a rule
     /// that changed is about Ovation (L11).
-    @Test("an older archive whose files changed says so")
+    @Test("an older archive whose files changed says so, file by file")
     func anOlderArchiveWhoseFilesChangedSaysSo() async throws {
         let world = try World(reverify: { _ in
             .failed("Ovation-backup-2026-09-17-091500",
                     [.init(path: "Ovation.store", verdict: .mismatch),
-                     .init(path: "custody/note.txt", verdict: .absent)])
+                     .init(path: "custody/note.txt", verdict: .absent)],
+                    writtenAt: BackupTests.noon(2026, 9, 17))
         })
 
         _ = await world.sequence.run(now: world.instant)
@@ -1022,10 +1026,55 @@ struct StoreLaunchSequenceTests {
         let problem = try #require(
             world.store.open.first { $0.kind == .archiveNoLongerVerifies })
         #expect(problem.sentence
-                == "The backup Ovation-backup-2026-09-17-091500 verified when it was written "
-                + "and does not now: Ovation.store has different contents; custody/note.txt "
-                + "is missing. Its files have changed since it was written. Today's backup "
-                + "is unaffected.")
+                == "The backup from 17 Sep has changed since it was made: Ovation.store is "
+                + "different and custody/note.txt is missing. Today's backup is fine.")
+    }
+
+    @Test("a date that could not be read falls back to the backup's folder name")
+    func anUnreadableDateFallsBackToTheName() {
+        let sentence = StoreLaunchSequence.archiveNoLongerVerifiesSentence(
+            name: "Ovation-backup-2026-09-17-091500",
+            failures: [.init(path: "launch-backups.jsonl", verdict: .memberMissing)],
+            writtenAt: nil)
+
+        #expect(sentence
+                == "The backup Ovation-backup-2026-09-17-091500 failed its check because "
+                + "Ovation expected a file (launch-backups.jsonl) that it never had. Nothing "
+                + "in that backup has changed. Today's backup is fine.")
+    }
+
+    /// Three are named and the rest counted, so one damaged archive cannot fill
+    /// the panel.
+    @Test("past three changed files, the rest are counted")
+    func manyChangedFilesAreCounted() {
+        let sentence = StoreLaunchSequence.archiveNoLongerVerifiesSentence(
+            name: "Ovation-backup-2026-09-17-091500",
+            failures: [.init(path: "a.jsonl", verdict: .absent),
+                       .init(path: "b.jsonl", verdict: .mismatch),
+                       .init(path: "c.jsonl", verdict: .unreadable),
+                       .init(path: "d.jsonl", verdict: .absent),
+                       .init(path: "e.jsonl", verdict: .absent)],
+            writtenAt: BackupTests.noon(2026, 9, 17))
+
+        #expect(sentence
+                == "The backup from 17 Sep has changed since it was made: a.jsonl is missing, "
+                + "b.jsonl is different, c.jsonl cannot be read and 2 more. Today's backup "
+                + "is fine.")
+    }
+
+    /// A file Ovation now requires that backups did not need when this one was
+    /// made is neither damage nor a pass, so it is said in its own words.
+    @Test("a file required only since the backup was made is said in its own words")
+    func aLaterRequiredFileIsSaidPlainly() {
+        let sentence = StoreLaunchSequence.archiveNoLongerVerifiesSentence(
+            name: "Ovation-backup-2026-09-07-210000",
+            failures: [.init(path: "Ovation.store.version", verdict: .requiredAfterItWasWritten)],
+            writtenAt: BackupTests.noon(2026, 9, 7))
+
+        #expect(sentence
+                == "The backup from 7 Sep failed its check because it does not hold "
+                + "Ovation.store.version, which backups have had to hold only since it was "
+                + "made. Nothing in that backup has changed. Today's backup is fine.")
     }
 
     /// THE PROBLEM CLEARS ITSELF when the same archive verifies on a later

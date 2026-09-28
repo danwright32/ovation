@@ -96,29 +96,28 @@ enum BackupFileVerdict: String, Equatable, Sendable {
 }
 
 extension BackupFileVerdict {
-    /// What is wrong, as the end of a sentence that begins with the path
-    /// (ovation#610). An exhaustive switch, so a verdict added later cannot fall
-    /// back on a sentence written for another (L113).
-    var phrase: String {
+    /// What is wrong with one file, as a clause that names it (ovation#610): the
+    /// list after "has changed since it was made:" for the three verdicts that
+    /// mean a recorded file changed, and after "failed its check because" for
+    /// the rest. An exhaustive switch, so a verdict added later
+    /// cannot fall back on a sentence written for another (L113).
+    func reason(for path: String) -> String {
         switch self {
-        case .absent:
-            return "is missing"
-        case .unreadable:
-            return "cannot be read"
-        case .mismatch:
-            return "has different contents"
+        case .absent: return "\(path) is missing"
+        case .unreadable: return "\(path) cannot be read"
+        case .mismatch: return "\(path) is different"
         case .secretPresent:
-            return "holds the same bytes as a secret that must never leave this Mac"
+            return "\(path) is a copy of a secret that must never leave this Mac"
         case .memberMissing:
-            return "is not accounted for in its record of what it holds"
+            return "Ovation expected a file (\(path)) that it never had"
         case .requiredAfterItWasWritten:
-            return "is not in it, and a backup has had to hold it only since this one was written"
+            return "it does not hold \(path), which backups have had to hold only since it was made"
         case .referencedDocumentAbsent:
-            return "is a document Ovation refers to that it does not hold"
+            return "it does not hold \(path), a document Ovation refers to"
         case .referencedDocumentMismatch:
-            return "is a document Ovation refers to, and its copy has different contents"
+            return "its copy of \(path), a document Ovation refers to, is different"
         case .orphanedDocument:
-            return "is a document nothing in Ovation refers to"
+            return "it holds \(path), a document nothing in Ovation refers to"
         }
     }
 
@@ -253,7 +252,11 @@ final class BackupService {
         /// nothing must not read like one that found nothing wrong (L98).
         case nothingToCheck
         case verified(String)
-        case failed(String, [BackupReport.Failure])
+        /// The archive's name, what is wrong with it, and when it was taken as
+        /// its own manifest records it (ovation#610), so a sentence can say which
+        /// day's backup this is. Nil when the manifest's date could not be read,
+        /// and then the name is all a sentence has.
+        case failed(String, [BackupReport.Failure], writtenAt: Date? = nil)
         case couldNotRead(String)
     }
 
@@ -296,7 +299,10 @@ final class BackupService {
             return .couldNotRead("\(archive.lastPathComponent): \(error)")
         }
         guard report.isVerified else {
-            return .failed(archive.lastPathComponent, report.failures)
+            // THE DAY IT WAS TAKEN, from its own manifest (ovation#610), so the
+            // sentence names the day rather than a folder name a sync can change.
+            return .failed(archive.lastPathComponent, report.failures,
+                           writtenAt: try? readManifest(at: archive).createdAt)
         }
         return .verified(archive.lastPathComponent)
     }

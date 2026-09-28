@@ -846,12 +846,33 @@ struct BackupTests {
 
         let outcome = try world.service.reverifyOneArchive(now: world.instant)
 
-        guard case .failed(let name, let failures) = outcome else {
+        guard case .failed(let name, let failures, _) = outcome else {
             Issue.record("a damaged archive verified, got \(outcome)")
             return
         }
         #expect(name == archive.lastPathComponent)
         #expect(!failures.isEmpty)
+    }
+
+    /// ovation#610. The day a failed archive was taken is read from its OWN
+    /// manifest, never from the folder name, which a sync or a rename can change.
+    /// The manifest is dated differently from the name here, so the two cannot be
+    /// confused.
+    @Test("a failed re-check carries the day its manifest says the archive was taken")
+    func aFailedRecheckCarriesTheManifestDate() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        try Self.writtenByAnOlderBuild(archive, lacking: [], createdAt: Self.noon(2026, 9, 17),
+                                       planVersion: BackupPlan.version)
+        try FileManager.default.removeItem(at: archive.appendingPathComponent("Ovation.store"))
+
+        let outcome = try world.service.reverifyOneArchive(now: world.instant)
+
+        guard case .failed(_, _, let writtenAt) = outcome else {
+            Issue.record("a damaged archive verified, got \(outcome)")
+            return
+        }
+        #expect(writtenAt == Self.noon(2026, 9, 17))
     }
 
     /// AN EMPTY FOLDER IS ITS OWN ANSWER, never a pass. A re-check that examined

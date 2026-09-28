@@ -377,10 +377,11 @@ struct StoreLaunchSequence {
             // notice the app has itself disproved, left for Dan to dismiss, teaches
             // him to dismiss everything (L152).
             switch await reverifyAnArchive(now) {
-            case .failed(let name, let failures):
+            case .failed(let name, let failures, let writtenAt):
                 _ = problems.raise(
                     kind: .archiveNoLongerVerifies, subject: name,
-                    sentence: Self.archiveNoLongerVerifiesSentence(name: name, failures: failures),
+                    sentence: Self.archiveNoLongerVerifiesSentence(
+                        name: name, failures: failures, writtenAt: writtenAt),
                     now: now)
             case .verified(let name):
                 for standing in problems.open
@@ -504,29 +505,76 @@ struct StoreLaunchSequence {
         return .opened
     }
 
+    /// What Dan reads when an older archive no longer verifies (ovation#610).
+    ///
+    /// IT SAYS WHICH DAY'S BACKUP, WHICH FILES, AND WHETHER ANYTHING IN THE
+    /// BACKUP CHANGED. It said "1 problem(s) with what is in it", which sent Dan
+    /// to the folder when the cause was a rule that had changed in Ovation and
+    /// every file was exactly as written. The two need opposite actions, so the
+    /// sentence tells them apart (L11). Wording approved by Dan on 2026-09-28.
+    ///
+    /// THE DAY IS THE MANIFEST'S, never the folder name's, which a sync or a
+    /// rename can change; the name stands in only when the date could not be
+    /// read. "Nothing in that backup has changed" is exactly what the check that
+    /// compares every recorded file with its hash measured, and only that (L11).
+    /// Three are named and the rest counted, so one damaged archive cannot fill
+    /// the panel.
+    static func archiveNoLongerVerifiesSentence(name: String,
+                                                failures: [BackupReport.Failure],
+                                                writtenAt: Date?) -> String {
+        let which = writtenAt.map { "from \(dayAndMonth($0))" } ?? name
+        let changed = failures.filter { $0.verdict.meansARecordedFileChanged }
+        let expected = failures.filter { $0.verdict == .memberMissing }.map(\.path)
+        let others = failures.filter {
+            !$0.verdict.meansARecordedFileChanged && $0.verdict != .memberMissing
+        }
+
+        var sentences: [String] = []
+        if !changed.isEmpty {
+            sentences.append("The backup \(which) has changed since it was made: "
+                + plainList(changed.map { $0.verdict.reason(for: $0.path) }) + ".")
+        }
+        var reasons: [String] = []
+        if !expected.isEmpty {
+            reasons.append(expected.count == 1
+                ? "Ovation expected a file (\(expected[0])) that it never had"
+                : "Ovation expected files (\(plainList(expected))) that it never had")
+        }
+        reasons += others.map { $0.verdict.reason(for: $0.path) }
+        if !reasons.isEmpty {
+            let opening = changed.isEmpty ? "The backup \(which) failed" : "It also failed"
+            sentences.append("\(opening) its check because \(plainList(reasons)).")
+            if changed.isEmpty { sentences.append("Nothing in that backup has changed.") }
+        }
+        sentences.append("Today's backup is fine.")
+        return sentences.joined(separator: " ")
+    }
+
+    /// "a", "a and b", "a, b and c", then "a, b, c and 2 more".
+    private static func plainList(_ items: [String]) -> String {
+        let named = Array(items.prefix(3))
+        if items.count > named.count {
+            return named.joined(separator: ", ") + " and \(items.count - named.count) more"
+        }
+        guard let last = named.last else { return "" }
+        let rest = named.dropLast()
+        return rest.isEmpty ? last : rest.joined(separator: ", ") + " and " + last
+    }
+
+    /// "17 Sep", on the business calendar, so a trip cannot move a backup to a
+    /// neighbouring day.
+    private static func dayAndMonth(_ instant: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = BusinessCalendar.timeZone
+        formatter.dateFormat = "d MMM"
+        return formatter.string(from: instant)
+    }
+
     /// The kinds a launch that OPENS the store has disproved (ovation#503): each
     /// is raised by a step above that refuses to open, so reaching the open is
     /// that step measuring again and passing.
-    /// What Dan reads when an older archive no longer verifies (ovation#610).
-    ///
-    /// IT NAMES THE FILE AND WHAT IS WRONG WITH IT, and says whether the
-    /// archive's own files changed. It said "1 problem(s) with what is in it",
-    /// which sent Dan to the folder when the cause was a rule that had changed in
-    /// Ovation and every file was exactly as written. The two need opposite
-    /// actions, so the sentence has to tell them apart (L11). Three are named and
-    /// the rest counted, so one damaged archive cannot fill the panel.
-    static func archiveNoLongerVerifiesSentence(name: String,
-                                                failures: [BackupReport.Failure]) -> String {
-        let named = failures.prefix(3).map { "\($0.path) \($0.verdict.phrase)" }
-        var list = named.joined(separator: "; ")
-        if failures.count > named.count { list += "; and \(failures.count - named.count) more" }
-        let files = failures.contains { $0.verdict.meansARecordedFileChanged }
-            ? "Its files have changed since it was written."
-            : "Every file it recorded is still exactly as it was written."
-        return "The backup \(name) verified when it was written and does not now: \(list). "
-            + "\(files) Today's backup is unaffected."
-    }
-
     static let clearedByAnOpen: Set<ProblemKind> = [
         .foreignStore, .storeIsNotADatabase, .unreadableStore, .unidentifiableStore,
         .storeFromANewerVersion, .storeVersionUnreadable,
