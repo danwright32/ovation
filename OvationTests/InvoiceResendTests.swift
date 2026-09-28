@@ -308,7 +308,7 @@ struct InvoiceResendTests {
     /// The send that issued the invoice, recorded as the first send records it.
     private static func recordIssuingSend(_ id: PersistentIdentifier, in container: ModelContainer,
                                           thread: String? = "thread-first",
-                                          messageID: String? = "<first@mail.gmail.com>") throws {
+                                          messageID: String? = "<first@messages.example>") throws {
         let context = ModelContext(container)
         let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>()).first { $0.persistentModelID == id })
         let issuing = SentMessage(kind: .invoice, recipients: ["booker@client.example"], sentAt: firstSent,
@@ -323,7 +323,7 @@ struct InvoiceResendTests {
     func aresendIsRecorded(kind: InvoiceMailKind) async throws {
         let (container, id) = try Self.sent()
         let gmail = InvoiceSenderTests.FakeGmail()
-        gmail.receipt = SentReceipt(threadId: "thread-2", messageID: "<second@mail.gmail.com>")
+        gmail.receipt = SentReceipt(threadId: "thread-2", messageID: "<second@messages.example>")
 
         _ = await Self.resend(kind, id, in: container, gmail: gmail)
 
@@ -332,7 +332,7 @@ struct InvoiceResendTests {
         #expect(recorded.first?.recipients == ["booker@client.example"])
         #expect(recorded.first?.sentAt == Self.later)
         #expect(recorded.first?.gmailThreadID == "thread-2")
-        #expect(recorded.first?.messageID == "<second@mail.gmail.com>")
+        #expect(recorded.first?.messageID == "<second@messages.example>")
         #expect(try Self.invoice(id, in: container).sentStatus == .sent(route: .ovationSentIt, at: Self.firstSent),
                 "recording the reminder does not move the send that issued the invoice")
     }
@@ -361,8 +361,8 @@ struct InvoiceResendTests {
 
         let mail = try #require(gmail.sent.first)
         #expect(mail.threadId == "thread-first")
-        #expect(mail.inReplyTo == "<first@mail.gmail.com>")
-        #expect(mail.references == "<first@mail.gmail.com>")
+        #expect(mail.inReplyTo == "<first@messages.example>")
+        #expect(mail.references == "<first@messages.example>")
     }
 
     @Test("a copy starts its own thread, even where the invoice's send was recorded")

@@ -31,7 +31,7 @@ struct InvoiceSenderTests {
         var limit = GmailSendLimits.maxRequestBytes
         /// What Gmail reports on an accepted send: the thread and the Message-ID it
         /// stamped, which Ovation records as reported (L127).
-        var receipt = SentReceipt(threadId: "thread-1", messageID: "<first@mail.gmail.com>")
+        var receipt = SentReceipt(threadId: "thread-1", messageID: "<first@messages.example>")
 
         func send(_ mail: OutgoingMail) async throws -> SentReceipt {
             sent.append(mail)
@@ -167,7 +167,7 @@ struct InvoiceSenderTests {
     func anacceptedSendRecordsTheMessage() async throws {
         let (container, id) = try Self.draft()
         let gmail = FakeGmail()
-        gmail.receipt = SentReceipt(threadId: "thread-77", messageID: "<abc@mail.gmail.com>")
+        gmail.receipt = SentReceipt(threadId: "thread-77", messageID: "<abc@messages.example>")
 
         _ = await Self.send(id, in: container, gmail: gmail)
 
@@ -179,7 +179,7 @@ struct InvoiceSenderTests {
         #expect(message.sentAt == Self.later)
         #expect(message.sentOn == .stamping(Self.later))
         #expect(message.gmailThreadID == "thread-77")
-        #expect(message.messageID == "<abc@mail.gmail.com>")
+        #expect(message.messageID == "<abc@messages.example>")
     }
 
     /// A DEGRADED RECEIPT RECORDS NOTHING IN PLACE OF WHAT GMAIL DID NOT SAY
