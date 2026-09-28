@@ -259,7 +259,7 @@ struct ClientsView: View {
 
     /// Before a recorded status changes, Ovation says how many sent invoices were
     /// charged under it. The sentence and its two words are the design record's
-    /// drafting, not yet chosen in a round (docs/design/clients.html).
+    /// drafting, approved by Dan on 2026-09-27 (ovation#600).
     private func taxQuestion(_ question: ClientsPresenter.TaxQuestion,
                              on page: ClientsPresenter.Page) -> some View {
         VStack(alignment: .leading, spacing: 8) {

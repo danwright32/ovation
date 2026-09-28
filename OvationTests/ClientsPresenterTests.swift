@@ -252,6 +252,23 @@ struct ClientsPresenterTests {
         #expect(question.keep == "Keep Not exempt")
     }
 
+    /// Dan, 2026-09-27 on ovation#600: where nothing went out under the old status
+    /// the sentence says so plainly, never "0 invoices ... were charged". The words
+    /// are Claude's drafting under that instruction.
+    @Test("with nothing sent under the old status, the sentence says so plainly")
+    func thezeroCaseIsSaidPlainly() throws {
+        let context = try Self.store()
+        let client = Self.client(context, "Tobias Fenn", tax: .notExempt)
+        Self.invoice(context, for: client, number: nil, dayKey: nil)
+        let presenter = ClientsPresenter(clients: try context.fetch(FetchDescriptor<Client>()))
+
+        guard case .ask(let question) = try #require(presenter.pages[client.id]).press(.exempt) else {
+            Issue.record("not asked"); return
+        }
+        #expect(question.sentence == "No invoice has been sent to this client under Not exempt, "
+                + "so none change. Drafts and every invoice from now on will be Exempt.")
+    }
+
     @Test("the count is of invoices sent under the OLD status, and one reads in the singular")
     func thecountIsOfTheOldStatus() throws {
         let context = try Self.store()

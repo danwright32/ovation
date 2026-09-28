@@ -505,6 +505,10 @@ color: var(--faint); }
       decision, never automatic.</p>
       <p>Dan, 2026-09-23 and 2026-09-26 (ovation#482): "Follow the terms precedent". PRD 51j1. No
       separate Change word and no answers always shown, for the reasons the payment terms record.</p>
+      <p>The sentence and "Change to" and "Keep" were approved by Dan on 2026-09-27 (ovation#600),
+      with one change: where nothing went out under the old status it says so plainly, "No invoice
+      has been sent to this client under Not exempt, so none change." Those words are Claude's
+      drafting under that instruction.</p>
     </div>
     <div><h3>One chip answers the tax status question</h3>
       <p><b>The invoice's</b>, on the roster pass, on the client's page and on the invoice itself.
@@ -523,10 +527,6 @@ color: var(--faint); }
   <section class="closing">
     <h2>What is deliberately still open</h2>
     <ol>
-      <li><b>The words of the tax status correction were not chosen in a round.</b> The decision
-      settled where it lives and what it must say before a change is saved; the sentence and the
-      two words under it, "Change to" and "Keep", are this file's drafting of that, and have not
-      been looked at by Dan as a question of their own (PRD 51j1).</li>
       <li><b>The roster pass covers what BLOCKS a send, and nothing else</b> (Dan, 2026-09-10,
       PRD 5a). This entry used to sit here as a gap. It is a decision: the shared address is a
       question rather than a fault, it can never stop an invoice going out, and it is answered
@@ -940,7 +940,13 @@ function taxAsk(k) {
   var sent = INVOICES.filter(function (iv) { return iv.w !== "Draft"; }).length;
   var charged = chargedTax(k) ? "charged sales tax" : "not charged sales tax";
   var box = el("div", "taxask");
-  box.append(el("div", null, sent + (sent === 1 ? " invoice" : " invoices")
+  /* NOTHING SENT UNDER THE OLD STATUS IS SAID PLAINLY (Dan, 2026-09-27,
+     ovation#600, approving the rest of this wording): never "0 invoices ... were
+     charged". The zero case's words are Claude's drafting under that instruction. */
+  box.append(el("div", null, sent === 0
+    ? "No invoice has been sent to this client under " + k.t + ", so none change. "
+      + "Drafts and every invoice from now on will be " + TAX_ASKING + "."
+    : sent + (sent === 1 ? " invoice" : " invoices")
     + " already sent to this client " + (sent === 1 ? "was " : "were ") + charged
     + ", and stay as they were sent. Drafts and every invoice from now on will be "
     + TAX_ASKING + "."));

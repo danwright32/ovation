@@ -65,9 +65,9 @@ struct ClientsPresenter: Equatable {
 
     /// Asked before a recorded status is changed (Dan, 2026-09-23, ovation#482).
     ///
-    /// THE WORDS ARE THE DESIGN RECORD'S DRAFTING and were not chosen in a round
-    /// (docs/design/clients.html, "What is deliberately still open"). They are
-    /// built exactly as drafted there.
+    /// THE WORDS ARE THE DESIGN RECORD'S DRAFTING (docs/design/clients.html),
+    /// approved by Dan on 2026-09-27 (ovation#600) with the zero case said plainly;
+    /// see `correction(sent:chargedUnder:becoming:)`.
     struct TaxQuestion: Equatable {
         let from: TaxStatus
         let to: TaxStatus
@@ -181,8 +181,15 @@ struct ClientsPresenter: Equatable {
         status == .neverRecorded ? "Not recorded" : status.exportLabel
     }
 
-    /// The design record's drafted sentence, `taxAsk` in docs/design/clients.html.
+    /// The design record's drafted sentence, `taxAsk` in docs/design/clients.html,
+    /// approved by Dan on 2026-09-27 (ovation#600) with one change: where nothing
+    /// went out under the old status it says so plainly rather than "0 invoices ...
+    /// were charged". That zero case is Claude's drafting under his instruction.
     static func correction(sent: Int, chargedUnder old: TaxStatus, becoming new: TaxStatus) -> String {
+        guard sent > 0 else {
+            return "No invoice has been sent to this client under \(old.exportLabel), so none change. "
+                + "Drafts and every invoice from now on will be \(new.exportLabel)."
+        }
         let charged = old.isTaxed ? "charged sales tax" : "not charged sales tax"
         return "\(sent)" + (sent == 1 ? " invoice" : " invoices")
             + " already sent to this client " + (sent == 1 ? "was " : "were ") + charged
