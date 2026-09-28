@@ -32,6 +32,9 @@ struct ClientsView: View {
     var writeTerm: ((PersistentIdentifier, PaymentTerm) async -> String?)?
     /// Saying a shared address is correct.
     var acknowledgeShared: ((PersistentIdentifier) async -> String?)?
+    /// What VoiceOver is told as something appears that moves no focus: the
+    /// question, a write in flight, a refusal (L20). The app posts it; a test hears it.
+    var announce: (String) -> Void = { AccessibilityNotification.Announcement($0).post() }
 
     /// What is open on the page. Starts from the caller's value so a test and the
     /// shot suite can draw the question state; the app starts it closed.
@@ -43,6 +46,10 @@ struct ClientsView: View {
     /// How wide the page is drawn, read back from layout, because an invoice row
     /// changes shape with the window (PRD 47c). Zero is unknown, not narrow.
     @State private var pageWidth: CGFloat = 0
+
+    /// Lets a hosted test press through this view while it is on screen, the only
+    /// way to reach what its `@State` does (see `Inspection`).
+    let inspection = Inspection<Self>()
 
     enum Saving: Equatable { case tax, term, shared }
 
@@ -76,14 +83,15 @@ struct ClientsView: View {
         // SAID TO VOICEOVER AS IT APPEARS (L20): the question, a write in flight, and
         // a refusal, none of which move the focus on their own.
         .onChange(of: interaction.asking?.sentence) { _, said in
-            if let said { AccessibilityNotification.Announcement(said).post() }
+            if let said { announce(said) }
         }
         .onChange(of: saving) { _, now in
-            if now != nil { AccessibilityNotification.Announcement("Saving").post() }
+            if now != nil { announce("Saving") }
         }
         .onChange(of: refused) { _, said in
-            if let said { AccessibilityNotification.Announcement(said).post() }
+            if let said { announce(said) }
         }
+        .onReceive(inspection.notice) { inspection.visit(self, $0) }
         .ovationAppearance()
     }
 

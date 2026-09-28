@@ -180,6 +180,38 @@ struct ClientsViewTests {
         #expect(try value(ClientPageInteraction()) == "Closed")
     }
 
+    /// L20: the question, Saving and a refusal appear without moving the focus, so
+    /// each is said to VoiceOver. Hosted, because only a view on screen runs what a
+    /// change of its own state triggers.
+    @Test("the question, Saving and a refusal are each said to VoiceOver as they appear")
+    func eachChangeIsAnnounced() async throws {
+        @MainActor final class Heard { var said: [String] = [] }
+        let heard = Heard()
+        let (clients, _) = try Self.population()
+        let harborlight = try Self.id(of: "Harborlight Ballet", in: clients)
+        let presenter = ClientsPresenter(clients: clients)
+        var asking = ClientPageInteraction()
+        asking.pressTaxValue()
+        let view = ClientsView(presenter: presenter, selected: .constant(harborlight),
+                               writeTax: { _, _ in "That tax status could not be saved." },
+                               announce: { heard.said.append($0) }, interaction: asking)
+        ViewHosting.host(view: view)
+        defer { ViewHosting.expel() }
+
+        try await view.inspection.inspect { shown in
+            try shown.find(button: "Exempt").tap()
+        }
+        for _ in 0..<200 where heard.said.isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
+        #expect(heard.said.first?.hasPrefix("3 invoices already sent") == true)
+
+        try await view.inspection.inspect { shown in
+            try shown.find(button: "Change to Exempt").tap()
+        }
+        for _ in 0..<200 where heard.said.count < 3 { try await Task.sleep(nanoseconds: 10_000_000) }
+        #expect(heard.said.dropFirst().contains("Saving"))
+        #expect(heard.said.contains("That tax status could not be saved."))
+    }
+
     @Test("with nothing that can write, the tax status is a value with nothing to press")
     func withoutAWriterNothingIsPressable() throws {
         let (clients, _) = try Self.population()
