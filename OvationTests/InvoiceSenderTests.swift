@@ -43,9 +43,18 @@ struct InvoiceSenderTests {
         }
     }
 
-    private static func render() -> RenderedInvoice {
+    private static func render(chargedUnder: TaxStatus? = .notExempt) -> RenderedInvoice {
         let bytes = Data("%PDF-1.7 the one render".utf8)
-        return RenderedInvoice(bytes: bytes, sha256: DocumentStore.hash(of: bytes), fingerprint: "f")
+        return RenderedInvoice(bytes: bytes, sha256: DocumentStore.hash(of: bytes), fingerprint: "f",
+                               chargedUnder: chargedUnder)
+    }
+
+    /// The render as the review sheet would have taken it: under the tax status the
+    /// invoice is charged under in the store right now.
+    private static func renderAsStored(_ id: PersistentIdentifier, in container: ModelContainer) -> RenderedInvoice {
+        let invoice = try? ModelContext(container).fetch(FetchDescriptor<Invoice>())
+            .first { $0.persistentModelID == id }
+        return render(chargedUnder: invoice?.taxStatusCharged)
     }
 
     /// A numbered draft that nothing refuses, built the way ReviewGate's suite builds one.
@@ -55,7 +64,7 @@ struct InvoiceSenderTests {
         let invoice = try InvoiceFixtures.invoice("Ordinary", in: context)
         invoice.client?.email = "booker@client.example"
         invoice.number = number
-        invoice.sentStatus = .notSent
+        invoice.recordSendState(.notSent)
         for shoot in invoice.shoots {
             shoot.shotFrom = ClockTime("19:00")
             shoot.shotUntil = ClockTime("20:00")
@@ -72,13 +81,14 @@ struct InvoiceSenderTests {
     private static func send(_ id: PersistentIdentifier, in container: ModelContainer, gmail: FakeGmail,
                              settings: SendingSettings = settings,
                              message: String = "Hello,\n\nThe invoice is attached.\n\nThank you,\nDan",
-                             approved: [String]? = nil, readiness: Readiness = .init())
+                             approved: [String]? = nil, readiness: Readiness = .init(),
+                             rendered: RenderedInvoice? = nil)
     async -> InvoiceSendOutcome {
         let answeredAt = later
         // WHAT THE SHEET SHOWED, by default exactly who this settings file sends to.
         let shown = approved ?? settings.destination.recipients(forClient: ["booker@client.example"])
         return await InvoiceSender(modelContainer: container).send(
-            id, render: render(), message: message, settings: settings, footer: footer,
+            id, render: rendered ?? renderAsStored(id, in: container), message: message, settings: settings, footer: footer,
             approvedRecipients: shown, through: readiness.route(gmail), clock: { answeredAt })
     }
 
@@ -142,6 +152,67 @@ struct InvoiceSenderTests {
         #expect(attempt.destination == ["second@elsewhere.example"])
         #expect(attempt.wasRedirected)
         #expect(attempt.renderSHA256 == Self.render().sha256)
+    }
+
+    // MARK: the tax it went out with (ovation#482)
+
+    private static func stored(_ id: PersistentIdentifier, in container: ModelContainer) throws -> Invoice {
+        try #require(try ModelContext(container).fetch(FetchDescriptor<Invoice>())
+            .first { $0.persistentModelID == id })
+    }
+
+    /// WHAT WENT OUT IS WHAT IT SAYS (Dan, 2026-09-23, PRD 51j1): the send records the
+    /// status the render was taken under, so a later correction on the client's page
+    /// cannot re-draw it. Asked for an accepted send and for one Gmail never answered,
+    /// because an unanswered send may have gone.
+    @Test("a send records the client's tax status on the invoice", arguments: ["accepted", "unanswered"])
+    func asendRecordsTheTaxStatus(answer: String) async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+        if answer == "unanswered" { gmail.answer = .neverAnswers(URLError(.timedOut)) }
+
+        _ = await Self.send(id, in: container, gmail: gmail)
+
+        let invoice = try Self.stored(id, in: container)
+        let client = invoice.client
+        #expect(invoice.taxStatusWhenSent != nil)
+        #expect(invoice.taxStatusWhenSent == client?.taxStatus)
+    }
+
+    /// THE STATUS THE PDF WAS RENDERED UNDER IS THE ONE THAT GOES OUT (review of
+    /// ovation#600, L567). The sheet renders when it opens and the send is pressed
+    /// later; a status corrected on the client's page in between would stamp the new
+    /// status on an invoice whose attached page shows the old one. So it is refused,
+    /// the way a changed recipient is, and nothing is written.
+    @Test("a tax status that moved after the sheet rendered refuses the send, and nothing is written")
+    func amovedTaxStatusRefuses() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+        let rendered = Self.renderAsStored(id, in: container)
+        do {
+            let context = ModelContext(container)
+            let client = try #require(try context.fetch(FetchDescriptor<Client>()).first)
+            client.taxStatus = client.taxStatus == .exempt ? .notExempt : .exempt
+            try context.save()
+        }
+
+        let outcome = await Self.send(id, in: container, gmail: gmail, rendered: rendered)
+
+        #expect(outcome == .refused(InvoiceMail.taxStatusChanged))
+        #expect(gmail.sent.isEmpty)
+        #expect(try Self.status(id, in: container) == .notSent)
+        #expect(try Self.stored(id, in: container).taxStatusWhenSent == nil)
+    }
+
+    @Test("a send Gmail refused records no tax status, because the invoice is still a draft")
+    func arefusedSendRecordsNoTaxStatus() async throws {
+        let (container, id) = try Self.draft()
+        let gmail = FakeGmail()
+        gmail.answer = .refuses(GmailSendError.api("invalid recipient"))
+
+        _ = await Self.send(id, in: container, gmail: gmail)
+
+        #expect(try Self.stored(id, in: container).taxStatusWhenSent == nil)
     }
 
     // MARK: Gmail said no, so nothing went
@@ -210,8 +281,8 @@ struct InvoiceSenderTests {
             try context.save()
         case "already sent":
             let context = ModelContext(container)
-            try #require(try context.fetch(FetchDescriptor<Invoice>()).first).sentStatus =
-                .sent(route: .ovationSentIt, at: Self.noon)
+            try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
+                .recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
             try context.save()
         case "too large": gmail.limit = 1
         default: break

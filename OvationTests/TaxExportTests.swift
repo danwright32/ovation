@@ -118,7 +118,7 @@ struct TaxExportTests {
         let world = try World()
         let unknown = world.invoice(dayKey: "2026-05-05", sent: false,
                                     total: Money(dollars: 250))
-        unknown.sentStatus = .couldNotDetermine(checkedAt: Date(timeIntervalSince1970: 1_800_000_000))
+        unknown.recordSendState(.couldNotDetermine(checkedAt: Date(timeIntervalSince1970: 1_800_000_000)))
 
         let export = TaxExport.income(from: [unknown], in: .calendarYear(2026))
 
@@ -142,10 +142,10 @@ struct TaxExportTests {
         let world = try World()
         let interrupted = world.invoice(dayKey: "2026-05-05", sent: false,
                                         total: Money(dollars: 250))
-        interrupted.sentStatus = .attempting(
+        interrupted.recordSendState(.attempting(
             SendAttempt(destination: ["client@example.com"], wasRedirected: false,
                         renderSHA256: "abc",
-                        startedAt: Date(timeIntervalSince1970: 1_800_000_000)))
+                        startedAt: Date(timeIntervalSince1970: 1_800_000_000))))
 
         let export = TaxExport.income(from: [interrupted], in: .calendarYear(2026))
 
@@ -584,8 +584,8 @@ struct TaxExportTests {
             // tax, which the invoice adds on its own terms.
             invoice.add(LineItem.flat(total, describedAs: "Photography"))
             if sent {
-                invoice.sentStatus = .sent(route: .ovationSentIt,
-                                           at: Date(timeIntervalSince1970: 1_780_000_000))
+                invoice.recordSendState(.sent(route: .ovationSentIt,
+                                           at: Date(timeIntervalSince1970: 1_780_000_000)))
             }
             return invoice
         }

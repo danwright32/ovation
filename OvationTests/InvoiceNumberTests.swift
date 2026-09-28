@@ -399,7 +399,7 @@ struct InvoiceNumberTests {
 
         let allocator = InvoiceNumberAllocator(modelContainer: container)
         let number = try await allocator.allocate(to: invoice.persistentModelID)
-        try Self.change(invoice.id, in: container) { $0.sentStatus = status }
+        try Self.change(invoice.id, in: container) { $0.recordSendState(status) }
 
         await #expect(throws: InvoiceNumberRefusal.invoiceWasSent(number: number)) {
             try await allocator.release(number, from: invoice.persistentModelID)
@@ -416,7 +416,7 @@ struct InvoiceNumberTests {
 
         let allocator = InvoiceNumberAllocator(modelContainer: container)
         let number = try await allocator.allocate(to: invoice.persistentModelID)
-        try Self.change(invoice.id, in: container) { $0.sentStatus = .couldNotDetermine(checkedAt: Self.day) }
+        try Self.change(invoice.id, in: container) { $0.recordSendState(.couldNotDetermine(checkedAt: Self.day)) }
 
         await #expect(throws: InvoiceNumberRefusal.sendCouldNotBeDetermined(number: number)) {
             try await allocator.release(number, from: invoice.persistentModelID)
@@ -443,7 +443,7 @@ struct InvoiceNumberTests {
         let number = try await allocator.allocate(to: invoice.persistentModelID)
         let attempt = SendAttempt(destination: ["client@example.com"], wasRedirected: false,
                                   renderSHA256: "abc", startedAt: Self.day)
-        try Self.change(invoice.id, in: container) { $0.sentStatus = .attempting(attempt) }
+        try Self.change(invoice.id, in: container) { $0.recordSendState(.attempting(attempt)) }
 
         await #expect(throws: InvoiceNumberRefusal.sendIsInFlight(number: number)) {
             try await allocator.release(number, from: invoice.persistentModelID)

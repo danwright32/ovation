@@ -53,6 +53,15 @@ enum PaymentTerms {
     /// (L41).
     static let standard: PaymentTerm = all.first { $0.days == 14 } ?? all[2]
 
+    /// A client's standing term (PRD 51j): the recorded one, or the default where
+    /// none is recorded or the recorded one is not one of the four. Read by the
+    /// Clients screen and by the booking drafter, so a draft is dated by the term
+    /// the client's page shows.
+    static func standing(days: Int?) -> PaymentTerm {
+        guard let days else { return standard }
+        return all.first { $0.days == days } ?? standard
+    }
+
     /// A date a person typed, in the form the screen writes, or nil.
     ///
     /// THE SAME FORM `BusinessCalendar.shortDate` WRITES, and the round trip is

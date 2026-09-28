@@ -688,6 +688,37 @@ struct OvationApp: App {
                              }
                          }
                      },
+                     // ovation#568. The Clients screen, from the same read as the
+                     // list, and the two facts its pages record besides the tax
+                     // status, each through the actor that owns the write (PRD 51l).
+                     clients: invoiceList?.clients,
+                     writePaymentTerm: opened.map { container in
+                         { client, term in
+                             do {
+                                 try await ClientStandingWriter(modelContainer: container)
+                                     .setPaymentTerm(term, on: client)
+                                 return nil
+                             } catch let refusal as ClientStandingRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "Those payment terms could not be saved: \(error)"
+                             }
+                         }
+                     },
+                     // THE DAY IS READ HERE AND NOWHERE DEEPER (L524).
+                     acknowledgeSharedAddress: opened.map { container in
+                         { client in
+                             do {
+                                 try await ClientStandingWriter(modelContainer: container)
+                                     .acknowledgeSharedAddress(on: client, day: .stamping(Date()))
+                                 return nil
+                             } catch let refusal as ClientStandingRefusal {
+                                 return refusal.sentence
+                             } catch {
+                                 return "That could not be saved: \(error)"
+                             }
+                         }
+                     },
                      edits: edits,
                      // ovation#42. The review of a real invoice, and its send. The
                      // sending settings file is nil in a Debug build and a test run,

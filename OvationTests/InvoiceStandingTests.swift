@@ -147,7 +147,7 @@ struct InvoiceStandingTests {
             for ending in endings {
                 let context = try Self.store()
                 let invoice = Self.unpriced(context)
-                invoice.sentStatus = sent
+                invoice.recordSendState(sent)
                 invoice.closure = ending
                 let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
                                                couldSettleMoreThanOne: false)
@@ -253,8 +253,8 @@ struct InvoiceStandingTests {
         let context = try Self.store()
         let invoice = Self.invoice(context)
         invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
-        invoice.sentStatus = .sent(route: .ovationSentIt,
-                                   at: Date(timeIntervalSince1970: 1_700_000_000))
+        invoice.recordSendState(.sent(route: .ovationSentIt,
+                                   at: Date(timeIntervalSince1970: 1_700_000_000)))
         invoice.dueDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "not a day")
 
         let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
@@ -275,8 +275,8 @@ struct InvoiceStandingTests {
         let context = try Self.store()
         let invoice = Self.invoice(context, due: nil)
         invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
-        invoice.sentStatus = .sent(route: .ovationSentIt,
-                                   at: Date(timeIntervalSince1970: 1_700_000_000))
+        invoice.recordSendState(.sent(route: .ovationSentIt,
+                                   at: Date(timeIntervalSince1970: 1_700_000_000)))
 
         let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
                                        couldSettleMoreThanOne: false)
@@ -332,7 +332,7 @@ struct InvoiceStandingTests {
                        .sent(route: .foundInTheMailbox, at: Date(timeIntervalSince1970: 1)),
                        .couldNotDetermine(checkedAt: Date(timeIntervalSince1970: 1))] {
             let invoice = Self.invoice(context)
-            invoice.sentStatus = status
+            invoice.recordSendState(status)
             let standing = InvoiceStanding(of: invoice, today: Self.shootDay,
                                            couldSettleMoreThanOne: false)
             #expect(standing.sent == status)
@@ -422,8 +422,8 @@ struct InvoiceStandingTests {
     func abouncedCheckReopensTheInvoice() throws {
         let context = try Self.store()
         let invoice = Self.invoice(context)
-        invoice.sentStatus = .sent(route: .ovationSentIt,
-                                   at: Date(timeIntervalSince1970: 1_794_531_600))
+        invoice.recordSendState(.sent(route: .ovationSentIt,
+                                   at: Date(timeIntervalSince1970: 1_794_531_600)))
         invoice.add(LineItem.flat(Money(dollars: 100), describedAs: "Photography"))
         Self.pay(invoice, in: context, method: .check, cleared: false)
         let paid = InvoiceStanding(of: invoice, today: Self.shootDay,

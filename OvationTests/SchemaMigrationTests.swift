@@ -40,8 +40,9 @@ struct SchemaMigrationTests {
         // two clock times Dan types after a shoot. IT IS 4 SINCE ovation#510,
         // which added the day each invoice was created. IT IS 5 SINCE ovation#185,
         // which added where an allocation's money came from and the day held
-        // money was taken back off an invoice.
-        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(5, 0, 0))
+        // money was taken back off an invoice. IT IS 6 SINCE ovation#482, which
+        // added the tax status each invoice was sent under.
+        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(6, 0, 0))
     }
 
     @Test("the version's models are exactly the ones the store holds")
@@ -57,7 +58,8 @@ struct SchemaMigrationTests {
     func thePlanNamesTheVersion() throws {
         let named = OvationMigrationPlan.schemas.map { $0.versionIdentifier }
         #expect(named == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0),
-                          Schema.Version(4, 0, 0), Schema.Version(5, 0, 0)])
+                          Schema.Version(4, 0, 0), Schema.Version(5, 0, 0),
+                          Schema.Version(6, 0, 0)])
     }
 
     @Test("and every consecutive pair has a stage carrying a store across it")
@@ -92,6 +94,7 @@ struct SchemaMigrationTests {
             ("version 3", OvationSchemaV3.models),
             ("version 4", OvationSchemaV4.models),
             ("version 5", OvationSchemaV5.models),
+            ("version 6", OvationSchemaV6.models),
         ]
         for (name, models) in versions {
             #expect(Set(models.map(ObjectIdentifier.init)).count == models.count,
@@ -158,6 +161,22 @@ struct SchemaMigrationTests {
                 "version 5 is using version 4's class, so the two describe one shape")
         #expect(ObjectIdentifier(OvationSchemaV4.Invoice.self) != ObjectIdentifier(Invoice.self),
                 "version 5 is using version 4's class, so the two describe one shape")
+    }
+
+    /// The same statement for version 5, FROZEN WITHOUT the tax status version 6
+    /// records on a sent invoice (ovation#482).
+    @Test("and version 5 is frozen without the sent tax status version 6 added")
+    func theolderVersionHasNoSentTaxStatus() throws {
+        let frozen = OvationSchemaV5.Invoice()
+        frozen.number = 1_131
+        let current = Invoice(client: nil, kind: .photography, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
+        current.taxStatusWhenSent = .notExempt
+
+        #expect(frozen.number == 1_131)
+        #expect(current.taxStatusWhenSent == .notExempt)
+        #expect(ObjectIdentifier(OvationSchemaV5.Invoice.self) != ObjectIdentifier(Invoice.self),
+                "version 6 is using version 5's class, so the two describe one shape")
     }
 
     @Test("and version 1 still has the field version 2 dropped, which is what it is FOR")
@@ -552,6 +571,78 @@ struct SchemaMigrationTests {
             .fetch(FetchDescriptor<PaymentAllocation>()).first)
         #expect(again.isHeldMoney)
         #expect(again.invoice?.heldMoneyRemovedOn != nil)
+    }
+
+    /// ovation#482. THE STAGE THAT IS NOT LIGHTWEIGHT, carried across a real version
+    /// 5 store. Every invoice already out arrives knowing the status it was sent
+    /// under, a draft arrives knowing nothing, and a status corrected afterwards
+    /// moves the draft and not the sent invoice, which is the whole of PRD 51j1's
+    /// promise that what went out is what it says.
+    ///
+    /// THE CLIENTS ARE ONE OF EACH STATUS, so a stamp read from the wrong client, or
+    /// a stage that stamped a constant, reads back wrong on at least one row.
+    @Test("a real version 5 store opens under version 6 with every sent invoice's tax status recorded")
+    func therealStoreMigratesFromVersionFive() throws {
+        let url = try Self.scratchStore("real-5")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
+
+        do {
+            let schema = Schema(versionedSchema: OvationSchemaV5.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            let taxed = OvationSchemaV5.Client()
+            taxed.name = "Calder Street Theatre"
+            taxed.taxStatus = .notExempt
+            let exempt = OvationSchemaV5.Client()
+            exempt.name = "Larkspur Community Chorus"
+            exempt.taxStatus = .exempt
+            func invoice(_ number: Int64?, _ client: OvationSchemaV5.Client,
+                         _ status: SentStatus) -> OvationSchemaV5.Invoice {
+                let invoice = OvationSchemaV5.Invoice()
+                invoice.number = number
+                invoice.client = client
+                invoice.sentStatus = status
+                return invoice
+            }
+            let rows: [any PersistentModel] = [
+                taxed, exempt,
+                invoice(1_131, taxed, .sent(route: .ovationSentIt, at: sentAt)),
+                invoice(1_126, exempt, .sent(route: .foundInTheMailbox, at: sentAt)),
+                invoice(1_119, taxed, .couldNotDetermine(checkedAt: sentAt)),
+                invoice(nil, exempt, .notSent),
+            ]
+            for model in rows { context.insert(model) }
+            try context.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+        }
+
+        let container = try OvationSchema.container(at: url)
+        let context = ModelContext(container)
+        let invoices = try context.fetch(FetchDescriptor<Invoice>())
+        #expect(invoices.count == 4, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
+        func read(_ number: Int64?) throws -> Invoice {
+            try #require(invoices.first { $0.number == number })
+        }
+        #expect(try read(1_131).taxStatusWhenSent == .notExempt)
+        #expect(try read(1_126).taxStatusWhenSent == .exempt)
+        #expect(try read(1_119).taxStatusWhenSent == .notExempt, "a send that may have gone is stamped too")
+        #expect(try read(nil).taxStatusWhenSent == nil, "a draft follows its client, so nothing is recorded")
+
+        // THE POINT OF IT: correct both clients, and only the draft moves.
+        for client in try context.fetch(FetchDescriptor<Client>()) {
+            client.taxStatus = client.taxStatus == .exempt ? .notExempt : .exempt
+        }
+        try context.save()
+        let again = try ModelContext(container).fetch(FetchDescriptor<Invoice>())
+        let sentTaxed = try #require(again.first { $0.number == 1_131 })
+        let sentExempt = try #require(again.first { $0.number == 1_126 })
+        let draft = try #require(again.first { $0.number == nil })
+        #expect(sentTaxed.taxStatusCharged == .notExempt)
+        #expect(sentExempt.taxStatusCharged == .exempt)
+        #expect(draft.taxStatusCharged == .notExempt, "the draft took the corrected status")
     }
 
     // MARK: every entity, every field, the whole way (ovation#408)

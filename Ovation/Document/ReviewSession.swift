@@ -50,6 +50,12 @@ struct RenderedInvoice: Equatable, Sendable {
     /// the same thing and share this, so ovation#42 can refuse to send a render an edit made
     /// stale without mistaking a re-render for an edit.
     let fingerprint: String
+    /// The sales tax status the page was rendered under (review of ovation#600). The
+    /// send refuses where the invoice is charged under a different one by the time it
+    /// is pressed, because what went out has to be what the invoice then records.
+    /// NO DEFAULT: a render that forgot it would be refused for the wrong reason
+    /// rather than sent (L168).
+    let chargedUnder: TaxStatus?
 }
 
 @MainActor
@@ -76,7 +82,8 @@ final class ReviewSession {
         let made = Result {
             let bytes = try InvoicePDF.render(document, resources: resources)
             return RenderedInvoice(bytes: bytes, sha256: DocumentStore.hash(of: bytes),
-                                   fingerprint: Self.fingerprint(of: document))
+                                   fingerprint: Self.fingerprint(of: document),
+                                   chargedUnder: document.chargedUnder)
         }
         outcome = made
         return try made.get()

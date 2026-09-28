@@ -49,7 +49,7 @@ struct InvoiceEditCommandTests {
         if discounted { invoice.discount = Discount(percentBasisPoints: 1_000) }
         if sent {
             invoice.number = 1_123
-            invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+            invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
         }
         context.insert(invoice)
         return invoice

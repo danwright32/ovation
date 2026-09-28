@@ -89,6 +89,15 @@ struct ShellView: View {
     /// store to write to.
     var writeHeldMoney: ((PersistentIdentifier, HeldMoneyChange) async -> String?)?
 
+    /// ovation#568. The Clients screen, derived in the same read as the list, or
+    /// nil where that read failed (or in a hosted test written before it existed).
+    var clients: ClientsPresenter?
+    /// ovation#568, PRD 51j and 38c. Recording a client's standing payment terms,
+    /// and saying a shared address is correct. Nil where nothing can write. The tax
+    /// status is `writeTaxStatus`, the one write every screen that asks it uses.
+    var writePaymentTerm: ((PersistentIdentifier, PaymentTerm) async -> String?)?
+    var acknowledgeSharedAddress: ((PersistentIdentifier) async -> String?)?
+
     /// What the Edit menu is allowed to offer about the invoice on screen. The
     /// menu is declared on the app, outside every view, so this is how what is
     /// open reaches it (ovation#457).
@@ -110,6 +119,10 @@ struct ShellView: View {
     /// reason the payment's refusals are: the screen is rebuilt after every write.
     @State private var refusedHeldMoney: String?
 
+    /// Which client's page is open on the Clients screen. Held here because the
+    /// screen is rebuilt after every write, and a selection kept inside it would be
+    /// lost each time (ovation#568).
+    @State private var selectedClient: UUID?
     /// Which invoice is selected. It lives here rather than inside the list
     /// because coming back from an invoice has to find the row again (ovation#125).
     @State private var selectedInvoice: PersistentIdentifier?
@@ -668,7 +681,18 @@ struct ShellView: View {
             } else {
                 couldNotBeRead
             }
-        case .expenses, .clients:
+        case .clients:
+            // ovation#568. A CLIENTS SCREEN THAT COULD NOT BE READ IS NOT AN EMPTY
+            // ONE: it comes from the same read as the list, which raised a problem
+            // for the failure, and drawing no names would say there are no clients.
+            if let clients {
+                ClientsView(presenter: clients, selected: $selectedClient,
+                            writeTax: writeTaxStatus, writeTerm: writePaymentTerm,
+                            acknowledgeShared: acknowledgeSharedAddress)
+            } else {
+                clientsCouldNotBeRead
+            }
+        case .expenses:
             // Reachable only from a test today, because `go(to:)` refuses an
             // unbuilt destination. It is drawn rather than left blank so that
             // the state has a sentence if it is ever reached (L10).
@@ -684,6 +708,22 @@ struct ShellView: View {
             .padding(24)
             .background(OvationPalette.background)
         }
+    }
+
+    /// The same state for the Clients screen, which comes from the same read.
+    private var clientsCouldNotBeRead: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("The clients could not be read")
+                .font(.system(size: 22, weight: .regular, design: .serif))
+                .foregroundStyle(OvationPalette.ink)
+            Text("No client's details can be seen or corrected until this is fixed. "
+                 + "What went wrong is at the foot of the rail.")
+                .font(.system(size: 13))
+                .foregroundStyle(OvationPalette.soft)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(24)
+        .background(OvationPalette.background)
     }
 
     /// The state where the store opened and its invoices did not come out of it.

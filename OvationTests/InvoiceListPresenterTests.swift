@@ -42,8 +42,8 @@ struct InvoiceListPresenterTests {
         invoice.dueDate = due
         invoice.number = number
         if sent {
-            invoice.sentStatus = .sent(route: .ovationSentIt,
-                                       at: Date(timeIntervalSince1970: 1_794_000_000))
+            invoice.recordSendState(.sent(route: .ovationSentIt,
+                                       at: Date(timeIntervalSince1970: 1_794_000_000)))
         }
         invoice.add(LineItem.flat(Money(dollars: amount), describedAs: "Photography"))
         context.insert(invoice)
@@ -255,8 +255,8 @@ struct InvoiceListPresenterTests {
         let draft = Self.invoice(context, for: client, shoot: Self.day(-2))
         let unsettled = Self.invoice(context, for: client, shoot: Self.day(-18),
                                      due: Self.day(-4), number: 1037)
-        unsettled.sentStatus = .couldNotDetermine(
-            checkedAt: Date(timeIntervalSince1970: 1_794_400_000))
+        unsettled.recordSendState(.couldNotDetermine(
+            checkedAt: Date(timeIntervalSince1970: 1_794_400_000)))
 
         let list = Self.present([draft, unsettled], held: [client: Money(dollars: 500)])
         #expect(!list.bands.contains { $0.band == .toPlace })

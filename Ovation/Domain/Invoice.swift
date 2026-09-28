@@ -170,7 +170,7 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
 
 }
 
-extension OvationSchemaV5 {
+extension OvationSchemaV6 {
     @Model
     final class Invoice {
         /// Ovation's own identity, minted fresh and never derived from anything
@@ -208,7 +208,26 @@ extension OvationSchemaV5 {
         var referralCredit: ReferralCredit?
 
         /// PRD 5.10a. Only ever observed.
-        var sentStatus: SentStatus = SentStatus.notSent
+        ///
+        /// WRITTEN THROUGH `recordSendState(_:)` AND NOWHERE ELSE (ovation#482),
+        /// because a send is also the moment the tax status it went out under is
+        /// recorded, and a writer that set this alone would leave a sent invoice
+        /// reading its client's status. PRIVATE TO SET, so the compiler is the guard
+        /// rather than a scan (L613).
+        private(set) var sentStatus: SentStatus = SentStatus.notSent
+
+        /// The client's sales tax status when this invoice went out, or nil while it
+        /// has not (ovation#482, PRD 51j1, schema version 6).
+        ///
+        /// WHAT WENT OUT IS WHAT IT SAYS (Dan, 2026-09-23). PRD 5a1 has an invoice
+        /// read its client's status when it is drawn, and a status can now be
+        /// corrected on the client's page, so a sent invoice that went on reading the
+        /// client would silently re-draw under the corrected one. It is stamped by the
+        /// send and by the stage that carried every earlier sent invoice into version
+        /// 6, and it is cleared if the send turns out not to have happened, because a
+        /// draft follows its client: "the change then applies to drafts and every
+        /// invoice from now on".
+        var taxStatusWhenSent: TaxStatus?
 
         var closure: InvoiceClosure?
 
@@ -385,7 +404,7 @@ extension OvationSchemaV5 {
 
         /// The tax, or nothing at all for an exempt client.
         ///
-        /// IT READS THE CLIENT'S STATUS AT RENDER TIME, and that is a decision
+        /// A DRAFT READS ITS CLIENT'S STATUS AT RENDER TIME, and that is a decision
         /// rather than the absence of one (PRD 5a1, ovation#122). Dan's own history
         /// has three clients taxed on some invoices and untaxed on others after
         /// sales tax started in 2022, and a fourth with a taxed and an untaxed line
@@ -393,11 +412,70 @@ extension OvationSchemaV5 {
         /// 2026-09-19 with the measurement, he answered that the tax was applied by
         /// hand and sometimes missed, so the history contains mistakes and the
         /// status stays a fact about the client. Every other rate on this invoice is
-        /// frozen at creation; this one deliberately is not, and 5a1 records what
-        /// that costs if a client ever does become exempt.
+        /// frozen at creation; this one deliberately is not.
+        ///
+        /// A SENT INVOICE READS THE STATUS IT WENT OUT UNDER (ovation#482). 5a1
+        /// stated its own cost, that a client who does become exempt would re-draw
+        /// every invoice already issued, and PRD 51j1 is the correction it
+        /// anticipated: a status can now be corrected, and what went out is what it
+        /// says. See `taxStatusCharged`.
         var tax: Money {
-            guard client?.taxStatus.isTaxed ?? true else { return .zero }
+            guard taxStatusCharged?.isTaxed ?? true else { return .zero }
             return taxRate.tax(on: taxableAmount)
+        }
+
+        /// The sales tax status this invoice is charged under: the one it was sent
+        /// under once it has gone out, and its client's until then. Nil only where
+        /// there is no client, which `tax` charges and nothing labels (L67).
+        ///
+        /// ONE READING, used by the tax itself, the invoice screen's tax row and the
+        /// PDF's, so the figure and the word beside it cannot come to read two
+        /// different statuses (L544, L370).
+        var taxStatusCharged: TaxStatus? {
+            if let sentUnder = taxStatusWhenSent { return sentUnder }
+            // Bound first rather than read through the optional client: that form
+            // trips a compiler fault that depends on how files are batched
+            // (ovation#497).
+            let client = self.client
+            return client?.taxStatus
+        }
+
+        /// Records what a send established, and with it the tax status the invoice
+        /// went out under (ovation#482).
+        ///
+        /// THE ONLY WAY THE APP MOVES `sentStatus`, so a send can never be recorded
+        /// without the status it was charged under. A state that means the invoice
+        /// may have gone (attempting, sent, or a match that could not tell) keeps
+        /// the status recorded when the send was first attempted, because the render
+        /// that went out was taken then; a state meaning it did not go makes it a
+        /// draft again, and a draft follows its client.
+        func recordSendState(_ status: SentStatus) {
+            sentStatus = status
+            if status == .notSent {
+                taxStatusWhenSent = nil
+            } else {
+                _ = stampSentTaxStatusIfMissing()
+            }
+        }
+
+        /// Records the client's status as the one this invoice went out under, where
+        /// it has gone out and nothing is recorded yet. Returns whether it recorded
+        /// anything.
+        ///
+        /// SHARED BY THE SEND AND BY THE STAGE THAT CARRIED EVERY EARLIER SENT
+        /// INVOICE INTO VERSION 6 (`SentTaxStatusBackfill`), so the two cannot come
+        /// to disagree about which invoices count as gone out (L370). It never
+        /// overwrites, so running it again changes nothing it already did.
+        func stampSentTaxStatusIfMissing() -> Bool {
+            guard sentStatus != .notSent, taxStatusWhenSent == nil else { return false }
+            let client = self.client
+            // NEVER THE ABSENCE OF AN ANSWER (review of ovation#600): a stamp of it
+            // would stick, while the invoice screen hides the tax row for it. The
+            // send gate refuses such a client, so only a route around the gate could
+            // reach here, and it records nothing and goes on reading the client.
+            guard let status = client?.taxStatus, status != .neverRecorded else { return false }
+            taxStatusWhenSent = status
+            return true
         }
 
         var total: Money { taxableAmount + tax }
@@ -579,4 +657,4 @@ extension OvationSchemaV5 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a newer version exists, this line moves to it and
 // every call site is already correct.
-typealias Invoice = OvationSchemaV5.Invoice
+typealias Invoice = OvationSchemaV6.Invoice

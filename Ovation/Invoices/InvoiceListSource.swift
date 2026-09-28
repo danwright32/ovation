@@ -77,6 +77,16 @@ final class InvoiceListSource {
     /// (PRD 46b: a quantity of nothing is not drawn).
     private(set) var heldMoney: String?
 
+    /// The Clients screen (ovation#568), or nil where the store could not be read.
+    ///
+    /// DERIVED FROM THE SAME READ AS THE HELD MONEY LINE, because PRD 46b sums that
+    /// line "from the same list the Clients screen draws its money boxes from", and
+    /// a second read would be a second definition that drifts (L107). Re-derived on
+    /// every committed write for the reason the list is, so a tax status corrected
+    /// on a client's page reaches the page, the invoice list and every open invoice
+    /// together (L14).
+    private(set) var clients: ClientsPresenter?
+
     private let read: Read
     /// How to make a read only context, where there is a store at all. Nil under
     /// the closure based initialiser, which a test drives without one.
@@ -139,6 +149,7 @@ final class InvoiceListSource {
             // not on screen at all to be misread.
             list = nil
             heldMoney = nil
+            clients = nil
             _ = problems.raise(
                 kind: .invoicesUnreadable,
                 subject: nil,
@@ -164,6 +175,7 @@ final class InvoiceListSource {
         list = InvoiceListPresenter(invoices: store.invoices, heldMoney: held,
                                     today: .stamping(moment))
         heldMoney = Self.heldMoneyLine(store.clients)
+        clients = ClientsPresenter(clients: store.clients)
 
         // A READ THAT WORKED IS PROOF THE INVOICES ARE READABLE, which is the whole
         // of what the notice claimed. It is settled here for the same reason the

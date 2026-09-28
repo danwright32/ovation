@@ -73,6 +73,12 @@ struct RootView: View {
     /// it did nothing. Nil where this launch has no store to write to.
     var writeHeldMoney: ((PersistentIdentifier, HeldMoneyChange) async -> String?)?
 
+    /// ovation#568. The Clients screen and its two writes of its own, passed through
+    /// for the same reason as the rest: this view reaches no store of its own.
+    var clients: ClientsPresenter?
+    var writePaymentTerm: ((PersistentIdentifier, PaymentTerm) async -> String?)?
+    var acknowledgeSharedAddress: ((PersistentIdentifier) async -> String?)?
+
     var edits: InvoiceEditCommand?
     /// ovation#42. The review of a real invoice, as one value. Nil where this launch
     /// has no store, and then the invoice screen offers no Review to press.
@@ -119,8 +125,10 @@ struct RootView: View {
                       writeDiscount: writeDiscount,
                       writeReferralCredit: writeReferralCredit,
                       writePayment: writePayment, writeCleared: writeCleared,
-                      writeHeldMoney: writeHeldMoney, edits: edits,
-                      reviewer: reviewer)
+                      writeHeldMoney: writeHeldMoney,
+                      clients: clients, writePaymentTerm: writePaymentTerm,
+                      acknowledgeSharedAddress: acknowledgeSharedAddress,
+                      edits: edits, reviewer: reviewer)
         } else {
             problemsWindow
         }

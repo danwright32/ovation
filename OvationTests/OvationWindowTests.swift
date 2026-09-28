@@ -38,3 +38,17 @@ struct OvationWindowTests {
         #expect(OvationWindow.putsShootUnderneath(listWidth: atTheEdge - 1))
     }
 }
+
+/// ovation#568, PRD 47c. A client's invoice rows switch at their own window width.
+struct ClientShootUnderneathTests {
+    @Test("a client's page puts the shoot underneath below a 1020 point window, and not at it")
+    func theclientRowsSwitchBelow1020() {
+        let atTheEdge = OvationWindow.clientShootUnderneathBelow - OvationWindow.railWidth
+            - OvationWindow.clientNamesWidth - 1
+        #expect(OvationWindow.clientShootUnderneathBelow == 1020)
+        #expect(!OvationWindow.putsClientShootUnderneath(pageWidth: atTheEdge))
+        #expect(OvationWindow.putsClientShootUnderneath(pageWidth: atTheEdge - 1))
+        #expect(OvationWindow.putsClientShootUnderneath(
+            pageWidth: OvationWindow.minimumWidth - OvationWindow.railWidth - OvationWindow.clientNamesWidth - 1))
+    }
+}

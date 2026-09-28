@@ -46,7 +46,7 @@ struct HeldMoneyPresenterTests {
                               createdOn: today)
         world.context.insert(invoice)
         invoice.add(LineItem.flat(charging, describedAs: "Photography"))
-        if sent { invoice.sentStatus = .sent(route: .ovationSentIt, at: noon) }
+        if sent { invoice.recordSendState(.sent(route: .ovationSentIt, at: noon)) }
         return invoice
     }
 

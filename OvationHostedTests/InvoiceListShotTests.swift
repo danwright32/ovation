@@ -137,26 +137,26 @@ struct InvoiceListShotTests {
         for (index, name) in ["Epiphany Recital", "New Year Concert"].enumerated() {
             let sent = invoice(ashgrove, name, on: day(-40 - index), hours: Hours(whole: 3),
                                number: Int64(1_030 + index))
-            sent.sentStatus = .sent(route: .ovationSentIt,
-                                    at: noon.addingTimeInterval(Double(-40 - index) * 86_400))
+            sent.recordSendState(.sent(route: .ovationSentIt,
+                                    at: noon.addingTimeInterval(Double(-40 - index) * 86_400)))
             all.append(sent)
         }
         // Sent, not yet due.
         let recent = invoice(marlowe, "Lenten Vespers", on: day(-3), hours: Hours(whole: 1),
                              number: 1_032)
-        recent.sentStatus = .sent(route: .ovationSentIt, at: noon.addingTimeInterval(-3 * 86_400))
+        recent.recordSendState(.sent(route: .ovationSentIt, at: noon.addingTimeInterval(-3 * 86_400)))
         all.append(recent)
         // A send Ovation could not settle.
         let unknown = invoice(cedar, "Choral Evensong", on: day(-6), hours: Hours(whole: 2),
                               number: 1_033)
-        unknown.sentStatus = .couldNotDetermine(checkedAt: noon.addingTimeInterval(-6 * 86_400))
+        unknown.recordSendState(.couldNotDetermine(checkedAt: noon.addingTimeInterval(-6 * 86_400)))
         all.append(unknown)
         // Two more open invoices for the client holding money.
         for (index, name) in ["Spring Series", "Summer Proms"].enumerated() {
             let open = invoice(cedar, name, on: day(-20 - index), hours: Hours(whole: 2),
                                number: Int64(1_034 + index))
-            open.sentStatus = .sent(route: .ovationSentIt,
-                                    at: noon.addingTimeInterval(Double(-20 - index) * 86_400))
+            open.recordSendState(.sent(route: .ovationSentIt,
+                                    at: noon.addingTimeInterval(Double(-20 - index) * 86_400)))
             all.append(open)
         }
 

@@ -355,7 +355,7 @@ struct PaymentTests {
         let client = Self.client(context)
         let invoice = Self.invoice(context, for: client, owing: Money(dollars: 100))
         let payment = Self.payment(context, for: client, Money(dollars: 500))
-        invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.day)
+        invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.day))
         invoice.number = 41
         try context.save()
 

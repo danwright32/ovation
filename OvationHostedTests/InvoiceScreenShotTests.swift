@@ -211,7 +211,7 @@ struct InvoiceScreenShotTests {
                                    .paidByACheckWaiting]
         if sentStates.contains(state) {
             invoice.number = 1_123
-            invoice.sentStatus = .sent(route: .ovationSentIt, at: noon)
+            invoice.recordSendState(.sent(route: .ovationSentIt, at: noon))
         }
         let paidByCheck: Money? = state == .partPaidByACheck ? Money(dollars: 200)
             : state == .paidByACheckWaiting ? invoice.total : nil

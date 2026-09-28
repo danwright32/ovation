@@ -26,7 +26,7 @@ struct HeldMoneyPassTests {
                               createdOn: today)
         context.insert(invoice)
         invoice.add(LineItem.flat(Money(dollars: 300), describedAs: "Photography"))
-        invoice.sentStatus = .sent(route: .ovationSentIt, at: noon)
+        invoice.recordSendState(.sent(route: .ovationSentIt, at: noon))
         if holding > .zero {
             context.insert(Payment(client: client, amount: holding, method: .zelle,
                                    receivedOn: today))

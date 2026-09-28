@@ -53,7 +53,7 @@ struct InvoiceScreenViewTests {
         if end == nil { line.hours = nil }
         if sent {
             invoice.number = 1_123
-            invoice.sentStatus = .sent(route: .ovationSentIt, at: noon)
+            invoice.recordSendState(.sent(route: .ovationSentIt, at: noon))
         }
         if let number { invoice.number = number }
         return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today,

@@ -29,7 +29,8 @@ actor SendSettler {
         case .sent: throw SendSettleRefusal.invoiceWasSent
         case .notSent: throw SendSettleRefusal.nothingToSettle
         }
-        invoice.sentStatus = .notSent
+        // A DRAFT AGAIN, so it follows its client's tax status again (ovation#482).
+        invoice.recordSendState(.notSent)
         try modelContext.save()
     }
 

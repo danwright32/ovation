@@ -660,8 +660,9 @@ final class InvoiceScreenPresenter {
         // there, so the word and the figure beside it cannot disagree again (L544).
         // Bound first rather than read as `invoice.client?.member`: that form trips a
         // compiler fault that depends on how files are batched (ovation#497).
-        let client = invoice.client
-        guard let status = client?.taxStatus, status != .neverRecorded else {
+        // THE STATUS THE INVOICE IS CHARGED UNDER, which for a sent one is the one it
+        // went out with rather than the client's today (ovation#482, PRD 51j1).
+        guard let status = invoice.taxStatusCharged, status != .neverRecorded else {
             return rows
         }
         // THE DESIGN'S OWN SEPARATOR, a comma rather than the PDF's parenthesis.

@@ -15,7 +15,8 @@ component, `TaxAnswerChips`, and one look, `invoice.html`'s `.taxpick`.
 A shared component that converts the sites in front of whoever built it and
 leaves the next screen free to draw its own is not consolidation (L613). The
 Clients screen's correction of a status (PRD 51j1) is the third place this
-question is asked, and it is not built yet, so this is a scan rather than a
+question is asked, built in ovation#482 on the same component, and a fourth could
+come at any time, so this is a scan rather than a
 note. `scripts/check-one-action-word.sh` is the shape it follows.
 
 TWO HALVES, because the question is drawn in two places.
