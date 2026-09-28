@@ -166,6 +166,11 @@ actor InvoiceSender {
         guard recipients == approvedRecipients else {
             return .refused(InvoiceMail.recipientsChanged)
         }
+        // THE PAGE IS THE ONE THE INVOICE WAS CHARGED UNDER, the first send's rule
+        // (ovation#600): a page drawn under another status is a different bill.
+        guard render.chargedUnder == invoice.taxStatusCharged else {
+            return .refused(InvoiceMail.taxStatusChanged)
+        }
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .refused(InvoiceMail.emptyMessage)
         }

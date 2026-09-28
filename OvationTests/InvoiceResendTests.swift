@@ -45,7 +45,7 @@ struct InvoiceResendTests {
             shoot.shotFrom = ClockTime("19:00")
             shoot.shotUntil = ClockTime("20:00")
         }
-        if sent { invoice.sentStatus = .sent(route: .ovationSentIt, at: firstSent) }
+        if sent { invoice.recordSendState(.sent(route: .ovationSentIt, at: firstSent)) }
         if paid {
             let day = BusinessDate.stamping(noon.addingTimeInterval(-86_400))
             let payment = Payment(client: invoice.client, amount: invoice.total, method: .zelle, receivedOn: day)
@@ -62,9 +62,10 @@ struct InvoiceResendTests {
             .first { $0.persistentModelID == id })
     }
 
-    private static func render() -> RenderedInvoice {
+    private static func render(chargedUnder: TaxStatus? = .notExempt) -> RenderedInvoice {
         let bytes = Data("%PDF-1.7 the one render".utf8)
-        return RenderedInvoice(bytes: bytes, sha256: DocumentStore.hash(of: bytes), fingerprint: "f")
+        return RenderedInvoice(bytes: bytes, sha256: DocumentStore.hash(of: bytes), fingerprint: "f",
+                               chargedUnder: chargedUnder)
     }
 
     private static func resend(_ kind: InvoiceMailKind, _ id: PersistentIdentifier,
@@ -72,10 +73,14 @@ struct InvoiceResendTests {
                                gmail: InvoiceSenderTests.FakeGmail,
                                approved: [String] = ["booker@client.example"],
                                footer: InvoiceFooter = .fixed,
+                               chargedUnder: TaxStatus?? = nil,
                                readiness: InvoiceSenderTests.Readiness = .init()) async -> InvoiceSendOutcome {
         let answeredAt = later
+        // BY DEFAULT THE PAGE WAS DRAWN UNDER WHAT THE INVOICE WAS CHARGED UNDER, as a
+        // real review's is; a case passes another to stage the mismatch.
+        let charged = (try? Self.invoice(id, in: container))?.taxStatusCharged
         return await InvoiceSender(modelContainer: container).resend(
-            id, as: kind, render: render(), message: "Hello,\n\nA reminder.\n\nThank you,\nDan",
+            id, as: kind, render: render(chargedUnder: chargedUnder ?? charged), message: "Hello,\n\nA reminder.\n\nThank you,\nDan",
             settings: settings, footer: footer, approvedRecipients: approved,
             through: readiness.route(gmail), clock: { answeredAt })
     }
@@ -152,6 +157,23 @@ struct InvoiceResendTests {
         #expect(outcome == .refused(ReviewGate.sentence(for: .paymentInstructionsNotSet)))
         #expect(gmail.sent.isEmpty)
         #expect(readiness.calls == 0)
+    }
+
+    /// The page attached must be the one the invoice was charged under, the first
+    /// send's own rule (ovation#600): a page drawn under another tax status states a
+    /// different bill from the one the client holds.
+    @Test("a page drawn under a tax status the invoice was not charged under is refused")
+    func achargedStatusMismatchRefuses() async throws {
+        let (container, id) = try Self.sent()
+        let gmail = InvoiceSenderTests.FakeGmail()
+        let charged = try Self.invoice(id, in: container).taxStatusCharged
+        let other: TaxStatus = charged == .exempt ? .notExempt : .exempt
+
+        let outcome = await Self.resend(.reminder, id, in: container, gmail: gmail,
+                                        chargedUnder: .some(other))
+
+        #expect(outcome == .refused(InvoiceMail.taxStatusChanged))
+        #expect(gmail.sent.isEmpty)
     }
 
     @Test("who it goes to changed after the sheet opened, so nothing goes")

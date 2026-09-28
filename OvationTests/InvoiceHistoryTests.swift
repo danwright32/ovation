@@ -32,7 +32,7 @@ struct InvoiceHistoryTests {
         context.insert(invoice)
         invoice.add(LineItem.flat(Money(dollars: 375), describedAs: "Photography"))
         invoice.number = 1_123
-        if sent { invoice.sentStatus = .sent(route: .ovationSentIt, at: noon.addingTimeInterval(-5 * 86_400)) }
+        if sent { invoice.recordSendState(.sent(route: .ovationSentIt, at: noon.addingTimeInterval(-5 * 86_400))) }
         return invoice
     }
 
@@ -94,7 +94,7 @@ struct InvoiceHistoryTests {
     func sentFromTheMailbox() throws {
         let context = try Self.context()
         let invoice = Self.invoice(context)
-        invoice.sentStatus = .sent(route: .foundInTheMailbox, at: Self.noon)
+        invoice.recordSendState(.sent(route: .foundInTheMailbox, at: Self.noon))
         #expect(Self.said(InvoiceHistory(invoice).entries).last
                     == "12 Nov | Sent | found in Gmail's Sent folder")
     }
@@ -103,9 +103,9 @@ struct InvoiceHistoryTests {
     func anunsettledSend() throws {
         let context = try Self.context()
         let invoice = Self.invoice(context)
-        invoice.sentStatus = .attempting(SendAttempt(destination: ["booker@example.com"],
+        invoice.recordSendState(.attempting(SendAttempt(destination: ["booker@example.com"],
                                                      wasRedirected: false, renderSHA256: "x",
-                                                     startedAt: Self.noon))
+                                                     startedAt: Self.noon)))
         #expect(Self.said(InvoiceHistory(invoice).entries).last
                     == "12 Nov | Send started | Gmail has not said whether it went")
     }
@@ -197,7 +197,7 @@ struct InvoiceHistoryTests {
         let context = try Self.context()
         let invoice = Self.invoice(context, sent: false)
         let before = InvoiceHistory(invoice).entries
-        invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+        invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
         let after = InvoiceHistory(invoice).entries
 
         #expect(InvoiceHistory.newlyRecorded(before: before, after: before).isEmpty)

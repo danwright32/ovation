@@ -432,7 +432,7 @@ struct WritersReachTheScreenTests {
         let draft = try Self.draft()
         draft.shoot.shotUntil = ClockTime("20:00")
         draft.invoice.number = 1_123
-        draft.invoice.sentStatus = .sent(route: .ovationSentIt, at: Self.noon)
+        draft.invoice.recordSendState(.sent(route: .ovationSentIt, at: Self.noon))
         try draft.context.save()
         let context = draft.context
         let invoice = draft.invoice

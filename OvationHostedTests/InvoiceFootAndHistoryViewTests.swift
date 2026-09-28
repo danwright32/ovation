@@ -28,7 +28,7 @@ struct InvoiceFootAndHistoryViewTests {
         context.insert(invoice)
         invoice.add(LineItem.flat(Money(dollars: 375), describedAs: "Photography"))
         invoice.number = 1_123
-        invoice.sentStatus = .sent(route: .ovationSentIt, at: noon.addingTimeInterval(-5 * 86_400))
+        invoice.recordSendState(.sent(route: .ovationSentIt, at: noon.addingTimeInterval(-5 * 86_400)))
         if paid {
             let payment = Payment(client: client, amount: invoice.total, method: .check, receivedOn: today)
             context.insert(payment)
@@ -101,7 +101,7 @@ struct InvoiceFootAndHistoryViewTests {
     func adraftCarriesNeither() throws {
         let context = try Self.context()
         let invoice = Self.sent(context)
-        invoice.sentStatus = .notSent
+        invoice.recordSendState(.notSent)
         let view = InvoiceScreenView(presenter: Self.present(invoice), close: {}, resend: { _ in })
         let said = try Self.text(in: view)
         #expect(!said.contains("Remind"))
