@@ -100,12 +100,21 @@ enum StoreDocumentReferences {
     /// there are copied aside and the copy is read. The log is copied because
     /// the newest committed pages can live in it, and a store read without it
     /// answers for an older state (ovation#88).
-    static func readCopy(ofStoreAt storeURL: URL) throws -> [ReferencedDocument] {
+    ///
+    /// ONE COPY PER CALL, REMOVED ON EVERY EXIT. Each archive's own store is read,
+    /// so there is nothing to share between archives. Measured 2026-09-29: 20
+    /// archives of a 160KB store cost under 10ms each to copy, read and remove, and
+    /// of a 15MB one about 26ms each, against 60ms to hash that same store, which
+    /// `verify` already does. `folder` is where the copy goes, a seam so a test can
+    /// see it removed.
+    static func readCopy(ofStoreAt storeURL: URL,
+                         copyingInto folder: URL = FileManager.default.temporaryDirectory)
+        throws -> [ReferencedDocument] {
         let manager = FileManager.default
         guard manager.fileExists(atPath: storeURL.path) else {
             throw BackupError.couldNotRead(storeURL.path)
         }
-        let aside = manager.temporaryDirectory
+        let aside = folder
             .appendingPathComponent("ovation-store-read-\(UUID().uuidString)", isDirectory: true)
         defer { try? manager.removeItem(at: aside) }
         let copy = aside.appendingPathComponent(storeURL.lastPathComponent)

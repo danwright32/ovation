@@ -202,6 +202,33 @@ struct StoreDocumentReferencesTests {
         }
     }
 
+    /// THE COPY IS REMOVED ON EVERY EXIT, the one that throws as well as the one
+    /// that answers. The restore screen verifies every archive, so a copy left per
+    /// archive would be a store's worth of the temporary folder per archive per
+    /// visit. Measured 2026-09-29 so the copy itself is known to be cheap: 20
+    /// archives of a 160KB store cost under 10ms each to copy, read and remove, and
+    /// of a 15MB one about 26ms each against 60ms to hash that same store, which
+    /// `verify` already does for every archive.
+    @Test("the copy read from is removed, whether the read answers or refuses")
+    func theCopyIsRemovedOnEveryExit() throws {
+        let world = try World()
+        try world.write(receipts: [.file(sha256: "ff", relativePath: "ff/ff.pdf")])
+        let aside = world.directory.appending(path: "aside", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: aside, withIntermediateDirectories: true)
+        let notADatabase = world.directory.appending(path: "garbage.store")
+        try Data("not a database".utf8).write(to: notADatabase)
+
+        let references = try StoreDocumentReferences.readCopy(ofStoreAt: world.storeURL,
+                                                              copyingInto: aside)
+        #expect(references == [ReferencedDocument(relativePath: "ff/ff.pdf", sha256: "ff")])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: aside.path).isEmpty)
+
+        #expect(throws: BackupError.self) {
+            try StoreDocumentReferences.readCopy(ofStoreAt: notADatabase, copyingInto: aside)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: aside.path).isEmpty)
+    }
+
     /// Every file in a folder, by name, with its hash.
     private static func contents(of folder: URL) throws -> [String: String] {
         var found: [String: String] = [:]
