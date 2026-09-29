@@ -22,7 +22,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design harness lift tests" 97
+harness_begin "design harness lift tests" 125
 
 TARGET="scripts/lift-design-harness.sh"
 require_target "$TARGET"
@@ -359,6 +359,121 @@ check_exit "one whose custom property the stylesheet already uses is refused" \
     6 lift "$WORK/takenprop.json" "$WORK/out"
 
 # ---------------------------------------------------------------------------
+# 4c. THE FRAME MODE (ovation#560). Every round of ovation#110 was a hand built
+#     frame embedding the committed file, and three faults shipped through it
+#     into switchers and were found only by looking: the embedded page's own
+#     closing script tag ended the builder early and left an empty frame, a load
+#     time scroll that did not happen in Dan's Chrome showed the page's intro
+#     instead of the window, and an option's stated measurement did not match
+#     what it drew. So the frame is a mode of this tool, and each of the three is
+#     planted below and has to be refused by name.
+#
+#     The stand in carries what makes each fault possible: a script (so a
+#     closing tag), a tall intro ABOVE the window (so a frame that shows the top
+#     of the page shows the wrong thing), and a window wider than the stage the
+#     check draws it on (so the frame has to scale, and the caption has a number
+#     to get wrong).
+# ---------------------------------------------------------------------------
+FSTANDIN="$WORK/framed.html"
+cat > "$FSTANDIN" <<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A framed stand in</title>
+<style>
+body { margin: 0; font-family: ui-monospace, monospace; font-size: 16px; background: #DDDDDD; }
+.intro { height: 700px; padding: 40px; }
+.win { width: 640px; margin: 0 60px 80px; background: #FFFFFF; border-radius: 10px; }
+.row { padding: 4px; }
+.head { font-size: 20px; }
+</style>
+</head>
+<body>
+<div class="intro"><h1>Everything above the window</h1><p>An intro a frame must not show.</p></div>
+<div id="stage"></div>
+<script>
+function draw() {
+  var win = document.createElement("div");
+  win.className = "win";
+  var head = document.createElement("div");
+  head.className = "head";
+  head.textContent = "Needs you";
+  win.append(head);
+  ["First", "Second", "Third"].forEach(function (w) {
+    var r = document.createElement("div");
+    r.className = "row";
+    r.textContent = w;
+    win.append(r);
+  });
+  document.getElementById("stage").replaceChildren(win);
+}
+draw();
+</script>
+</body>
+</html>
+HTML
+
+frame_spec() {
+    local into="$1" source="$2"
+    shift 2
+    python3 - "$into" "$source" "$@" <<'PY'
+import json, sys
+spec = {
+    "mode": "frame",
+    "source": sys.argv[2],
+    "window": ".win",
+    "moves": [{"field": "rowPad", "rule": ".row", "property": "padding", "holds": "4px",
+               "values": ["4px", "14px"]}],
+    "same": {"tolerance": 0, "ignore": []}
+}
+for change in sys.argv[3:]:
+    key, value = change.split("=", 1)
+    if value == "__DROP__":
+        spec.pop(key, None)
+    else:
+        spec[key] = json.loads(value)
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(spec, handle, indent=1)
+PY
+}
+
+FSPEC="$WORK/framed.json"
+frame_spec "$FSPEC" "framed.html"
+FOUT="$WORK/frameout"
+check_exit "a frame lift writes the harness" 0 lift "$FSPEC" "$FOUT"
+check "both files it names are there" \
+    "$([ -f "$FOUT/screen.css" ] && [ -f "$FOUT/builder.js" ] && echo both || echo missing)" "both"
+check "the builder defines buildScreen exactly once" \
+    "$(grep -c '^function buildScreen(variant) {$' "$FOUT/builder.js")" "1"
+# THE FIRST FAULT, AS TEXT: a builder is inlined in a script element, and any
+# closing tag inside it ends that element. The design file carries one of its
+# own, so the embedded page must carry none that the HTML parser can read.
+check "the embedded page carries no closing tag a script element would end at" \
+    "$(grep -c '</' "$FOUT/builder.js")" "0"
+check "and the stylesheet move is made in the embedded page" \
+    "$(grep -c 'var(--lift-rowPad, 4px)' "$FOUT/builder.js")" "1"
+check "the lift says what it framed" \
+    "$(says "$(run "$FSPEC" "$FOUT")" "framed       .win")" "yes"
+
+frame_spec "$WORK/frame-nopatch.json" "framed.html" 'moves=[{"field": "word", "values": ["A", "B"]}]'
+check_exit "a move the round's own script would carry, with no script named, is refused" \
+    4 lift "$WORK/frame-nopatch.json" "$WORK/out"
+printf 'document.querySelector(".head").textContent = "Fixed";\n' > "$WORK/deaf.js"
+frame_spec "$WORK/frame-deaf.json" "framed.html" 'patch="deaf.js"' \
+    'moves=[{"field": "word", "values": ["A", "B"]}]'
+check_exit "a round script that never reads the field it is said to move is refused" \
+    6 lift "$WORK/frame-deaf.json" "$WORK/out"
+printf 'var s = "</script>"; LIFT_VARIANT.word;\n' > "$WORK/closes.js"
+frame_spec "$WORK/frame-closes.json" "framed.html" 'patch="closes.js"' \
+    'moves=[{"field": "word", "values": ["A", "B"]}]'
+check_exit "a round script holding a closing script tag is refused, since it runs inside one" \
+    6 lift "$WORK/frame-closes.json" "$WORK/out"
+frame_spec "$WORK/frame-window.json" "framed.html" 'window=""'
+check_exit "a frame whose window selector is empty is refused as a spec" \
+    4 lift "$WORK/frame-window.json" "$WORK/out"
+
+# ---------------------------------------------------------------------------
 # Everything below renders. With no browser there is no answer to give, and
 # giving one would be a green tick over an unrun check.
 # ---------------------------------------------------------------------------
@@ -643,6 +758,121 @@ check_exit "and is proved faithful and moving" 0 lift --check "$WORK/weight.json
 
 check_exit "a harness page in quirks mode is caught, which is ovation#194" \
     1 env OVATION_HARNESS_QUIRKS=1 python3 "$TARGET" --check "$WORK/pdf.json" "$PDF"
+
+# ---------------------------------------------------------------------------
+# 7. THE FRAME, RENDERED (ovation#560). --check inlines the builder in a page's
+#    script element the way the switcher does, draws each option on a stage
+#    narrower than the window, and judges the drawing from the page: where the
+#    window lands inside the frame, and whether the caption's width and scale are
+#    the ones the drawing has. Each of the three faults is then planted in a copy
+#    of the written builder and has to be refused by name.
+# ---------------------------------------------------------------------------
+frame_spec "$FSPEC" "framed.html" 'stage=480'
+python3 "$TARGET" "$FSPEC" "$FOUT" >/dev/null 2>&1
+FSAYS="$(run --check "$FSPEC" "$FOUT")"
+check_exit "the frame it just wrote draws the design file's window" 0 lift --check "$FSPEC" "$FOUT"
+check "and the window it frames is the one the design file draws" "$(says "$FSAYS" "SAME:")" "yes"
+check "the caption states the window's true width and the scale it is drawn at" \
+    "$(says "$FSAYS" "FRAMED: the caption says 640 points at 71%, and the drawing is 640 points at 71%")" "yes"
+check "and the stylesheet move is proved to move the window" \
+    "$(says "$FSAYS" "MOVES: variant.rowPad draws 2 different screens")" "yes"
+
+plant_frame() {
+    local into="$1" old="$2" new="$3"
+    mkdir -p "$into"
+    cp "$FOUT/screen.css" "$into/screen.css"
+    python3 - "$FOUT/builder.js" "$into/builder.js" "$old" "$new" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+old, new = sys.argv[3], sys.argv[4]
+assert old in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(text.replace(old, new))
+PY
+}
+
+# FAULT ONE: the embedded page's closing tag, unescaped, ends the builder's
+# script and the switcher draws an empty frame.
+plant_frame "$WORK/unescaped" '<\/' '</'
+check_exit "a builder whose embedded page ends its script early is refused" \
+    9 lift --check "$FSPEC" "$WORK/unescaped"
+check "and it says the frame would be empty, and why" \
+    "$(says "$(run --check "$FSPEC" "$WORK/unescaped")" "ended the script it is inlined in")" "yes"
+
+# FAULT TWO: a frame that shows the top of the page shows the intro, not the
+# window. The frame has to place the window by measuring it, never by scrolling.
+plant_frame "$WORK/unplaced" '" translate(" + (-left) + "px, " + (-top) + "px)"' '""'
+check_exit "a frame that shows the top of the page instead of the window is refused" \
+    9 lift --check "$FSPEC" "$WORK/unplaced"
+check "and it says the frame shows something other than the window" \
+    "$(says "$(run --check "$FSPEC" "$WORK/unplaced")" "shows something other than the window")" "yes"
+SCROLLS="$WORK/scrolls.html"
+python3 - "$FSTANDIN" "$SCROLLS" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+mark = "draw();\n</script>"
+assert mark in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(
+    text.replace(mark, "draw();\nwindow.scrollTo(0, 500);\n</script>", 1))
+PY
+frame_spec "$WORK/scrolls.json" "scrolls.html" 'stage=480'
+python3 "$TARGET" "$WORK/scrolls.json" "$WORK/scrollsout" >/dev/null 2>&1
+check_exit "a design file that scrolls itself at load is framed on its window all the same" \
+    0 lift --check "$WORK/scrolls.json" "$WORK/scrollsout"
+
+# FAULT THREE: a stated measurement the drawing does not have. The caption is
+# read beside an independent measurement of the frame, width and scale both.
+plant_frame "$WORK/wrongwidth" '"The window is " + Math.round(r.width)' '"The window is " + LIFT_VIEWPORT'
+check_exit "a caption stating a width the window does not have is refused" \
+    9 lift --check "$FSPEC" "$WORK/wrongwidth"
+check "and it names both numbers, the caption's and the drawing's" \
+    "$(says "$(run --check "$FSPEC" "$WORK/wrongwidth")" "the caption says 1440 points at 71%, and the drawing is 640 points at 71%")" "yes"
+plant_frame "$WORK/wrongscale" '" points wide, drawn here at " + Math.round(s * 100)' '" points wide, drawn here at " + 100'
+check_exit "a caption stating a scale the drawing is not at is refused" \
+    9 lift --check "$FSPEC" "$WORK/wrongscale"
+
+frame_spec "$WORK/frame-nowin.json" "framed.html" 'window=".nothing"' 'stage=480'
+python3 "$TARGET" "$WORK/frame-nowin.json" "$WORK/framenowin" >/dev/null 2>&1
+check_exit "a window selector matching nothing in the design file is refused" \
+    9 lift --check "$WORK/frame-nowin.json" "$WORK/framenowin"
+check "and it says how many matched" \
+    "$(says "$(run --check "$WORK/frame-nowin.json" "$WORK/framenowin")" "0 element(s) in the framed page match .nothing")" "yes"
+
+FOVER="$WORK/frame-over.html"
+python3 - "$FSTANDIN" "$FOVER" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+mark = ".head { font-size: 20px; }"
+assert mark in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(text.replace(mark, mark + "\n.win .row { padding: 4px; }", 1))
+PY
+frame_spec "$WORK/frame-over.json" "frame-over.html" 'stage=480'
+python3 "$TARGET" "$WORK/frame-over.json" "$WORK/frameoverout" >/dev/null 2>&1
+check_exit "a framed stylesheet move another rule overrides is refused as inert" \
+    8 lift --check "$WORK/frame-over.json" "$WORK/frameoverout"
+
+printf 'document.querySelector(".head").textContent = LIFT_VARIANT.word || "Needs you";\n' > "$WORK/word.js"
+frame_spec "$WORK/frame-word.json" "framed.html" 'patch="word.js"' 'stage=480' \
+    'moves=[{"field": "word", "values": ["Needs you", "Waiting on you"]}]'
+python3 "$TARGET" "$WORK/frame-word.json" "$WORK/frameword" >/dev/null 2>&1
+check_exit "a round script that reads its field moves the window, and the frame proves it" \
+    0 lift --check "$WORK/frame-word.json" "$WORK/frameword"
+
+# THE COMMITTED INVOICE LIST, framed, which is what the rounds of ovation#110
+# built by hand. A colour moves no word and no box.
+python3 - "$WORK/frame-list.json" "$PWD/docs/design/invoice-list.html" <<'PY'
+import json, sys
+json.dump({
+    "mode": "frame",
+    "source": sys.argv[2],
+    "window": ".win",
+    "moves": [{"field": "saidInk", "rule": ".said", "property": "color",
+               "holds": "var(--faint)", "values": ["var(--faint)", "#B00020"]}],
+    "same": {"tolerance": 0, "ignore": []}
+}, open(sys.argv[1], "w", encoding="utf-8"), indent=1)
+PY
+check_exit "the committed invoice list frames" 0 lift "$WORK/frame-list.json" "$WORK/framelist"
+check_exit "and its frame draws its window, placed and captioned truly, and the move moves it" \
+    0 lift --check "$WORK/frame-list.json" "$WORK/framelist"
 
 check "and every one of those runs left the committed design files untouched" \
     "$(shasum -a 256 docs/design/invoice-pdf.html docs/design/invoice-list.html)" "$BEFORE"

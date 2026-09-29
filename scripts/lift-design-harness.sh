@@ -130,6 +130,41 @@ move is refused this way when a later or more specific rule wins, which is the
 fault it most often has. The values are compared, never printed: a
 refusal names them by their place in the list.
 
+THE FRAME MODE (ovation#560). A round that reshapes a screen from inside, a
+search that narrows a whole list or a band that collapses, is drawn more
+honestly by the design file itself than by a lifted builder. So a spec whose
+`mode` is "frame" writes a builder that draws the committed file in a frame,
+showing only its window:
+
+    {
+      "mode":    "frame",
+      "source":  "invoice-list.html",
+      "window":  ".win",            the one element the frame shows (default)
+      "patch":   "round.js",        optional: the round's own script, run in the
+                                    frame after the file's, reading LIFT_VARIANT
+      "stage":   900,               the stage width --check draws it on (default)
+      "viewport": 1440,             the frame's page width (default)
+      "moves":  [{"field": "rowPad", "rule": ".row", "property": "padding",
+                  "holds": "4px", "values": ["4px", "14px"]},
+                 {"field": "mode", "values": ["narrow", "flat"]}],
+      "same":   {"tolerance": 0, "ignore": []}
+    }
+
+A move with a rule is a stylesheet move as above, set on the frame's own root,
+and a move without one is carried by `patch`, which has to name
+LIFT_VARIANT.<field>. Every round of ovation#110 built this frame by hand, and
+three faults shipped through the hand built ones into switchers; each is now
+the frame's to prevent and --check's to refuse, exit 9: the embedded page is
+written with every `</` escaped, so its own closing script tag cannot end the
+switcher's script and leave an empty frame; the frame is as tall as its page
+and moved by the window's MEASURED place, so it never depends on a scroll at
+load and cannot show the page's intro instead; and the caption, the window's
+width and the scale it is drawn at, is written from what was measured in the
+switcher's own page, and --check reads it beside an independent measurement of
+the same drawing. --check also compares the framed window with the design
+file's own, element by element, and proves every move's values draw different
+windows, as for a lifted builder.
+
 WHAT IT PRINTS is file names, selectors, class names, counts and boxes. It never
 prints a design file's text, so no fixture's wording can reach a terminal
 (docs/PRIVACY-FLOOR.md), and the committed fixtures carry invented names anyway.
@@ -151,6 +186,10 @@ Exit codes, one per outcome (L11):
        ignore selector matched nothing in either rendering
     8  --check and a move is INERT: two of its values draw the same screen, so a
        round moving it would offer a choice between copies of one screen
+    9  --check on a frame, and the frame draws wrongly: its builder ends the
+       script it is inlined in (an empty frame), it draws no window, it shows
+       something other than the window, or its caption states a width or a
+       scale the drawing does not have
 
 Seams: OVATION_HEADLESS_BROWSER, OVATION_HARNESS_QUIRKS (compose the harness
 page with NO doctype, so the document mode difference of ovation#194 can be
@@ -189,6 +228,12 @@ class Refusal(Exception):
 # The spec.
 # ---------------------------------------------------------------------------
 
+FRAME_REQUIRED = ["source", "moves"]
+# The frame is drawn at the width the rendering checks draw every design file at,
+# so the window it shows is laid out as the checks see it, and judged on a stage
+# narrower than most windows, so the scale and its caption are always exercised.
+FRAME_DEFAULTS = {"stage": 900, "viewport": 1440}
+
 REQUIRED = ["source", "screen", "fixtures", "screen_from", "option_one",
             "builder_ends_before", "moves"]
 
@@ -207,15 +252,26 @@ def read_spec(path):
         raise Refusal(BAD_SPEC, "the spec must be one JSON object, and %s holds a %s"
                       % (path, type(spec).__name__))
 
-    missing = [key for key in REQUIRED if key not in spec]
+    # THE FRAME MODE (ovation#560) needs only the file and what it moves: the
+    # screen is the design file's own window, drawn by the design file's own
+    # scripts inside a frame, so there is no builder to cut and no fixture to pick.
+    framing = spec.get("mode") == "frame"
+    if "mode" in spec and not framing:
+        raise Refusal(BAD_SPEC, "the spec's mode is %r, and the one mode there is is "
+                                "\"frame\"; leave it out for a lifted builder"
+                      % (spec["mode"],))
+    missing = [key for key in (FRAME_REQUIRED if framing else REQUIRED) if key not in spec]
     if missing:
         raise Refusal(BAD_SPEC,
                       "the spec is missing %s: %s." % (
                           "a field" if len(missing) == 1 else "fields",
                           ", ".join(missing)),
                       "Run this with no arguments for the shape of a spec.")
-    for key in ("source", "screen", "fixtures", "screen_from", "option_one",
-                "builder_ends_before"):
+    for key in (("source", "window") if framing else
+                ("source", "screen", "fixtures", "screen_from", "option_one",
+                 "builder_ends_before")):
+        if key == "window":
+            spec.setdefault("window", ".win")
         if not isinstance(spec[key], str) or not spec[key].strip():
             raise Refusal(BAD_SPEC, "the spec's %s must be a sentence of text, and it is %r"
                           % (key, spec[key]))
@@ -237,8 +293,20 @@ def read_spec(path):
         # variable would be declared and never read, so naming one is refused
         # rather than quietly ignored.
         in_styles = "rule" in move
+        # IN A FRAME, A MOVE THAT IS NOT A RULE IS CARRIED BY THE ROUND'S OWN
+        # SCRIPT, `patch`, which runs inside the frame after the design file's
+        # and reads LIFT_VARIANT. It names only its field and values: there is
+        # no builder in which a value could be replaced.
+        by_patch = framing and not in_styles
+        if by_patch and not spec.get("patch"):
+            raise Refusal(BAD_SPEC,
+                          "move %d names no stylesheet rule, so in a frame it can only be "
+                          "carried by the round's own script, and the spec names no patch."
+                          % (index + 1),
+                          "Name a rule and a property, or a patch that reads "
+                          "LIFT_VARIANT.%s." % move.get("field", "<field>"))
         needed = ("field", "rule", "property", "holds") if in_styles \
-            else ("field", "variable", "holds")
+            else ("field",) if by_patch else ("field", "variable", "holds")
         for key in needed:
             if not isinstance(move.get(key), str) or not move[key].strip():
                 raise Refusal(BAD_SPEC, "move %d has no %s, so nothing says what it moves "
@@ -256,6 +324,11 @@ def read_spec(path):
                 raise Refusal(BAD_SPEC, "move %d names the field %r, which cannot name a "
                                         "custom property and a variant field both"
                               % (index + 1, move["field"]))
+        elif by_patch:
+            if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", move["field"]):
+                raise Refusal(BAD_SPEC, "move %d names the field %r, which the round's "
+                                        "script could not read as LIFT_VARIANT.%s"
+                              % (index + 1, move["field"], move["field"]))
         elif not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", move["variable"]):
             raise Refusal(BAD_SPEC, "move %d names the variable %r, which is not a name "
                                     "JavaScript can declare" % (index + 1, move["variable"]))
@@ -294,6 +367,20 @@ def read_spec(path):
                                 "it is %r" % (ignore,))
 
     spec["source_path"] = os.path.join(os.path.dirname(os.path.abspath(path)), spec["source"])
+    spec["framing"] = framing
+    if framing:
+        for key, low, high in (("stage", 200, 4000), ("viewport", 400, 4000)):
+            value = spec.get(key, FRAME_DEFAULTS[key])
+            if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
+                raise Refusal(BAD_SPEC, "the spec's %s must be a whole number of points "
+                                        "from %d to %d, and it is %r" % (key, low, high, value))
+            spec[key] = value
+        patch = spec.get("patch")
+        if patch is not None and (not isinstance(patch, str) or not patch.strip()):
+            raise Refusal(BAD_SPEC, "the spec's patch must name a script file, and it is %r"
+                          % (patch,))
+        spec["patch_path"] = (os.path.join(os.path.dirname(os.path.abspath(path)), patch)
+                              if patch else None)
     spec["label"] = spec.get("label") or "label"
     spec["strip"] = spec.get("strip") or []
     spec["page_rules"] = spec.get("page_rules") or {}
@@ -1118,8 +1205,8 @@ def report_moves(moved):
     inert = False
     for move, count, first, second in moved:
         if first is None:
-            print("MOVES: variant.%s draws %d different screens for its %d values, markup "
-                  "and box." % (move["field"], count, count))
+            print("MOVES: variant.%s draws %d different screens for its %d values, markup, "
+                  "computed style and box." % (move["field"], count, count))
             continue
         inert = True
         print("INERT: variant.%s draws the same screen for values %d and %d, so a round "
@@ -1133,6 +1220,12 @@ def report_moves(moved):
             print("    Move the declaration that wins, which the browser's inspector "
                   "names for the element, or name the rule it is written in.")
             continue
+        if "variable" not in move:
+            print("    The round's script does not change what the frame draws for "
+                  "LIFT_VARIANT.%s. The usual cause is a script that reads the field and "
+                  "then draws the same thing whatever it holds, or one whose change the "
+                  "design file's own drawing undoes afterwards." % move["field"])
+            continue
         print("    The builder does not read %s while it builds the screen. The usual "
               "cause is a literal evaluated once, when the script loads, that already "
               "holds the original value by the time buildScreen assigns the variable."
@@ -1144,6 +1237,543 @@ def report_moves(moved):
 
 
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# The frame mode (ovation#560).
+#
+# A round whose variable is not a value in one builder, a search that reshapes
+# the whole list or a band that collapses, is easier to draw by letting the
+# design file draw itself and changing it from inside. Every round of ovation#110
+# did exactly that, by hand, with an iframe embedding the committed file, and
+# three faults shipped through the hand built frames into switchers and were
+# found only by looking:
+#
+#   AN EMPTY FRAME. The embedded page was pasted into the builder as a string,
+#   and its own closing script tag ended the switcher's script element early.
+#   So every closing tag in the embedded page is written `<\/`, which a script
+#   reads as the same character and the HTML parser does not read as a tag.
+#
+#   THE INTRO INSTEAD OF THE WINDOW. The frame scrolled to the window at load,
+#   and in Dan's Chrome the scroll did not happen, so the frame showed the top of
+#   the page. So the frame never scrolls: it is made as tall as the whole page,
+#   so there is nothing to scroll, and the window is MEASURED where it lies and
+#   the frame moved so that it sits at the clip's corner.
+#
+#   A MEASUREMENT THAT DID NOT MATCH THE DRAWING. A number was written into the
+#   round by hand and the option drew something else. So the caption is written
+#   by the frame from what it measured in the switcher's own page, the window's
+#   width and the scale it is drawn at, and --check reads the caption beside an
+#   independent measurement of the same drawing.
+#
+# The variant reaches the frame as LIFT_VARIANT, in a script appended after the
+# design file's own, which sets each stylesheet move's custom property on the
+# frame's root and then runs the round's own script, `patch`. Each option is its
+# own frame, so an option's stylesheet can never reach another's.
+# ---------------------------------------------------------------------------
+
+FRAME = 9
+
+FRAME_STYLES = """/* Written by scripts/lift-design-harness.sh in its frame mode (ovation#560).
+   Do not edit by hand: re-run the lift. */
+.lift-frame { display: flex; flex-direction: column; gap: 8px; }
+.lift-frame-cap { margin: 0; font-size: 12px; line-height: 1.4; color: #6E6259; }
+.lift-frame[data-state="failed"] .lift-frame-cap { color: #A4262C; font-weight: 600; }
+.lift-frame-clip { position: relative; overflow: hidden; width: 0; height: 0; }
+.lift-frame-clip iframe { position: absolute; left: 0; top: 0; border: 0;
+  transform-origin: 0 0; background: transparent; }
+"""
+
+# WHAT THE FRAME DOES, as the script every frame builder carries. It holds no
+# closing tag of any kind: the tag it appends to close its own style and script
+# is written `<\/`, so the file can be inlined in a script element whole.
+FRAME_RUNTIME = r"""
+/* THE FRAME (ovation#560). buildScreen(variant) returns a box holding a caption
+   and a clipped frame. The frame draws the design file itself, with the
+   variant applied from inside it; once it has loaded and its fonts are in, the
+   window is measured where it lies, the frame is made as tall as the page so
+   nothing in it can scroll, and it is moved and scaled so the window sits at
+   the clip's corner at the stage's width. The caption states the width and the
+   scale that were just measured, so it cannot state a number the drawing does
+   not have.
+
+   Three states, told apart on the box's data-state and in the caption:
+   loading, drawn, and failed, the last with the reason, including a frame that
+   has not drawn ten seconds after it was put on a page. */
+var LIFT_MARGIN = 16;
+var LIFT_WAIT_MS = 10000;
+var LIFT_FRAME_CSS = "html, body { background: transparent !important; }"
+  + " html { overflow: hidden !important; }";
+
+function liftFrameSay(box, state, words) {
+  box.setAttribute("data-state", state);
+  box._cap.textContent = words;
+}
+
+function liftFramePage(variant, bare) {
+  var lines = ["var LIFT_VARIANT = " + JSON.stringify(variant) + ";"];
+  LIFT_RULE_MOVES.forEach(function (move) {
+    if (variant[move.field] !== undefined) {
+      lines.push("document.documentElement.style.setProperty(" + JSON.stringify(move.property)
+        + ", " + JSON.stringify(String(variant[move.field])) + ");");
+    }
+  });
+  if (!bare) { lines.push(LIFT_PATCH); }
+  var script = lines.join("\n").replace(/<\//g, "<\\/");
+  return LIFT_PAGE + "<style>" + LIFT_FRAME_CSS + "<\/style><script>" + script + "<\/script>";
+}
+
+function liftFrameFit(box) {
+  var fr = box._frame, doc = null;
+  try { doc = fr.contentDocument; } catch (e) { doc = null; }
+  if (!doc || !doc.body) {
+    liftFrameSay(box, "failed", "The frame could not be read, so the window cannot be placed or measured.");
+    return;
+  }
+  var wins = doc.querySelectorAll(LIFT_WINDOW);
+  if (wins.length !== 1) {
+    liftFrameSay(box, "failed", wins.length + " element(s) in the framed page match " + LIFT_WINDOW
+      + ", and exactly one has to, so no window is drawn.");
+    return;
+  }
+  /* As tall as the page, so there is nothing left to scroll: the window's place
+     is read from layout, never from wherever a scroll at load did or did not
+     leave it. */
+  fr.style.height = Math.ceil(Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight)) + "px";
+  var r = wins[0].getBoundingClientRect();
+  var left = r.left - LIFT_MARGIN, top = r.top - LIFT_MARGIN;
+  var w = r.width + 2 * LIFT_MARGIN, h = r.height + 2 * LIFT_MARGIN;
+  var stage = box.parentElement, avail = 0;
+  if (stage) {
+    var cs = getComputedStyle(stage);
+    avail = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  }
+  var s = avail > 0 ? Math.min(1, avail / w) : 1;
+  box._clip.style.width = Math.floor(w * s) + "px";
+  box._clip.style.height = Math.ceil(h * s) + "px";
+  fr.style.transform = "scale(" + s + ")" + " translate(" + (-left) + "px, " + (-top) + "px)";
+  liftFrameSay(box, "drawn", "The window is " + Math.round(r.width) + " points wide, drawn here at " + Math.round(s * 100) + "%.");
+}
+
+function liftFrameLoaded(box) {
+  liftFrameFit(box);
+  var doc = null;
+  try { doc = box._frame.contentDocument; } catch (e) { doc = null; }
+  if (doc && doc.fonts && doc.fonts.ready) {
+    doc.fonts.ready.then(function () {
+      if (box.getAttribute("data-state") !== "failed") { liftFrameFit(box); }
+      box.setAttribute("data-settled", "yes");
+    });
+  } else {
+    box.setAttribute("data-settled", "yes");
+  }
+}
+
+window.addEventListener("resize", function () {
+  Array.prototype.forEach.call(document.querySelectorAll(".lift-frame"), function (box) {
+    if (box.getAttribute("data-state") === "drawn") { liftFrameFit(box); }
+  });
+});
+
+/* `bare` draws the design file with no round script, which is what --check
+   compares against the design file itself. */
+function liftFrame(variant, bare) {
+  variant = variant || {};
+  var box = document.createElement("div");
+  box.className = "lift-frame";
+  var cap = document.createElement("p");
+  cap.className = "lift-frame-cap";
+  var clip = document.createElement("div");
+  clip.className = "lift-frame-clip";
+  var fr = document.createElement("iframe");
+  fr.setAttribute("title", "The window" + (variant.name ? ", " + variant.name : ""));
+  fr.setAttribute("scrolling", "no");
+  fr.style.width = LIFT_VIEWPORT + "px";
+  fr.style.height = "900px";
+  box._cap = cap;
+  box._clip = clip;
+  box._frame = fr;
+  liftFrameSay(box, "loading", "Drawing the window.");
+  fr.setAttribute("srcdoc", liftFramePage(variant, bare));
+  fr.addEventListener("load", function () { liftFrameLoaded(box); });
+  clip.append(fr);
+  box.append(cap, clip);
+  /* A frame that never loads must not read as one still loading. The clock
+     starts when the box is on a page, because a switcher builds every option
+     at once and shows one. */
+  var since = null;
+  (function watch() {
+    if (box.getAttribute("data-state") !== "loading") { return; }
+    if (!box.isConnected) { since = null; setTimeout(watch, 500); return; }
+    if (since === null) { since = Date.now(); }
+    if (Date.now() - since > LIFT_WAIT_MS) {
+      liftFrameSay(box, "failed", "The window has not drawn after " + (LIFT_WAIT_MS / 1000)
+        + " seconds. Reload the page to try again.");
+      return;
+    }
+    setTimeout(watch, 500);
+  })();
+  return box;
+}
+
+function buildScreen(variant) {
+  return liftFrame(variant, false);
+}
+"""
+
+
+def for_script(text):
+    """A string a script element can carry whole: a JSON string literal with
+    every `</` written `<\\/` and every `<!--` written `<\\!--`. A script reads
+    both escapes as the characters they stand for, and the HTML parser sees
+    neither, so no closing tag inside can end the element early and no comment
+    opener can change how the parser reads the rest (the empty frame)."""
+    return json.dumps(text).replace("</", "<\\/").replace("<!--", "<\\!--")
+
+
+def lift_frame(spec):
+    """The frame's builder and stylesheet, with a report of what moved."""
+    path = spec["source_path"]
+    name = os.path.basename(path)
+    if not os.path.isfile(path):
+        raise Refusal(USED_WRONGLY, "the design file the spec names is not there: %s" % path)
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        text = handle.read()
+
+    # THE STYLESHEET MOVES ARE MADE IN THE EMBEDDED PAGE, with the same rule and
+    # the same refusals as a lifted builder's, so a declaration becomes
+    # var(--lift-<field>, <the file's value>) and a frame given no value draws
+    # the file as it stands.
+    inner = one_style_block(text, name)
+    moved_css, moved = move_rules(inner, spec["moves"], name)
+    begin = re.search(r"<style\b[^>]*>", text, re.I).end()
+    text = text[:begin] + moved_css + text[begin + len(inner):]
+
+    patch = ""
+    if spec.get("patch_path"):
+        if not os.path.isfile(spec["patch_path"]):
+            raise Refusal(USED_WRONGLY, "the round's script the spec names is not there: %s"
+                          % spec["patch_path"])
+        with open(spec["patch_path"], encoding="utf-8") as handle:
+            patch = handle.read()
+        if "</script" in patch.lower():
+            raise Refusal(LIFT_REFUSED,
+                          "the round's script %s holds a closing script tag, and it runs "
+                          "inside a script element in the frame, so the tag would end it "
+                          "there and the rest would be drawn as text."
+                          % os.path.basename(spec["patch_path"]),
+                          "Write it as \"<\\/script>\" inside the string.")
+    for move in [m for m in spec["moves"] if "rule" not in m]:
+        field = move["field"]
+        # A FIELD THE SCRIPT NEVER NAMES IS A MOVE NOTHING CARRIES. This is the
+        # cheap half; --check draws each value, which is the half that proves it.
+        if not re.search(r"LIFT_VARIANT(\.%s\b|\[\s*[\"']%s[\"']\s*\])"
+                         % (re.escape(field), re.escape(field)), patch):
+            raise Refusal(LIFT_REFUSED,
+                          "the round's script never reads LIFT_VARIANT.%s, so move %r would "
+                          "draw every option the same." % (field, field))
+        moved[field] = 1
+
+    rule_moves = [{"field": m["field"], "property": custom_property(m)}
+                  for m in spec["moves"] if "rule" in m]
+    builder = "\n".join([
+        "/* Framed from %s by scripts/lift-design-harness.sh (ovation#560)." % name,
+        "   Do not edit by hand: re-run the lift, and --check says when the frame no",
+        "   longer draws the window the design file draws. */",
+        "var LIFT_PAGE = %s;" % for_script(text),
+        "var LIFT_PATCH = %s;" % for_script(patch),
+        "var LIFT_WINDOW = %s;" % for_script(spec["window"]),
+        "var LIFT_VIEWPORT = %d;" % spec["viewport"],
+        "var LIFT_RULE_MOVES = JSON.parse(%s);" % for_script(json.dumps(rule_moves)),
+    ]) + "\n" + FRAME_RUNTIME
+    return FRAME_STYLES, builder, moved
+
+
+def write_frame(spec, out_dir):
+    styles, builder, moved = lift_frame(spec)
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, STYLES), "w", encoding="utf-8") as handle:
+            handle.write(styles)
+        with open(os.path.join(out_dir, BUILDER), "w", encoding="utf-8") as handle:
+            handle.write(builder)
+    except OSError as err:
+        raise Refusal(USED_WRONGLY, "the harness could not be written into %s: %s"
+                      % (out_dir, err))
+    name = os.path.basename(spec["source_path"])
+    print("WROTE: %s and %s in %s, framing %s." % (STYLES, BUILDER, out_dir, name))
+    print("  framed       %s, the design file drawing itself in a frame %d points wide"
+          % (spec["window"], spec["viewport"]))
+    for move in spec["moves"]:
+        if "rule" in move:
+            print("  moves        variant.%s through %s, %d declaration(s) in the stylesheet"
+                  % (move["field"], custom_property(move), moved[move["field"]]))
+        else:
+            print("  moves        variant.%s through the round's script, as LIFT_VARIANT.%s"
+                  % (move["field"], move["field"]))
+    print("  next         --check draws the frame in a page the way the switcher does, and "
+          "judges where the window lands and what its caption says.")
+    return WRITTEN
+
+
+def compose_host(styles, builder, stage, into):
+    """The page --check draws the frame in, built the way the switcher builds its
+    own: the builder inlined WHOLE in a script element, with no refusal first,
+    because the empty frame is found by what that inlining does, and a stage of
+    a fixed width for the frame to scale to."""
+    page = ("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
+            "<title>The framed harness</title>\n<style>\n" + styles + "\n</style>\n"
+            "<style>body { margin: 0; padding: 24px; background: #F4F1EC; }\n"
+            "#lift-stage { width: %dpx; }</style>\n" % stage +
+            "</head>\n<body>\n<div id=\"lift-stage\"></div>\n<script>\n" + builder +
+            "\n</script>\n</body>\n</html>\n")
+    with open(into, "w", encoding="utf-8") as handle:
+        handle.write(page)
+    return into
+
+
+def probe_frame(spec, variant, bare):
+    """Put one option's box on the stage, wait until it has drawn or failed, and
+    measure the window INSIDE the frame, in the page the frame was drawn in:
+    its elements, its markup and style, where it lands in the clip and at what
+    scale, independently of anything the frame's own code worked out, and the
+    caption it wrote."""
+    return """
+<script>
+(function () {
+  %(measure)s
+  var IGNORE = %(ignore)s;
+  function finish(report) {
+    var pre = document.createElement("pre");
+    pre.id = "ovation-probe";
+    pre.textContent = JSON.stringify(report);
+    document.body.appendChild(pre);
+  }
+  try {
+    if (typeof liftFrame !== "function" || typeof buildScreen !== "function") {
+      finish({ frame_fault: "unescaped" });
+      return;
+    }
+    ovationCheckSelectors(IGNORE);
+    var box = liftFrame(%(variant)s, %(bare)s);
+    document.getElementById("lift-stage").appendChild(box);
+    var began = Date.now();
+    (function wait() {
+      var state = box.getAttribute("data-state");
+      if (state !== "failed" && box.getAttribute("data-settled") !== "yes") {
+        if (Date.now() - began > %(wait)d) {
+          finish({ error: "the frame had not drawn after %(wait)d ms" });
+          return;
+        }
+        setTimeout(wait, 50);
+        return;
+      }
+      try {
+        var said = box.querySelector(".lift-frame-cap").textContent;
+        if (state !== "drawn") { finish({ frame_fault: "failed", said: said }); return; }
+        var frame = box.querySelector("iframe");
+        var win = frame.contentDocument.querySelector(%(window)s);
+        var w = win.getBoundingClientRect();
+        var f = frame.getBoundingClientRect();
+        var c = box.querySelector(".lift-frame-clip").getBoundingClientRect();
+        var scale = f.width / frame.offsetWidth;
+        var report = ovationMeasure(win, IGNORE);
+        var look = ovationLook(win);
+        report.markup = look.markup;
+        report.styles = look.styles;
+        report.caption = said;
+        report.width = w.width;
+        report.scale = scale;
+        report.placed = {
+          left: f.left + w.left * scale - c.left,
+          top: f.top + w.top * scale - c.top,
+          right: c.right - (f.left + w.right * scale),
+          bottom: c.bottom - (f.top + w.bottom * scale),
+          margin: LIFT_MARGIN * scale
+        };
+        finish(report);
+      } catch (e) { finish({ error: String((e && e.message) || e) }); }
+    })();
+  } catch (e) { finish({ error: String((e && e.message) || e) }); }
+})();
+</script>
+""" % {"measure": MEASURE, "ignore": json.dumps(spec["ignore"]),
+       "variant": json.dumps(variant), "bare": "true" if bare else "false",
+       "window": json.dumps(spec["window"]), "wait": FRAME_WAIT_MS}
+
+
+def probe_frame_design(spec):
+    """The window where the design file draws it, measured once its fonts are
+    in, which is when the frame measures too."""
+    return """
+<script>
+(function () {
+  %(measure)s
+  var IGNORE = %(ignore)s;
+  function finish(report) {
+    var pre = document.createElement("pre");
+    pre.id = "ovation-probe";
+    pre.textContent = JSON.stringify(report);
+    document.body.appendChild(pre);
+  }
+  function measure() {
+    try {
+      ovationCheckSelectors(IGNORE);
+      var here = document.querySelectorAll(%(window)s);
+      if (here.length !== 1) {
+        throw new Error(here.length + " element(s) match the window selector " + %(window)s
+          + ", and exactly one has to.");
+      }
+      finish(ovationMeasure(here[0], IGNORE));
+    } catch (e) { finish({ error: String((e && e.message) || e) }); }
+  }
+  if (document.fonts && document.fonts.ready) { document.fonts.ready.then(measure); }
+  else { measure(); }
+})();
+</script>
+""" % {"measure": MEASURE, "ignore": json.dumps(spec["ignore"]),
+       "window": json.dumps(spec["window"])}
+
+
+FRAME_WAIT_MS = 12000
+CAPTION = re.compile(r"The window is (\d+) points wide, drawn here at (\d+)%\.")
+
+
+def read_frame(session, page, probe, what):
+    """One drawing of the frame, with its two refusals said in their own words
+    before anything else reads the report."""
+    report = session.render(page, probe, budget=FRAME_WAIT_MS + 3000)
+    if isinstance(report, dict) and report.get("frame_fault") == "unescaped":
+        raise Refusal(FRAME,
+                      "the builder ended the script it is inlined in before it defined "
+                      "buildScreen, so a switcher inlining it would draw an empty frame.",
+                      "Its embedded page carries a closing tag the HTML parser reads as the "
+                      "end of the script; every one has to be written <\\/ inside the string.")
+    if isinstance(report, dict) and report.get("frame_fault") == "failed":
+        raise Refusal(FRAME, "%s drew no window, and its caption says: %s"
+                      % (what, report.get("said", "nothing")))
+    if not isinstance(report, dict):
+        raise Refusal(UNREADABLE, "%s's probe wrote something that is not a report" % what)
+    if report.get("error") is not None:
+        raise Refusal(UNREADABLE, "%s could not be read: %s" % (what, report["error"]),
+                      "Nothing was compared.")
+    if not isinstance(report.get("rows"), list) or not report["rows"]:
+        raise Refusal(UNREADABLE, "%s's probe measured no elements at all" % what)
+    return report
+
+
+def frame_faults(report, what):
+    """What is wrong with one drawing, as sentences: where the window landed,
+    and whether the caption states the numbers the drawing has."""
+    faults = []
+    placed = report["placed"]
+    at = placed["margin"]
+    if (abs(placed["left"] - at) > 1 or abs(placed["top"] - at) > 1
+            or placed["right"] < -1 or placed["bottom"] < -1):
+        faults.append("MISPLACED: %s shows something other than the window: the window "
+                      "starts %d points right and %d points down in the clip, and runs %d "
+                      "past its right edge and %d past its foot, where it should start at "
+                      "the margin, %d, and run past neither."
+                      % (what, round(placed["left"]), round(placed["top"]),
+                         max(0, -round(placed["right"])), max(0, -round(placed["bottom"])),
+                         round(at)))
+    drawn = (round(report["width"]), round(report["scale"] * 100))
+    said = CAPTION.search(report.get("caption") or "")
+    stated = (int(said.group(1)), int(said.group(2))) if said else None
+    if stated != drawn:
+        faults.append("MISCAPTIONED: in %s the caption says %s, and the drawing is %d points "
+                      "at %d%%. A caption stating a number the drawing does not have is the "
+                      "readout disagreeing with the picture."
+                      % (what, "%d points at %d%%" % stated if stated else "no measurement",
+                         drawn[0], drawn[1]))
+    return faults
+
+
+def check_frame(spec, out_dir):
+    styles_at = os.path.join(out_dir, STYLES)
+    builder_at = os.path.join(out_dir, BUILDER)
+    for path in (styles_at, builder_at):
+        if not os.path.isfile(path):
+            raise Refusal(USED_WRONGLY,
+                          "there is no %s in %s, so there is no frame to judge."
+                          % (os.path.basename(path), out_dir),
+                          "Write one with: scripts/lift-design-harness.sh <spec> <out-dir>")
+    name = os.path.basename(spec["source_path"])
+    if not os.path.isfile(spec["source_path"]):
+        raise Refusal(USED_WRONGLY, "the design file the spec names is not there: %s"
+                      % spec["source_path"])
+    try:
+        session = open_browser()
+    except CannotMeasure as err:
+        raise Refusal(NO_BROWSER, str(err))
+
+    holder = tempfile.mkdtemp(prefix="ovation-frame-")
+    page = compose_host(open(styles_at, encoding="utf-8").read(),
+                        open(builder_at, encoding="utf-8").read(),
+                        spec["stage"], os.path.join(holder, "frame.html"))
+    try:
+        with session:
+            bare = read_frame(session, page, probe_frame(spec, {}, True), "the bare frame")
+            design = read_report(session, spec["source_path"], probe_frame_design(spec), name)
+            faithful = not differences(design["rows"], bare["rows"], spec["tolerance"])[0]
+            drawings, moved = [("the bare frame", bare)], []
+            if faithful:
+                for move in spec["moves"]:
+                    drawn = []
+                    for index, value in enumerate(move["values"]):
+                        what = "the frame with value %d of variant.%s" % (index + 1, move["field"])
+                        report = read_frame(session, page,
+                                            probe_frame(spec, {move["field"]: value}, False),
+                                            what)
+                        drawings.append((what, report))
+                        drawn.append(json.dumps([report.get("markup"), report.get("styles"),
+                                                 report["rows"]]))
+                    twin = None
+                    for later in range(len(drawn)):
+                        for earlier in range(later):
+                            if twin is None and drawn[earlier] == drawn[later]:
+                                twin = (earlier + 1, later + 1)
+                    moved.append((move, len(drawn)) + (twin or (None, None)))
+    except CannotMeasure as err:
+        raise Refusal(NO_BROWSER, str(err))
+
+    unused = [s for s in spec["ignore"]
+              if not design["ignored"].get(s) and not bare["ignored"].get(s)]
+    if unused:
+        raise Refusal(UNREADABLE,
+                      "%d ignore selector(s) matched nothing in either rendering: %s."
+                      % (len(unused), ", ".join(unused)),
+                      "An exemption that matches nothing still reads as a deliberate "
+                      "one, so this is refused rather than passed.")
+
+    print("  design file  %s, its window is %s" % (name, spec["window"]))
+    print("  frame        %s and %s, inlined in a page's script as the switcher inlines "
+          "them, on a stage %d points wide" % (STYLES, BUILDER, spec["stage"]))
+    print("  comparing    tag, classes and box, %d element(s) against %d, tolerance %dpx"
+          % (len(design["rows"]), len(bare["rows"]), spec["tolerance"]))
+
+    faults, stopped = differences(design["rows"], bare["rows"], spec["tolerance"])
+    if faults:
+        print("DIFFERS: the frame does not draw the window %s draws." % name)
+        for kind, a, b in faults[:8]:
+            print("  %s" % kind)
+            print("    the design file  %s, %s" % (name_of(a), boxes_of(a)))
+            print("    the frame        %s" % ("draws no element there at all" if b is None
+                                               else "%s, %s" % (name_of(b), boxes_of(b))))
+        return DIFFERS
+    print("SAME: the frame draws the window %s draws, %d element(s), tag, classes and box."
+          % (name, len(design["rows"])))
+
+    wrong = [line for what, report in drawings for line in frame_faults(report, what)]
+    if wrong:
+        for line in wrong:
+            print(line)
+        return FRAME
+    print("FRAMED: the caption says %d points at %d%%, and the drawing is %d points at %d%%, "
+          "with the window at the clip's margin, in all %d drawing(s)."
+          % (round(bare["width"]), round(bare["scale"] * 100),
+             round(bare["width"]), round(bare["scale"] * 100), len(drawings)))
+    return report_moves(moved)
+
 
 def write(spec, out_dir):
     styles, builder, retargeted, stripped, moved = lift(spec)
@@ -1186,6 +1816,8 @@ def main(argv):
         print(__doc__.strip())
         return USED_WRONGLY
     spec = read_spec(rest[0])
+    if spec["framing"]:
+        return check_frame(spec, rest[1]) if checking else write_frame(spec, rest[1])
     return check(spec, rest[1]) if checking else write(spec, rest[1])
 
 
