@@ -1059,13 +1059,6 @@ else
   DOMAINS_UNMEASURED=""
   DOMAINS_BEFORE="$(test_domains)" || DOMAINS_UNMEASURED=1
 
-  # The command is injectable so the suite can measure the LOCKING without paying
-  # for a three minute xcodebuild (L2, L291). The default is the real thing.
-  #
-  # THE OUTPUT IS TEED, NOT CAPTURED. The count has to be read back (below), and a
-  # plain $(...) would hold three minutes of a real xcodebuild in a variable with
-  # the terminal silent, so a person watching could not tell a slow run from a hung
-  # one. PIPESTATUS[0] is the run's own status: the pipe's is tee's (L183, L184).
   # A SUITE RUN THAT RECORDED AN ISSUE COSTS A SYMBOL ARCHIVE (ovation#552).
   #
   # macOS's symbolication service keeps an archive of every binary a client asks
@@ -1093,9 +1086,13 @@ else
   # shellcheck source=lib/durable-record.sh
   require_lib "${REPO_ROOT}/scripts/lib/durable-record.sh"
   report_symbol_archive() {
-    # report_symbol_archive <suite> <file holding that suite's output>
-    local suite="$1" output="$2" issues subject record now recent noun
-    issues="$(grep -oE 'Test run with [0-9]+ tests? in [0-9]+ suites? (passed|failed) after [0-9.]+ seconds with [0-9]+ (known )?issues?' "${output}" 2>/dev/null \
+    # report_symbol_archive <suite> < that suite's output
+    #
+    # ON STDIN, NOT A PATH, so the hosted half needs no temporary file of its
+    # own: one made for it was unchecked and outlived a run stopped by INT or
+    # TERM, which the trap had no way to know about (lessons review of #624).
+    local suite="$1" issues subject record now recent noun
+    issues="$(grep -oE 'Test run with [0-9]+ tests? in [0-9]+ suites? (passed|failed) after [0-9.]+ seconds with [0-9]+ (known )?issues?' 2>/dev/null \
       | sed -E 's/.* with ([0-9]+) .*/\1/' | sort -rn | head -1)"
     [ -n "${issues}" ] && [ "${issues}" -gt 0 ] || return 0
     noun="issues"; [ "${issues}" -eq 1 ] && noun="issue"
@@ -1131,6 +1128,13 @@ else
     fi
   }
 
+  # The command is injectable so the suite can measure the LOCKING without paying
+  # for a three minute xcodebuild (L2, L291). The default is the real thing.
+  #
+  # THE OUTPUT IS TEED, NOT CAPTURED. The count has to be read back (below), and a
+  # plain $(...) would hold three minutes of a real xcodebuild in a variable with
+  # the terminal silent, so a person watching could not tell a slow run from a hung
+  # one. PIPESTATUS[0] is the run's own status: the pipe's is tee's (L183, L184).
   PURE_OUTPUT="$(mktemp)"
   if [ "${ONLY_TARGET}" = "OvationHostedTests" ]; then
     # A run narrowed to the hosted suite builds the pure scheme for nothing, so it
@@ -1150,7 +1154,7 @@ else
       bash -c "${TEST_COMMAND}" 2>&1 | tee "${PURE_OUTPUT}"
     fi
     STATUS="${PIPESTATUS[0]}"
-    report_symbol_archive OvationTests "${PURE_OUTPUT}"
+    report_symbol_archive OvationTests < "${PURE_OUTPUT}"
   fi
 
   # THE RULE BESIDE THE SYMPTOM (ovation#373). OvationTests compiles the app's
@@ -1635,10 +1639,7 @@ else
     fi
     HOSTED_STATUS=$?
     printf '%s\n' "${HOSTED_OUTPUT}"
-    HOSTED_OUTPUT_FILE="$(mktemp)"
-    printf '%s\n' "${HOSTED_OUTPUT}" > "${HOSTED_OUTPUT_FILE}"
-    report_symbol_archive OvationHostedTests "${HOSTED_OUTPUT_FILE}"
-    rm -f "${HOSTED_OUTPUT_FILE}"
+    report_symbol_archive OvationHostedTests <<<"${HOSTED_OUTPUT}"
     SHOT_COUNT="$(find "${SHOT_DIR}" -name '*.png' -type f 2>/dev/null | wc -l | tr -d ' ')"
     if [ -n "${SHOT_DIR_IS_TEMPORARY}" ]; then
       echo "==> ${SHOT_COUNT} screenshots captured, in a temporary folder removed now; set OVATION_SHOT_DIR to keep them."
