@@ -58,17 +58,21 @@ struct DisposableLaunchStoreTests {
 
     @Test("a real launch is answered at once, without waiting for an ask that never comes", .timeLimit(.minutes(1)))
     func aRealLaunchNeverWaits() async {
-        let opening = await DisposableLaunchStore.openWhenAsked(
+        let waited = await DisposableLaunchStore.openWhenAsked(
             isDisposableLaunch: false, gate: DisposableLaunchStore.Gate())
-        #expect(opening == nil)
+        #expect(waited.isNotADisposableLaunch)
+        // A REAL LAUNCH IS NEVER TOLD TO RUN AGAIN by this: its once only rule is
+        // what stops two containers over Dan's one store file (ovation#84).
+        #expect(!waited.launchIsStillToRun)
     }
 
     @Test("an ask made before the launch waits is kept, so the launch still opens", .timeLimit(.minutes(1)))
     func anEarlyAskIsKept() async {
         let gate = DisposableLaunchStore.Gate()
         gate.ask()
-        let opening = await DisposableLaunchStore.openWhenAsked(isDisposableLaunch: true, gate: gate)
-        #expect(opening?.outcome == .opened)
+        let waited = await DisposableLaunchStore.openWhenAsked(isDisposableLaunch: true, gate: gate)
+        #expect(waited.opening?.outcome == .opened)
+        #expect(!waited.launchIsStillToRun)
     }
 
     @Test("a disposable launch waits on Starting until it is asked, then opens", .timeLimit(.minutes(1)))
@@ -85,8 +89,8 @@ struct DisposableLaunchStoreTests {
         for _ in 0..<20 { await Task.yield() }
         #expect(!finished, "the launch opened before anything asked")
         gate.ask()
-        let opening = await launch.value
-        #expect(opening?.outcome == .opened)
+        let waited = await launch.value
+        #expect(waited.opening?.outcome == .opened)
     }
 
     @Test("a launch cancelled while it waits is let go, opens nothing, and leaves the gate usable", .timeLimit(.minutes(1)))
@@ -97,8 +101,13 @@ struct DisposableLaunchStoreTests {
         }
         for _ in 0..<20 { await Task.yield() }
         launch.cancel()
-        let opening = await launch.value
-        #expect(opening == nil, "a cancelled launch opened a store for a window that has gone")
+        let waited = await launch.value
+        #expect(waited.opening == nil, "a cancelled launch opened a store for a window that has gone")
+        // AND IT IS STILL TO RUN. The launch sets its once only flag before it
+        // waits, so a wait let go without saying so would leave the next .task
+        // returning at once and the window on Starting for good.
+        #expect(waited.launchIsStillToRun)
+        #expect(!waited.isNotADisposableLaunch)
         #expect(!gate.hasBeenAsked, "letting a cancelled wait go is not an ask")
     }
 }

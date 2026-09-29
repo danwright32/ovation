@@ -423,11 +423,20 @@ struct OvationApp: App {
             sequence.onOpened = { openedStore.container = $0 }
             sequence.onStep = { [progress] step in progress.stepStarted(step) }
             progress.finished(await sequence.run(now: Date()))
-        } else if let opening = await DisposableLaunchStore.openWhenAsked() {
+        } else {
             // ovation#604. A disposable launch opens a store in memory when a
             // hosted test asks, so the real window can reach the shell.
-            openedStore.container = opening.container
-            progress.finished(opening.outcome)
+            let waited = await DisposableLaunchStore.openWhenAsked()
+            if waited.launchIsStillToRun {
+                // Let go while it waited, having opened nothing: the next .task
+                // runs the launch rather than finding it already run.
+                hasLaunched = false
+                return
+            }
+            if let opening = waited.opening {
+                openedStore.container = opening.container
+                progress.finished(opening.outcome)
+            }
         }
 
         // ovation#40. The roster is read BEFORE the presenter refreshes, so that

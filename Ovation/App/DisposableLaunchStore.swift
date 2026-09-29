@@ -91,18 +91,55 @@ enum DisposableLaunchStore {
         }
     }
 
-    /// A store in memory for a disposable launch once a test asks for it, or nil
-    /// at once for a real launch, and nil for a launch cancelled while it waited.
+    /// How a launch's wait on the gate ended. Three things, never an optional,
+    /// because "not a test launch" and "let go while it waited" call for opposite
+    /// responses from the launch, and nil could not say which it was.
+    enum Waited {
+        /// A real launch. It never waited, and nothing here concerns it.
+        case notADisposableLaunch
+        /// A test launch whose task was cancelled while it waited. It opened
+        /// nothing and finished nothing.
+        case letGo
+        /// A test launch that was asked, and what asking opened.
+        case opened(Opening)
+
+        var opening: Opening? {
+            if case .opened(let opening) = self { return opening }
+            return nil
+        }
+
+        var isNotADisposableLaunch: Bool {
+            if case .notADisposableLaunch = self { return true }
+            return false
+        }
+
+        /// Whether the launch that waited has still to happen.
+        ///
+        /// THE LAUNCH RUNS ONCE, and marks itself run BEFORE it waits here, so a
+        /// wait let go without saying so would leave the next `.task` returning
+        /// at once and the window on Starting for good. Only `letGo` answers
+        /// true, and it has opened nothing, so running again cannot put a second
+        /// container over anything. A real launch always answers false.
+        var launchIsStillToRun: Bool {
+            if case .letGo = self { return true }
+            return false
+        }
+    }
+
+    /// A store in memory for a disposable launch once a test asks for it; at once
+    /// `notADisposableLaunch` for a real one; `letGo` for a test launch whose
+    /// task was cancelled while it waited.
     @MainActor
     static func openWhenAsked(
         isDisposableLaunch: Bool = AppEnvironment.isDisposableLaunch(),
         gate: Gate = .shared
-    ) async -> Opening? {
-        guard isDisposableLaunch else { return nil }
+    ) async -> Waited {
+        guard isDisposableLaunch else { return .notADisposableLaunch }
         await gate.wait()
         // A launch cancelled while it waited has no window left to open a store for.
-        guard !Task.isCancelled else { return nil }
-        return open(isDisposableLaunch: isDisposableLaunch)
+        guard !Task.isCancelled else { return .letGo }
+        return open(isDisposableLaunch: isDisposableLaunch).map(Waited.opened)
+            ?? .notADisposableLaunch
     }
 
     /// A store in memory for a disposable launch, or nil for a real one.
