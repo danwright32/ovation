@@ -23,10 +23,11 @@ import Foundation
 /// Where an invoice sits in the list, top to bottom.
 ///
 /// THE ORDER OF THE CASES IS THE ORDER ON SCREEN, and it is read as such by the
-/// list rather than restated beside it (L41). PRD section 6 numbers eight groups;
-/// there are ten cases here because 46d put `To place` above all of them and
-/// ovation#45's sent triple earns its own band, which is the placement PRD section
-/// 6 records as the one still needing one.
+/// list rather than restated beside it (L41). PRD section 6 numbers eight groups,
+/// and there are more cases here, uncounted so the count cannot drift: 46d put
+/// `To place` above all of them, ovation#45's sent triple earns its own band,
+/// which is the placement PRD section 6 records as the one still needing one, and
+/// 46h splits the late check out of group 4 to lead the list.
 enum InvoiceBand: String, CaseIterable, Codable, Hashable, Sendable {
 
     /// PRD 46d. A client's held money could settle more than one of their open
