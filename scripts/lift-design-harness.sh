@@ -198,6 +198,7 @@ produced on purpose; it can only ever make this refuse, never pass).
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 
@@ -325,6 +326,17 @@ def read_spec(path):
                                         "custom property and a variant field both"
                               % (index + 1, move["field"]))
         elif by_patch:
+            # A MOVE THE ROUND'S SCRIPT CARRIES HAS NO VARIABLE AND NOTHING IT
+            # HOLDS: there is no builder to declare the one in or replace the
+            # other in, so naming either is refused rather than dropped.
+            named = [key for key in ("variable", "holds") if key in move]
+            if named:
+                raise Refusal(BAD_SPEC,
+                              "move %d is carried by the round's script and names a %s, "
+                              "which a frame has nowhere to put: there is no builder."
+                              % (index + 1, " and a ".join(named)),
+                              "Name a rule and a property to move a stylesheet value, or "
+                              "only a field and its values for the round's script.")
             if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", move["field"]):
                 raise Refusal(BAD_SPEC, "move %d names the field %r, which the round's "
                                         "script could not read as LIFT_VARIANT.%s"
@@ -567,7 +579,10 @@ def move_rules(css, moves, name):
     counted = {}
     for move in [m for m in moves if "rule" in m]:
         prop = custom_property(move)
-        if prop in css:
+        # THE WHOLE NAME, never a substring: --lift-rowPadding is not
+        # --lift-rowPad, and a stylesheet carrying one, or an earlier move
+        # writing one, must not block a move for the other.
+        if re.search(re.escape(prop) + r"(?![A-Za-z0-9_-])", css):
             raise Refusal(LIFT_REFUSED,
                           "move %r would be carried by %s, and %s's stylesheet already "
                           "uses that name, so the lift would change what it means."
@@ -1135,6 +1150,13 @@ def check(spec, out_dir):
         raise Refusal(NO_BROWSER, str(err))
 
     holder = tempfile.mkdtemp(prefix="ovation-harness-")
+    try:
+        return judge_lift(spec, session, holder, styles_at, builder_at, name)
+    finally:
+        shutil.rmtree(holder, ignore_errors=True)
+
+
+def judge_lift(spec, session, holder, styles_at, builder_at, name):
     page = compose(open(styles_at, encoding="utf-8").read(),
                    open(builder_at, encoding="utf-8").read(),
                    os.path.join(holder, "harness.html"))
@@ -1706,7 +1728,16 @@ def check_frame(spec, out_dir):
     except CannotMeasure as err:
         raise Refusal(NO_BROWSER, str(err))
 
+    # THE PAGE IS A COPY OF THE DESIGN FILE, so it is removed on every way out,
+    # a refusal included, rather than left in the temporary folder per run.
     holder = tempfile.mkdtemp(prefix="ovation-frame-")
+    try:
+        return judge_frame(spec, session, holder, styles_at, builder_at, name)
+    finally:
+        shutil.rmtree(holder, ignore_errors=True)
+
+
+def judge_frame(spec, session, holder, styles_at, builder_at, name):
     page = compose_host(open(styles_at, encoding="utf-8").read(),
                         open(builder_at, encoding="utf-8").read(),
                         spec["stage"], os.path.join(holder, "frame.html"))

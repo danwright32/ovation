@@ -22,7 +22,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design harness lift tests" 125
+harness_begin "design harness lift tests" 130
 
 TARGET="scripts/lift-design-harness.sh"
 require_target "$TARGET"
@@ -357,6 +357,22 @@ PY
 spec_for "$WORK/takenprop.json" "takenprop.html" "moves=[$RULEMOVE]"
 check_exit "one whose custom property the stylesheet already uses is refused" \
     6 lift "$WORK/takenprop.json" "$WORK/out"
+LONGERPROP="$WORK/longerprop.html"
+python3 - "$STANDIN" "$LONGERPROP" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+mark = ".rail { width: 80px; }"
+assert mark in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(
+    text.replace(mark, ".rail { width: 80px; --lift-rowPadding: 1px; }", 1))
+PY
+spec_for "$WORK/longerprop.json" "longerprop.html" "moves=[$RULEMOVE]"
+check_exit "but one whose name only BEGINS a property the stylesheet uses is not" \
+    0 lift "$WORK/longerprop.json" "$WORK/longerout"
+spec_for "$WORK/twoprops.json" "standin.html" \
+    'moves=[{"field": "rowPadding", "rule": ".rail", "property": "width", "holds": "80px", "values": ["80px", "90px"]}, {"field": "rowPad", "rule": ".row", "property": "padding", "holds": "4px", "values": ["4px", "14px"]}]'
+check_exit "nor is a move whose name begins the one an earlier move wrote" \
+    0 lift "$WORK/twoprops.json" "$WORK/twopropsout"
 
 # ---------------------------------------------------------------------------
 # 4c. THE FRAME MODE (ovation#560). Every round of ovation#110 was a hand built
@@ -438,6 +454,7 @@ with open(sys.argv[1], "w", encoding="utf-8") as handle:
 PY
 }
 
+printf 'document.querySelector(".head").textContent = LIFT_VARIANT.word || "Needs you";\n' > "$WORK/word.js"
 FSPEC="$WORK/framed.json"
 frame_spec "$FSPEC" "framed.html"
 FOUT="$WORK/frameout"
@@ -472,6 +489,12 @@ check_exit "a round script holding a closing script tag is refused, since it run
 frame_spec "$WORK/frame-window.json" "framed.html" 'window=""'
 check_exit "a frame whose window selector is empty is refused as a spec" \
     4 lift "$WORK/frame-window.json" "$WORK/out"
+frame_spec "$WORK/frame-var.json" "framed.html" 'patch="word.js"' \
+    'moves=[{"field": "word", "variable": "WORD", "values": ["A", "B"]}]'
+check_exit "a round script's move naming a builder variable is refused, not dropped" \
+    4 lift "$WORK/frame-var.json" "$WORK/frame-var-out"
+check "and it says a frame has nowhere to put one" \
+    "$(says "$(run "$WORK/frame-var.json" "$WORK/frame-var-out")" "names a variable, which a frame has nowhere to put")" "yes"
 
 # ---------------------------------------------------------------------------
 # Everything below renders. With no browser there is no answer to give, and
@@ -873,6 +896,17 @@ PY
 check_exit "the committed invoice list frames" 0 lift "$WORK/frame-list.json" "$WORK/framelist"
 check_exit "and its frame draws its window, placed and captioned truly, and the move moves it" \
     0 lift --check "$WORK/frame-list.json" "$WORK/framelist"
+
+# EVERY --check WRITES A PAGE HOLDING A COPY OF THE DESIGN FILE, and it is
+# removed on every way out, a refusal as much as a pass, in both modes.
+LEFT="$WORK/tmp-left"
+mkdir -p "$LEFT"
+TMPDIR="$LEFT" python3 "$TARGET" --check "$FSPEC" "$FOUT" >/dev/null 2>&1
+TMPDIR="$LEFT" python3 "$TARGET" --check "$FSPEC" "$WORK/unescaped" >/dev/null 2>&1
+TMPDIR="$LEFT" python3 "$TARGET" --check "$SPEC" "$OUT" >/dev/null 2>&1
+TMPDIR="$LEFT" python3 "$TARGET" --check "$WORK/lost.json" "$LOST" >/dev/null 2>&1
+check "no --check leaves its page behind, passing or refusing, framed or lifted" \
+    "$(find "$LEFT" -maxdepth 1 -name 'ovation-*' | wc -l | tr -d ' ')" "0"
 
 check "and every one of those runs left the committed design files untouched" \
     "$(shasum -a 256 docs/design/invoice-pdf.html docs/design/invoice-list.html)" "$BEFORE"
