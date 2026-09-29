@@ -325,11 +325,19 @@ final class BackupService {
     /// reached at all and stood for ever (L200, L38). This is how the launch asks
     /// directly.
     ///
-    /// GONE ONLY WHEN THE FOLDER WAS READ AND THE NAME IS NOT IN IT. A folder on
-    /// a share that is not mounted cannot be listed, and that must never resolve
-    /// a problem as though the archive had been deleted (L119). A directory that
-    /// is there without a manifest is not gone either: it cannot be judged, and
-    /// the problem about it stands.
+    /// GONE ONLY ON EVIDENCE, because a problem resolved as gone is never raised
+    /// again. Three things must all hold (L119, L211):
+    ///
+    /// - the folder could be listed, since a share that is not mounted cannot be;
+    /// - the listing holds at least one OTHER archive, since a sync folder that has
+    ///   not filled yet lists nothing, and retention never deletes the newest, so a
+    ///   folder Ovation has backed up into is never empty of them;
+    /// - the archive, looked up DIRECTLY, is reported as no such file. A share or a
+    ///   sync folder can list short, and one listing that leaves a name out is not
+    ///   a deletion. A lookup that fails any other way answers nothing.
+    ///
+    /// A directory that is there without a manifest is not gone either: it cannot
+    /// be judged, and the problem about it stands.
     func reverify(archiveNamed name: String) -> Reverification {
         let names: [String]
         do {
@@ -337,8 +345,28 @@ final class BackupService {
         } catch {
             return .couldNotRead("\(backupsDirectory.path): \(error)")
         }
-        guard names.contains(name) else { return .gone(name) }
-        return reverification(of: url(ofArchiveNamed: name))
+        let archive = url(ofArchiveNamed: name)
+        guard !names.contains(name) else { return reverification(of: archive) }
+
+        do {
+            _ = try fileManager.attributesOfItem(atPath: archive.path)
+            // The listing left it out and it is there: the listing was short.
+            return reverification(of: archive)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            // Absent, measured directly. Gone, if the folder is evidently the one
+            // the archives are in.
+        } catch let error as NSError
+            where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
+            // The same answer, from a file manager that reports it this way.
+        } catch {
+            return .couldNotRead("\(name): \(error)")
+        }
+        guard names.contains(where: { $0.hasPrefix(Self.archivePrefix) }) else {
+            return .couldNotRead(
+                "\(backupsDirectory.path) lists no backups at all, which says nothing "
+                    + "about whether \(name) was deleted")
+        }
+        return .gone(name)
     }
 
     /// One archive checked, said as the launch reads it.

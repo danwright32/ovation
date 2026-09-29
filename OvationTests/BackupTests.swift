@@ -71,6 +71,32 @@ final class UndeletableFileManager: FileManager {
     }
 }
 
+/// A file manager whose listing of a folder LEAVES OUT one name, and can refuse
+/// to say anything about a path it is asked of directly, as a NAS share or a sync
+/// folder part way through a sync can (ovation#613). Every other operation is the
+/// real one.
+final class MisreportingFileManager: FileManager {
+    private let hiddenName: String
+    private let refusesToStat: Bool
+
+    init(hiding name: String, refusingToStat: Bool = false) {
+        hiddenName = name
+        refusesToStat = refusingToStat
+        super.init()
+    }
+
+    override func contentsOfDirectory(atPath path: String) throws -> [String] {
+        try super.contentsOfDirectory(atPath: path).filter { $0 != hiddenName }
+    }
+
+    override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        if refusesToStat && (path as NSString).lastPathComponent == hiddenName {
+            throw CocoaError(.fileReadNoPermission)
+        }
+        return try super.attributesOfItem(atPath: path)
+    }
+}
+
 /// Plan 1.8, ovation#57. Dated backups, verified by enumerating every referenced
 /// document rather than by asking whether anything opens.
 struct BackupTests {
@@ -909,6 +935,56 @@ struct BackupTests {
 
         #expect(world.service.reverify(archiveNamed: "Ovation-backup-2026-03-02-090000")
                 == .gone("Ovation-backup-2026-03-02-090000"))
+    }
+
+    /// A LISTING THAT LEAVES IT OUT IS NOT PROOF IT WAS DELETED. A share or a
+    /// sync folder can list short, and a problem resolved as gone is not raised
+    /// again, so the archive is looked for directly before anything is resolved
+    /// (L211, L119). Here it is there, so it is checked like any other.
+    @Test("an archive a short listing leaves out, and that is there, is checked rather than gone")
+    func aShortListingIsNotGone() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        _ = try world.service.takeBackup(now: world.instant.addingTimeInterval(86_400))
+        let service = BackupService(
+            dataDirectory: world.dataDirectory, backupsDirectory: world.backupsDirectory,
+            dailyKeep: 3, referencedDocuments: { [reference = world.receiptReference] _ in [reference] },
+            fileManager: MisreportingFileManager(hiding: archive.lastPathComponent))
+
+        #expect(service.reverify(archiveNamed: archive.lastPathComponent)
+                == .verified(archive.lastPathComponent))
+    }
+
+    /// And when the direct look cannot answer either, nothing is concluded.
+    @Test("an archive left out of the listing that cannot be looked up directly is not gone")
+    func anUnstattableArchiveIsNotGone() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        _ = try world.service.takeBackup(now: world.instant.addingTimeInterval(86_400))
+        let service = BackupService(
+            dataDirectory: world.dataDirectory, backupsDirectory: world.backupsDirectory,
+            dailyKeep: 3, referencedDocuments: { _ in [] },
+            fileManager: MisreportingFileManager(hiding: archive.lastPathComponent,
+                                                 refusingToStat: true))
+
+        guard case .couldNotRead = service.reverify(archiveNamed: archive.lastPathComponent) else {
+            Issue.record("an archive nobody could look up was reported gone")
+            return
+        }
+    }
+
+    /// A FOLDER LISTING NO ARCHIVE AT ALL is not evidence about one of them: a sync
+    /// folder that has not filled yet looks exactly like this, and retention never
+    /// deletes the newest, so a folder Ovation has backed up into is never empty.
+    @Test("a folder that lists no archive at all proves nothing gone")
+    func anEmptyListingIsNotGone() throws {
+        let world = try World()
+
+        guard case .couldNotRead = world.service.reverify(
+            archiveNamed: "Ovation-backup-2026-03-02-090000") else {
+            Issue.record("a folder holding no archive reported one gone")
+            return
+        }
     }
 
     /// A FOLDER THAT CANNOT BE LISTED IS NOT AN EMPTY ONE. A share that is not

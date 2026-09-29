@@ -155,29 +155,50 @@ enum LaunchBackupOutcome {
     }
 
     /// Re-checks each named archive, the ones an open problem is about
-    /// (ovation#613), each under its own deadline sized like the re-check above.
+    /// (ovation#613), under ONE deadline for them all.
     ///
-    /// EACH ITS OWN WAIT, because each is one archive's worth of the same work,
-    /// and one deadline shared by all of them would be one archive's allowance
-    /// stretched over several. The size is measured once: it is the data folder's,
-    /// and it does not change between them. One that gives up says nothing, as
-    /// above, and the problem it is about stands until a later launch reaches it.
+    /// ONE, NOT ONE EACH. This runs on the launch path before the store opens,
+    /// so a wait per archive, one after another, held the launch for as many
+    /// deadlines as there were broken archives on a share that had gone quiet
+    /// (L110, L704). The deadline is one archive's, sized like the re-check above,
+    /// and whatever answered before it passed is kept. What did not answer says
+    /// nothing, as above, and its problem stands until a later launch reaches it.
+    ///
+    /// WHERE THE NAMES START MOVES WITH THE DAY, like the rotation, so an archive
+    /// that never answers cannot stand in front of the others on every launch.
+    /// One that throws says nothing, and the rest are still asked.
     static func recheck(
         _ names: [String],
+        now: Date,
         measuring: @escaping @Sendable () throws -> BackupSize,
         sleeping: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         _ work: @escaping @Sendable (String) throws -> BackupService.Reverification
     ) async -> [BackupService.Reverification] {
         guard !names.isEmpty else { return [] }
         let deadline = await measuredDeadline(measuring, sleeping: sleeping)
-        var found: [BackupService.Reverification] = []
-        for name in names {
-            found.append(reverification(
-                from: await BlockingWork.run(deadline: deadline, sleeping: sleeping) {
-                    try work(name)
-                }))
+        let start = ((BusinessCalendar.dayNumber(for: now) % names.count) + names.count)
+            % names.count
+        let ordered = Array(names[start...] + names[..<start])
+        let answers = Answers()
+        _ = await BlockingWork.run(deadline: deadline, sleeping: sleeping) {
+            for name in ordered {
+                answers.append((try? work(name)) ?? .nothingToCheck)
+            }
         }
-        return found
+        // READ ONCE, when the wait ended. Work abandoned past the deadline may
+        // still finish and append, and nothing reads it after this line.
+        return answers.all
+    }
+
+    /// What the re-checks answered, gathered as they answer, so a deadline that
+    /// passes part way keeps the ones already found.
+    private final class Answers: @unchecked Sendable {
+        private let lock = NSLock()
+        private var found: [BackupService.Reverification] = []
+        var all: [BackupService.Reverification] { lock.withLock { found } }
+        func append(_ answer: BackupService.Reverification) {
+            lock.withLock { found.append(answer) }
+        }
     }
 
     /// The deadline the measured size calls for, or the floor when the size could

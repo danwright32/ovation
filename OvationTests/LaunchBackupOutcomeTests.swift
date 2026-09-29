@@ -165,21 +165,121 @@ struct LaunchBackupOutcomeTests {
                                     LaunchBackupOutcome.deadline(for: size)])
     }
 
-    /// ovation#613. EVERY NAMED ARCHIVE GETS ITS OWN ANSWER AND ITS OWN WAIT, the
-    /// size measured once. One shared deadline would be one archive's allowance
-    /// stretched over several.
-    @Test("each archive checked by name gets an answer and a wait of its own")
-    func eachNamedArchiveIsCheckedUnderItsOwnDeadline() async {
+    /// ovation#613. Every named archive gets an answer, the size is measured
+    /// once, and the launch waits ONE deadline for all of them.
+    @Test("each archive checked by name gets an answer, under one wait for them all")
+    func eachNamedArchiveIsCheckedUnderOneDeadline() async {
         let waits = RecordedWaits()
         let size = BackupSize(files: 4_000, bytes: 1_000_000_000)
 
         let checked = await LaunchBackupOutcome.recheck(
-            ["a", "b"], measuring: { size }, sleeping: waits.sleep) { .gone($0) }
+            ["a", "b"], now: Self.dayStartingAtTheFirst(of: 2),
+            measuring: { size }, sleeping: waits.sleep) { .gone($0) }
 
         #expect(checked == [.gone("a"), .gone("b")])
         #expect(waits.durations == [LaunchBackupOutcome.deadlineFloor,
-                                    LaunchBackupOutcome.deadline(for: size),
                                     LaunchBackupOutcome.deadline(for: size)])
+    }
+
+    /// N STUCK ARCHIVES COST ONE DEADLINE, NOT N. The re-check runs on the launch
+    /// path before the store opens, so a wait per archive, one after another,
+    /// held the launch for as many deadlines as there were broken archives on a
+    /// share that had gone quiet (L110, L704). What finished before the deadline is
+    /// kept; what did not comes round at a later launch.
+    @Test("archives that never answer cost the launch one deadline between them")
+    func stuckArchivesCostOneDeadline() async {
+        let stuck = Stuck()
+        let waits = DeadlineAfterFirstAnswer(stuck)
+        let size = BackupSize(files: 4_000, bytes: 1_000_000_000)
+
+        let checked = await LaunchBackupOutcome.recheck(
+            ["a", "s1", "s2", "s3"], now: Self.dayStartingAtTheFirst(of: 4),
+            measuring: { size }, sleeping: waits.sleep) { name in
+                if name == "a" {
+                    defer { stuck.answered() }
+                    return .verified(name)
+                }
+                stuck.block()
+                return .verified(name)
+            }
+        stuck.release()
+
+        #expect(checked == [.verified("a")])
+        #expect(waits.deadlines == [LaunchBackupOutcome.deadline(for: size)])
+    }
+
+    /// WHERE THE NAMES START MOVES WITH THE DAY, like the rotation, so one archive
+    /// that never answers cannot stand in front of the others on every launch.
+    @Test("the first archive asked moves with the day")
+    func theFirstAskedMovesWithTheDay() async {
+        let asked = Asked()
+        let first = Self.dayStartingAtTheFirst(of: 2)
+        for day in 0..<2 {
+            _ = await LaunchBackupOutcome.recheck(
+                ["a", "b"], now: first.addingTimeInterval(Double(day) * 86_400),
+                measuring: { BackupSize(files: 1, bytes: 1) }) { name in
+                    asked.note(name)
+                    return .verified(name)
+                }
+        }
+
+        #expect(asked.names == ["a", "b", "b", "a"])
+    }
+
+    /// A day whose number is a multiple of `count`, so the names are asked in the
+    /// order given.
+    private static func dayStartingAtTheFirst(of count: Int) -> Date {
+        var instant = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        while BusinessCalendar.dayNumber(for: instant) % count != 0 {
+            instant = instant.addingTimeInterval(86_400)
+        }
+        return instant
+    }
+
+    private final class Asked: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recorded: [String] = []
+        var names: [String] { lock.withLock { recorded } }
+        func note(_ name: String) { lock.withLock { recorded.append(name) } }
+    }
+
+    /// Work that never answers until the test lets it go, and a record of whether
+    /// the one that does answer has.
+    private final class Stuck: @unchecked Sendable {
+        private let gate = DispatchSemaphore(value: 0)
+        private let lock = NSLock()
+        private var done = false
+        var hasAnswered: Bool { lock.withLock { done } }
+        func answered() { lock.withLock { done = true } }
+        func block() { gate.wait(); gate.signal() }
+        func release() { gate.signal() }
+    }
+
+    /// The measurement's wait never ends (it always answers first). Every other
+    /// wait is recorded and ends as soon as the answering archive has answered,
+    /// which is the deadline passing with the rest still stuck: no real time is
+    /// paid, and nothing depends on how busy the machine is (L290).
+    private final class DeadlineAfterFirstAnswer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recorded: [Duration] = []
+        private let stuck: Stuck
+        init(_ stuck: Stuck) { self.stuck = stuck }
+        var deadlines: [Duration] { lock.withLock { recorded } }
+
+        var sleep: @Sendable (Duration) async throws -> Void {
+            { [self] duration in
+                if duration == LaunchBackupOutcome.deadlineFloor {
+                    try await Task.sleep(for: .seconds(3_600))
+                    return
+                }
+                lock.withLock { recorded.append(duration) }
+                var polls = 0
+                while !stuck.hasAnswered, polls < 2_000 {
+                    polls += 1
+                    try await Task.sleep(for: .milliseconds(5))
+                }
+            }
+        }
     }
 
     /// One that throws says nothing, as the rotation's does, and the rest are
@@ -188,7 +288,8 @@ struct LaunchBackupOutcomeTests {
     func aFailingNamedRecheckSaysNothing() async {
         struct Refused: Error {}
         let checked = await LaunchBackupOutcome.recheck(
-            ["a", "b"], measuring: { BackupSize(files: 1, bytes: 1) }) { name in
+            ["a", "b"], now: Self.dayStartingAtTheFirst(of: 2),
+            measuring: { BackupSize(files: 1, bytes: 1) }) { name in
                 if name == "a" { throw Refused() }
                 return .verified(name)
             }
@@ -201,7 +302,8 @@ struct LaunchBackupOutcomeTests {
         let waits = RecordedWaits()
 
         let checked = await LaunchBackupOutcome.recheck(
-            [], measuring: { BackupSize(files: 1, bytes: 1) }, sleeping: waits.sleep) {
+            [], now: Date(), measuring: { BackupSize(files: 1, bytes: 1) },
+            sleeping: waits.sleep) {
                 .verified($0)
             }
 

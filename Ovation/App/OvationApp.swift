@@ -291,9 +291,9 @@ struct OvationApp: App {
                 },
                 // ovation#613. Each archive an open problem is about, checked again
                 // by name, off the main actor and sized like the re-check above.
-                recheckArchives: { _, names in
+                recheckArchives: { now, names in
                     await LaunchBackupOutcome.recheck(
-                        names,
+                        names, now: now,
                         measuring: {
                             try OvationApp.archiveService(storeURL)?.sizeOfWhatIsBackedUp()
                                 ?? BackupSize(files: 0, bytes: 0)
