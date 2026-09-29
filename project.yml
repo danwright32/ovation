@@ -48,6 +48,12 @@ packages:
   # and refuses one nothing has judged (ovation#423). 0.3.0 since ovation#42: the
   # first real send needs an attachment (backstage#51) and the size check that
   # runs before a token is fetched (backstage#59), neither of which 0.1.0 had.
+  # 0.5.0 since ovation#577: the grant stored is the one Google REPORTED
+  # (backstage#68), and a client file that is there but unusable is refused by
+  # name rather than read as missing (backstage#67, backstage#70). Neither
+  # changes the token file, so an installed login carries over; the Ovation side
+  # of both is asserted in OvationTests/OvationGmailTests.swift. Noticing the
+  # NEXT release is .github/workflows/backstage-release.yml (ovation#576).
   #
   # IT IS 0.x DELIBERATELY: backstage#12 and backstage#15 are open questions about
   # the package's public surface, so a 1.0 would freeze an API that is mid
@@ -65,7 +71,7 @@ packages:
   # an error about a missing module (L11).
   BackstageGoogle:
     url: https://github.com/danwright32/backstage
-    exactVersion: "0.3.0"
+    exactVersion: "0.5.0"
 options:
   bundleIdPrefix: com.danwright
   deploymentTarget:

@@ -536,8 +536,8 @@ check "and commented nothing" "$(calls 'issue comment')" "0"
 ROLE_LINE="$(grep '^report-finding.sh	' scripts/lib/script-roles.tsv)"
 CALLERS="$(grep -l -E '^[^#]*report-finding\.sh' .github/workflows/*.yml scripts/*.sh \
     | grep -v -E '(^|/)test-|scripts/report-finding\.sh$')"
-check "the caller derivation finds the four callers known today" \
-    "$(printf '%s\n' "$CALLERS" | grep -c .)" "4"
+check "the caller derivation finds the five callers known today" \
+    "$(printf '%s\n' "$CALLERS" | grep -c .)" "5"
 UNNAMED=""
 for caller in $CALLERS; do
     grep -qF -- "$caller" <<< "$ROLE_LINE" || UNNAMED="$UNNAMED $caller"

@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 128
+harness_begin "output privacy tests" 134
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -1137,6 +1137,48 @@ check "and it prints no identity from the workflow it read" \
     "$(leaks_in "$RX_WF_OUT")" "clean"
 check "and it really did refuse over the two runners, so the case reached that list" \
     "$(printf '%s' "$RX_WF_OUT" | grep -c 'REFUSED')" "1"
+
+# ---------------------------------------------------------------------------
+# THE BACKSTAGE RELEASE WATCH (ovation#576). It reads project.yml, which carries
+# comments about real work, and a tag listing from another repository it does not
+# control, and it runs only in a workflow, so its log is published. Each of the
+# three lines it can print back is driven, and each case asserts its branch was
+# REACHED (L159).
+# ---------------------------------------------------------------------------
+BR_SPEC_BAD="$WORK/backstage-spec-bad.yml"
+printf 'packages:\n  BackstageGoogle:\n    # for %s at %s\n    exactVersion: "%s at %s"\n' \
+    "$CLIENT" "$VENUE" "$CLIENT" "$VENUE" > "$BR_SPEC_BAD"
+BR_SPEC="$WORK/backstage-spec.yml"
+printf 'packages:\n  BackstageGoogle:\n    # for %s at %s\n    exactVersion: "0.3.0"\n' \
+    "$CLIENT" "$VENUE" > "$BR_SPEC"
+BR_SPEC_GONE="$WORK/backstage-spec-gone.yml"
+printf 'packages:\n  BackstageGoogle:\n    exactVersion: "0.4.1"\n' > "$BR_SPEC_GONE"
+BR_TAGS="$WORK/backstage-tags"
+# A TAG NAME CANNOT HOLD A SPACE, so the identity it carries is the domain, which
+# is a needle on its own and has none.
+printf '#!/bin/bash\nprintf "aaaa\\trefs/tags/0.3.0\\nbbbb\\trefs/tags/0.5.0\\ncccc\\trefs/tags/%s\\n"\n' \
+    "$DOMAIN" > "$BR_TAGS"
+chmod +x "$BR_TAGS"
+
+BR_PIN_OUT="$(OVATION_PROJECT_SPEC="$BR_SPEC_BAD" OVATION_BACKSTAGE_TAGS_COMMAND="$BR_TAGS" \
+    ./scripts/check-backstage-release.sh 2>&1)"
+check "the backstage release watch prints no identity from a pin somebody edited" \
+    "$(leaks_in "$BR_PIN_OUT")" "clean"
+check "and it really did refuse that pin, so the case reached the line about one" \
+    "$(printf '%s' "$BR_PIN_OUT" | grep -c 'CANNOT MEASURE')" "1"
+
+BR_NEW_OUT="$(OVATION_PROJECT_SPEC="$BR_SPEC" OVATION_BACKSTAGE_TAGS_COMMAND="$BR_TAGS" \
+    ./scripts/check-backstage-release.sh 2>&1)"
+check "and it prints no identity from the tags it listed" "$(leaks_in "$BR_NEW_OUT")" "clean"
+check "and it really did find a newer release, so the case reached the lines that list them" \
+    "$(printf '%s' "$BR_NEW_OUT" | grep -c 'releases/tag/0.5.0')" "1"
+
+BR_GONE_OUT="$(OVATION_PROJECT_SPEC="$BR_SPEC_GONE" OVATION_BACKSTAGE_TAGS_COMMAND="$BR_TAGS" \
+    ./scripts/check-backstage-release.sh 2>&1)"
+check "and none from the release list it prints when the pin names no tag" \
+    "$(leaks_in "$BR_GONE_OUT")" "clean"
+check "and it really did refuse the missing pin, so the case reached that list" \
+    "$(printf '%s' "$BR_GONE_OUT" | grep -c 'REFUSED')" "1"
 
 # ---------------------------------------------------------------------------
 # THE XCODE PROJECT CURRENCY CHECK (ovation#206). It prints file paths and

@@ -239,3 +239,172 @@ final class FakeConnection: GmailSignIn {
     func validAccessToken() async throws -> String { "token" }
     func signalAuthExpired() throws {}
 }
+
+/// ovation#577. What backstage 0.5.0 changed that Ovation's own send path meets.
+///
+/// 0.4.0 made the stored grant the one Google REPORTED rather than the one asked
+/// for (backstage#68), and 0.5.0 told a client file that is there but unusable
+/// apart from one that is absent (backstage#70). Both arrive in Ovation through
+/// `validAccessToken`, which is what every send calls, so these drive that call
+/// with Ovation's own scopes against a throwaway credentials folder and a fake
+/// network, and assert the sentence Dan would read (L263).
+///
+/// AND THE INSTALLED APP'S OWN SHAPE, which is the case that decides whether the
+/// move is safe to ship: a token as 0.3.0 saved it must still hand out its access
+/// token with no new sign in and no network. The token file format did not change
+/// between the two versions, and this is what proves that rather than a reading
+/// of the diff (L1013).
+@MainActor
+struct BackstageGrantTests {
+
+    @Test("a client file that is there but a placeholder is refused as unusable, naming the field")
+    func aplaceholderClientIsUnusable() async throws {
+        try await Self.inFolder(client: #"{"clientId":"PASTE_CLIENT_ID_HERE","clientSecret":"x"}"#) { folder in
+            let manager = try #require(try OvationGmail.authManager(credentialsDirectory: folder))
+
+            await #expect {
+                _ = try await manager.validAccessToken()
+            } throws: { error in
+                guard case GmailAuthManager.AuthError.clientConfigUnusable = error else { return false }
+                return error.localizedDescription.contains("clientId")
+            }
+        }
+    }
+
+    @Test("a missing client file is still the missing configuration, not an unusable one")
+    func amissingClientIsStillMissing() async throws {
+        // The positive control for the case above: a refusal that fired on every
+        // file would pass it while telling Dan to go and find a file he has (L159).
+        try await Self.inFolder(client: nil) { folder in
+            let manager = try #require(try OvationGmail.authManager(credentialsDirectory: folder))
+
+            await #expect(throws: GmailAuthManager.AuthError.noClientConfig) {
+                _ = try await manager.validAccessToken()
+            }
+        }
+    }
+
+    @Test("a refresh that Google answers with less than gmail.send is refused naming gmail.send")
+    func anarrowedRefreshIsRefused() async throws {
+        try await Self.inFolder(client: Self.usableClient()) { folder in
+            try Self.saveToken(in: folder, accessToken: nil, granted: OvationGmail.approvedScopes)
+            let manager = try Self.manager(in: folder, reply: #"{"access_token":"new","expires_in":3599,"scope":"https://www.googleapis.com/auth/gmail.readonly","token_type":"Bearer"}"#)
+
+            await #expect(throws: GmailAuthManager.AuthError.scopesNotGranted(OvationGmail.approvedScopes)) {
+                _ = try await manager.validAccessToken()
+            }
+        }
+    }
+
+    @Test("a refresh whose reply names no scope is refused rather than read as the request")
+    func anunreportedGrantIsRefused() async throws {
+        try await Self.inFolder(client: Self.usableClient()) { folder in
+            try Self.saveToken(in: folder, accessToken: nil, granted: OvationGmail.approvedScopes)
+            let manager = try Self.manager(in: folder, reply: #"{"access_token":"new","expires_in":3599,"token_type":"Bearer"}"#)
+
+            await #expect(throws: GmailAuthManager.AuthError.grantUnreported) {
+                _ = try await manager.validAccessToken()
+            }
+        }
+    }
+
+    @Test("a refresh granting gmail.send hands out the new token")
+    func acoveringRefreshSucceeds() async throws {
+        // The positive control for both refusals above (L159).
+        try await Self.inFolder(client: Self.usableClient()) { folder in
+            try Self.saveToken(in: folder, accessToken: nil, granted: OvationGmail.approvedScopes)
+            let manager = try Self.manager(in: folder, reply: #"{"access_token":"new","expires_in":3599,"scope":"https://www.googleapis.com/auth/gmail.send","token_type":"Bearer"}"#)
+
+            #expect(try await manager.validAccessToken() == "new")
+        }
+    }
+
+    @Test("a token as the installed app saved it still sends, with no sign in and no network")
+    func theinstalledShapeStillWorks() async throws {
+        try await Self.inFolder(client: Self.usableClient()) { folder in
+            try Self.saveToken(in: folder, accessToken: "saved", granted: OvationGmail.approvedScopes)
+            let manager = try Self.manager(in: folder, reply: nil)
+
+            #expect(try await manager.validAccessToken() == "saved")
+            #expect(manager.isConnected)
+        }
+    }
+
+    @Test("the credentials folder a case used is gone once it returns")
+    func thefolderIsRemovedAfterACase() async throws {
+        var used: URL?
+        try await Self.inFolder(client: Self.usableClient()) { folder in
+            try Self.saveToken(in: folder, accessToken: "saved", granted: OvationGmail.approvedScopes)
+            used = folder
+            #expect(FileManager.default.fileExists(atPath: GmailCredentials.tokenURL(in: folder).path))
+        }
+        let folder = try #require(used)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    @Test("and gone when the case throws, which is the exit a failing case takes")
+    func thefolderIsRemovedAfterAThrow() async throws {
+        enum Stop: Error { case stop }
+        var used: URL?
+        await #expect(throws: Stop.stop) {
+            try await Self.inFolder(client: Self.usableClient()) { folder in
+                used = folder
+                throw Stop.stop
+            }
+        }
+        let folder = try #require(used)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    // A CLIENT IN THE SHAPE GOOGLE ISSUES, since 0.4.0 refuses anything else
+    // (backstage#67): an id with Google's suffix and a secret of its prefix and
+    // length. Invented, and ASSEMBLED FROM PIECES as backstage's own fixture is,
+    // because a literal of the real shape is what a secret scanner exists to
+    // refuse and it cannot tell a made up value from a leaked one.
+    private static func usableClient() throws -> String {
+        let client = GmailClient(clientId: "123456789012-" + "fixture" + ".apps.googleusercontent.com",
+                                 clientSecret: "GOCSPX" + "-" + String(repeating: "f", count: 28))
+        return String(decoding: try JSONEncoder().encode(client), as: UTF8.self)
+    }
+
+    private enum NetworkTouched: Error { case touched }
+
+    /// A folder of its own under the system temporary directory, which is the
+    /// throwaway root backstage lets a test run write credentials into
+    /// (backstage#44), handed to `body` and REMOVED on every way out of it,
+    /// returning or throwing. Each case writes a client file and a token here, and
+    /// a folder left behind per case per run is credential shaped files piling up
+    /// in the temporary directory for ever.
+    static func inFolder(client: String?,
+                         _ body: @MainActor (URL) async throws -> Void) async throws {
+        let folder = URL.temporaryDirectory
+            .appending(path: "ovation-grant-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        if let client {
+            try Data(client.utf8).write(to: GmailCredentials.clientConfigURL(in: folder))
+        }
+        try await body(folder)
+    }
+
+    private static func saveToken(in folder: URL, accessToken: String?, granted: [String]) throws {
+        let now = Date()
+        let tokens = StoredTokens(refreshToken: "refresh", accessToken: accessToken,
+                                  accessTokenExpiry: accessToken == nil ? nil : now.addingTimeInterval(3600),
+                                  grantedScopes: granted, obtainedAt: now, lastConfirmedAt: now)
+        #expect(try GmailCredentials.saveTokens(tokens, to: GmailCredentials.tokenURL(in: folder)))
+    }
+
+    /// Ovation's own scopes over a fake network that answers `reply`, or fails the
+    /// case by throwing when `reply` is nil and the network is reached at all.
+    private static func manager(in folder: URL, reply: String?) throws -> GmailAuthManager {
+        try GmailAuthManager(credentialsDirectory: folder, scopes: OvationGmail.approvedScopes,
+                             productName: "Ovation",
+                             fetch: { request in
+                                 guard let reply else { throw NetworkTouched.touched }
+                                 let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                                                httpVersion: nil, headerFields: nil)!
+                                 return (Data(reply.utf8), response)
+                             })
+    }
+}
