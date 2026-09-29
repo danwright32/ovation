@@ -1,0 +1,78 @@
+{
+  "createdAt": 812163600.0,
+  "dayKey": "2026-09-26",
+  "files": [
+    {
+      "byteCount": 23,
+      "path": "Ovation.store",
+      "sha256": "772ad101bf3c02892161adba26b162caab646513199f291d6002e4a2cbccf984"
+    },
+    {
+      "byteCount": 31,
+      "path": "Ovation.store.version",
+      "sha256": "6d7ca046e4386436bdf6c37fc1a081e543b2f7fc5bf83f664aa79ed8af5a6535"
+    },
+    {
+      "byteCount": 26,
+      "path": "custody/note.txt",
+      "sha256": "3e9b71ca8c743e34e452d7cd173ad3f244bdb708767db1144cf518a863e119d3"
+    }
+  ],
+  "members": [
+    {
+      "path": "problems.jsonl",
+      "status": "legitimatelyAbsent"
+    },
+    {
+      "path": "documents",
+      "status": "copied"
+    },
+    {
+      "path": "custody",
+      "status": "copied"
+    },
+    {
+      "path": "Ovation.store",
+      "status": "copied"
+    },
+    {
+      "path": "Ovation.store.version",
+      "status": "copied"
+    },
+    {
+      "path": "export-runs.jsonl",
+      "status": "legitimatelyAbsent"
+    },
+    {
+      "path": "launch-backups.jsonl",
+      "status": "legitimatelyAbsent"
+    },
+    {
+      "path": "Ovation.store-wal",
+      "status": "legitimatelyAbsent"
+    },
+    {
+      "path": "Ovation.store-shm",
+      "status": "legitimatelyAbsent"
+    },
+    {
+      "issue": "ovation#31",
+      "path": "consumed-bookings.jsonl",
+      "status": "notYetBuilt"
+    },
+    {
+      "issue": "ovation#79",
+      "path": "consumed-messages.jsonl",
+      "status": "notYetBuilt"
+    },
+    {
+      "path": "booking-queue",
+      "status": "legitimatelyAbsent"
+    },
+    {
+      "path": "downbeat-queued-bookings.json",
+      "status": "legitimatelyAbsent"
+    }
+  ],
+  "planVersion": 7
+}

@@ -371,12 +371,27 @@ struct StoreLaunchSequence {
             // Ovation. A re-check that examined nothing, or could not read one,
             // says nothing: neither is a finding Dan can act on, and the archives
             // it did not reach come round on later launches.
-            if case .failed(let name, let failures) = await reverifyAnArchive(now) {
+            //
+            // AND ONE THAT VERIFIES NOW CLEARS WHAT AN EARLIER CHECK RAISED about it
+            // (ovation#610). The condition was measured again and is gone, and a
+            // notice the app has itself disproved, left for Dan to dismiss, teaches
+            // him to dismiss everything (L152).
+            switch await reverifyAnArchive(now) {
+            case .failed(let name, let failures, let writtenAt):
                 _ = problems.raise(
                     kind: .archiveNoLongerVerifies, subject: name,
-                    sentence: "The backup \(name) verified when it was written and "
-                        + "does not now: \(failures.count) problem(s) with what is in it. "
-                        + "Today's backup is unaffected.", now: now)
+                    sentence: Self.archiveNoLongerVerifiesSentence(
+                        name: name, failures: failures, writtenAt: writtenAt),
+                    now: now)
+            case .verified(let name):
+                for standing in problems.open
+                where standing.kind == .archiveNoLongerVerifies && standing.subject == name {
+                    _ = problems.resolve(standing.id,
+                                         because: "the backup was checked again and verifies",
+                                         now: now)
+                }
+            case .nothingToCheck, .couldNotRead:
+                break
             }
         }
 
@@ -488,6 +503,81 @@ struct StoreLaunchSequence {
 
         onOpened(container)
         return .opened
+    }
+
+    /// What Dan reads when an older archive no longer verifies (ovation#610).
+    ///
+    /// IT SAYS WHICH DAY'S BACKUP, WHICH FILES, AND WHETHER ANYTHING IN THE
+    /// BACKUP CHANGED. It said "1 problem(s) with what is in it", which sent Dan
+    /// to the folder when the cause was a rule that had changed in Ovation and
+    /// every file was exactly as written. The two need opposite actions, so the
+    /// sentence tells them apart (L11). Wording approved by Dan on 2026-09-28.
+    ///
+    /// THE DAY IS THE MANIFEST'S, never the folder name's, which a sync or a
+    /// rename can change; the name stands in only when the date could not be
+    /// read. "Nothing in that backup has changed" is said only when every reason
+    /// is a file Ovation expected or requires since, and no recorded file failed
+    /// its hash, so it never sits beside a reason that contradicts it (L11).
+    /// Three are named and the rest counted, so one damaged archive cannot fill
+    /// the panel.
+    static func archiveNoLongerVerifiesSentence(name: String,
+                                                failures: [BackupReport.Failure],
+                                                writtenAt: Date?) -> String {
+        let which = writtenAt.map { "from \(dayAndMonth($0))" } ?? name
+        let changed = failures.filter { $0.verdict.meansARecordedFileChanged }
+        let expected = failures.filter { $0.verdict == .memberMissing }.map(\.path)
+        let others = failures.filter {
+            !$0.verdict.meansARecordedFileChanged && $0.verdict != .memberMissing
+        }
+
+        var sentences: [String] = []
+        if !changed.isEmpty {
+            sentences.append("The backup \(which) has changed since it was made: "
+                + plainList(changed.map { $0.verdict.reason(for: $0.path) }) + ".")
+        }
+        var reasons: [String] = []
+        if !expected.isEmpty {
+            reasons.append(expected.count == 1
+                ? "Ovation expected a file (\(expected[0])) that it never had"
+                : "Ovation expected files (\(plainList(expected))) that it never had")
+        }
+        reasons += others.map { $0.verdict.reason(for: $0.path) }
+        if !reasons.isEmpty {
+            let opening = changed.isEmpty ? "The backup \(which) failed" : "It also failed"
+            sentences.append("\(opening) its check because \(plainList(reasons)).")
+            // ONLY WHEN EVERY REASON LEAVES THE BACKUP AS IT WAS MADE (L11, L440):
+            // a file Ovation expected, or one required since, is about the rule.
+            // A document whose copy differs, or a copy of a secret, is about the
+            // backup itself, and "nothing has changed" beside it contradicts it.
+            let untouched = failures.allSatisfy {
+                $0.verdict == .memberMissing || $0.verdict == .requiredAfterItWasWritten
+            }
+            if untouched { sentences.append("Nothing in that backup has changed.") }
+        }
+        sentences.append("Today's backup is fine.")
+        return sentences.joined(separator: " ")
+    }
+
+    /// "a", "a and b", "a, b and c", then "a, b, c and 2 more".
+    private static func plainList(_ items: [String]) -> String {
+        let named = Array(items.prefix(3))
+        if items.count > named.count {
+            return named.joined(separator: ", ") + " and \(items.count - named.count) more"
+        }
+        guard let last = named.last else { return "" }
+        let rest = named.dropLast()
+        return rest.isEmpty ? last : rest.joined(separator: ", ") + " and " + last
+    }
+
+    /// "17 Sep", on the business calendar, so a trip cannot move a backup to a
+    /// neighbouring day.
+    private static func dayAndMonth(_ instant: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = BusinessCalendar.timeZone
+        formatter.dateFormat = "d MMM"
+        return formatter.string(from: instant)
     }
 
     /// The kinds a launch that OPENS the store has disproved (ovation#503): each

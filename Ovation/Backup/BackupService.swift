@@ -52,6 +52,11 @@ struct BackupManifest: Codable, Equatable, Sendable {
     let dayKey: String
     let members: [MemberRecord]
     let files: [FileRecord]
+    /// The version of `BackupPlan` this archive was written under (ovation#610),
+    /// so it is judged by that plan and not by whatever the plan has become.
+    /// Absent from every manifest written before it: those are judged by the
+    /// plan `BackupPlan.revision(thatWrote:)` finds for them.
+    var planVersion: Int?
 }
 
 /// Why one file in an archive is not what it should be. Distinct causes, distinct
@@ -63,8 +68,19 @@ enum BackupFileVerdict: String, Equatable, Sendable {
     /// A file in the archive has the same contents as a secret that must never
     /// leave the machine.
     case secretPresent
-    /// A member the plan requires was never recorded as copied.
+    /// A member the plan this archive was written under declares is not
+    /// recorded in its manifest, or is recorded in a word that plan does not
+    /// allow.
     case memberMissing
+    /// A member TODAY's plan requires, which the plan this archive was written
+    /// under did not, and which the archive does not hold (ovation#610).
+    ///
+    /// ITS OWN VERDICT, NEVER A PASS AND NEVER `memberMissing`. Nothing in the
+    /// archive has changed, so calling it missing sends Dan to the folder for
+    /// damage that is not there (L11). But restoring it would put back data
+    /// without something a backup must now hold, a database or the marker that
+    /// dates one, so it cannot verify either.
+    case requiredAfterItWasWritten
     /// The STORE points at a document and the archive has not got it. This is
     /// the one the whole enumeration exists for: every file the archive recorded
     /// can be present and correct while a receipt the store references was never
@@ -77,6 +93,47 @@ enum BackupFileVerdict: String, Equatable, Sendable {
     /// must not be reported as one: the remedies are opposite, since this is
     /// something spare and that is something gone (L11).
     case orphanedDocument
+}
+
+extension BackupFileVerdict {
+    /// What is wrong with one file, as a clause that names it (ovation#610): the
+    /// list after "has changed since it was made:" for the three verdicts that
+    /// mean a recorded file changed, and after "failed its check because" for
+    /// the rest. An exhaustive switch, so a verdict added later
+    /// cannot fall back on a sentence written for another (L113).
+    func reason(for path: String) -> String {
+        switch self {
+        case .absent: return "\(path) is missing"
+        case .unreadable: return "\(path) cannot be read"
+        case .mismatch: return "\(path) is different"
+        case .secretPresent:
+            return "\(path) is a copy of a secret that must never leave this Mac"
+        case .memberMissing:
+            return "Ovation expected a file (\(path)) that it never had"
+        case .requiredAfterItWasWritten:
+            return "it does not hold \(path), which backups have had to hold only since it was made"
+        case .referencedDocumentAbsent:
+            return "it does not hold \(path), a document Ovation refers to"
+        case .referencedDocumentMismatch:
+            return "its copy of \(path), a document Ovation refers to, is different"
+        case .orphanedDocument:
+            return "it holds \(path), a document nothing in Ovation refers to"
+        }
+    }
+
+    /// Whether this says a file the archive recorded is no longer as it was
+    /// written. Exactly the verdicts of the check that compares each recorded
+    /// file with its hash, so a sentence built on it claims only what that
+    /// check measured (L11).
+    var meansARecordedFileChanged: Bool {
+        switch self {
+        case .absent, .unreadable, .mismatch:
+            return true
+        case .secretPresent, .memberMissing, .requiredAfterItWasWritten,
+             .referencedDocumentAbsent, .referencedDocumentMismatch, .orphanedDocument:
+            return false
+        }
+    }
 }
 
 struct BackupReport: Equatable, Sendable {
@@ -195,7 +252,11 @@ final class BackupService {
         /// nothing must not read like one that found nothing wrong (L98).
         case nothingToCheck
         case verified(String)
-        case failed(String, [BackupReport.Failure])
+        /// The archive's name, what is wrong with it, and when it was taken as
+        /// its own manifest records it (ovation#610), so a sentence can say which
+        /// day's backup this is. Nil when the manifest's date could not be read,
+        /// and then the name is all a sentence has.
+        case failed(String, [BackupReport.Failure], writtenAt: Date? = nil)
         case couldNotRead(String)
     }
 
@@ -238,7 +299,10 @@ final class BackupService {
             return .couldNotRead("\(archive.lastPathComponent): \(error)")
         }
         guard report.isVerified else {
-            return .failed(archive.lastPathComponent, report.failures)
+            // THE DAY IT WAS TAKEN, from its own manifest (ovation#610), so the
+            // sentence names the day rather than a folder name a sync can change.
+            return .failed(archive.lastPathComponent, report.failures,
+                           writtenAt: try? readManifest(at: archive).createdAt)
         }
         return .verified(archive.lastPathComponent)
     }
@@ -561,7 +625,8 @@ final class BackupService {
         let manifest = BackupManifest(createdAt: now,
                                       dayKey: BusinessCalendar.dayKey(for: now),
                                       members: members,
-                                      files: files)
+                                      files: files,
+                                      planVersion: BackupPlan.version)
         try write(manifest, to: staging)
 
         try willVerify?(staging)
@@ -636,23 +701,34 @@ final class BackupService {
         // expectation allows. Checking only the required ones left every other
         // member unverified, which is how the database went unchecked for as
         // long as it was mislabelled as not yet built.
-        for member in BackupPlan.members {
-            let recorded = manifest.members.first { $0.path == member.path }
-            let allowed: Set<BackupManifest.MemberStatus>
-            switch member.expectation {
-            case .required:
-                allowed = [.copied]
-            case .presentSometimes:
-                // Either is correct, but it must say WHICH. A member missing
-                // from the manifest altogether is not the same as one recorded
-                // as absent, and only the second is evidence anybody looked.
-                allowed = [.copied, .legitimatelyAbsent]
-            case .notYetBuilt:
-                allowed = [.copied, .notYetBuilt]
-            }
-            guard let status = recorded?.status, allowed.contains(status) else {
+        //
+        // THE PLAN THIS ARCHIVE WAS WRITTEN UNDER, not today's (ovation#610).
+        // Holding every archive to today's plan meant adding one optional member
+        // failed every archive written before it, and the restore refused them
+        // all, although nothing in any of them had changed. A backup `takeBackup`
+        // has just written names today's version, so its own check is exactly as
+        // strict as it was.
+        let plan = BackupPlan.revision(thatWrote: manifest)
+        for member in plan.members {
+            let status = manifest.members.first { $0.path == member.path }?.status
+            guard let status, member.allowedStatuses.contains(status) else {
                 failures.append(.init(path: member.path, verdict: .memberMissing))
                 continue
+            }
+        }
+
+        // AND WHAT A BACKUP MUST HOLD TODAY that its plan did not ask for. A
+        // member added or promoted to required since is not excused by the
+        // archive's age: an archive without the database, or without the marker
+        // that dates it, would restore data missing it. It is not damage either,
+        // so it has its own verdict. An OPTIONAL member added since needs
+        // nothing: the archive's own plan did not have it, and a restore leaves
+        // the live copy alone because the archive holds none.
+        for member in BackupPlan.members
+        where member.expectation == .required && !plan.requires(member.path) {
+            let held = manifest.members.contains { $0.path == member.path && $0.status == .copied }
+            if !held {
+                failures.append(.init(path: member.path, verdict: .requiredAfterItWasWritten))
             }
         }
 
