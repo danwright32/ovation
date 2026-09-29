@@ -230,12 +230,18 @@ final class BackupService {
     /// indistinguishable from a store that references none, so a caller who
     /// forgot it would get a verification that silently checks nothing and
     /// reports clean, which is this check's own failure mode (L168, L98).
-    private let referencedDocuments: @Sendable () throws -> [ReferencedDocument]
+    ///
+    /// HANDED THE STORE INSIDE THE ARCHIVE, never the live one (ovation#612). An
+    /// archive is judged by what ITS store pointed at: judged against the live
+    /// store, the first receipt attached after an archive was written made that
+    /// archive fail, and refuse to restore, though nothing in it had changed
+    /// (L1013). The app passes `StoreDocumentReferences.readCopy(ofStoreAt:)`.
+    private let referencedDocuments: @Sendable (URL) throws -> [ReferencedDocument]
 
     private let fileManager: FileManager
 
     init(dataDirectory: URL, backupsDirectory: URL, dailyKeep: Int,
-         referencedDocuments: @escaping @Sendable () throws -> [ReferencedDocument],
+         referencedDocuments: @escaping @Sendable (URL) throws -> [ReferencedDocument],
          fileManager: FileManager = .default) {
         self.dataDirectory = dataDirectory
         self.backupsDirectory = backupsDirectory
@@ -258,6 +264,21 @@ final class BackupService {
         /// and then the name is all a sentence has.
         case failed(String, [BackupReport.Failure], writtenAt: Date? = nil)
         case couldNotRead(String)
+        /// The archive by that name is no longer in the backups folder, and the
+        /// folder itself could be listed (ovation#613). Retention deleted it, or
+        /// Dan did. NOT `couldNotRead`: a folder that could not be listed says
+        /// nothing about whether the archive is there (L119, L211).
+        case gone(String)
+
+        /// The archive this answer is about, when it is about one.
+        var archiveName: String? {
+            switch self {
+            case .verified(let name), .failed(let name, _, _), .gone(let name):
+                return name
+            case .nothingToCheck, .couldNotRead:
+                return nil
+            }
+        }
     }
 
     /// Check ONE older archive, chosen by the day so every one comes round.
@@ -292,6 +313,64 @@ final class BackupService {
         let index = ((day % existing.count) + existing.count) % existing.count
         let archive = existing[index]
 
+        return reverification(of: archive)
+    }
+
+    /// Check ONE archive again BY NAME, the one an open problem is about
+    /// (ovation#613).
+    ///
+    /// The rotation reaches a given archive once in as many launches as there
+    /// are archives, so a problem a later rule change had disproved stood that
+    /// long, and one about an archive retention has since deleted was never
+    /// reached at all and stood for ever (L200, L38). This is how the launch asks
+    /// directly.
+    ///
+    /// GONE ONLY ON EVIDENCE, because a problem resolved as gone is never raised
+    /// again. Three things must all hold (L119, L211):
+    ///
+    /// - the folder could be listed, since a share that is not mounted cannot be;
+    /// - the listing holds at least one OTHER archive, since a sync folder that has
+    ///   not filled yet lists nothing, and retention never deletes the newest, so a
+    ///   folder Ovation has backed up into is never empty of them;
+    /// - the archive, looked up DIRECTLY, is reported as no such file. A share or a
+    ///   sync folder can list short, and one listing that leaves a name out is not
+    ///   a deletion. A lookup that fails any other way answers nothing.
+    ///
+    /// A directory that is there without a manifest is not gone either: it cannot
+    /// be judged, and the problem about it stands.
+    func reverify(archiveNamed name: String) -> Reverification {
+        let names: [String]
+        do {
+            names = try fileManager.contentsOfDirectory(atPath: backupsDirectory.path)
+        } catch {
+            return .couldNotRead("\(backupsDirectory.path): \(error)")
+        }
+        let archive = url(ofArchiveNamed: name)
+        guard !names.contains(name) else { return reverification(of: archive) }
+
+        do {
+            _ = try fileManager.attributesOfItem(atPath: archive.path)
+            // The listing left it out and it is there: the listing was short.
+            return reverification(of: archive)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            // Absent, measured directly. Gone, if the folder is evidently the one
+            // the archives are in.
+        } catch let error as NSError
+            where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
+            // The same answer, from a file manager that reports it this way.
+        } catch {
+            return .couldNotRead("\(name): \(error)")
+        }
+        guard names.contains(where: { $0.hasPrefix(Self.archivePrefix) }) else {
+            return .couldNotRead(
+                "\(backupsDirectory.path) lists no backups at all, which says nothing "
+                    + "about whether \(name) was deleted")
+        }
+        return .gone(name)
+    }
+
+    /// One archive checked, said as the launch reads it.
+    private func reverification(of archive: URL) -> Reverification {
         let report: BackupReport
         do {
             report = try verify(archive: archive)
@@ -732,11 +811,57 @@ final class BackupService {
             }
         }
 
+        // Every file it recorded, checked for presence and for content. Measured
+        // BEFORE the references, because the store the references are read from
+        // is one of these files, and a copy of it that is no longer as written
+        // cannot be trusted to say what it pointed at (ovation#612). Reported
+        // after them, in the order this check has always given.
+        var recorded: [BackupReport.Failure] = []
+        for record in manifest.files {
+            let url = archive.appendingPathComponent(record.path)
+            guard fileManager.fileExists(atPath: url.path) else {
+                recorded.append(.init(path: record.path, verdict: .absent))
+                continue
+            }
+            guard let data = try? Data(contentsOf: url) else {
+                recorded.append(.init(path: record.path, verdict: .unreadable))
+                continue
+            }
+            if DocumentStore.hash(of: data) != record.sha256 {
+                recorded.append(.init(path: record.path, verdict: .mismatch))
+            }
+        }
+
         // WHAT THE STORE POINTS AT, read from the store (ovation#104). Every
-        // check below this line asks a question the loop that follows cannot:
-        // that loop walks what the archive RECORDED, so it is complete about
-        // the files that are there and silent about the ones that are not.
-        let references = try referencedDocuments()
+        // check below this line asks a question the loop above cannot: that
+        // loop walks what the archive RECORDED, so it is complete about the
+        // files that are there and silent about the ones that are not.
+        //
+        // THE ARCHIVE'S OWN STORE, never today's (ovation#612, L1013). What
+        // this archive must hold is what its store pointed at when it was
+        // written; a receipt attached since is in today's backup, not in this
+        // one, and restoring this one puts back a store that never mentions it.
+        //
+        // An archive whose store was never copied points at nothing, which is
+        // true of one written before the store existed (plan 1). One whose store
+        // was copied and has since changed or gone already fails above, and its
+        // references are not read, since what they would say is the damage.
+        let references: [ReferencedDocument]
+        let storeCopied = manifest.members.contains {
+            $0.path == Self.storePath && $0.status == .copied
+        }
+        let storeDamaged = recorded.contains { $0.path == Self.storePath }
+            || !manifest.files.contains { $0.path == Self.storePath }
+        if storeCopied && !storeDamaged {
+            references = try referencedDocuments(archive.appendingPathComponent(Self.storePath))
+        } else {
+            if storeCopied && !recorded.contains(where: { $0.path == Self.storePath }) {
+                // Recorded as copied with no hash to check it by, so nothing
+                // above can have said so. Said here, never read as no receipts.
+                failures.append(.init(path: Self.storePath, verdict: .absent))
+            }
+            references = []
+        }
         var referencedPaths: Set<String> = []
         for reference in references {
             let inArchive = "documents/" + reference.relativePath
@@ -765,21 +890,7 @@ final class BackupService {
             }
         }
 
-        // Every file it recorded, checked for presence and for content.
-        for record in manifest.files {
-            let url = archive.appendingPathComponent(record.path)
-            guard fileManager.fileExists(atPath: url.path) else {
-                failures.append(.init(path: record.path, verdict: .absent))
-                continue
-            }
-            guard let data = try? Data(contentsOf: url) else {
-                failures.append(.init(path: record.path, verdict: .unreadable))
-                continue
-            }
-            if DocumentStore.hash(of: data) != record.sha256 {
-                failures.append(.init(path: record.path, verdict: .mismatch))
-            }
-        }
+        failures += recorded
 
         // And nothing in the archive may BE a secret, whatever it is called.
         var secretsChecked = 0
@@ -801,6 +912,10 @@ final class BackupService {
                             secretsChecked: secretsChecked,
                             secretCheckWasPossible: !secrets.isEmpty)
     }
+
+    /// The store's path in the data folder and in every archive, the one the
+    /// references are read from.
+    static let storePath = "Ovation.store"
 
     // MARK: restoring
 

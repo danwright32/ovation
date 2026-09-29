@@ -74,6 +74,12 @@ struct StoreLaunchSequence {
     /// after the day it was written, while monthly keepers are kept indefinitely
     /// on a folder that may sync to a NAS (L336, L557).
     let reverifyAnArchive: @Sendable (Date) async -> BackupService.Reverification
+    /// ovation#613. Every archive an OPEN "Old backup broken" problem is about,
+    /// checked again by name, one answer each. The rotation above reaches a given
+    /// archive once in as many launches as there are archives, and never reaches
+    /// one retention has deleted, so without this a problem the next build had
+    /// disproved stood for weeks, and one about a deleted archive for ever.
+    let recheckArchives: @Sendable (Date, [String]) async -> [BackupService.Reverification]
     let openContainer: @Sendable (URL) throws -> ModelContainer
     let identify: @Sendable (URL) -> StoreSchemaGuard.Verdict
     /// ovation#107. Puts PRD 5.4's starting service types into a store that has
@@ -370,28 +376,26 @@ struct StoreLaunchSequence {
             // older one, and the action is about the folder rather than about
             // Ovation. A re-check that examined nothing, or could not read one,
             // says nothing: neither is a finding Dan can act on, and the archives
-            // it did not reach come round on later launches.
-            //
-            // AND ONE THAT VERIFIES NOW CLEARS WHAT AN EARLIER CHECK RAISED about it
-            // (ovation#610). The condition was measured again and is gone, and a
-            // notice the app has itself disproved, left for Dan to dismiss, teaches
-            // him to dismiss everything (L152).
-            switch await reverifyAnArchive(now) {
-            case .failed(let name, let failures, let writtenAt):
-                _ = problems.raise(
-                    kind: .archiveNoLongerVerifies, subject: name,
-                    sentence: Self.archiveNoLongerVerifiesSentence(
-                        name: name, failures: failures, writtenAt: writtenAt),
-                    now: now)
-            case .verified(let name):
-                for standing in problems.open
-                where standing.kind == .archiveNoLongerVerifies && standing.subject == name {
-                    _ = problems.resolve(standing.id,
-                                         because: "the backup was checked again and verifies",
-                                         now: now)
+            // it did not reach come round on later launches. What each answer
+            // means for the problems about it is `settle`'s.
+            let rotated = await reverifyAnArchive(now)
+            settle(rotated, now: now)
+
+            // AND EVERY ARCHIVE A PROBLEM IS STILL OPEN ABOUT, by name
+            // (ovation#613), after the rotation, so one it has just settled is not
+            // asked twice. Only while one is open: on the ordinary launch there is
+            // nothing to ask and nothing is paid. What it finds unchanged is left
+            // as it stands rather than raised again, because raising re-presents
+            // a problem Dan has already seen, on every launch, while nothing about
+            // it is new.
+            let stillOpen = problems.open
+                .filter { $0.kind == .archiveNoLongerVerifies }
+                .compactMap(\.subject)
+                .filter { $0 != rotated.archiveName }
+            if !stillOpen.isEmpty {
+                for found in await recheckArchives(now, stillOpen) {
+                    settle(found, now: now, raisingOnlyWhatIsNew: true)
                 }
-            case .nothingToCheck, .couldNotRead:
-                break
             }
         }
 
@@ -505,6 +509,49 @@ struct StoreLaunchSequence {
         return .opened
     }
 
+    /// What one re-check of an older archive means for the problems about it.
+    ///
+    /// ONE THAT VERIFIES NOW CLEARS WHAT AN EARLIER CHECK RAISED about it
+    /// (ovation#610). The condition was measured again and is gone, and a notice
+    /// the app has itself disproved, left for Dan to dismiss, teaches him to
+    /// dismiss everything (L152). ONE THAT IS GONE CLEARS IT TOO, saying so
+    /// (ovation#613): there is nothing left in the folder for it to be about
+    /// (L200). A re-check that examined nothing, or could not read the archive,
+    /// says nothing: neither is a finding, and the problem stands.
+    private func settle(_ found: BackupService.Reverification, now: Date,
+                        raisingOnlyWhatIsNew: Bool = false) {
+        switch found {
+        case .failed(let name, let failures, let writtenAt):
+            let sentence = Self.archiveNoLongerVerifiesSentence(
+                name: name, failures: failures, writtenAt: writtenAt)
+            let standing = problems.open.first {
+                $0.kind == .archiveNoLongerVerifies && $0.subject == name
+            }
+            if raisingOnlyWhatIsNew, standing?.sentence == sentence { return }
+            _ = problems.raise(kind: .archiveNoLongerVerifies, subject: name,
+                               sentence: sentence, now: now)
+        case .verified(let name):
+            resolveArchiveProblems(about: name,
+                                   because: "the backup was checked again and verifies",
+                                   now: now)
+        case .gone(let name):
+            resolveArchiveProblems(
+                about: name,
+                because: "the backup is no longer in the backups folder, so there is "
+                    + "nothing left to check",
+                now: now)
+        case .nothingToCheck, .couldNotRead:
+            break
+        }
+    }
+
+    private func resolveArchiveProblems(about name: String, because reason: String, now: Date) {
+        for standing in problems.open
+        where standing.kind == .archiveNoLongerVerifies && standing.subject == name {
+            _ = problems.resolve(standing.id, because: reason, now: now)
+        }
+    }
+
     /// What Dan reads when an older archive no longer verifies (ovation#610).
     ///
     /// IT SAYS WHICH DAY'S BACKUP, WHICH FILES, AND WHETHER ANYTHING IN THE
@@ -519,65 +566,15 @@ struct StoreLaunchSequence {
     /// is a file Ovation expected or requires since, and no recorded file failed
     /// its hash, so it never sits beside a reason that contradicts it (L11).
     /// Three are named and the rest counted, so one damaged archive cannot fill
-    /// the panel.
+    /// the panel. The parts are `BackupFailureSentences`, shared with the restore's
+    /// refusal (ovation#614).
     static func archiveNoLongerVerifiesSentence(name: String,
                                                 failures: [BackupReport.Failure],
                                                 writtenAt: Date?) -> String {
-        let which = writtenAt.map { "from \(dayAndMonth($0))" } ?? name
-        let changed = failures.filter { $0.verdict.meansARecordedFileChanged }
-        let expected = failures.filter { $0.verdict == .memberMissing }.map(\.path)
-        let others = failures.filter {
-            !$0.verdict.meansARecordedFileChanged && $0.verdict != .memberMissing
-        }
-
-        var sentences: [String] = []
-        if !changed.isEmpty {
-            sentences.append("The backup \(which) has changed since it was made: "
-                + plainList(changed.map { $0.verdict.reason(for: $0.path) }) + ".")
-        }
-        var reasons: [String] = []
-        if !expected.isEmpty {
-            reasons.append(expected.count == 1
-                ? "Ovation expected a file (\(expected[0])) that it never had"
-                : "Ovation expected files (\(plainList(expected))) that it never had")
-        }
-        reasons += others.map { $0.verdict.reason(for: $0.path) }
-        if !reasons.isEmpty {
-            let opening = changed.isEmpty ? "The backup \(which) failed" : "It also failed"
-            sentences.append("\(opening) its check because \(plainList(reasons)).")
-            // ONLY WHEN EVERY REASON LEAVES THE BACKUP AS IT WAS MADE (L11, L440):
-            // a file Ovation expected, or one required since, is about the rule.
-            // A document whose copy differs, or a copy of a secret, is about the
-            // backup itself, and "nothing has changed" beside it contradicts it.
-            let untouched = failures.allSatisfy {
-                $0.verdict == .memberMissing || $0.verdict == .requiredAfterItWasWritten
-            }
-            if untouched { sentences.append("Nothing in that backup has changed.") }
-        }
-        sentences.append("Today's backup is fine.")
-        return sentences.joined(separator: " ")
-    }
-
-    /// "a", "a and b", "a, b and c", then "a, b, c and 2 more".
-    private static func plainList(_ items: [String]) -> String {
-        let named = Array(items.prefix(3))
-        if items.count > named.count {
-            return named.joined(separator: ", ") + " and \(items.count - named.count) more"
-        }
-        guard let last = named.last else { return "" }
-        let rest = named.dropLast()
-        return rest.isEmpty ? last : rest.joined(separator: ", ") + " and " + last
-    }
-
-    /// "17 Sep", on the business calendar, so a trip cannot move a backup to a
-    /// neighbouring day.
-    private static func dayAndMonth(_ instant: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = BusinessCalendar.timeZone
-        formatter.dateFormat = "d MMM"
-        return formatter.string(from: instant)
+        (BackupFailureSentences.whatIsWrong(
+            with: BackupFailureSentences.which(name: name, writtenAt: writtenAt),
+            failures: failures) + ["Today's backup is fine."])
+            .joined(separator: " ")
     }
 
     /// The kinds a launch that OPENS the store has disproved (ovation#503): each

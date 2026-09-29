@@ -233,9 +233,7 @@ struct OvationApp: App {
                             dataDirectory: storeURL.deletingLastPathComponent(),
                             backupsDirectory: folder,
                             dailyKeep: BackupService.defaultDailyKeep,
-                            referencedDocuments: {
-                                try StoreDocumentReferences.read(storeURL: storeURL)
-                            })
+                            referencedDocuments: { try StoreDocumentReferences.readCopy(ofStoreAt: $0) })
                     }
                     //
                     // AND EVERY RUN LEAVES A LINE saying how big it was, how long
@@ -262,9 +260,7 @@ struct OvationApp: App {
                         dataDirectory: storeURL.deletingLastPathComponent(),
                         backupsDirectory: folder,
                         dailyKeep: BackupService.defaultDailyKeep,
-                        referencedDocuments: {
-                            try StoreDocumentReferences.read(storeURL: storeURL)
-                        })
+                        referencedDocuments: { try StoreDocumentReferences.readCopy(ofStoreAt: $0) })
                     return BackupService.currency(
                         newestArchive: try? service.newestArchiveCreatedAt(),
                         dataChanged: BackupService.dataChangedAt(storeURL: storeURL),
@@ -281,27 +277,32 @@ struct OvationApp: App {
                     //
                     // FOR AS LONG AS THE DATA FOLDER'S SIZE CALLS FOR (ovation#507),
                     // like the backup: an archive is a copy of it.
-                    @Sendable func service() -> BackupService? {
-                        guard let folder = BackupFolderSetting.liveBackupsDirectory else {
-                            return nil
-                        }
-                        return BackupService(
-                            dataDirectory: storeURL.deletingLastPathComponent(),
-                            backupsDirectory: folder,
-                            dailyKeep: BackupService.defaultDailyKeep,
-                            referencedDocuments: {
-                                try StoreDocumentReferences.read(storeURL: storeURL)
-                            })
-                    }
-                    return await LaunchBackupOutcome.reverify(
+                    await LaunchBackupOutcome.reverify(
                         measuring: {
-                            try service()?.sizeOfWhatIsBackedUp() ?? BackupSize(files: 0, bytes: 0)
+                            try OvationApp.archiveService(storeURL)?.sizeOfWhatIsBackedUp()
+                                ?? BackupSize(files: 0, bytes: 0)
                         }
                     ) {
-                        guard let service = service() else {
+                        guard let service = OvationApp.archiveService(storeURL) else {
                             return BackupService.Reverification.nothingToCheck
                         }
                         return (try? service.reverifyOneArchive(now: now)) ?? .nothingToCheck
+                    }
+                },
+                // ovation#613. Each archive an open problem is about, checked again
+                // by name, off the main actor and sized like the re-check above.
+                recheckArchives: { now, names in
+                    await LaunchBackupOutcome.recheck(
+                        names, now: now,
+                        measuring: {
+                            try OvationApp.archiveService(storeURL)?.sizeOfWhatIsBackedUp()
+                                ?? BackupSize(files: 0, bytes: 0)
+                        }
+                    ) { name in
+                        guard let service = OvationApp.archiveService(storeURL) else {
+                            return BackupService.Reverification.nothingToCheck
+                        }
+                        return service.reverify(archiveNamed: name)
                     }
                 },
                 openContainer: { try OvationSchema.container(at: $0) },
@@ -469,6 +470,18 @@ struct OvationApp: App {
         OvationGmail.sender(for: settings, connection: { try OvationGmail.authManager() })
     }
 
+    /// The service the launch re-checks older archives through, or nil when no
+    /// folder is chosen and there is nothing to check. One recipe for both
+    /// re-checks, so they cannot come to read different folders (L70).
+    private nonisolated static func archiveService(_ storeURL: URL) -> BackupService? {
+        guard let folder = BackupFolderSetting.liveBackupsDirectory else { return nil }
+        return BackupService(
+            dataDirectory: storeURL.deletingLastPathComponent(),
+            backupsDirectory: folder,
+            dailyKeep: BackupService.defaultDailyKeep,
+            referencedDocuments: { try StoreDocumentReferences.readCopy(ofStoreAt: $0) })
+    }
+
     /// The restore control, or nil when there is no folder to restore from.
     ///
     /// NIL RATHER THAN AN EMPTY LIST, because "no folder chosen" and "a folder
@@ -481,7 +494,7 @@ struct OvationApp: App {
             dataDirectory: storeURL.deletingLastPathComponent(),
             backupsDirectory: folder,
             dailyKeep: BackupService.defaultDailyKeep,
-            referencedDocuments: { try StoreDocumentReferences.read(storeURL: storeURL) },
+            referencedDocuments: { try StoreDocumentReferences.readCopy(ofStoreAt: $0) },
             now: Date.init,
             fileManager: { .default })
     }

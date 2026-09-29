@@ -144,6 +144,101 @@ struct StoreDocumentReferencesTests {
         #expect(!FileManager.default.fileExists(atPath: absent.path))
     }
 
+    /// ovation#612. AN ARCHIVE'S STORE IS READ FROM A COPY, and the copy carries
+    /// its write ahead log. Opening a SQLite file even read only can create or
+    /// write the shared memory file beside it (L474), which inside an archive is
+    /// a file nothing recorded, on a folder that may sync to a NAS. And a
+    /// reference whose page is still in the log is a receipt a store read without
+    /// it does not mention. The log here holds the only copy of the row.
+    @Test("an archived store is read from a copy, log included, and its folder is left as it was")
+    func anArchivedStoreIsReadFromACopy() throws {
+        let world = try World()
+        let archive = world.directory.appending(path: "archive", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
+
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(world.storeURL.path, &handle,
+                              SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
+              let handle else {
+            sqlite3_close(handle)
+            throw FixtureFailure.couldNotOpen
+        }
+        let sql = "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; "
+            + "CREATE TABLE ZEXPENSE (Z_PK INTEGER PRIMARY KEY, ZRELATIVEPATH TEXT, ZSHA256 TEXT); "
+            + "INSERT INTO ZEXPENSE (ZRELATIVEPATH, ZSHA256) VALUES ('ee/ee.pdf', 'ee');"
+        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+            // Read BEFORE closing: a closed connection has no message to give.
+            let message = String(cString: sqlite3_errmsg(handle))
+            sqlite3_close(handle)
+            throw FixtureFailure.statementFailed(message)
+        }
+        // Copied WHILE the writer holds it, which is the only moment the log is
+        // guaranteed to exist: closing the last connection checkpoints it away.
+        // The shared memory file is deliberately left behind, so an open in
+        // place would have to create one.
+        for suffix in ["", "-wal"] {
+            try FileManager.default.copyItem(
+                at: URL(fileURLWithPath: world.storeURL.path + suffix),
+                to: archive.appending(path: "Ovation.store" + suffix))
+        }
+        sqlite3_close(handle)
+        let before = try Self.contents(of: archive)
+        try #require(before.keys.contains("Ovation.store-wal"))
+
+        let references = try StoreDocumentReferences.readCopy(
+            ofStoreAt: archive.appending(path: "Ovation.store"))
+
+        #expect(references == [ReferencedDocument(relativePath: "ee/ee.pdf", sha256: "ee")])
+        #expect(try Self.contents(of: archive) == before)
+    }
+
+    @Test("an archived store that is not there refuses rather than answering none")
+    func anAbsentArchivedStoreRefuses() throws {
+        let world = try World()
+
+        #expect(throws: BackupError.self) {
+            try StoreDocumentReferences.readCopy(
+                ofStoreAt: world.directory.appending(path: "missing.store"))
+        }
+    }
+
+    /// THE COPY IS REMOVED ON EVERY EXIT, the one that throws as well as the one
+    /// that answers. The restore screen verifies every archive, so a copy left per
+    /// archive would be a store's worth of the temporary folder per archive per
+    /// visit. Measured 2026-09-29 so the copy itself is known to be cheap: 20
+    /// archives of a 160KB store cost under 10ms each to copy, read and remove, and
+    /// of a 15MB one about 26ms each against 60ms to hash that same store, which
+    /// `verify` already does for every archive.
+    @Test("the copy read from is removed, whether the read answers or refuses")
+    func theCopyIsRemovedOnEveryExit() throws {
+        let world = try World()
+        try world.write(receipts: [.file(sha256: "ff", relativePath: "ff/ff.pdf")])
+        let aside = world.directory.appending(path: "aside", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: aside, withIntermediateDirectories: true)
+        let notADatabase = world.directory.appending(path: "garbage.store")
+        try Data("not a database".utf8).write(to: notADatabase)
+
+        let references = try StoreDocumentReferences.readCopy(ofStoreAt: world.storeURL,
+                                                              copyingInto: aside)
+        #expect(references == [ReferencedDocument(relativePath: "ff/ff.pdf", sha256: "ff")])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: aside.path).isEmpty)
+
+        #expect(throws: BackupError.self) {
+            try StoreDocumentReferences.readCopy(ofStoreAt: notADatabase, copyingInto: aside)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: aside.path).isEmpty)
+    }
+
+    /// Every file in a folder, by name, with its hash.
+    private static func contents(of folder: URL) throws -> [String: String] {
+        var found: [String: String] = [:]
+        for name in try FileManager.default.contentsOfDirectory(atPath: folder.path) {
+            found[name] = DocumentStore.hash(
+                of: try Data(contentsOf: folder.appending(path: name)))
+        }
+        return found
+    }
+
     // MARK: the fixture
 
     private struct World {

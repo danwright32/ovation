@@ -1133,6 +1133,123 @@ struct StoreLaunchSequenceTests {
         #expect(!world.store.open.contains { $0.kind == .archiveNoLongerVerifies })
     }
 
+    // MARK: a problem about an older archive is asked again by name (ovation#613)
+
+    /// The first launch finds the archive broken; every later one's rotation
+    /// reaches some other archive, so only the check by name can settle it.
+    nonisolated private static let brokenName = "Ovation-backup-2026-09-17-091500"
+    nonisolated private static let firstLaunch = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    nonisolated private static let broken = BackupService.Reverification.failed(
+        brokenName, [.init(path: "launch-backups.jsonl", verdict: .memberMissing)])
+
+    nonisolated private static func rotationFindsItBrokenOnce(_ now: Date) -> BackupService.Reverification {
+        now == firstLaunch ? broken : .verified("Ovation-backup-2026-09-20-091500")
+    }
+
+    /// THE RULE CHANGED AND THE ROTATION IS ELSEWHERE. Since ovation#610 the problem
+    /// cleared only when the day rotated re-check next reached that archive, which
+    /// can take as many launches as there are archives (L152).
+    @Test("an open archive problem is checked again by name at the next launch, and clears")
+    func anOpenArchiveProblemIsCheckedAtTheNextLaunch() async throws {
+        let world = try World(reverify: Self.rotationFindsItBrokenOnce,
+                              recheck: { _, names in names.map { .verified($0) } })
+        try #require(world.instant == Self.firstLaunch)
+
+        _ = await world.sequence.run(now: Self.firstLaunch)
+        #expect(world.store.open.contains { $0.kind == .archiveNoLongerVerifies })
+        #expect(await world.waitUntilTheStoreIsLetGo() == .checkpointed)
+        _ = await world.sequence.run(now: Self.firstLaunch.addingTimeInterval(86_400))
+
+        #expect(!world.store.open.contains { $0.kind == .archiveNoLongerVerifies })
+        #expect(world.recorder.steps.filter { $0.hasPrefix("recheck") }
+                == ["recheck \(Self.brokenName)"])
+    }
+
+    /// RETENTION DELETED IT, SO NOTHING WAS EVER GOING TO CHECK IT AGAIN, and the
+    /// problem stood for ever about a backup that is not there (L200, L38). It is
+    /// resolved with a reason that says why.
+    @Test("a problem about an archive no longer in the folder is resolved, saying so")
+    func aProblemAboutADeletedArchiveIsResolved() async throws {
+        let world = try World(reverify: Self.rotationFindsItBrokenOnce,
+                              recheck: { _, names in names.map { .gone($0) } })
+
+        _ = await world.sequence.run(now: Self.firstLaunch)
+        #expect(await world.waitUntilTheStoreIsLetGo() == .checkpointed)
+        _ = await world.sequence.run(now: Self.firstLaunch.addingTimeInterval(86_400))
+
+        let problem = try #require(world.store.all.first { $0.kind == .archiveNoLongerVerifies })
+        #expect(!problem.isOpen)
+        #expect(problem.resolutionReason
+                == "the backup is no longer in the backups folder, so there is nothing left "
+                + "to check")
+    }
+
+    /// A FOLDER THAT COULD NOT BE READ SAYS NOTHING ABOUT THE ARCHIVE, so it
+    /// resolves nothing: a share that is not mounted must never read as the
+    /// archive having been deleted (L119).
+    @Test("a re-check that could not read the folder leaves the problem open")
+    func anUnreadableRecheckLeavesTheProblem() async throws {
+        let world = try World(reverify: Self.rotationFindsItBrokenOnce,
+                              recheck: { _, names in names.map { _ in .couldNotRead("a share") } })
+
+        _ = await world.sequence.run(now: Self.firstLaunch)
+        #expect(await world.waitUntilTheStoreIsLetGo() == .checkpointed)
+        _ = await world.sequence.run(now: Self.firstLaunch.addingTimeInterval(86_400))
+
+        #expect(world.store.open.contains { $0.kind == .archiveNoLongerVerifies })
+    }
+
+    /// FOUND BROKEN IN THE SAME WAY, IT IS NOT RAISED AGAIN. Raising re-presents a
+    /// problem Dan has already seen, and a check by name runs on every launch while
+    /// one is open, so raising the same sentence would put it back in front of him
+    /// every time for nothing new.
+    @Test("an archive found broken the same way again is not presented again")
+    func theSameFailureIsNotRaisedAgain() async throws {
+        let world = try World(reverify: Self.rotationFindsItBrokenOnce,
+                              recheck: { _, _ in [Self.broken] })
+
+        _ = await world.sequence.run(now: Self.firstLaunch)
+        let raised = try #require(world.store.open.first { $0.kind == .archiveNoLongerVerifies })
+        world.store.acknowledge(raised.id, now: Self.firstLaunch)
+        #expect(await world.waitUntilTheStoreIsLetGo() == .checkpointed)
+        _ = await world.sequence.run(now: Self.firstLaunch.addingTimeInterval(86_400))
+
+        let after = try #require(world.store.open.first { $0.kind == .archiveNoLongerVerifies })
+        #expect(after.occurrences == 1)
+        #expect(after.acknowledgedAt != nil)
+    }
+
+    /// And one found broken DIFFERENTLY is raised, because that is new.
+    @Test("an archive found broken in a new way is raised again")
+    func aNewFailureIsRaised() async throws {
+        let world = try World(reverify: Self.rotationFindsItBrokenOnce,
+                              recheck: { _, names in
+                                  names.map { .failed($0, [.init(path: "Ovation.store",
+                                                                 verdict: .mismatch)]) }
+                              })
+
+        _ = await world.sequence.run(now: Self.firstLaunch)
+        #expect(await world.waitUntilTheStoreIsLetGo() == .checkpointed)
+        _ = await world.sequence.run(now: Self.firstLaunch.addingTimeInterval(86_400))
+
+        let after = try #require(world.store.open.first { $0.kind == .archiveNoLongerVerifies })
+        #expect(after.occurrences == 2)
+        #expect(after.sentence.contains("Ovation.store is different"))
+    }
+
+    /// NOTHING OPEN, NOTHING ASKED, and the archive the rotation has just checked
+    /// is not asked twice in one launch.
+    @Test("with no open archive problem nothing is checked by name, nor the one just rotated")
+    func nothingOpenMeansNothingRechecked() async throws {
+        let world = try World(reverify: { _ in Self.broken },
+                              recheck: { _, names in names.map { .verified($0) } })
+
+        _ = await world.sequence.run(now: Self.firstLaunch)
+
+        #expect(!world.recorder.steps.contains { $0.hasPrefix("recheck") })
+        #expect(world.store.open.contains { $0.kind == .archiveNoLongerVerifies })
+    }
+
     /// A RE-CHECK THAT FOUND NOTHING TO CHECK SAYS NOTHING, and neither does one
     /// that could not read an archive: neither is a finding Dan can act on, and
     /// the archives it did not reach come round on later launches (L36).
@@ -1363,6 +1480,7 @@ struct StoreLaunchSequenceTests {
              prepareDataDirectory: (@Sendable () throws -> Void)? = nil,
              backupCurrency: (@Sendable (Date) -> BackupService.Currency)? = nil,
              reverify: (@Sendable (Date) -> BackupService.Reverification)? = nil,
+             recheck: (@Sendable (Date, [String]) -> [BackupService.Reverification])? = nil,
              seed: (@Sendable (ModelContainer) throws -> Int)? = nil,
              recordVersion: (@Sendable (URL) throws -> Void)? = nil,
              exportNotices: (@Sendable (ModelContainer, Date) -> [ExportNotice])? = nil,
@@ -1433,6 +1551,10 @@ struct StoreLaunchSequenceTests {
                 reverifyAnArchive: { now in
                     recorder.record("reverify")
                     return reverify?(now) ?? .nothingToCheck
+                },
+                recheckArchives: { now, names in
+                    recorder.record("recheck " + names.joined(separator: ","))
+                    return recheck?(now, names) ?? []
                 },
                 openContainer: { url in
                     recorder.record("open")
@@ -1538,7 +1660,7 @@ struct StoreLaunchSequenceTests {
     /// documents, as a store with no receipts filed does.
     nonisolated static func backupService(of data: URL, into backups: URL) -> BackupService {
         BackupService(dataDirectory: data, backupsDirectory: backups,
-                      dailyKeep: BackupService.defaultDailyKeep, referencedDocuments: { [] })
+                      dailyKeep: BackupService.defaultDailyKeep, referencedDocuments: { _ in [] })
     }
     // MARK: the data directory is prepared before the backup (ovation#222)
 

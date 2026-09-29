@@ -161,6 +161,47 @@ struct RestorePresenterTests {
         }
     }
 
+    /// ovation#614. THE REFUSAL SAYS WHICH FILE AND WHETHER THE BACKUP CHANGED.
+    /// It said only "1 problem(s) with what is in it", which is the sentence
+    /// ovation#610 replaced on the Problems list for sending Dan to the folder
+    /// when the cause was a rule in Ovation. The parts are the ones Dan approved
+    /// on 2026-09-28, shared rather than copied, so the two surfaces cannot drift.
+    @Test("a refused restore names the file that changed and the day of the backup")
+    func aRefusalNamesTheChangedFile() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        try BackupTests.writtenByAnOlderBuild(archive, lacking: [],
+                                              createdAt: BackupTests.noon(2026, 9, 17),
+                                              planVersion: BackupPlan.version)
+        try FileManager.default.removeItem(at: archive.appendingPathComponent("Ovation.store"))
+        let name = archive.lastPathComponent
+
+        let outcome = world.presenter.restore(name)
+
+        #expect(outcome == .refused(
+            "\(name) was NOT restored. The backup from 17 Sep has changed since it was "
+                + "made: Ovation.store is missing. Nothing in Ovation has been changed."))
+    }
+
+    /// And when nothing in the backup changed, it says that, because the remedy is
+    /// then about Ovation and not about the folder (L11).
+    @Test("a refused restore whose files are unchanged says so")
+    func aRefusalSaysWhenNothingChanged() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        try BackupTests.writtenByAnOlderBuild(archive, lacking: ["problems.jsonl"],
+                                              createdAt: BackupTests.noon(2026, 9, 17),
+                                              planVersion: BackupPlan.version)
+        let name = archive.lastPathComponent
+
+        let outcome = world.presenter.restore(name)
+
+        #expect(outcome == .refused(
+            "\(name) was NOT restored. The backup from 17 Sep failed its check because "
+                + "Ovation expected a file (problems.jsonl) that it never had. Nothing in "
+                + "that backup has changed. Nothing in Ovation has been changed."))
+    }
+
     /// AN ARCHIVE THAT IS NOT THERE IS ITS OWN REFUSAL, never a silent no-op. A
     /// control that appears to work and does nothing is worse than one that
     /// refuses (L100).
@@ -269,7 +310,7 @@ struct RestorePresenterTests {
         return RestorePresenter(dataDirectory: dataDirectory,
                                 backupsDirectory: world.backupsDirectory,
                                 dailyKeep: BackupService.defaultDailyKeep,
-                                referencedDocuments: { [] },
+                                referencedDocuments: { _ in [] },
                                 now: { clock },
                                 fileManager: { RefusingFileManager(refusing: name, in: dataDirectory) })
     }
@@ -332,7 +373,7 @@ struct RestorePresenterTests {
             service = BackupService(dataDirectory: dataDirectory,
                                     backupsDirectory: backupsDirectory,
                                     dailyKeep: BackupService.defaultDailyKeep,
-                                    referencedDocuments: { watching.note(); return [] })
+                                    referencedDocuments: { _ in watching.note(); return [] })
             // The clock is a local constant rather than the fixture's property,
             // because the closure is built before `self` exists.
             let clock = Date(timeIntervalSinceReferenceDate: 800_000_000)
@@ -340,7 +381,7 @@ struct RestorePresenterTests {
                 dataDirectory: dataDirectory,
                 backupsDirectory: backupsDirectory,
                 dailyKeep: BackupService.defaultDailyKeep,
-                referencedDocuments: { watching.note(); return [] },
+                referencedDocuments: { _ in watching.note(); return [] },
                 now: { clock },
                 fileManager: { .default })
         }

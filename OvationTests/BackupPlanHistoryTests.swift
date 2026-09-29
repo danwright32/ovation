@@ -218,7 +218,7 @@ struct BackupPlanHistoryTests {
                 try BackupPlanHistoryTests.content(of: path).write(to: url)
             }
             service = BackupService(dataDirectory: dataDirectory, backupsDirectory: backups,
-                                    dailyKeep: 3, referencedDocuments: { [] })
+                                    dailyKeep: 3, referencedDocuments: { _ in [] })
         }
 
         /// A data folder holding only what today's plan requires.
@@ -238,7 +238,7 @@ struct BackupPlanHistoryTests {
                     .write(to: dataDirectory.appending(path: path))
             }
             service = BackupService(dataDirectory: dataDirectory, backupsDirectory: backups,
-                                    dailyKeep: 3, referencedDocuments: { [] })
+                                    dailyKeep: 3, referencedDocuments: { _ in [] })
         }
 
         private static func root() -> URL {
