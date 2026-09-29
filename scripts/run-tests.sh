@@ -1059,6 +1059,75 @@ else
   DOMAINS_UNMEASURED=""
   DOMAINS_BEFORE="$(test_domains)" || DOMAINS_UNMEASURED=1
 
+  # A SUITE RUN THAT RECORDED AN ISSUE COSTS A SYMBOL ARCHIVE (ovation#552).
+  #
+  # macOS's symbolication service keeps an archive of every binary a client asks
+  # it to symbolicate, in /System/Library/Caches/com.apple.coresymbolicationd,
+  # and nothing prunes it: the folder reached 168 GB, written on behalf of xctest.
+  # Measured 2026-09-29 on a probe with a 57 MB test binary, by how long each
+  # client held the service's connection: a run recording any issue, a known one
+  # on a green run included, held it about five seconds on a build it had not
+  # seen and under one on the same build again, and a clean run never opened it.
+  # One issue and four cost the same, so the unit is a suite run with an issue.
+  #
+  # NO SWITCH STOPS IT, and what was tried is on the issue so nobody looks again.
+  # XCTDisableAggressiveSymbolication (the one setting XCTest has) stops XCTest
+  # doing it and xcodebuild then does exactly the same work itself;
+  # DeferSymbolicationToHarness, XCT_IMAGE_NAMES_FOR_SYMBOLICATION and
+  # -collect-test-diagnostics never changed nothing. So the run says what it cost
+  # and keeps a count a later session is shown, rather than the cache growing
+  # unseen until the disk fills. Dan clears the folder by hand; there is no
+  # cleanup job, by his decision.
+  #
+  # The record goes through lib/durable-record.sh like every durable record here
+  # (ovation#368), so a run with injected commands says what a real one would
+  # cost and writes nothing unless OVATION_SYMBOL_ARCHIVE_RECORD_STAGED declares
+  # the staging is its subject.
+  # shellcheck source=lib/durable-record.sh
+  require_lib "${REPO_ROOT}/scripts/lib/durable-record.sh"
+  report_symbol_archive() {
+    # report_symbol_archive <suite> < that suite's output
+    #
+    # ON STDIN, NOT A PATH, so the hosted half needs no temporary file of its
+    # own: one made for it was unchecked and outlived a run stopped by INT or
+    # TERM, which the trap had no way to know about (lessons review of #624).
+    local suite="$1" issues subject record now recent noun
+    issues="$(grep -oE 'Test run with [0-9]+ tests? in [0-9]+ suites? (passed|failed) after [0-9.]+ seconds with [0-9]+ (known )?issues?' 2>/dev/null \
+      | sed -E 's/.* with ([0-9]+) .*/\1/' | sort -rn | head -1)"
+    [ -n "${issues}" ] && [ "${issues}" -gt 0 ] || return 0
+    noun="issues"; [ "${issues}" -eq 1 ] && noun="issue"
+    echo "==> Symbol archive: ${suite} recorded ${issues} ${noun}, so macOS's symbolication service"
+    echo "    saved an archive of this build's test binary, unless this same build already"
+    echo "    recorded one. Nothing prunes those archives (ovation#552)."
+    subject="real"
+    [ -n "${TEST_COMMAND}${HOSTED_TEST_COMMAND}" ] && subject="staged"
+    if ! record="$(durable_record_path "${subject}" OVATION_SYMBOL_ARCHIVE_RECORD_STAGED \
+        "${OVATION_SYMBOL_ARCHIVE_LOG:-}" "${HOME}/Library/Logs/Ovation/symbol-archives.tsv")"; then
+      echo "    Whether this run may be recorded could not be decided, so it is not recorded."
+      return 0
+    fi
+    if [ -z "${record}" ]; then
+      echo "    This run's commands were injected, so it is not recorded."
+      return 0
+    fi
+    now="$(date +%s)"
+    mkdir -p "$(dirname "${record}")" 2>/dev/null || true
+    # Said, never a reason to change the verdict: the record measures a cost, it
+    # is not part of whether the tests passed.
+    if ! printf '%s\t%s\t%s\n' "${now}" "${suite}" "${issues}" >> "${record}" 2>/dev/null; then
+      echo "    The record at ${record} could not be written, so this run is not recorded."
+      return 0
+    fi
+    # REAL TIME, NOT THE WHOLE FILE: a line from last month is history, not what
+    # the cache is growing by now.
+    recent="$(awk -F'\t' -v since="$((now - 7 * 86400))" '$1 + 0 >= since { n++ } END { print n + 0 }' "${record}")"
+    if [ "${recent}" -eq 1 ]; then
+      echo "    1 run on this Mac in the last 7 days has done this, recorded in ${record}."
+    else
+      echo "    ${recent} runs on this Mac in the last 7 days have done this, recorded in ${record}."
+    fi
+  }
+
   # The command is injectable so the suite can measure the LOCKING without paying
   # for a three minute xcodebuild (L2, L291). The default is the real thing.
   #
@@ -1085,6 +1154,7 @@ else
       bash -c "${TEST_COMMAND}" 2>&1 | tee "${PURE_OUTPUT}"
     fi
     STATUS="${PIPESTATUS[0]}"
+    report_symbol_archive OvationTests < "${PURE_OUTPUT}"
   fi
 
   # THE RULE BESIDE THE SYMPTOM (ovation#373). OvationTests compiles the app's
@@ -1208,6 +1278,16 @@ else
       echo "       It exited 0, so this is a run that lost part of itself and still" >&2
       echo "       reported success. Nothing about the missing tests was judged. A test" >&2
       echo "       that was declared was not built, not found, or filtered out." >&2
+      STATUS=7
+    elif [ "${PURE_COUNT}" -gt "${PURE_EXPECTED}" ] && [ -n "${OVATION_TEST_FLOOR:-}" ]; then
+      # A FORCED COUNT IS NOT THE COUNTER'S (ovation#588). The expected number
+      # was handed in, so no declared test was counted and the counter cannot be
+      # the fault; the refusal names the value it was given instead (L11).
+      echo "Error: the suite executed ${PURE_COUNT} tests and ${PURE_EXPECTED_IS_ONLY} ${PURE_EXPECTED}." >&2
+      echo "       That number was forced with OVATION_TEST_FLOOR=${OVATION_TEST_FLOOR}, so no declared" >&2
+      echo "       tests were counted for this run. Either the forced value is wrong for" >&2
+      echo "       this suite or the run executed tests it was not meant to; unset it to" >&2
+      echo "       compare against what the sources declare." >&2
       STATUS=7
     elif [ "${PURE_COUNT}" -gt "${PURE_EXPECTED}" ]; then
       echo "Error: the suite executed ${PURE_COUNT} tests and ${PURE_EXPECTED_IS_ONLY} ${PURE_EXPECTED}." >&2
@@ -1559,6 +1639,7 @@ else
     fi
     HOSTED_STATUS=$?
     printf '%s\n' "${HOSTED_OUTPUT}"
+    report_symbol_archive OvationHostedTests <<<"${HOSTED_OUTPUT}"
     SHOT_COUNT="$(find "${SHOT_DIR}" -name '*.png' -type f 2>/dev/null | wc -l | tr -d ' ')"
     if [ -n "${SHOT_DIR_IS_TEMPORARY}" ]; then
       echo "==> ${SHOT_COUNT} screenshots captured, in a temporary folder removed now; set OVATION_SHOT_DIR to keep them."
