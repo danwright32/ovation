@@ -5,9 +5,11 @@
 // would mistake for an abandoned one.
 //
 // A SWEEP THAT FAILS IS SAID IN THE PROBLEMS LIST (Dan, 2026-09-29, in his words),
-// and the next launch whose sweep works resolves it, because every launch re-checks
-// the whole condition anyway and a notice about a condition that has cleared is
-// noise (the problems list resolves itself, as `HeldMoneyPass` does). Failing
+// whether it threw or kept a number the store would not let go of. Only the next
+// launch whose sweep released, or kept by rule, every held number resolves it,
+// because every launch re-checks the whole condition anyway and a notice about a
+// condition that has cleared is noise (the problems list resolves itself, as
+// `HeldMoneyPass` does). Failing
 // leaves every hold where it was, which is the safe side: the invoice keeps its
 // number and its next review takes it up.
 import Foundation
@@ -29,7 +31,15 @@ enum AbandonedReviewNumbers {
                          problems: ProblemsStore, now: Date) async {
         let id = Problem.identity(kind: .reviewNumbersNotReleased, subject: nil)
         do {
-            _ = try await sweep()
+            // A SWEEP THAT RAN IS NOT A SWEEP THAT WORKED (review of fb781b4). A number
+            // kept because the store would not let go of it is this same failure, and
+            // the sentence is still true of it: the next launch tries that hold again.
+            let swept = try await sweep()
+            guard swept.kept.values.allSatisfy(\.keptByRule) else {
+                _ = problems.raise(kind: .reviewNumbersNotReleased, subject: nil,
+                                   sentence: couldNotRelease, now: now)
+                return
+            }
             if problems.open.contains(where: { $0.id == id }) {
                 _ = problems.resolve(id, because: "a later launch gave back the numbers reviews left",
                                      now: now)

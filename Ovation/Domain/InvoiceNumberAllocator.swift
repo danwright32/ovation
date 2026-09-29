@@ -114,6 +114,27 @@ struct AbandonedReviewSweep: Equatable, Sendable {
     let kept: [Int64: InvoiceNumberRefusal]
 }
 
+extension InvoiceNumberRefusal {
+    /// Whether a number kept for this reason was kept ON PURPOSE (ovation#362).
+    ///
+    /// A number below the highest, a closed invoice's, an imported one, or one a send
+    /// may have gone with is the allocator doing its job, and the launch sweep that
+    /// kept it worked. A write the store did not hold is not: the header calls it
+    /// not ignorable, so the sweep reports it as a failure rather than a result.
+    ///
+    /// NO DEFAULT ARM, so a refusal added later has to be decided here rather than
+    /// falling on whichever side a default chose (L113).
+    var keptByRule: Bool {
+        switch self {
+        case .readBackDisagreed: return false
+        case .noSuchInvoice, .alreadyNumbered, .numberAlreadyHeld, .numberIsNotPositive,
+             .notTheNumberHeld, .notTheHighest, .invoiceWasSent, .sendCouldNotBeDetermined,
+             .sendIsInFlight, .importedNumber, .invoiceIsClosed, .notHeldByAReview:
+            return true
+        }
+    }
+}
+
 @ModelActor
 actor InvoiceNumberAllocator {
 

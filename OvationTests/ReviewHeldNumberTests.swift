@@ -402,4 +402,42 @@ struct ReviewHeldNumberTests {
         #expect(try Self.stored(id, in: container).number == nil)
         #expect(problems.open.isEmpty)
     }
+
+    /// A SWEEP THAT RAN IS NOT A SWEEP THAT WORKED (review of fb781b4). A number the
+    /// store would not let go of, which the allocator calls not ignorable, is the same
+    /// failure as a sweep that threw: it raises the problem, and it never resolves one.
+    @Test("a number the store would not let go of raises the problem, and does not resolve an open one")
+    func aReadBackFailureIsSaid() async throws {
+        struct Refused: Error {}
+        let problems = ProblemsStore(journal: InMemoryProblemsJournal())
+        let disagreed = AbandonedReviewSweep(
+            released: [], kept: [1_123: .readBackDisagreed(wrote: 1_123, found: 1_123)])
+
+        await AbandonedReviewNumbers.giveBack(sweep: { disagreed }, problems: problems, now: Self.noon)
+        let said = try #require(problems.open.first { $0.kind == .reviewNumbersNotReleased })
+        #expect(said.sentence == AbandonedReviewNumbers.couldNotRelease)
+
+        await AbandonedReviewNumbers.giveBack(sweep: { disagreed }, problems: problems,
+                                              now: Self.noon.addingTimeInterval(86_400))
+        #expect(problems.open.contains { $0.kind == .reviewNumbersNotReleased },
+                "a sweep that could not release a number resolved the problem saying so")
+    }
+
+    /// And a number kept BY RULE is the sweep working: a lower number with a higher one
+    /// above it, or a deleted draft's, stays by design and its next review takes it up.
+    @Test("numbers kept by rule are a sweep that worked, so they resolve the problem and raise nothing")
+    func numbersKeptByRuleResolve() async throws {
+        struct Refused: Error {}
+        let problems = ProblemsStore(journal: InMemoryProblemsJournal())
+        await AbandonedReviewNumbers.giveBack(sweep: { throw Refused() }, problems: problems, now: Self.noon)
+
+        let byRule = AbandonedReviewSweep(released: [1_130], kept: [
+            1_125: .notTheHighest(number: 1_125, highest: 1_129),
+            1_126: .invoiceIsClosed(number: 1_126),
+        ])
+        await AbandonedReviewNumbers.giveBack(sweep: { byRule }, problems: problems,
+                                              now: Self.noon.addingTimeInterval(86_400))
+
+        #expect(!problems.open.contains { $0.kind == .reviewNumbersNotReleased })
+    }
 }
