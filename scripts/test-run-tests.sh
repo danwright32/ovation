@@ -43,7 +43,8 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_REGENERATE_WAIT \
       OVATION_SHELL_SUITES OVATION_SHOT_DIR TEST_RUNNER_OVATION_SHOT_DIR \
       OVATION_APP_CHANGES_ROOT OVATION_APP_CHANGES_BASE OVATION_APP_BUILD_COMMAND \
-      OVATION_PURE_TESTS_ROOT
+      OVATION_PURE_TESTS_ROOT \
+      OVATION_SYMBOL_ARCHIVE_LOG OVATION_SYMBOL_ARCHIVE_RECORD_STAGED
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
 # FAILURE (L411).
@@ -80,7 +81,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 317
+harness_begin "test runner lock tests" 332
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -935,6 +936,10 @@ OUT579C="$(declared_run 4)"; ST579C=$?
 check "a pure run executing MORE tests than its sources declare is refused" "$ST579C" "7"
 check "and it says the declaration count missed some, rather than blaming the run" \
     "$(grep -c '^Error: the suite executed 4 tests and the OvationTests target declares only 3\.$' <<< "$OUT579C")" "1"
+# AND ONLY HERE IS THE COUNTER BLAMED (ovation#588): the expected number came
+# from counting @Test lines, so the counter is the thing that missed a form.
+check "and it names the counter to teach, because the counter produced the number" \
+    "$(mentions "$OUT579C" "teach pure_tests_declared")" "yes"
 
 # TWO BRANCHES ADDING TESTS IN DIFFERENT FILES TOUCH NOTHING IN COMMON: a new
 # file's test is counted from the file itself, so nothing else has to change.
@@ -942,6 +947,81 @@ printf 'import Testing\n@Test func added() {}\n' > "$DECLARED/OvationTests/CTest
 check_exit "a test added in a new file raises the expected count by itself" 0 declared_status 4
 check_exit "and a run that then leaves it out is refused" 7 declared_status 3
 rm -f "$DECLARED/OvationTests/CTests.swift"
+
+# ---------------------------------------------------------------------------
+# A RUN THAT RECORDED AN ISSUE SAYS IT COST A SYMBOL ARCHIVE (ovation#552).
+#
+# Measured 2026-09-29 on a probe with a 57 MB test binary: a run in which any
+# issue is recorded, a known one on a green run included, makes XCTest, or
+# xcodebuild when XCTest is told not to, hold the symbolication service for about
+# five seconds on a build it has not seen, and under a second on the same build
+# again. One issue and four cost the same, so the cost is per suite run with an
+# issue, not per failing test. No switch stopped it under xcodebuild, so the run
+# says so and keeps a count a later session can read, rather than the cache
+# growing unseen until the disk fills.
+ARCHIVE_LOG="$WORK/symbol-archives.tsv"
+archive_run() {
+    # archive_run <pure command> [hosted command]; ARCHIVE_STAGED declares the record
+    OVATION_SYMBOL_ARCHIVE_LOG="$ARCHIVE_LOG" \
+    OVATION_SYMBOL_ARCHIVE_RECORD_STAGED="${ARCHIVE_STAGED:-}" \
+    OVATION_UNLOCKED_COMMAND=true \
+    OVATION_DIR_LOCK="$WORK/dir.lock" OVATION_FILE_LOCK="$WORK/file.lock" \
+    OVATION_LOCK_POLL_INTERVAL=0.05 OVATION_LOCK_TIMEOUT=5 \
+    OVATION_TEST_FLOOR=3 \
+    OVATION_TEST_COMMAND="$1" \
+    OVATION_HOSTED_TEST_COMMAND="${2:-echo 'Test run with 5 tests in 1 suite passed after 1.0 seconds.'}" \
+    OVATION_DEFAULTS_DOMAINS_COMMAND="$DOMAINS_LISTER" \
+    OVATION_FLOCK_BIN="$SUITE_FLOCK" OVATION_XCODE_PROJECT="$STANDIN_PROJECT" \
+    "$TARGET" 2>&1
+}
+RED_PURE="echo 'Test run with 3 tests in 2 suites failed after 0.5 seconds with 2 issues.'; exit 65"
+GREEN_PURE="echo 'Test run with 3 tests in 2 suites passed after 0.5 seconds.'"
+KNOWN_PURE="echo 'Test run with 3 tests in 2 suites passed after 0.5 seconds with 1 known issue.'"
+RED_HOSTED="echo 'Test run with 5 tests in 1 suite failed after 1.0 seconds with 1 issue.'; exit 65"
+
+rm -f "$ARCHIVE_LOG"
+OUT552A="$(ARCHIVE_STAGED=1 archive_run "$RED_PURE")"
+check "a red pure run says it cost a symbol archive, with the issues it recorded" \
+    "$(grep -c '^==> Symbol archive: OvationTests recorded 2 issues' <<< "$OUT552A")" "1"
+check "and it writes one line to the record, naming the suite and the issue count" \
+    "$(cut -f2,3 "$ARCHIVE_LOG" 2>/dev/null)" "$(printf 'OvationTests\t2')"
+check "and it quotes the record back, so a session reads the count without looking for it" \
+    "$(mentions "$OUT552A" "1 run on this Mac in the last 7 days")" "yes"
+
+OUT552B="$(ARCHIVE_STAGED=1 archive_run "$GREEN_PURE")"
+check "a green run that recorded no issue says nothing about archives" \
+    "$(mentions "$OUT552B" "Symbol archive")" "no"
+check "and adds nothing to the record" "$(grep -c . "$ARCHIVE_LOG")" "1"
+
+# A KNOWN ISSUE IS STILL AN ISSUE: measured on the probe, a green run with one
+# known issue held the service as long as a red one. Ovation has none today, and
+# this is what would notice the first.
+OUT552C="$(ARCHIVE_STAGED=1 archive_run "$KNOWN_PURE")"
+check "a GREEN run with a known issue still says it cost an archive" \
+    "$(grep -c '^==> Symbol archive: OvationTests recorded 1 issue' <<< "$OUT552C")" "1"
+
+OUT552D="$(ARCHIVE_STAGED=1 archive_run "$GREEN_PURE" "$RED_HOSTED")"
+check "a red HOSTED run says it too, naming the hosted suite" \
+    "$(grep -c '^==> Symbol archive: OvationHostedTests recorded 1 issue' <<< "$OUT552D")" "1"
+check "and the record now counts three runs in the window" \
+    "$(mentions "$OUT552D" "3 runs on this Mac in the last 7 days")" "yes"
+
+# THE WINDOW IS REAL TIME, not the whole file: a line from eight days ago is
+# history, not this week's cost.
+printf '%s\tOvationTests\t1\n' "$(( $(date +%s) - 8 * 86400 ))" >> "$ARCHIVE_LOG"
+check "a run older than the window is not counted in it" \
+    "$(mentions "$(ARCHIVE_STAGED=1 archive_run "$RED_PURE")" "4 runs on this Mac in the last 7 days")" "yes"
+
+# STAGED RUNS WRITE NOTHING unless they declare the staging is the subject
+# (ovation#368): every case above injects its commands, and a real record filled
+# by this suite would read as Dan's machine paying for it.
+rm -f "$ARCHIVE_LOG"
+OUT552E="$(archive_run "$RED_PURE")"
+check "an undeclared staged run still says what a real one would have cost" \
+    "$(grep -c '^==> Symbol archive: OvationTests recorded 2 issues' <<< "$OUT552E")" "1"
+check "but writes no record" "$([ -e "$ARCHIVE_LOG" ] && echo written || echo absent)" "absent"
+check "and says it was not recorded, rather than quoting an empty count" \
+    "$(mentions "$OUT552E" "not recorded")" "yes"
 
 # A TREE WHOSE TESTS CANNOT BE COUNTED IS NOT A GREEN RUN: nothing would be
 # compared, which is the defect this exists to end (L98, L215).
@@ -1973,8 +2053,18 @@ check_exit "a run ABOVE its floor is refused too, because a floor that never mov
 # test, and there is no number to write down anywhere. A test defending the
 # reversed remedy is the guard for the rejected behaviour, so they are rewritten
 # rather than adjusted (L252, L430).
-check "and it says the run is not at fault, the count of expected tests is" \
-    "$(mentions "$OUT157" "The run is not at fault")" "yes"
+# A FORCED COUNT IS NOT THE COUNTER'S (ovation#588). This case used to assert
+# that the refusal blamed the count of declared tests, but a run given
+# OVATION_TEST_FLOOR never counted any: the expected number is the one it was
+# handed. A message may claim only what its check measured (L11), so the forced
+# case names the value it was given and leaves the counter alone. Rewritten
+# rather than adjusted, because it defended the wrong claim (L252).
+check "and it names the forced value it compared against, and where it came from" \
+    "$(mentions "$OUT157" "OVATION_TEST_FLOOR=100")" "yes"
+check "and it does not blame the declared test counter, which never ran" \
+    "$(mentions "$OUT157" "pure_tests_declared")" "no"
+check "and it does not say the count of declared tests missed some" \
+    "$(mentions "$OUT157" "count of declared tests")" "no"
 check "and it hands no command to write a number down, because none is kept" \
     "$(printf '%s' "$OUT157" | grep -c "printf '%s.n'")" "0"
 
