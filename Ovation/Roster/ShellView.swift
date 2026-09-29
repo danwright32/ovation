@@ -144,6 +144,9 @@ struct ShellView: View {
     @State private var refusedTax: String?
     /// Why the last line or service type was not written, or nil.
     @State private var refusedLine: String?
+    /// Discount writes finished, saved or refused, handed to the screen so it can
+    /// refill its field from the store after each (ovation#495).
+    @State private var discountSettled = 0
     /// The review open over the invoice, or nil (ovation#42).
     @State private var openReview: InvoiceReview?
     @State private var reviewOnScreen = ReviewOnScreen<InvoiceReview>()
@@ -621,6 +624,7 @@ struct ShellView: View {
         refusedLine = await writeDiscount?(invoice, discount)
         guard let openedInvoiceID, openedInvoiceID == invoice else { return }
         openedInvoice = openInvoice?(openedInvoiceID)
+        discountSettled += 1
         publishWhatIsOpen()
     }
 
@@ -717,6 +721,7 @@ struct ShellView: View {
                         guard let openedInvoiceID else { return }
                         Task { await discounted(openedInvoiceID, discount) }
                     },
+                    discountSettled: discountSettled,
                     payment: paymentControls,
                     heldMoney: heldMoneyControls,
                     review: reviewer == nil ? nil : { startReview() },

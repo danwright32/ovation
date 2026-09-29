@@ -92,10 +92,9 @@ final class InvoiceEditCommand {
     /// ONE ANSWER GOVERNS BOTH whether it is disabled and what it says, because
     /// two conditions about one thing are two things that can disagree (L70).
     ///
-    /// THE ORDER IS WRITTEN. The invoice's state comes before its discount: a
-    /// sent invoice carrying one cannot have a discount added for the stronger
-    /// reason, and sending Dan to a control that a sent invoice does not offer
-    /// either would name a remedy that changes nothing (L111).
+    /// ASKED ONLY WHILE THERE IS NO DISCOUNT. An invoice that already carries
+    /// one does not draw the entry at all (`offersToAddADiscount`, ovation#495),
+    /// so the reasons here are only the invoice's own state.
     static func whyADiscountCannotBeAdded(_ open: Open?) -> String? {
         guard let open else { return "No invoice is open." }
         switch open.sentStatus {

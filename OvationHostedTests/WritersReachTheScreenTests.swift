@@ -88,6 +88,7 @@ struct WritersReachTheScreenTests {
         _ draft: Draft, heard: Heard, edits: InvoiceEditCommand, spying: Bool,
         writePayment: ((PersistentIdentifier, PaymentEntry) async -> String?)?? = nil,
         writeCleared: ((PersistentIdentifier) async -> String?)?? = nil,
+        writeDiscount: ((PersistentIdentifier, Discount?) async -> String?)?? = nil,
         openings: Heard? = nil, on destination: Destination = .invoices,
         reviewer: InvoiceReviewer? = nil
     ) -> RootView {
@@ -110,7 +111,8 @@ struct WritersReachTheScreenTests {
             writeTaxStatus: spying ? { _, _ in heard.record("writeTaxStatus"); return nil } : nil,
             writeLine: spying ? { _, _, _ in heard.record("writeLine"); return nil } : nil,
             writeServiceType: spying ? { _, _ in heard.record("writeServiceType"); return nil } : nil,
-            writeDiscount: spying ? { _, _ in heard.record("writeDiscount"); return nil } : nil,
+            writeDiscount: writeDiscount
+                ?? (spying ? { _, _ in heard.record("writeDiscount"); return nil } : nil),
             writeReferralCredit: spying ? { _, _ in heard.record("writeReferralCredit"); return nil } : nil,
             writePayment: writePayment
                 ?? (spying ? { _, _ in heard.record("writePayment"); return nil } : nil),
@@ -320,6 +322,36 @@ struct WritersReachTheScreenTests {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         #expect(after == nil)
+    }
+
+    /// ovation#495. The discount field shows what was typed the moment it is
+    /// committed, before the write lands. A write the writer then REFUSES changes
+    /// nothing in the store, so the store's own reseed never fires, and the field
+    /// would go on showing a discount the invoice does not carry (L415). So every
+    /// finished discount write, refused or not, is handed to the screen as a new
+    /// count, and the screen refills the field from the store on it.
+    @Test("a refused discount write still tells the screen the write finished")
+    func arefusedDiscountIsSettled() async throws {
+        let draft = try Self.draft()
+        let refusal = InvoiceDiscountRefusal.invoiceWasSent.sentence
+        let shell = try Self.shell(of: Self.window(
+            draft, heard: Heard(), edits: InvoiceEditCommand(), spying: false,
+            writeDiscount: .some({ _, _ in refusal })))
+        ViewHosting.host(view: shell)
+        defer { ViewHosting.expel() }
+        let screen = try await Self.open(draft, in: shell)
+        #expect(screen.discountSettled == 0)
+        let set = try #require(screen.setDiscount, "the screen was given no discount write")
+
+        set(InvoiceEditCommand.whatItAdds)
+        var settled = 0
+        for _ in 0..<200 {
+            settled = try await Self.current(in: shell)?.discountSettled ?? 0
+            if settled == 1 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(settled == 1, "a refused write left the screen's count where it was")
+        #expect(try await Self.current(in: shell)?.refusedLine == refusal)
     }
 
     /// ovation#185. A write the screen did not make still changes the invoice on

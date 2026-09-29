@@ -85,6 +85,11 @@ struct InvoiceScreenView: View {
     /// when given nothing. Nil where the caller has nowhere to put it, in which
     /// case the figure is still drawn and the controls are not (L651).
     var setDiscount: ((Discount?) -> Void)?
+    /// How many discount writes have FINISHED, saved or refused, counted by the
+    /// shell. The field is refilled from the store each time it moves, because a
+    /// refused write changes nothing the store's own reseed can see, and the field
+    /// would otherwise keep a value the invoice does not carry (L415, ovation#495).
+    var discountSettled = 0
 
     /// What is in the discount's value field, and which unit it is in.
     ///
@@ -1074,6 +1079,14 @@ struct InvoiceScreenView: View {
             // that discount rather than an empty field, which no later change
             // would ever fix.
             .onChange(of: presenter.discountBeingEdited, initial: true) { _, _ in
+                discountTyped = editing.typed
+                discountIsPercent = editing.isPercent
+            }
+            // AND AGAIN WHEN A WRITE FINISHES, which is the case the line above
+            // cannot see: a refused write leaves the stored discount where it was,
+            // after `commitDiscount` has already put the would be value in the
+            // field.
+            .onChange(of: discountSettled) { _, _ in
                 discountTyped = editing.typed
                 discountIsPercent = editing.isPercent
             }
