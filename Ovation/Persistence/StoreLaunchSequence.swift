@@ -515,8 +515,9 @@ struct StoreLaunchSequence {
     ///
     /// THE DAY IS THE MANIFEST'S, never the folder name's, which a sync or a
     /// rename can change; the name stands in only when the date could not be
-    /// read. "Nothing in that backup has changed" is exactly what the check that
-    /// compares every recorded file with its hash measured, and only that (L11).
+    /// read. "Nothing in that backup has changed" is said only when every reason
+    /// is a file Ovation expected or requires since, and no recorded file failed
+    /// its hash, so it never sits beside a reason that contradicts it (L11).
     /// Three are named and the rest counted, so one damaged archive cannot fill
     /// the panel.
     static func archiveNoLongerVerifiesSentence(name: String,
@@ -544,7 +545,14 @@ struct StoreLaunchSequence {
         if !reasons.isEmpty {
             let opening = changed.isEmpty ? "The backup \(which) failed" : "It also failed"
             sentences.append("\(opening) its check because \(plainList(reasons)).")
-            if changed.isEmpty { sentences.append("Nothing in that backup has changed.") }
+            // ONLY WHEN EVERY REASON LEAVES THE BACKUP AS IT WAS MADE (L11, L440):
+            // a file Ovation expected, or one required since, is about the rule.
+            // A document whose copy differs, or a copy of a secret, is about the
+            // backup itself, and "nothing has changed" beside it contradicts it.
+            let untouched = failures.allSatisfy {
+                $0.verdict == .memberMissing || $0.verdict == .requiredAfterItWasWritten
+            }
+            if untouched { sentences.append("Nothing in that backup has changed.") }
         }
         sentences.append("Today's backup is fine.")
         return sentences.joined(separator: " ")

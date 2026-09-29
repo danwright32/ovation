@@ -1062,6 +1062,35 @@ struct StoreLaunchSequenceTests {
                 + "is fine.")
     }
 
+    /// "NOTHING IN THAT BACKUP HAS CHANGED" IS SAID ONLY WHEN IT IS TRUE of every
+    /// reason given (L11, L440). No recorded file failed its hash here, but the
+    /// backup's copy of a document Ovation refers to is different, and the
+    /// sentence must not contradict itself by calling the backup unchanged.
+    @Test("a backup whose referenced document differs is never called unchanged")
+    func aDifferingDocumentIsNeverCalledUnchanged() {
+        let sentence = StoreLaunchSequence.archiveNoLongerVerifiesSentence(
+            name: "Ovation-backup-2026-09-17-091500",
+            failures: [.init(path: "ab/receipt.pdf", verdict: .referencedDocumentMismatch)],
+            writtenAt: BackupTests.noon(2026, 9, 17))
+
+        #expect(!sentence.contains("Nothing in that backup has changed"))
+        #expect(sentence
+                == "The backup from 17 Sep failed its check because its copy of ab/receipt.pdf, "
+                + "a document Ovation refers to, is different. Today's backup is fine.")
+    }
+
+    /// And one reason that allows it beside one that does not leaves it out too.
+    @Test("an expected file beside a secret copy is not called unchanged either")
+    func aMixOfReasonsIsNotCalledUnchanged() {
+        let sentence = StoreLaunchSequence.archiveNoLongerVerifiesSentence(
+            name: "Ovation-backup-2026-09-17-091500",
+            failures: [.init(path: "launch-backups.jsonl", verdict: .memberMissing),
+                       .init(path: "notes.txt", verdict: .secretPresent)],
+            writtenAt: BackupTests.noon(2026, 9, 17))
+
+        #expect(!sentence.contains("Nothing in that backup has changed"))
+    }
+
     /// A file Ovation now requires that backups did not need when this one was
     /// made is neither damage nor a pass, so it is said in its own words.
     @Test("a file required only since the backup was made is said in its own words")
