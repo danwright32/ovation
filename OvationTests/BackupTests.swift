@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 
 /// A file manager that refuses ONE copy, so a restore can be made to fail partway
@@ -488,7 +489,7 @@ struct BackupTests {
         let reference = world.receiptReference
         let service = BackupService(
             dataDirectory: world.dataDirectory, backupsDirectory: world.backupsDirectory,
-            dailyKeep: 1, referencedDocuments: { [reference] },
+            dailyKeep: 1, referencedDocuments: { _ in [reference] },
             fileManager: UndeletableFileManager(refusing: "Ovation-backup-2026-03-02-090000"))
 
         let taken = try service.takeBackup(now: world.instant)
@@ -510,7 +511,7 @@ struct BackupTests {
         let reference = world.receiptReference
         let service = BackupService(
             dataDirectory: world.dataDirectory, backupsDirectory: world.backupsDirectory,
-            dailyKeep: 3, referencedDocuments: { [reference] },
+            dailyKeep: 3, referencedDocuments: { _ in [reference] },
             fileManager: UnlistableFileManager(refusing: world.backupsDirectory))
 
         let taken = try service.takeBackup(now: world.instant)
@@ -875,6 +876,75 @@ struct BackupTests {
         #expect(writtenAt == Self.noon(2026, 9, 17))
     }
 
+    // MARK: one archive, checked again by name (ovation#613)
+
+    @Test("an archive checked by name that still verifies says so")
+    func anArchiveCheckedByNameVerifies() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+
+        #expect(world.service.reverify(archiveNamed: archive.lastPathComponent)
+                == .verified(archive.lastPathComponent))
+    }
+
+    @Test("an archive checked by name that has been damaged says so")
+    func anArchiveCheckedByNameFails() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        try FileManager.default.removeItem(at: archive.appendingPathComponent("Ovation.store"))
+
+        guard case .failed(let name, _, _) = world.service.reverify(
+            archiveNamed: archive.lastPathComponent) else {
+            Issue.record("a damaged archive checked by name did not fail")
+            return
+        }
+        #expect(name == archive.lastPathComponent)
+    }
+
+    /// GONE, only when the folder was read and the name is not in it.
+    @Test("an archive no longer in a folder that could be read is gone")
+    func anArchiveNoLongerThereIsGone() throws {
+        let world = try World()
+        _ = try world.service.takeBackup(now: world.instant)
+
+        #expect(world.service.reverify(archiveNamed: "Ovation-backup-2026-03-02-090000")
+                == .gone("Ovation-backup-2026-03-02-090000"))
+    }
+
+    /// A FOLDER THAT CANNOT BE LISTED IS NOT AN EMPTY ONE. A share that is not
+    /// mounted must never resolve a problem as though its archive were deleted
+    /// (L119, L211).
+    @Test("a folder that cannot be listed is not an archive gone")
+    func anUnlistableFolderIsNotGone() throws {
+        let world = try World()
+        let service = BackupService(
+            dataDirectory: world.dataDirectory,
+            backupsDirectory: world.root.appendingPathComponent("not mounted", isDirectory: true),
+            dailyKeep: 3, referencedDocuments: { _ in [] })
+
+        guard case .couldNotRead = service.reverify(archiveNamed: "Ovation-backup-2026-03-02-090000")
+        else {
+            Issue.record("an unlistable folder answered as though it had been read")
+            return
+        }
+    }
+
+    /// A directory by that name with no manifest cannot be judged, which is not
+    /// the same as not being there.
+    @Test("an archive whose manifest has gone is not gone")
+    func aManifestlessArchiveIsNotGone() throws {
+        let world = try World()
+        let archive = try world.service.takeBackup(now: world.instant).archive
+        try FileManager.default.removeItem(
+            at: archive.appendingPathComponent(BackupManifest.filename))
+
+        guard case .couldNotRead = world.service.reverify(archiveNamed: archive.lastPathComponent)
+        else {
+            Issue.record("an archive with no manifest was reported gone or judged")
+            return
+        }
+    }
+
     /// AN EMPTY FOLDER IS ITS OWN ANSWER, never a pass. A re-check that examined
     /// nothing must not read like one that found nothing wrong (L98).
     @Test("a folder with no archives says it checked nothing")
@@ -979,7 +1049,7 @@ struct BackupTests {
         let service = BackupService(dataDirectory: world.dataDirectory,
                                     backupsDirectory: blocked,
                                     dailyKeep: 3,
-                                    referencedDocuments: { [] })
+                                    referencedDocuments: { _ in [] })
 
         var thrown: BackupError?
         do {
@@ -1452,7 +1522,7 @@ struct BackupTests {
             dataDirectory: world.dataDirectory,
             backupsDirectory: world.backupsDirectory,
             dailyKeep: world.dailyKeep,
-            referencedDocuments: { [reference] },
+            referencedDocuments: { _ in [reference] },
             fileManager: RefusingFileManager(refusing: "documents", in: world.dataDirectory))
 
         var thrown: Error?
@@ -1491,7 +1561,7 @@ struct BackupTests {
             dataDirectory: world.dataDirectory,
             backupsDirectory: world.backupsDirectory,
             dailyKeep: world.dailyKeep,
-            referencedDocuments: { [reference] },
+            referencedDocuments: { _ in [reference] },
             fileManager: UnlistableFileManager(refusing: archivedQueue))
 
         var thrown: Error?
@@ -1529,7 +1599,7 @@ struct BackupTests {
             dataDirectory: world.dataDirectory,
             backupsDirectory: world.backupsDirectory,
             dailyKeep: world.dailyKeep,
-            referencedDocuments: { [reference] },
+            referencedDocuments: { _ in [reference] },
             fileManager: RefusingFileManager(refusing: "problems.jsonl", in: snapshotFolder))
 
         var thrown: Error?
@@ -1623,7 +1693,100 @@ struct BackupTests {
         #expect(report.failures.isEmpty)
     }
 
+    // MARK: an archive is judged by what ITS OWN store referenced (ovation#612)
+
+    /// THE RECEIPT ATTACHED SINCE IS NOT THE ARCHIVE'S BUSINESS. The re-check
+    /// compared each old archive with what the LIVE store points at today, so the
+    /// first receipt attached after an archive was written made that archive fail
+    /// with `referencedDocumentAbsent` and raise "Old backup broken", though nothing
+    /// in it had changed (L1013). The stores here are real SQLite files read by the
+    /// production reader, because a closure that ignores which store it is handed
+    /// cannot tell the two stores apart (L52).
+    @Test("a receipt attached after an archive was written does not break that archive")
+    func aReceiptAttachedLaterLeavesAnOlderArchiveVerifying() throws {
+        let world = try World()
+        let service = try world.readingRealStores(referencing: [world.receiptReference])
+        let archive = try service.takeBackup(now: world.instant).archive
+
+        let later = try world.attachReceipt("a receipt attached later")
+
+        #expect(try world.referencesOfTheLiveStore().contains(later))
+        #expect(try service.reverifyOneArchive(now: world.instant)
+                == .verified(archive.lastPathComponent))
+    }
+
+    /// The restore runs the same check, so it refused the same archive for the
+    /// same receipt, although what it puts back is that archive's own store,
+    /// which never pointed at it.
+    @Test("a receipt attached after an archive was written does not refuse its restore")
+    func aReceiptAttachedLaterDoesNotRefuseTheRestore() throws {
+        let world = try World()
+        let service = try world.readingRealStores(referencing: [world.receiptReference])
+        let archive = try service.takeBackup(now: world.instant).archive
+        _ = try world.attachReceipt("a receipt attached later")
+
+        try service.restore(from: archive, now: world.instant.addingTimeInterval(60))
+    }
+
+    /// THE POSITIVE CONTROL (L159): what the archive's OWN store points at is
+    /// still required, so a receipt it referenced and no longer holds fails.
+    @Test("a receipt the archive's own store references and the archive lacks still fails")
+    func aReceiptTheArchivedStoreReferencesIsStillRequired() throws {
+        let world = try World()
+        let service = try world.readingRealStores(referencing: [world.receiptReference])
+        let archive = try service.takeBackup(now: world.instant).archive
+        try FileManager.default.removeItem(
+            at: archive.appendingPathComponent("documents/\(world.receiptPath)"))
+
+        let report = try service.verify(archive: archive)
+
+        #expect(report.failures.contains {
+            $0.path == world.receiptPath && $0.verdict == .referencedDocumentAbsent
+        })
+    }
+
+    /// A STORE COPY THAT HAS CHANGED IS REPORTED AS CHANGED. Its references are
+    /// not read, because what a damaged store says it pointed at is the damage,
+    /// and reading one that no longer parses would throw the whole check into
+    /// "could not read", which raises nothing, so bit rot in the one file that
+    /// holds every invoice would go unsaid (L11).
+    @Test("an archive whose store has changed says so rather than failing to be read")
+    func aChangedArchivedStoreIsReportedNotThrown() throws {
+        let world = try World()
+        let service = try world.readingRealStores(referencing: [world.receiptReference])
+        let archive = try service.takeBackup(now: world.instant).archive
+        try Data("no longer a database".utf8)
+            .write(to: archive.appendingPathComponent("Ovation.store"))
+
+        let report = try service.verify(archive: archive)
+
+        #expect(report.failures.contains { $0.path == "Ovation.store" && $0.verdict == .mismatch })
+    }
+
     // MARK: fixtures
+
+    /// Replaces the fixture's fabricated store with a real SQLite one carrying
+    /// one expense table, so `StoreDocumentReferences` reads it as it reads
+    /// Ovation's.
+    static func writeReferencingStore(at url: URL, references: [ReferencedDocument]) throws {
+        try? FileManager.default.removeItem(at: url)
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &handle,
+                              SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
+              let handle else {
+            sqlite3_close(handle)
+            throw BackupError.couldNotWrite(url.path)
+        }
+        defer { sqlite3_close(handle) }
+        var sql = "CREATE TABLE ZEXPENSE (Z_PK INTEGER PRIMARY KEY, ZRELATIVEPATH TEXT, ZSHA256 TEXT);"
+        for reference in references {
+            sql += "INSERT INTO ZEXPENSE (ZRELATIVEPATH, ZSHA256) VALUES "
+                + "('\(reference.relativePath)', '\(reference.sha256)');"
+        }
+        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+            throw BackupError.couldNotWrite(String(cString: sqlite3_errmsg(handle)))
+        }
+    }
 
     /// A data directory with one of everything, and a backup folder beside it.
     private struct World {
@@ -1687,7 +1850,7 @@ struct BackupTests {
             service = BackupService(dataDirectory: dataDirectory,
                                     backupsDirectory: backupsDirectory,
                                     dailyKeep: dailyKeep,
-                                    referencedDocuments: { [reference] })
+                                    referencedDocuments: { _ in [reference] })
         }
 
         /// A service whose STORE points at the given documents. The closure is
@@ -1699,7 +1862,39 @@ struct BackupTests {
             BackupService(dataDirectory: dataDirectory,
                           backupsDirectory: backupsDirectory,
                           dailyKeep: dailyKeep,
-                          referencedDocuments: { documents })
+                          referencedDocuments: { _ in documents })
+        }
+
+        /// A service over a REAL store, read the way the app reads it.
+        func readingRealStores(referencing documents: [ReferencedDocument]) throws
+            -> BackupService {
+            try BackupTests.writeReferencingStore(at: liveStore, references: documents)
+            return BackupService(dataDirectory: dataDirectory,
+                                 backupsDirectory: backupsDirectory,
+                                 dailyKeep: dailyKeep,
+                                 referencedDocuments: {
+                                     try StoreDocumentReferences.readCopy(ofStoreAt: $0)
+                                 })
+        }
+
+        var liveStore: URL { dataDirectory.appendingPathComponent("Ovation.store") }
+
+        func referencesOfTheLiveStore() throws -> [ReferencedDocument] {
+            try StoreDocumentReferences.read(storeURL: liveStore)
+        }
+
+        /// Files a new receipt and points the live store at it, beside every
+        /// reference it already held.
+        func attachReceipt(_ contents: String) throws -> ReferencedDocument {
+            let bytes = Data(contents.utf8)
+            let documents = DocumentStore(
+                root: dataDirectory.appendingPathComponent("documents", isDirectory: true))
+            let reference = ReferencedDocument(
+                relativePath: try documents.store(bytes, extension: "pdf").relativePath,
+                sha256: DocumentStore.hash(of: bytes))
+            try BackupTests.writeReferencingStore(
+                at: liveStore, references: try referencesOfTheLiveStore() + [reference])
+            return reference
         }
 
         /// Plants an archive directory carrying a manifest, so a retention case

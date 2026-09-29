@@ -89,6 +89,39 @@ enum StoreDocumentReferences {
         return references
     }
 
+    /// Every document the store copied into an archive points at, read from a
+    /// COPY of that store (ovation#612).
+    ///
+    /// NOT FROM THE FILE WHERE IT LIES. Opening a SQLite store, even read only,
+    /// can write the shared memory file beside it, and create one where there was
+    /// none (L474). Inside an archive that is a recorded file changing, or a file
+    /// nothing recorded appearing, on the folder that may sync to a NAS, so the
+    /// store and whichever of its write ahead log and shared memory file are
+    /// there are copied aside and the copy is read. The log is copied because
+    /// the newest committed pages can live in it, and a store read without it
+    /// answers for an older state (ovation#88).
+    static func readCopy(ofStoreAt storeURL: URL) throws -> [ReferencedDocument] {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: storeURL.path) else {
+            throw BackupError.couldNotRead(storeURL.path)
+        }
+        let aside = manager.temporaryDirectory
+            .appendingPathComponent("ovation-store-read-\(UUID().uuidString)", isDirectory: true)
+        defer { try? manager.removeItem(at: aside) }
+        let copy = aside.appendingPathComponent(storeURL.lastPathComponent)
+        do {
+            try manager.createDirectory(at: aside, withIntermediateDirectories: true)
+            for suffix in ["", "-wal", "-shm"] {
+                let source = URL(fileURLWithPath: storeURL.path + suffix)
+                guard manager.fileExists(atPath: source.path) else { continue }
+                try manager.copyItem(at: source, to: URL(fileURLWithPath: copy.path + suffix))
+            }
+        } catch {
+            throw BackupError.couldNotRead("\(storeURL.path): \(error.localizedDescription)")
+        }
+        return try read(storeURL: copy)
+    }
+
     /// Every table carrying BOTH columns. Derived from the store itself, so a
     /// model nobody has built yet is covered the day it lands.
     private static func referencingTables(in database: OpaquePointer,

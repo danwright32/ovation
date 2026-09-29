@@ -241,7 +241,7 @@ struct BackupCostTests {
 
             service = BackupService(
                 dataDirectory: dataDirectory, backupsDirectory: backups, dailyKeep: 3,
-                referencedDocuments: { fixed })
+                referencedDocuments: { _ in fixed })
         }
 
         /// One backup and one verification, timed together, because that pair is

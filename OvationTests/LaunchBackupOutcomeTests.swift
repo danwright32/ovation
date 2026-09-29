@@ -165,6 +165,50 @@ struct LaunchBackupOutcomeTests {
                                     LaunchBackupOutcome.deadline(for: size)])
     }
 
+    /// ovation#613. EVERY NAMED ARCHIVE GETS ITS OWN ANSWER AND ITS OWN WAIT, the
+    /// size measured once. One shared deadline would be one archive's allowance
+    /// stretched over several.
+    @Test("each archive checked by name gets an answer and a wait of its own")
+    func eachNamedArchiveIsCheckedUnderItsOwnDeadline() async {
+        let waits = RecordedWaits()
+        let size = BackupSize(files: 4_000, bytes: 1_000_000_000)
+
+        let checked = await LaunchBackupOutcome.recheck(
+            ["a", "b"], measuring: { size }, sleeping: waits.sleep) { .gone($0) }
+
+        #expect(checked == [.gone("a"), .gone("b")])
+        #expect(waits.durations == [LaunchBackupOutcome.deadlineFloor,
+                                    LaunchBackupOutcome.deadline(for: size),
+                                    LaunchBackupOutcome.deadline(for: size)])
+    }
+
+    /// One that throws says nothing, as the rotation's does, and the rest are
+    /// still asked.
+    @Test("a named re-check that fails says nothing and the rest are still asked")
+    func aFailingNamedRecheckSaysNothing() async {
+        struct Refused: Error {}
+        let checked = await LaunchBackupOutcome.recheck(
+            ["a", "b"], measuring: { BackupSize(files: 1, bytes: 1) }) { name in
+                if name == "a" { throw Refused() }
+                return .verified(name)
+            }
+
+        #expect(checked == [.nothingToCheck, .verified("b")])
+    }
+
+    @Test("no names asks nothing, not even the size")
+    func noNamesAsksNothing() async {
+        let waits = RecordedWaits()
+
+        let checked = await LaunchBackupOutcome.recheck(
+            [], measuring: { BackupSize(files: 1, bytes: 1) }, sleeping: waits.sleep) {
+                .verified($0)
+            }
+
+        #expect(checked.isEmpty)
+        #expect(waits.durations.isEmpty)
+    }
+
     /// Records every deadline a wait was given, then waits far longer than any
     /// test, so the work always answers first and the timer is cancelled.
     ///

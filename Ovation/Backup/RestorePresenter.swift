@@ -52,7 +52,7 @@ final class RestorePresenter {
     private let dataDirectory: URL
     private let backupsDirectory: URL
     private let dailyKeep: Int
-    private let referencedDocuments: @Sendable () throws -> [ReferencedDocument]
+    private let referencedDocuments: @Sendable (URL) throws -> [ReferencedDocument]
     private let now: @MainActor () -> Date
     /// What the restore writes through. INJECTED so a test can make a write fail
     /// partway without damaging a disk (ovation#258, L196).
@@ -68,7 +68,7 @@ final class RestorePresenter {
     init(dataDirectory: URL,
          backupsDirectory: URL,
          dailyKeep: Int,
-         referencedDocuments: @escaping @Sendable () throws -> [ReferencedDocument],
+         referencedDocuments: @escaping @Sendable (URL) throws -> [ReferencedDocument],
          now: @escaping @MainActor () -> Date,
          fileManager: @escaping @Sendable () -> FileManager) {
         self.dataDirectory = dataDirectory
@@ -179,9 +179,16 @@ final class RestorePresenter {
         do {
             result = try service.restore(from: archive, now: now())
         } catch BackupError.verificationFailed(let failures) {
-            return .refused("\(name) does not verify, so it was NOT restored: "
-                            + "\(failures.count) problem(s) with what is in it. "
-                            + "Nothing in Ovation has been changed.")
+            // WHICH FILE, AND WHETHER THE BACKUP CHANGED (ovation#614), in the
+            // parts the Problems list uses, so the two cannot drift. A count of
+            // problems sent Dan to the folder when the cause was a rule in Ovation.
+            let which = BackupFailureSentences.which(
+                name: name, writtenAt: (try? service.manifest(of: archive))?.createdAt)
+            return .refused(
+                (["\(name) was NOT restored."]
+                    + BackupFailureSentences.whatIsWrong(with: which, failures: failures)
+                    + ["Nothing in Ovation has been changed."])
+                    .joined(separator: " "))
         } catch BackupError.restoredPartway(let replaced, let failedAt, let snapshot, let cause) {
             // THE DATA FOLDER IS NOW A MIX (ovation#258), so this can never borrow
             // the sentence below. It names what went back, what may be missing, and

@@ -154,6 +154,32 @@ enum LaunchBackupOutcome {
             from: await BlockingWork.run(deadline: deadline, sleeping: sleeping, work))
     }
 
+    /// Re-checks each named archive, the ones an open problem is about
+    /// (ovation#613), each under its own deadline sized like the re-check above.
+    ///
+    /// EACH ITS OWN WAIT, because each is one archive's worth of the same work,
+    /// and one deadline shared by all of them would be one archive's allowance
+    /// stretched over several. The size is measured once: it is the data folder's,
+    /// and it does not change between them. One that gives up says nothing, as
+    /// above, and the problem it is about stands until a later launch reaches it.
+    static func recheck(
+        _ names: [String],
+        measuring: @escaping @Sendable () throws -> BackupSize,
+        sleeping: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        _ work: @escaping @Sendable (String) throws -> BackupService.Reverification
+    ) async -> [BackupService.Reverification] {
+        guard !names.isEmpty else { return [] }
+        let deadline = await measuredDeadline(measuring, sleeping: sleeping)
+        var found: [BackupService.Reverification] = []
+        for name in names {
+            found.append(reverification(
+                from: await BlockingWork.run(deadline: deadline, sleeping: sleeping) {
+                    try work(name)
+                }))
+        }
+        return found
+    }
+
     /// The deadline the measured size calls for, or the floor when the size could
     /// not be read. The walk runs under the floor, because it reads no contents.
     private static func measuredDeadline(
