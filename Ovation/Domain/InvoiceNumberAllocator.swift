@@ -65,7 +65,6 @@
 // even once he says it did not go. `releaseNumbersAbandonedReviewsHeld` is the launch
 // sweep, and it gives back only held numbers, through `release` and its refusals.
 import Foundation
-import os
 import SwiftData
 
 enum InvoiceNumberRefusal: Error, Equatable {
@@ -308,27 +307,3 @@ actor InvoiceNumberAllocator {
     }
 }
 
-extension InvoiceNumberAllocator {
-    /// The launch's one call (ovation#362): the sweep over the store that has just
-    /// opened, awaited before the container is handed to any screen, so no review
-    /// can hold a number the sweep would mistake for an abandoned one.
-    ///
-    /// A SWEEP THAT FAILS LEAVES EVERY HOLD WHERE IT WAS, which is the safe side:
-    /// the invoice keeps its number and its next review takes it up (see
-    /// `InvoiceReviewer.open`). So it is logged rather than raised on screen, and it
-    /// still says so, because a quiet failure here would read as a launch that found
-    /// nothing held (L98).
-    static func giveBackAbandonedReviewNumbers(over container: ModelContainer) async {
-        do {
-            let sweep = try await InvoiceNumberAllocator(modelContainer: container)
-                .releaseNumbersAbandonedReviewsHeld()
-            if !sweep.released.isEmpty || !sweep.kept.isEmpty {
-                logger.notice("Numbers left by reviews at the last quit: gave back \(sweep.released, privacy: .public), kept \(sweep.kept.keys.sorted(), privacy: .public)")
-            }
-        } catch {
-            logger.fault("Numbers left by reviews at the last quit could not be given back: \(String(describing: error), privacy: .public)")
-        }
-    }
-
-    private static let logger = Logger(subsystem: "com.danwright.ovation", category: "invoice-numbers")
-}

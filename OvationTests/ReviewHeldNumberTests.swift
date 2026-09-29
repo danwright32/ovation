@@ -358,4 +358,48 @@ struct ReviewHeldNumberTests {
         }
         #expect(try Self.stored(old.id, in: container).number == 1_140)
     }
+
+    // MARK: a sweep that fails is said, and clears itself (Dan, 2026-09-29)
+
+    /// THE SENTENCE IS DAN'S, word for word, so it is asserted whole rather than by a
+    /// fragment a different sentence could also contain (L347).
+    @Test("a launch sweep that fails is raised in the problems list with Dan's sentence")
+    func aFailedSweepIsSaid() async throws {
+        struct Refused: Error {}
+        let problems = ProblemsStore(journal: InMemoryProblemsJournal())
+
+        await AbandonedReviewNumbers.giveBack(sweep: { throw Refused() }, problems: problems, now: Self.noon)
+
+        let said = try #require(problems.open.first { $0.kind == .reviewNumbersNotReleased })
+        #expect(said.sentence == "Unused invoice numbers could not be released. Ovation will try again next launch.")
+    }
+
+    @Test("a later launch whose sweep succeeds clears the problem, and one that finds nothing clears it too")
+    func aLaterSweepClearsIt() async throws {
+        struct Refused: Error {}
+        let problems = ProblemsStore(journal: InMemoryProblemsJournal())
+        await AbandonedReviewNumbers.giveBack(sweep: { throw Refused() }, problems: problems, now: Self.noon)
+        #expect(problems.open.contains { $0.kind == .reviewNumbersNotReleased })
+
+        await AbandonedReviewNumbers.giveBack(sweep: { AbandonedReviewSweep(released: [], kept: [:]) },
+                                              problems: problems, now: Self.noon.addingTimeInterval(86_400))
+
+        #expect(!problems.open.contains { $0.kind == .reviewNumbersNotReleased },
+                "a sweep that worked left the failure standing")
+    }
+
+    /// And over a real store: the launch's own entry point runs the sweep.
+    @Test("the launch entry point gives back a held number over a real store and raises nothing")
+    func theLaunchEntryPointSweeps() async throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let id = try Self.draft(in: container)
+        _ = try await InvoiceNumberAllocator(modelContainer: container)
+            .allocate(to: try Self.modelID(id, in: container))
+        let problems = ProblemsStore(journal: InMemoryProblemsJournal())
+
+        await AbandonedReviewNumbers.giveBack(over: container, problems: problems, now: Self.noon)
+
+        #expect(try Self.stored(id, in: container).number == nil)
+        #expect(problems.open.isEmpty)
+    }
 }
