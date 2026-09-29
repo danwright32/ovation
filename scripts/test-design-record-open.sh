@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design record status tests" 56
+harness_begin "design record status tests" 61
 
 TARGET="scripts/check-design-record-open.sh"
 require_target "$TARGET"
@@ -379,14 +379,31 @@ check_exit "a label list answering something that is not issue numbers cannot me
 check "and it is not read as a list of numbers" \
     "$(failing_list "$LISTED" "echo 'HTTP 504: try again'" | grep -c 'could not be listed')" "1"
 
-# NO LABELLED ISSUE AT ALL. A label renamed or deleted lists nothing and exits 0,
-# exactly like a tracker with no decision waiting, so this is its own outcome
-# rather than a pass: the section names issues it calls open and nothing carries
-# the handle this check enumerates by (L543).
-check_exit "no open issue carrying the label cannot measure" \
-    2 failing_list "$LISTED" "true"
-check "and says why an empty list is not a pass" \
-    "$(failing_list "$LISTED" "true" | grep -c 'no open issue carries the design-decision label')" "1"
+# NO LABELLED ISSUE AT ALL IS A LEGITIMATE STATE. On 2026-09-30 Dan settled
+# every open design question and the label came off all seven issues, so a list
+# with nothing on it is the tracker saying nothing is waiting, and it passes.
+# The issues the section still names are still asked about, in the first
+# direction, exactly as before.
+check_exit "no open issue carrying the label passes" 0 failing_list "$LISTED" "true"
+check "and it says so rather than passing silently" \
+    "$(failing_list "$LISTED" "true" | grep -c 'No open issue carries the design-decision label')" "1"
+
+# AND A SECTION WITH NOTHING IN IT SAYS SO. A section naming no issue used to be
+# CANNOT MEASURE and still is, unless it states the healthy day in the one
+# declared sentence, so an emptied section and a record with nothing waiting
+# are told apart by what the record says rather than by a guess (L98, L610).
+SETTLED="$WORK/settled"
+record "$SETTLED" 'Nothing is waiting on Dan. Every design decision has been made.'
+check_exit "a section saying nothing is waiting, with no labelled issue, passes" \
+    0 failing_list "$SETTLED" "true"
+check "and the verdict says nothing is waiting" \
+    "$(failing_list "$SETTLED" "true" | grep -c 'OK: the design record says nothing is waiting on Dan, and no open issue carries the design-decision label')" "1"
+check_exit "a section saying nothing is waiting while a labelled issue is open is refused" \
+    1 failing_list "$SETTLED" "echo 489"
+check "and the labelled issue is named as missing" \
+    "$(failing_list "$SETTLED" "echo 489" | grep -c 'MISSING ovation#489')" "1"
+check_exit "a section saying nothing is waiting still cannot measure when the list fails" \
+    2 failing_list "$SETTLED" "exit 4"
 
 # A CLOSED ISSUE STILL OUTRANKS A LIST THAT FAILED, as a shape fault does: it
 # was measured and is true whatever the list says.

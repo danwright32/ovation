@@ -60,10 +60,18 @@ WHAT THAT CANNOT SEE, said rather than assumed: a decision nobody labelled is as
 invisible as before. The label is the whole mechanism, so applying it is part of
 opening such an issue.
 
-AN EMPTY LIST IS NOT A PASS. A label that was renamed or deleted lists nothing
-and exits 0, exactly like a tracker with no decision waiting, and the section
-this reads names at least one issue it calls open, so the two disagree and
-nothing can say which is wrong (L543, L98).
+AN EMPTY LIST IS A LEGITIMATE STATE. It was first written as CANNOT MEASURE, on
+the reasoning that a renamed label and a tracker with nothing waiting look the
+same (L543). On 2026-09-30 Dan settled every open design question and the label
+came off all seven issues, so nothing waiting is a real day and must pass. It is
+SAID rather than passed silently, and a label list that could not be READ is
+still CANNOT MEASURE, because a failure and an empty answer are different things.
+
+AND THE HEALTHY DAY IS STATED, NOT INFERRED. A section naming no issue is still
+CANNOT MEASURE, because an emptied section reads exactly like a finished one,
+unless it carries the one declared sentence `Nothing is waiting on Dan.` (L610).
+With it, the section is a claim this can check: it passes while no open issue
+carries the label, and any labelled issue is MISSING from it.
 
 WHAT IT STILL CANNOT CATCH. An entry that stops being true while citing a
 requirement that has since been corrected to say the opposite still passes: a
@@ -125,6 +133,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs", "design")
 README = os.path.join(ROOT, "README.md")
 SECTION = "## What is still open"
+# The one sentence a section naming no issue declares the healthy day with.
+NOTHING_WAITING = "Nothing is waiting on Dan."
 DEFAULT_COMMAND = "gh issue view {n} --json state --jq .state"
 ISSUE = re.compile(r"ovation#(\d+)")
 # ovation#195. The label Dan chose, and the lookup that lists what carries it.
@@ -316,9 +326,12 @@ def main(argv):
     for line_no, line in found:
         for number in ISSUE.findall(line):
             seen.setdefault(int(number), []).append(("the design record", line_no))
-    if not seen:
-        print("CANNOT MEASURE: the `%s` section names no issue, so this "
-              "compared nothing." % SECTION)
+    says_nothing_waiting = any(NOTHING_WAITING.lower() in line.lower()
+                               for _, line in found)
+    if not seen and not says_nothing_waiting:
+        print("CANNOT MEASURE: the `%s` section names no issue and does not say `%s`, "
+              "so this compared nothing. A section emptied by mistake and a record "
+              "with nothing waiting must not report the same." % (SECTION, NOTHING_WAITING))
         return 2
 
     # ovation#200. The same question, asked of each design file's own list.
@@ -383,10 +396,8 @@ def main(argv):
               "listed, so whether the section names every one was not compared"
               % DECISION_LABEL)
     elif not decisions:
-        print("  CANNOT MEASURE: no open issue carries the %s label, while the section "
-              "names %d issue(s) it calls open. A renamed label and a tracker with "
-              "nothing waiting both look like this, so it is not a pass"
-              % (DECISION_LABEL, len(in_record)))
+        print("  No open issue carries the %s label, so no design decision is waiting "
+              "on Dan." % DECISION_LABEL)
     else:
         for number in decisions:
             if number in in_record:
@@ -414,7 +425,7 @@ def main(argv):
                   "re-checked. Each is one list item naming an ovation#N or a PRD number."
                   % (len(shaped), "y" if len(shaped) == 1 else "ies"))
         return 1
-    if not decisions:
+    if decisions is None:
         print("CANNOT MEASURE: the other direction was not compared: whether every "
               "open issue carrying the %s label is named in the section is unknown. "
               "That is not a pass." % DECISION_LABEL)
@@ -425,12 +436,21 @@ def main(argv):
               "that failed and an issue that is open must not read the same."
               % (len(unknown), len(seen)))
         return 2
+    if not seen:
+        print("OK: the design record says nothing is waiting on Dan, and no open issue "
+              "carries the %s label." % DECISION_LABEL)
+        print("    %d design file(s) carry their own list, %d keep their record elsewhere."
+              % (len(with_list), len(without_list)))
+        return 0
     print("OK: every one of the %d issue(s) the design record and its files call "
           "still open is open." % open_count)
     print("    %d design file(s) carry their own list, %d keep their record elsewhere."
           % (len(with_list), len(without_list)))
-    print("    And all %d open issue(s) carrying the %s label are named in the section."
-          % (len(decisions), DECISION_LABEL))
+    if decisions:
+        print("    And all %d open issue(s) carrying the %s label are named in the section."
+              % (len(decisions), DECISION_LABEL))
+    else:
+        print("    And no open issue carries the %s label." % DECISION_LABEL)
     return 0
 
 

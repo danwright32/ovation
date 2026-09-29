@@ -718,32 +718,39 @@ invoice screen's own money formatter is `screenMoney`, no longer sharing the PDF
 
 ## What is still open
 
-Every open issue carrying the `design-decision` label is named here, and
-`scripts/check-design-record-open.sh` refuses the record when one is not. The label
-goes on an issue that is a design decision waiting on Dan, and comes off when he has made it.
+Nothing is waiting on Dan. Every open design question was settled on 2026-09-29, and the decisions
+are recorded as the latest comments on the issues below, which stay open for the building.
 
-- **The receipts queue** (`ovation#100`) is the only screen not designed at all.
-- **How the header of a combined invoice names several shoots** (`ovation#147`). The times moved
-  onto each shoot's own line on 2026-09-29; naming the shoots is the next round.
-- **How a chosen type looks on a line being added while it stays changeable** (`ovation#489`):
-  the name stays the chooser, or becomes plain text that reopens the list. Where Cancel sits was
-  settled on 2026-09-29.
-- **Cancelling an invoice** (`ovation#47`): the cancel panel, its consequence sentence, the refund
-  question's two answers and fields, where the prior year refusal sits, and how a refunded row is
-  drawn. "Cancel this invoice" is a null action in `invoice.html`.
-- **Editing and resending an invoice** (`ovation#46`): what pressing Edit and resend does, how
-  earlier versions and their PDFs are reached, the resent email's wording, and whether a resend
-  keeps its number.
-- **The surfaces expense categories need** (`ovation#82`): where a suspected duplicate is shown
-  with both answers, and where the asset threshold is edited.
-- **The page each design file is written on** (`ovation#165`): one shared record page for every
-  design file, which changes how `invoice.html` reads.
+Every open issue carrying the `design-decision` label is named here, and
+`scripts/check-design-record-open.sh` refuses the record when one is not. The label goes on an
+issue that is a design decision waiting on Dan, and comes off when he has made it. When nothing
+carries it, this section says so in the sentence above rather than standing empty.
 
 ## What was open here and is now settled
 
 **Everything below was in the section above and is not any more.** It is kept rather than deleted,
 because what a decision REPLACED is part of the decision, and moved rather than left, because the
 heading above is read as a list of what is outstanding.
+
+**The seven design questions open on 2026-09-29 are all settled, each by Dan on that day and each
+recorded as the latest comment on its issue.** The issues stay open because the building is not
+done; only the design is.
+
+- **The receipts queue** (`ovation#100`): at the 860 point window the vendor column gives way and
+  every row stays one line; a field Ovation was unsure of shows the quiet word "unsure".
+- **How a combined invoice's header names several shoots** (`ovation#147`): each shoot on its own
+  line under the client, with its own date; the times sit on each shoot's photography line.
+- **How a chosen type looks while it stays changeable** (`ovation#489`): the chooser is drawn
+  shaded with no border, a soft patch of the selection shade with the triangle.
+- **Cancelling an invoice** (`ovation#47`): the band reads "Cancelled" and the date, and cancelling
+  a sent invoice with a payment on it is refused in favour of Edit and resend.
+- **Editing and resending** (`ovation#46`): the invoice unlocks in place and keeps its number, the
+  resend email says it replaces the earlier one, and a payment names its version only when totals
+  could confuse.
+- **Expense categories** (`ovation#82`): a suspected duplicate is settled on the rows themselves,
+  and a likely asset is said by a line naming the threshold under the Amount.
+- **The page each design file is written on** (`ovation#165`): Dan could not see the difference,
+  so it is a tidy-up rather than a design choice: one shared page stylesheet.
 
 **The Clients detail pane no longer scrolls sideways at a narrow window** (`ovation#110`, closed
 2026-09-26). Dan decided on 2026-09-23 that the window's minimum is measured and must reach half
