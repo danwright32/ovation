@@ -75,18 +75,57 @@ _xpi_phase_region() {
 # Every word the code of these files could name a file by, one per line. A line
 # whose first non blank character is # is a comment in shell and in Python alike.
 # Written without character classes, which older awks on Linux runners lack.
+#
+# A PYTHON DOCSTRING IS PROSE TOO (ovation#603). Most scripts here are Python
+# files named .sh, and their docstrings name other scripts as freely as their
+# comments do: one sentence naming the pre-push hook in check-live-data-untouched.sh
+# made every design script and the shell suite floor Xcode phase inputs. A
+# docstring is a triple quoted string standing as a statement where Python reads
+# one as documentation: before any code in the file, straight after a line ending
+# in a colon (a def or a class), or assigned to __doc__, which is how the files
+# that start under bash write theirs. A triple quoted string anywhere else is an
+# argument or a value and stays code, because reading it as prose would miss a
+# file the phase runs, and a miss is the unsafe direction (L93).
 _xpi_words() {
     _xpi_words_in "$@"
 }
 
 _xpi_words_in() {
-    awk '!/^[ \t]*#/ {
-        s = $0
-        while (match(s, /[A-Za-z0-9_.+-]+/)) {
-            print substr(s, RSTART, RLENGTH)
-            s = substr(s, RSTART + RLENGTH)
+    awk 'function words(s) {
+            while (match(s, /[A-Za-z0-9_.+-]+/)) {
+                print substr(s, RSTART, RLENGTH)
+                s = substr(s, RSTART + RLENGTH)
+            }
         }
-    }' "$@" | sort -u
+        FNR == 1 { closer = ""; last = "" }
+        closer != "" {
+            at = index($0, closer)
+            if (at == 0) next
+            words(substr($0, at + 3))
+            closer = ""
+            next
+        }
+        /^[ \t]*#/ || /^[ \t]*$/ { next }
+        {
+            s = $0
+            sub(/^[ \t]+/, "", s)
+            opens = (last == "" || last ~ /:[ \t]*$/)
+            if (s ~ /^__doc__[ \t]*=/) {
+                sub(/^__doc__[ \t]*=[ \t]*/, "", s)
+                opens = 1
+            }
+            sub(/^[rRuU]/, "", s)
+            quote = substr(s, 1, 3)
+            last = $0
+            if (opens && (quote == "\"\"\"" || quote == "\047\047\047")) {
+                rest = substr(s, 4)
+                at = index(rest, quote)
+                if (at == 0) { closer = quote; next }
+                words(substr(rest, at + 3))
+                next
+            }
+            words($0)
+        }' "$@" | sort -u
 }
 
 # The files on stdin that can run and are not shell suites, from the current

@@ -30,7 +30,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode phase inputs tests" 39
+harness_begin "xcode phase inputs tests" 46
 
 LIB="scripts/lib/xcode-phase-inputs.sh"
 require_target "$LIB"
@@ -57,6 +57,7 @@ cat > "$F/scripts/run-tests.sh" <<'EOF'
 . "$REPO_ROOT/scripts/lib/pin.sh"
 floor="$(cat "$REPO_ROOT/scripts/floor.txt")"
 . "$REPO_ROOT/scripts/lib/removed.sh"
+python3 "$REPO_ROOT/scripts/documented.py"
 EOF
 printf '#!/bin/bash\npython3 "$(dirname "$0")/../deep.py"\n' > "$F/scripts/lib/pin.sh"
 printf 'print("deep")\n' > "$F/scripts/deep.py"
@@ -68,6 +69,31 @@ printf '#!/bin/bash\necho design\n' > "$F/scripts/check-design-thing.sh"
 printf '#!/bin/bash\nOVATION_XCODEBUILD=stub xcodebuild -version\nbash scripts/lonely.sh\n' > "$F/scripts/test-fake.sh"
 printf '#!/bin/bash\necho lonely\n' > "$F/scripts/lonely.sh"
 printf '#!/bin/bash\n# this once ran xcodebuild, and now only says so\necho tool\n' > "$F/scripts/tool.sh"
+# A PYTHON DOCSTRING IS PROSE, like a comment (ovation#603). The first shape is
+# the one the scripts here use: a file named .sh that bash hands to python3, and
+# whose docstring is assigned to __doc__ because the line above it is a string.
+# A triple quoted string that is an ARGUMENT is code, and stays code, because
+# reading it as prose would miss a file the phase runs (L93).
+cat > "$F/scripts/documented.py" <<'EOF'
+#!/usr/bin/env python3
+''''exec python3 "$0" "$@" #'''
+__doc__ = """Names docmodule.sh in a module docstring,
+and docmodule2.sh on a later line of it.
+"""
+import subprocess
+
+
+def run():
+    """Names docfunc.sh in a function docstring."""
+    subprocess.run(["bash", "codenamed.sh"])
+    subprocess.run(["python3", "plain.py"])
+    subprocess.run(
+        """bash literal.sh""", shell=True)
+EOF
+printf '"""Names plaindoc.sh in a plain module docstring."""\nprint("plain")\n' > "$F/scripts/plain.py"
+for name in docmodule docmodule2 docfunc codenamed literal plaindoc; do
+    printf '#!/bin/bash\necho %s\n' "$name" > "$F/scripts/$name.sh"
+done
 cat > "$F/Ovation/Reader.swift" <<'EOF'
 import Foundation
 enum Reader {
@@ -108,6 +134,20 @@ check "a file the runner names that is no longer on disk is still read" \
 
 check "a script named only in a comment is not read" \
     "$(verdict scripts/commented.sh)" "not read"
+check "a script named only in a module docstring is not read (ovation#603)" \
+    "$(verdict scripts/docmodule.sh)" "not read"
+check "nor one named on a later line of that docstring" \
+    "$(verdict scripts/docmodule2.sh)" "not read"
+check "nor one named only in a function docstring" \
+    "$(verdict scripts/docfunc.sh)" "not read"
+check "nor one named only in a plain module docstring" \
+    "$(verdict scripts/plaindoc.sh)" "not read"
+check "the file holding that plain docstring is still read, by its code" \
+    "$(verdict scripts/plain.py)" "read"
+check "a script the documented file's code names is read" \
+    "$(verdict scripts/codenamed.sh)" "read"
+check "and so is one named in a triple quoted string that is an argument" \
+    "$(verdict scripts/literal.sh)" "read"
 check "a script nothing in the phase names is not read" \
     "$(verdict scripts/check-design-thing.sh)" "not read"
 # THE SHELL SUITES RUN ON EVERY PUSH WHATEVER THE GATE DECIDES, so a suite that
