@@ -718,7 +718,26 @@ invoice screen's own money formatter is `screenMoney`, no longer sharing the PDF
 
 ## What is still open
 
-The receipts queue, `ovation#100`, is the only screen not designed at all.
+Every open issue carrying the `design-decision` label is named here, and
+`scripts/check-design-record-open.sh` refuses the record when one is not. The label
+goes on an issue that is a design decision waiting on Dan, and comes off when he has made it.
+
+- **The receipts queue** (`ovation#100`) is the only screen not designed at all.
+- **How the header of a combined invoice names several shoots** (`ovation#147`). The times moved
+  onto each shoot's own line on 2026-09-29; naming the shoots is the next round.
+- **How a chosen type looks on a line being added while it stays changeable** (`ovation#489`):
+  the name stays the chooser, or becomes plain text that reopens the list. Where Cancel sits was
+  settled on 2026-09-29.
+- **Cancelling an invoice** (`ovation#47`): the cancel panel, its consequence sentence, the refund
+  question's two answers and fields, where the prior year refusal sits, and how a refunded row is
+  drawn. "Cancel this invoice" is a null action in `invoice.html`.
+- **Editing and resending an invoice** (`ovation#46`): what pressing Edit and resend does, how
+  earlier versions and their PDFs are reached, the resent email's wording, and whether a resend
+  keeps its number.
+- **The surfaces expense categories need** (`ovation#82`): where a suspected duplicate is shown
+  with both answers, and where the asset threshold is edited.
+- **The page each design file is written on** (`ovation#165`): one shared record page for every
+  design file, which changes how `invoice.html` reads.
 
 ## What was open here and is now settled
 

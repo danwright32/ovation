@@ -41,6 +41,30 @@ per entry, every item names an `ovation#N` or a `PRD` number, prose outside any
 item is refused as not an entry, and a heading with no items under it is refused
 as empty rather than read as nothing being open.
 
+AND THE OTHER DIRECTION (ovation#195). Everything above asks whether an issue the
+section NAMES is still open. Nothing asked whether an issue that is open and
+waiting on Dan is NAMED, and on the day that was measured the section listed
+three while seven design decisions of the same kind were open elsewhere; the
+check was green throughout, correctly, because it answered the only question it
+asked. A list verified in one direction reads as verified (L178).
+
+The handle is Dan's decision of 2026-09-29: a dedicated `design-decision` label,
+applied deliberately to an issue that is a design decision waiting on him. Not
+`ui-ux`, because not every such issue is a decision, and not a milestone, which
+sweeps in implementation. Every open issue carrying the label must be named in
+the README's `What is still open` section, and one that is not is MISSING. Named
+only inside a design file's own list does not count: the README's section is the
+one read as THE list.
+
+WHAT THAT CANNOT SEE, said rather than assumed: a decision nobody labelled is as
+invisible as before. The label is the whole mechanism, so applying it is part of
+opening such an issue.
+
+AN EMPTY LIST IS NOT A PASS. A label that was renamed or deleted lists nothing
+and exits 0, exactly like a tracker with no decision waiting, and the section
+this reads names at least one issue it calls open, so the two disagree and
+nothing can say which is wrong (L543, L98).
+
 WHAT IT STILL CANNOT CATCH. An entry that stops being true while citing a
 requirement that has since been corrected to say the opposite still passes: a
 citation says what to re-read, not that anybody did.
@@ -60,6 +84,8 @@ distinct messages (L11):
     OPEN          the tracker says it is open, so the sentence is true
     CLOSED        the tracker says it is closed, and the section still names it
     UNKNOWN       nothing could be learned about it, which is not a pass
+    MISSING       it carries the design-decision label, is open, and the
+                  section does not name it (ovation#195)
 
 And, for each design file's own list, read from the file alone:
 
@@ -70,9 +96,11 @@ And, for each design file's own list, read from the file alone:
 Exit codes:
 
     0  every issue the section names is open
-    1  at least one is closed, or a design file's list has an uncited item,
-       prose outside an item, or no items
-    2  the section, or an issue's state, could not be read: not a pass
+    1  at least one is closed, a labelled decision is missing from the
+       section, or a design file's list has an uncited item, prose outside
+       an item, or no items
+    2  the section, an issue's state, or the labelled list could not be
+       read, or nothing carries the label: not a pass
     3  used wrongly
 
 Seams:
@@ -80,6 +108,9 @@ Seams:
     OVATION_DESIGN_ROOT          the design record to read
     OVATION_ISSUE_STATE_COMMAND  a command taking an issue number and printing
                                  OPEN or CLOSED, defaulting to the gh CLI
+    OVATION_DECISION_LIST_COMMAND  a command printing the number of every open
+                                 issue carrying the design-decision label, one
+                                 per line, defaulting to the gh CLI
 """
 import os
 import re
@@ -96,6 +127,13 @@ README = os.path.join(ROOT, "README.md")
 SECTION = "## What is still open"
 DEFAULT_COMMAND = "gh issue view {n} --json state --jq .state"
 ISSUE = re.compile(r"ovation#(\d+)")
+# ovation#195. The label Dan chose, and the lookup that lists what carries it.
+# The limit is far above any real count, and a list that reaches it is refused
+# below rather than read as complete (L211).
+DECISION_LABEL = "design-decision"
+DECISION_LIMIT = 500
+DEFAULT_DECISION_COMMAND = ("gh issue list --label %s --state open --limit %d "
+                            "--json number --jq '.[].number'" % (DECISION_LABEL, DECISION_LIMIT))
 
 
 def section_lines(text):
@@ -237,6 +275,28 @@ def state_of(number, command):
     return None
 
 
+def labelled_decisions(command):
+    """The open issues carrying the label, as a sorted list, or None.
+
+    NONE MEANS NOTHING WAS LEARNED, never an empty list: a command that failed,
+    answered something that is not issue numbers, or reached the limit. An HTTP
+    error printed where numbers were expected is the shape this refuses (L215).
+    """
+    try:
+        done = subprocess.run(command, shell=True, capture_output=True, text=True,
+                              timeout=60)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if done.returncode != 0:
+        return None
+    lines = [l.strip() for l in done.stdout.splitlines() if l.strip()]
+    if any(not l.isdigit() for l in lines):
+        return None
+    if len(lines) >= DECISION_LIMIT:
+        return None
+    return sorted({int(l) for l in lines})
+
+
 def main(argv):
     if len(argv) > 1:
         print(__doc__.strip().split("\n")[2])
@@ -311,7 +371,38 @@ def main(argv):
             print("  UNKNOWN ovation#%d, named on %s: nothing could be learned "
                   "about it" % (number, places))
 
-    if closed or shaped:
+    # ovation#195. The other direction: every open decision waiting on Dan is
+    # named in the README's section. Only the README's own lines count.
+    in_record = {number for number, places in seen.items()
+                 if any(where == "the design record" for where, _ in places)}
+    decisions = labelled_decisions(os.environ.get("OVATION_DECISION_LIST_COMMAND")
+                                   or DEFAULT_DECISION_COMMAND)
+    missing = []
+    if decisions is None:
+        print("  CANNOT MEASURE: the open issues carrying the %s label could not be "
+              "listed, so whether the section names every one was not compared"
+              % DECISION_LABEL)
+    elif not decisions:
+        print("  CANNOT MEASURE: no open issue carries the %s label, while the section "
+              "names %d issue(s) it calls open. A renamed label and a tracker with "
+              "nothing waiting both look like this, so it is not a pass"
+              % (DECISION_LABEL, len(in_record)))
+    else:
+        for number in decisions:
+            if number in in_record:
+                print("  NAMED   ovation#%d carries the %s label and the section names it"
+                      % (number, DECISION_LABEL))
+            else:
+                missing.append(number)
+                print("  MISSING ovation#%d carries the %s label and the `%s` section "
+                      "does not name it. Name it there, or take the label off if it "
+                      "is not a decision waiting on Dan" % (number, DECISION_LABEL, SECTION))
+
+    if closed or shaped or missing:
+        if missing:
+            print("REFUSED: %d open issue(s) carrying the %s label are missing from the "
+                  "design record's `%s` section, which is read as the list of what is "
+                  "outstanding." % (len(missing), DECISION_LABEL, SECTION))
         if closed:
             print("REFUSED: %d of %d issue(s) the design record calls still open "
                   "are closed. Correct the sentence, or reopen the issue."
@@ -323,6 +414,11 @@ def main(argv):
                   "re-checked. Each is one list item naming an ovation#N or a PRD number."
                   % (len(shaped), "y" if len(shaped) == 1 else "ies"))
         return 1
+    if not decisions:
+        print("CANNOT MEASURE: the other direction was not compared: whether every "
+              "open issue carrying the %s label is named in the section is unknown. "
+              "That is not a pass." % DECISION_LABEL)
+        return 2
     if unknown:
         print("CANNOT MEASURE: %d of %d issue(s) could not be looked up, so "
               "this proved nothing about them. That is not a pass: a lookup "
@@ -333,6 +429,8 @@ def main(argv):
           "still open is open." % open_count)
     print("    %d design file(s) carry their own list, %d keep their record elsewhere."
           % (len(with_list), len(without_list)))
+    print("    And all %d open issue(s) carrying the %s label are named in the section."
+          % (len(decisions), DECISION_LABEL))
     return 0
 
 

@@ -62,7 +62,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       # THE THREE OUTCOMES ARE KEPT APART (L11). 0 the record agrees, 1 it calls a
-      # closed issue open, 2 nothing could be looked up and so nothing was proved.
+      # closed issue open or leaves out a labelled decision (ovation#195), 2
+      # nothing could be looked up and so nothing was proved.
+      #
+      # THE TITLE COVERS BOTH DIRECTIONS since ovation#195. It was "calls a closed
+      # issue still open"; no issue under that title was open when it changed, so
+      # no finding was orphaned by the rename.
       - name: Ask the tracker
         id: ask
         env:
@@ -92,7 +97,7 @@ jobs:
         if: steps.ask.outputs.status == '1'
         env:
           GH_TOKEN: ${{ github.token }}
-          TITLE: The design record calls a closed issue still open
+          TITLE: The design record's open list disagrees with the tracker
         run: |
           set -uo pipefail
           {
@@ -105,14 +110,17 @@ jobs:
             echo
             sed 's/^/    /' verdict.txt
             echo
-            echo "An issue named in the design record's list of what is still open has"
-            echo "been closed, so the record now overstates what is outstanding. This"
-            echo "is not caused by whatever landed most recently: the verdict changes"
-            echo "when an issue closes, with no commit in between, which is why it is"
-            echo "reported here rather than as a red build on an unrelated push."
+            echo "The design record's list of what is still open disagrees with the"
+            echo "tracker: it names an issue that has been closed, or an open issue"
+            echo "carrying the design-decision label is missing from it (ovation#195)."
+            echo "This is not caused by whatever landed most recently: the verdict"
+            echo "changes when an issue closes or is labelled, with no commit in"
+            echo "between, which is why it is reported here rather than as a red build"
+            echo "on an unrelated push."
             echo
             echo "The remedy is in the verdict above: correct the sentence that names"
-            echo "it, or reopen the issue."
+            echo "a closed issue or reopen it, and name a MISSING decision in the"
+            echo "section or take the label off it."
             echo
             echo "This issue is commented on rather than duplicated while it is open,"
             echo "and closed by this workflow once the record agrees with the tracker."
@@ -145,7 +153,7 @@ jobs:
         if: steps.ask.outputs.status == '0'
         env:
           GH_TOKEN: ${{ github.token }}
-          TITLE: The design record calls a closed issue still open
+          TITLE: The design record's open list disagrees with the tracker
         run: |
           set -uo pipefail
           {

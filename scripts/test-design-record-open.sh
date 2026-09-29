@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design record status tests" 42
+harness_begin "design record status tests" 56
 
 TARGET="scripts/check-design-record-open.sh"
 require_target "$TARGET"
@@ -30,9 +30,16 @@ cat > "$WORK/reader.sh" <<'SH'
 SH
 chmod +x "$WORK/reader.sh"
 
+# AND THE LABELLED LIST FROM A FILE THE SAME WAY (ovation#195): which open issues
+# carry the design-decision label, one number per line, so a case says which
+# decisions are waiting on Dan rather than the tracker deciding it.
+DECISIONS="$WORK/decisions"
+printf '95\n' > "$DECISIONS"
+
 run_on() {
     OVATION_DESIGN_ROOT="$1" STATES="$STATES" \
         OVATION_ISSUE_STATE_COMMAND="bash $WORK/reader.sh {n}" \
+        OVATION_DECISION_LIST_COMMAND="cat $DECISIONS" \
         python3 "$TARGET" 2>&1
 }
 status_on() {
@@ -151,7 +158,8 @@ check "the committed record answers with one of this check's own outcomes" "$KNO
 # records for the rendering checks, which the gate does not call because every
 # push already runs them against the COMMITTED files through their sibling suite,
 # and a second call in the gate would be a second copy of one policy (L613).
-COMMITTED="$(OVATION_ISSUE_STATE_COMMAND='echo OPEN' python3 "$TARGET" 2>&1)"
+COMMITTED="$(OVATION_ISSUE_STATE_COMMAND='echo OPEN' OVATION_DECISION_LIST_COMMAND='echo 100' \
+    python3 "$TARGET" 2>&1)"
 check "every committed design file's open list is correctly shaped" \
     "$(printf '%s' "$COMMITTED" | grep -cE '^  (UNCITED|NOT AN ENTRY|EMPTY)')" "0"
 # AND THE RUN THAT SAID SO ACTUALLY READ THEM. A check on the absence of a word
@@ -182,6 +190,7 @@ $3
 HTML
 }
 
+printf '100\n' > "$DECISIONS"
 FILEOPEN="$WORK/fileopen"
 record "$FILEOPEN" 'The record itself names `ovation#100`.'
 design_file "$FILEOPEN" "invoice-list.html" '<ol><li>Where the times live, ovation#95.</li></ol>'
@@ -318,5 +327,71 @@ printf '100 OPEN\n110 OPEN\n' > "$STATES"
 check_exit "the markup that closes the section is not read as an entry" 0 status_on "$WRAPPED"
 check "and nothing in it is reported" \
     "$(run_on "$WRAPPED" | grep -cE 'NOT AN ENTRY|UNCITED')" "0"
+
+# ---------------------------------------------------------------------------
+# THE OTHER DIRECTION (ovation#195). Everything above asks whether an issue the
+# section NAMES is still open. Nothing asked whether an issue that is open and
+# waiting on Dan is NAMED: the section once listed three while seven design
+# decisions of the same kind were open, and this check was green throughout
+# because it answered the only question it asked. Dan decided on 2026-09-29 that
+# the handle is a dedicated `design-decision` label, applied deliberately, and
+# that an open issue carrying it and missing from the section is refused.
+# ---------------------------------------------------------------------------
+LISTED="$WORK/listed"
+record "$LISTED" 'The receipts queue, `ovation#100`, and the combined header, `ovation#147`.'
+printf '100 OPEN\n147 OPEN\n' > "$STATES"
+printf '100\n147\n' > "$DECISIONS"
+check_exit "every labelled decision named in the section passes" 0 status_on "$LISTED"
+check "and the verdict says the labelled decisions were compared" \
+    "$(run_on "$LISTED" | grep -c 'all 2 open issue(s) carrying the design-decision label')" "1"
+
+printf '100\n147\n489\n' > "$DECISIONS"
+check_exit "a labelled decision the section does not name is refused" 1 status_on "$LISTED"
+check "and the missing one is named, with what to do" \
+    "$(run_on "$LISTED" | grep -c 'MISSING ovation#489 carries the design-decision label')" "1"
+check "and the ones that are named are not accused" \
+    "$(run_on "$LISTED" | grep -cE 'MISSING ovation#(100|147)')" "0"
+check "and the verdict counts it" \
+    "$(run_on "$LISTED" | grep -c 'REFUSED: 1 open issue(s) carrying the design-decision label')" "1"
+
+# NAMED IN A DESIGN FILE'S OWN LIST IS NOT NAMED IN THE RECORD. Dan's decision
+# names the README's section, which is the list people read as the list.
+design_file "$LISTED" "invoice.html" '<ol><li>The chosen type, ovation#489.</li></ol>'
+printf '100 OPEN\n147 OPEN\n489 OPEN\n' > "$STATES"
+check_exit "a labelled decision named only inside a design file is still refused" \
+    1 status_on "$LISTED"
+rm -f "$LISTED/invoice.html"
+
+# A LIST THAT COULD NOT BE READ IS NOT A LIST WITH NOTHING ON IT (L98, L11).
+printf '100 OPEN\n147 OPEN\n' > "$STATES"
+failing_list() {
+    OVATION_DESIGN_ROOT="$1" STATES="$STATES" \
+        OVATION_ISSUE_STATE_COMMAND="bash $WORK/reader.sh {n}" \
+        OVATION_DECISION_LIST_COMMAND="$2" \
+        python3 "$TARGET" 2>&1
+}
+check_exit "a label list that could not be read cannot measure" \
+    2 failing_list "$LISTED" "exit 4"
+check "and says the list could not be read, in its own words" \
+    "$(failing_list "$LISTED" "exit 4" | grep -c 'CANNOT MEASURE: the open issues carrying the design-decision label could not be listed')" "1"
+check_exit "a label list answering something that is not issue numbers cannot measure" \
+    2 failing_list "$LISTED" "echo 'HTTP 504: try again'"
+check "and it is not read as a list of numbers" \
+    "$(failing_list "$LISTED" "echo 'HTTP 504: try again'" | grep -c 'could not be listed')" "1"
+
+# NO LABELLED ISSUE AT ALL. A label renamed or deleted lists nothing and exits 0,
+# exactly like a tracker with no decision waiting, so this is its own outcome
+# rather than a pass: the section names issues it calls open and nothing carries
+# the handle this check enumerates by (L543).
+check_exit "no open issue carrying the label cannot measure" \
+    2 failing_list "$LISTED" "true"
+check "and says why an empty list is not a pass" \
+    "$(failing_list "$LISTED" "true" | grep -c 'no open issue carries the design-decision label')" "1"
+
+# A CLOSED ISSUE STILL OUTRANKS A LIST THAT FAILED, as a shape fault does: it
+# was measured and is true whatever the list says.
+printf '100 OPEN\n147 CLOSED\n' > "$STATES"
+check_exit "a closed issue is still refused when the label list cannot be read" \
+    1 failing_list "$LISTED" "exit 4"
 
 harness_end

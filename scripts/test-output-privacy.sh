@@ -580,10 +580,57 @@ chmod +x "$WORK/openlist-reader.sh"
 check "the design record status check prints no identity when it refuses" \
     "$(leaks_in "$(OVATION_DESIGN_ROOT="$OPENLIST" \
         OVATION_ISSUE_STATE_COMMAND="bash $WORK/openlist-reader.sh {n}" \
+        OVATION_DECISION_LIST_COMMAND="echo 102" \
         python3 ./scripts/check-design-record-open.sh 2>&1)")" "clean"
 check "and none when it cannot measure" \
     "$(leaks_in "$(OVATION_DESIGN_ROOT="$OPENLIST/nowhere" \
+        OVATION_DECISION_LIST_COMMAND="echo 102" \
         python3 ./scripts/check-design-record-open.sh 2>&1)")" "clean"
+
+# The plan issue mapping, ovation#180. Issue titles and bodies are where a
+# client's name would sit, and it prints only numbers and the plan's own
+# milestone names, so an issue carrying one is fed in and must not come out.
+PLANMAP="$WORK/planmap"
+mkdir -p "$PLANMAP"
+printf '## Phase 4, expenses\n\nMilestone: `Expenses`.\n\n### 4.1 Slice\n' > "$PLANMAP/plan.md"
+printf 'open\tExpenses\n' > "$PLANMAP/milestones.tsv"
+printf '[{"number":5,"state":"OPEN","title":"Invoice %s","body":"At %s, plan 4.1.","milestone":{"title":"Expenses"}},{"number":6,"state":"OPEN","title":"%s","body":"%s again","milestone":{"title":"Expenses"}}]' \
+    "$CLIENT" "$VENUE" "$CLIENT" "$VENUE" > "$PLANMAP/issues.json"
+PLANMAP_SAID="$(OVATION_PLAN="$PLANMAP/plan.md" \
+    OVATION_PLAN_ISSUES_COMMAND="cat $PLANMAP/issues.json" \
+    OVATION_PLAN_MILESTONES_COMMAND="cat $PLANMAP/milestones.tsv" \
+    ./scripts/check-plan-issues.sh 2>&1)"
+check "the plan issue mapping prints no identity when it refuses" "$(leaks_in "$PLANMAP_SAID")" "clean"
+check "and that refusal really did name the issue, so the case reached it" \
+    "$(printf '%s' "$PLANMAP_SAID" | grep -c 'UNMAPPED   ovation#6')" "1"
+check "and none when it cannot measure" \
+    "$(leaks_in "$(OVATION_PLAN="$PLANMAP/plan.md" OVATION_PLAN_ISSUES_COMMAND="echo '$CLIENT'" \
+        OVATION_PLAN_MILESTONES_COMMAND="cat $PLANMAP/milestones.tsv" \
+        ./scripts/check-plan-issues.sh 2>&1)")" "clean"
+
+# The flaky job count, ovation#493. A run's title is a commit message or a pull
+# request title, where a client's name could sit; it prints the workflow's and
+# the job's names from the public workflow files, and never a run's title.
+FLAKY="$WORK/flaky"
+mkdir -p "$FLAKY"
+cat > "$FLAKY/gh" <<SH
+#!/bin/bash
+if [ "\$1 \$2" = "run list" ]; then
+  printf '[{"databaseId":7,"attempt":2,"workflowDatabaseId":1,"workflowName":"CI","headSha":"abcdef0123","displayTitle":"$CLIENT at $VENUE"}]'
+  exit 0
+fi
+case "\$2" in
+  *attempts/1/*) printf '{"total_count":1,"jobs":[{"name":"Shell","conclusion":"failure","display_title":"$CLIENT"}]}' ;;
+  *) printf '{"total_count":1,"jobs":[{"name":"Shell","conclusion":"success"}]}' ;;
+esac
+SH
+chmod +x "$FLAKY/gh"
+FLAKY_SAID="$(OVATION_GH="$FLAKY/gh" OVATION_FLAKY_TODAY=2026-09-29 ./scripts/check-flaky-jobs.sh 2>&1)"
+check "the flaky job count prints no identity when it finds one" "$(leaks_in "$FLAKY_SAID")" "clean"
+check "and that run really did find it, so the case reached the printing" \
+    "$(printf '%s' "$FLAKY_SAID" | grep -c 'FLAKY  CI: Shell')" "1"
+check "and none when it cannot measure" \
+    "$(leaks_in "$(OVATION_GH="false" OVATION_FLAKY_TODAY=2026-09-29 ./scripts/check-flaky-jobs.sh 2>&1)")" "clean"
 
 # The CI liveness watcher, ovation#155. It prints two instants, a grace period
 # and a verdict, and it is in the set for the reason above rather than because
