@@ -476,7 +476,10 @@ tag in the embedded page is escaped, so it cannot end the switcher's script; the
 its page and placed by the window's measured position, so it never relies on a scroll; and its caption,
 the window's width and the scale it is drawn at, is measured in the switcher's own page. `--check`
 draws it the way the switcher does and refuses, with exit 9, an empty frame, a frame showing anything
-but the window, and a caption that disagrees with the drawing.
+but the window, and a caption that disagrees with the drawing. The frame is also pinned to the top of
+the stage, since the switcher's centring left about 250 points of empty stage above a framed window,
+and it is fitted again whenever its stage changes size, so an option built while hidden is measured
+when its tab is shown; `--check` refuses both.
 
 ## Nothing carries CSS for a screen it does not draw
 

@@ -161,7 +161,13 @@ and moved by the window's MEASURED place, so it never depends on a scroll at
 load and cannot show the page's intro instead; and the caption, the window's
 width and the scale it is drawn at, is written from what was measured in the
 switcher's own page, and --check reads it beside an independent measurement of
-the same drawing. --check also compares the framed window with the design
+the same drawing, rounded the way the caption rounds. The frame is pinned to
+the top of the stage, which the switcher otherwise centres it on, and it is
+fitted again whenever its stage changes size, so an option built while hidden
+is measured when it is shown; --check draws on a stage that centres as the
+switcher's does and on one hidden and then shown, and refuses both faults. A
+builder that cannot run is told apart from one cut short by a closing tag.
+--check also compares the framed window with the design
 file's own, element by element, and proves every move's values draw different
 windows, as for a lifted builder.
 
@@ -187,15 +193,18 @@ Exit codes, one per outcome (L11):
     8  --check and a move is INERT: two of its values draw the same screen, so a
        round moving it would offer a choice between copies of one screen
     9  --check on a frame, and the frame draws wrongly: its builder ends the
-       script it is inlined in (an empty frame), it draws no window, it shows
-       something other than the window, or its caption states a width or a
-       scale the drawing does not have
+       script it is inlined in (an empty frame), or could not run at all, which
+       is said apart; it draws no window; it shows something other than the
+       window; it leaves empty stage above the window; it is wider than its
+       stage, or never fitted when a hidden stage is shown; or its caption
+       states a width or a scale the drawing does not have
 
 Seams: OVATION_HEADLESS_BROWSER, OVATION_HARNESS_QUIRKS (compose the harness
 page with NO doctype, so the document mode difference of ovation#194 can be
 produced on purpose; it can only ever make this refuse, never pass).
 """
 import json
+import math
 import os
 import re
 import shutil
@@ -1297,7 +1306,13 @@ FRAME = 9
 
 FRAME_STYLES = """/* Written by scripts/lift-design-harness.sh in its frame mode (ovation#560).
    Do not edit by hand: re-run the lift. */
-.lift-frame { display: flex; flex-direction: column; gap: 8px; }
+/* PINNED TO THE TOP OF THE STAGE (approved by Dan, 2026-09-29). The switcher
+   centres whatever is on its stage with auto margins, which suits a screen
+   switched between options of different heights, and left a framed window
+   halfway down the page under about 250 points of empty stage. So the frame's
+   top margin is 0 and only the sides and foot stay automatic; it is declared
+   after the switcher's own rule and of the same weight, so it wins by order. */
+.lift-frame { margin: 0 auto auto; display: flex; flex-direction: column; gap: 8px; }
 .lift-frame-cap { margin: 0; font-size: 12px; line-height: 1.4; color: #6E6259; }
 .lift-frame[data-state="failed"] .lift-frame-cap { color: #A4262C; font-weight: 600; }
 .lift-frame-clip { position: relative; overflow: hidden; width: 0; height: 0; }
@@ -1369,11 +1384,38 @@ function liftFrameFit(box) {
     var cs = getComputedStyle(stage);
     avail = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   }
-  var s = avail > 0 ? Math.min(1, avail / w) : 1;
+  liftFrameWatchStage(box);
+  /* A STAGE WITH NO WIDTH IS ONE NOT SHOWN YET, and a scale read from it would
+     be a guess stated as a measurement. The frame waits, and the watch on the
+     stage fits it the moment the stage has a width. */
+  if (!(avail > 0)) {
+    liftFrameSay(box, "waiting", "Waiting for the stage to be shown before measuring the window.");
+    return;
+  }
+  var s = Math.min(1, avail / w);
   box._clip.style.width = Math.floor(w * s) + "px";
   box._clip.style.height = Math.ceil(h * s) + "px";
   fr.style.transform = "scale(" + s + ")" + " translate(" + (-left) + "px, " + (-top) + "px)";
   liftFrameSay(box, "drawn", "The window is " + Math.round(r.width) + " points wide, drawn here at " + Math.round(s * 100) + "%.");
+}
+
+/* THE STAGE IS WATCHED, not read once. A switcher can build every option at
+   once and show one, and an option drawn while hidden, or on a stage whose
+   width changes, is fitted again whenever the stage it is on changes size,
+   so its scale and caption are always the stage's current ones. */
+function liftFrameWatchStage(box) {
+  if (typeof ResizeObserver !== "function") { return; }
+  var stage = box.parentElement;
+  if (box._watched === stage) { return; }
+  if (!box._watch) {
+    box._watch = new ResizeObserver(function () {
+      var state = box.getAttribute("data-state");
+      if (state === "drawn" || state === "waiting") { liftFrameFit(box); }
+    });
+  }
+  if (box._watched) { box._watch.unobserve(box._watched); }
+  box._watched = stage;
+  if (stage) { box._watch.observe(stage); }
 }
 
 function liftFrameLoaded(box) {
@@ -1542,18 +1584,32 @@ def compose_host(styles, builder, stage, into):
     own: the builder inlined WHOLE in a script element, with no refusal first,
     because the empty frame is found by what that inlining does, and a stage of
     a fixed width for the frame to scale to."""
+    # THE STAGE LAYS ITS CONTENT OUT AS THE SWITCHER'S DOES: a flex box taller
+    # than a small frame, whose children take automatic margins, so a frame that
+    # does not pin itself to the top is centred here exactly as it is there.
+    # Its rule is a class and a child, the same weight as the switcher's own
+    # `.dr-stage > *`, and declared BEFORE the frame's stylesheet as that one is,
+    # so the frame's pin wins or loses here exactly as it does there.
+    # Errors the builder raises while it loads are collected by a script ahead
+    # of it, so a builder that cannot run is told apart from one cut short.
     page = ("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
-            "<title>The framed harness</title>\n<style>\n" + styles + "\n</style>\n"
+            "<title>The framed harness</title>\n"
             "<style>body { margin: 0; padding: 24px; background: #F4F1EC; }\n"
-            "#lift-stage { width: %dpx; }</style>\n" % stage +
-            "</head>\n<body>\n<div id=\"lift-stage\"></div>\n<script>\n" + builder +
+            ".lift-host-stage { display: flex; box-sizing: border-box; width: %dpx; "
+            "min-height: 1100px; padding: 24px; }\n"
+            ".lift-host-stage > * { margin: auto; flex: none; }</style>\n" % (stage + 48) +
+            "<style>\n" + styles + "\n</style>\n"
+            "<script>window.LIFT_ERRORS = []; window.addEventListener(\"error\", "
+            "function (e) { window.LIFT_ERRORS.push(String(e.message)); });</script>\n"
+            "</head>\n<body>\n<div class=\"lift-host-stage\" id=\"lift-stage\"></div>\n"
+            "<script id=\"lift-builder\">\n" + builder +
             "\n</script>\n</body>\n</html>\n")
     with open(into, "w", encoding="utf-8") as handle:
         handle.write(page)
     return into
 
 
-def probe_frame(spec, variant, bare):
+def probe_frame(spec, variant, bare, reveal=False):
     """Put one option's box on the stage, wait until it has drawn or failed, and
     measure the window INSIDE the frame, in the page the frame was drawn in:
     its elements, its markup and style, where it lands in the clip and at what
@@ -1571,19 +1627,44 @@ def probe_frame(spec, variant, bare):
     document.body.appendChild(pre);
   }
   try {
-    if (typeof liftFrame !== "function" || typeof buildScreen !== "function") {
-      finish({ frame_fault: "unescaped" });
+    /* CUT SHORT, THEN BROKEN, in that order. A closing tag in the embedded page
+       ends the builder's script element before its last function, so the
+       element's own text is missing the runtime; that is asked first, because
+       the half page that spills out as markup raises errors of its own. A
+       builder that is whole and raised an error as it loaded could not run,
+       even when its functions exist: declarations are hoisted, so a throw at
+       load leaves buildScreen defined over constants that were never set. */
+    var whole = (document.getElementById("lift-builder").text || "")
+      .indexOf("function buildScreen(") !== -1;
+    if (!whole) { finish({ frame_fault: "unescaped" }); return; }
+    if (window.LIFT_ERRORS.length
+        || typeof liftFrame !== "function" || typeof buildScreen !== "function") {
+      finish({ frame_fault: "unrunnable", said: window.LIFT_ERRORS.join("; ") });
       return;
     }
     ovationCheckSelectors(IGNORE);
+    var stage = document.getElementById("lift-stage");
+    var reveal = %(reveal)s;
+    if (reveal) { stage.style.display = "none"; }
     var box = liftFrame(%(variant)s, %(bare)s);
-    document.getElementById("lift-stage").appendChild(box);
+    stage.appendChild(box);
     var began = Date.now();
     (function wait() {
       var state = box.getAttribute("data-state");
-      if (state !== "failed" && box.getAttribute("data-settled") !== "yes") {
+      if (reveal && box.getAttribute("data-settled") === "yes") {
+        /* Shown only once it has loaded and settled hidden, as a switcher's
+           hidden option is when its tab is pressed. */
+        reveal = false;
+        stage.style.display = "";
+        setTimeout(wait, 150);
+        return;
+      }
+      if (reveal || (state !== "failed" && (box.getAttribute("data-settled") !== "yes"
+          || state === "waiting"))) {
         if (Date.now() - began > %(wait)d) {
-          finish({ error: "the frame had not drawn after %(wait)d ms" });
+          finish(state === "waiting"
+            ? { frame_fault: "waiting", said: box.querySelector(".lift-frame-cap").textContent }
+            : { error: "the frame had not drawn after %(wait)d ms" });
           return;
         }
         setTimeout(wait, 50);
@@ -1597,6 +1678,9 @@ def probe_frame(spec, variant, bare):
         var w = win.getBoundingClientRect();
         var f = frame.getBoundingClientRect();
         var c = box.querySelector(".lift-frame-clip").getBoundingClientRect();
+        var sr = stage.getBoundingClientRect(), scs = getComputedStyle(stage);
+        var stageTop = sr.top + parseFloat(scs.paddingTop);
+        var stageWidth = stage.clientWidth - parseFloat(scs.paddingLeft) - parseFloat(scs.paddingRight);
         var scale = f.width / frame.offsetWidth;
         var report = ovationMeasure(win, IGNORE);
         var look = ovationLook(win);
@@ -1612,6 +1696,11 @@ def probe_frame(spec, variant, bare):
           bottom: c.bottom - (f.top + w.bottom * scale),
           margin: LIFT_MARGIN * scale
         };
+        var winTop = f.top + w.top * scale;
+        report.above = winTop - stageTop;
+        report.above_allowed = (c.top - stageTop) - (box.getBoundingClientRect().top - stageTop)
+          + LIFT_MARGIN * scale;
+        report.overflow = c.width - stageWidth;
         finish(report);
       } catch (e) { finish({ error: String((e && e.message) || e) }); }
     })();
@@ -1620,7 +1709,8 @@ def probe_frame(spec, variant, bare):
 </script>
 """ % {"measure": MEASURE, "ignore": json.dumps(spec["ignore"]),
        "variant": json.dumps(variant), "bare": "true" if bare else "false",
-       "window": json.dumps(spec["window"]), "wait": FRAME_WAIT_MS}
+       "window": json.dumps(spec["window"]), "wait": FRAME_WAIT_MS,
+       "reveal": "true" if reveal else "false"}
 
 
 def probe_frame_design(spec):
@@ -1657,6 +1747,11 @@ def probe_frame_design(spec):
 
 
 FRAME_WAIT_MS = 12000
+
+
+def js_round(value):
+    """Math.round, half up, the rounding the frame's caption uses."""
+    return int(math.floor(value + 0.5))
 CAPTION = re.compile(r"The window is (\d+) points wide, drawn here at (\d+)%\.")
 
 
@@ -1670,6 +1765,17 @@ def read_frame(session, page, probe, what):
                       "buildScreen, so a switcher inlining it would draw an empty frame.",
                       "Its embedded page carries a closing tag the HTML parser reads as the "
                       "end of the script; every one has to be written <\\/ inside the string.")
+    if isinstance(report, dict) and report.get("frame_fault") == "unrunnable":
+        raise Refusal(FRAME,
+                      "the builder could not run: %s. It is whole in the page, so this is "
+                      "not the closing tag fault; it failed to parse or threw as it loaded."
+                      % (report.get("said") or "no error was reported"))
+    if isinstance(report, dict) and report.get("frame_fault") == "waiting":
+        raise Refusal(FRAME,
+                      "%s was never fitted once its stage had a width, and its caption "
+                      "still says: %s" % (what, report.get("said", "nothing")),
+                      "A frame has to be fitted again when the stage it is on changes "
+                      "size, or an option drawn while hidden stays unmeasured when shown.")
     if isinstance(report, dict) and report.get("frame_fault") == "failed":
         raise Refusal(FRAME, "%s drew no window, and its caption says: %s"
                       % (what, report.get("said", "nothing")))
@@ -1680,6 +1786,15 @@ def read_frame(session, page, probe, what):
                       "Nothing was compared.")
     if not isinstance(report.get("rows"), list) or not report["rows"]:
         raise Refusal(UNREADABLE, "%s's probe measured no elements at all" % what)
+    # EVERY NUMBER A FAULT IS JUDGED BY MUST BE ONE. A value the page could not
+    # compute arrives as null, and a comparison against it would either crash
+    # or, worse, quietly pass (L50).
+    numbers = [report.get(key) for key in ("width", "scale", "above", "above_allowed",
+                                           "overflow")]
+    numbers += list((report.get("placed") or {}).values()) or [None]
+    if any(isinstance(n, bool) or not isinstance(n, (int, float)) for n in numbers):
+        raise Refusal(UNREADABLE, "%s measured a place or a size that is not a number, so "
+                                  "nothing about where it is drawn can be judged." % what)
     return report
 
 
@@ -1687,6 +1802,15 @@ def frame_faults(report, what):
     """What is wrong with one drawing, as sentences: where the window landed,
     and whether the caption states the numbers the drawing has."""
     faults = []
+    if report["above"] > report["above_allowed"] + 4:
+        faults.append("UNPINNED: %s leaves %d points of empty stage above the window, where "
+                      "its caption and margin take %d, so the window sits down the page "
+                      "rather than at the top of the stage."
+                      % (what, js_round(report["above"]), js_round(report["above_allowed"])))
+    if report["overflow"] > 1:
+        faults.append("OVERFLOWS: %s is drawn %d points wider than the stage it is on, "
+                      "which is a frame fitted to a stage it was not measured on."
+                      % (what, js_round(report["overflow"])))
     placed = report["placed"]
     at = placed["margin"]
     if (abs(placed["left"] - at) > 1 or abs(placed["top"] - at) > 1
@@ -1698,7 +1822,9 @@ def frame_faults(report, what):
                       % (what, round(placed["left"]), round(placed["top"]),
                          max(0, -round(placed["right"])), max(0, -round(placed["bottom"])),
                          round(at)))
-    drawn = (round(report["width"]), round(report["scale"] * 100))
+    # THE CAPTION'S OWN ROUNDING, half up as a browser script rounds, never
+    # Python's half to even, or a true caption of 641 for 640.5 reads as false.
+    drawn = (js_round(report["width"]), js_round(report["scale"] * 100))
     said = CAPTION.search(report.get("caption") or "")
     stated = (int(said.group(1)), int(said.group(2))) if said else None
     if stated != drawn:
@@ -1744,9 +1870,13 @@ def judge_frame(spec, session, holder, styles_at, builder_at, name):
     try:
         with session:
             bare = read_frame(session, page, probe_frame(spec, {}, True), "the bare frame")
+            shown = read_frame(session, page, probe_frame(spec, {}, True, reveal=True),
+                               "the bare frame drawn on a hidden stage and then shown")
             design = read_report(session, spec["source_path"], probe_frame_design(spec), name)
             faithful = not differences(design["rows"], bare["rows"], spec["tolerance"])[0]
-            drawings, moved = [("the bare frame", bare)], []
+            drawings = [("the bare frame", bare),
+                        ("the bare frame drawn on a hidden stage and then shown", shown)]
+            moved = []
             if faithful:
                 for move in spec["moves"]:
                     drawn = []
@@ -1801,8 +1931,8 @@ def judge_frame(spec, session, holder, styles_at, builder_at, name):
         return FRAME
     print("FRAMED: the caption says %d points at %d%%, and the drawing is %d points at %d%%, "
           "with the window at the clip's margin, in all %d drawing(s)."
-          % (round(bare["width"]), round(bare["scale"] * 100),
-             round(bare["width"]), round(bare["scale"] * 100), len(drawings)))
+          % (js_round(bare["width"]), js_round(bare["scale"] * 100),
+             js_round(bare["width"]), js_round(bare["scale"] * 100), len(drawings)))
     return report_moves(moved)
 
 

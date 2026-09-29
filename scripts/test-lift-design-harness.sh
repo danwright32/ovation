@@ -22,7 +22,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design harness lift tests" 130
+harness_begin "design harness lift tests" 141
 
 TARGET="scripts/lift-design-harness.sh"
 require_target "$TARGET"
@@ -852,6 +852,68 @@ check "and it names both numbers, the caption's and the drawing's" \
 plant_frame "$WORK/wrongscale" '" points wide, drawn here at " + Math.round(s * 100)' '" points wide, drawn here at " + 100'
 check_exit "a caption stating a scale the drawing is not at is refused" \
     9 lift --check "$FSPEC" "$WORK/wrongscale"
+
+# THE EMPTY STAGE ABOVE THE WINDOW (approved by Dan, 2026-09-29). The switcher
+# centres whatever is on its stage, so a frame shorter than the stage sat
+# halfway down the page with about 250 points of nothing above it. The check
+# draws on a stage that centres the same way, and a copy of the stylesheet
+# without the frame's own pin to the top has to be refused.
+mkdir -p "$WORK/unpinned"
+cp "$FOUT/builder.js" "$WORK/unpinned/builder.js"
+python3 - "$FOUT/screen.css" "$WORK/unpinned/screen.css" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+old = ".lift-frame { margin: 0 auto auto; "
+assert old in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(text.replace(old, ".lift-frame { ", 1))
+PY
+check_exit "a frame the stage centres, with empty stage above the window, is refused" \
+    9 lift --check "$FSPEC" "$WORK/unpinned"
+check "and it says how much empty stage sits above the window" \
+    "$(says "$(run --check "$FSPEC" "$WORK/unpinned")" "points of empty stage above the window")" "yes"
+
+# A FRAME DRAWN WHILE ITS STAGE IS HIDDEN reads no width, and a switcher that
+# hides the options it is not showing would leave it at full size, wider than
+# the stage, with nothing to refit it when its tab is shown. The check draws one
+# frame on a hidden stage and then shows it, and a builder that does not watch
+# its stage has to be refused.
+plant_frame "$WORK/unwatched" 'liftFrameWatchStage(box);' ''
+check_exit "a frame that is not refitted when its hidden stage is shown is refused" \
+    9 lift --check "$FSPEC" "$WORK/unwatched"
+check "and it says the frame was never fitted once its stage had a width" \
+    "$(says "$(run --check "$FSPEC" "$WORK/unwatched")" "was never fitted once its stage had a width")" "yes"
+
+# THE SAME ROUNDING ON BOTH SIDES. The caption rounds half up, as a browser
+# script does, so a window 640.5 points wide is captioned 641, and the check
+# must round the drawing the same way rather than call a true caption false.
+HALF="$WORK/half.html"
+python3 - "$FSTANDIN" "$HALF" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+old = ".win { width: 640px;"
+assert old in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(text.replace(old, ".win { width: 640.5px;", 1))
+PY
+frame_spec "$WORK/half.json" "half.html" 'stage=480'
+python3 "$TARGET" "$WORK/half.json" "$WORK/halfout" >/dev/null 2>&1
+check_exit "a window a half point wide of a whole number is captioned and checked alike" \
+    0 lift --check "$WORK/half.json" "$WORK/halfout"
+check "and the caption it reads says 641" \
+    "$(says "$(run --check "$WORK/half.json" "$WORK/halfout")" "the caption says 641 points")" "yes"
+
+# A BUILDER THAT CANNOT RUN IS NOT A BUILDER CUT SHORT. Both leave buildScreen
+# undefined, and only one is the closing tag fault, so each says its own cause.
+plant_frame "$WORK/syntax" 'function liftFrameSay(box, state, words) {' 'function liftFrameSay((box, state, words) {'
+SYNTAXSAYS="$(run --check "$FSPEC" "$WORK/syntax")"
+check_exit "a builder that does not parse is refused" 9 lift --check "$FSPEC" "$WORK/syntax"
+check "as a builder that could not run" "$(says "$SYNTAXSAYS" "the builder could not run")" "yes"
+check "and not as one whose closing tag ended it" "$(says "$SYNTAXSAYS" "ended the script")" "no"
+plant_frame "$WORK/throws" 'var LIFT_MARGIN = 16;' 'throw new Error("planted at load"); var LIFT_MARGIN = 16;'
+THROWSAYS="$(run --check "$FSPEC" "$WORK/throws")"
+check "a builder that throws as it loads, its functions defined all the same, is refused" \
+    "$(says "$THROWSAYS" "the builder could not run: Uncaught Error: planted at load")" "yes"
+check "and it never reaches the measuring, where its unset constants would read as nulls" \
+    "$(says "$THROWSAYS" "Traceback")" "no"
 
 frame_spec "$WORK/frame-nowin.json" "framed.html" 'window=".nothing"' 'stage=480'
 python3 "$TARGET" "$WORK/frame-nowin.json" "$WORK/framenowin" >/dev/null 2>&1
