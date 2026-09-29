@@ -129,7 +129,9 @@ name (L400). It does not map the plan's numbered sub-steps to filed issues.
 That is the fifth thing ovation#16 asks for and it is a different job: the
 plan's numbering and the tracker are two vocabularies, Phase 0's scope is
 frozen, and a coverage report full of legitimately unissued sub-steps is one
-nobody reads. It is tracked separately.
+nobody reads. It is scripts/check-plan-issues.sh (ovation#180), a sibling rather
+than a section here because it asks GitHub, and this check runs in the push gate,
+where a network lookup would refuse every push from a machine without one.
 
 Seams: OVATION_PLAN, OVATION_SIBLING_ROOT, OVATION_SIBLING_INSTALL_CHECK,
 OVATION_BOOKING_EXPORT, OVATION_EXPORT_RECORDS (records, joined by the path

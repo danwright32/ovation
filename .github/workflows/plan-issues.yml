@@ -1,0 +1,134 @@
+name: Plan issues
+
+# ovation#180. scripts/check-plan-issues.sh holds the plan's numbered sub-steps and
+# the tracker to each other: every sub-step of a phase whose milestone is open owes
+# a filed issue, and every OPEN issue in that milestone maps back to a sub-step
+# (Dan's rule, 2026-09-29, later that day narrowed to open issues, because closed
+# issues are history). It reads the LIVE tracker, so its verdict changes when an
+# issue is filed or a milestone opens, with no commit in between; that is why it
+# runs here on a schedule rather than in the push gate, for the reason
+# design-record.yml records for its own check (L538, L376).
+#
+# IT OPENS ONE ISSUE AND ONLY ONE, through scripts/report-finding.sh: commented on
+# only when the verdict changes (ovation#512), and closed when the plan and the
+# tracker agree again. The title is the marker (L393).
+
+on:
+  schedule:
+    # Daily, because scripts/check-scheduled-runs.sh reads only a daily schedule,
+    # and the run costs one short Linux job.
+    - cron: '53 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: plan-issues
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Every open sub-step of the plan has an issue and every issue maps back
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # THE THREE OUTCOMES ARE KEPT APART (L11). 0 the plan and the tracker agree,
+      # 1 they do not, 2 nothing could be read and so nothing was proved.
+      - name: Ask the tracker
+        id: ask
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 scripts/check-plan-issues.sh | tee verdict.txt
+          status="${PIPESTATUS[0]}"
+          set -e
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+
+      # THE BODY IS BUILT IN A FILE rather than inline, for the reason
+      # ci-liveness.yml records: an unindented line inside `--body "..."` ends the
+      # YAML block scalar and the workflow runs no jobs at all.
+      - name: Say so, once
+        if: steps.ask.outputs.status == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: The plan's sub-steps and the tracker's issues do not map to each other
+        run: |
+          set -uo pipefail
+          {
+            echo "Still true on $(date -u +%Y-%m-%d):"
+            echo
+            sed 's/^/    /' verdict.txt
+          } > comment-body.md
+          {
+            echo "Opened automatically by the Plan issues workflow (ovation#180)."
+            echo
+            sed 's/^/    /' verdict.txt
+            echo
+            echo "Every numbered sub-step of docs/IMPLEMENTATION-PLAN.md on an open"
+            echo "milestone owes a filed issue that cites it as \`Plan N.M\`, and every"
+            echo "OPEN issue in an open phase milestone maps back to one. The verdict above"
+            echo "names each one that does not. A sub-step with no issue may belong out"
+            echo "of the plan, and an issue that maps to nothing may belong in it, so a"
+            echo "person decides which rather than this workflow."
+            echo
+            echo "This issue is commented on only when the verdict changes, and closed"
+            echo "by this workflow once the plan and the tracker agree."
+          } > issue-body.md
+
+          set +e
+          bash scripts/report-finding.sh stands \
+            --title "${TITLE}" \
+            --body-file issue-body.md \
+            --comment-file comment-body.md \
+            --milestone "Plan currency" \
+            --label priority-p3 --label documentation --label tech-debt \
+            --verdict-file verdict.txt
+          reported=$?
+          set -e
+          # 0 filed the issue, 1 commented because the verdict changed, 9 wrote
+          # nothing because the issue already says this verdict. Every other code
+          # is a refusal the script has already explained, and it fails this job
+          # rather than passing quietly (L184).
+          case "${reported}" in
+            0|1|9) ;;
+            *) exit "${reported}" ;;
+          esac
+
+      - name: Close it once the plan and the tracker agree
+        if: steps.ask.outputs.status == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: The plan's sub-steps and the tracker's issues do not map to each other
+        run: |
+          set -uo pipefail
+          {
+            echo "The plan and the tracker agree again on $(date -u +%Y-%m-%d), so this is closed."
+            echo
+            sed 's/^/    /' verdict.txt
+          } > close-body.md
+
+          set +e
+          bash scripts/report-finding.sh cleared \
+            --title "${TITLE}" \
+            --comment-file close-body.md
+          reported=$?
+          set -e
+          # 2 closed it, 3 means no such issue was open, which is the ordinary
+          # state on every day they agree and is not a fault.
+          case "${reported}" in
+            2|3) ;;
+            *) exit "${reported}" ;;
+          esac
+
+      # A FAILURE TO MEASURE FAILS THE JOB and opens nothing: this run's own log
+      # says what could not be read (L98, L11).
+      - name: Refuse a run that could not measure
+        if: steps.ask.outputs.status != '0' && steps.ask.outputs.status != '1'
+        run: |
+          echo "::error::The plan could not be compared with the tracker. See the log above."
+          exit 1

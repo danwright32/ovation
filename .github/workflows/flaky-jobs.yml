@@ -1,0 +1,128 @@
+name: Flaky jobs
+
+# ovation#493. scripts/check-flaky-jobs.sh counts, over the last 30 days, every
+# job that concluded failure on one attempt of a run and success on a re-run of
+# the same run, which is the same commit with nothing new arriving. ovation#433
+# and ovation#279 were found only because somebody happened to be watching; a
+# re-run hides the cost of a flake, and without a count a suite with one flaky
+# case reads the same as a suite with ten (L293, L538).
+#
+# IT SURFACES THE WAY THIS REPOSITORY'S OTHER MONITORS DO (the decision recorded
+# on ovation#493, 2026-09-29): one finding issue through scripts/report-finding.sh
+# naming each flaky job and its count, commented on only when the count changes
+# (ovation#512), closed when the window holds none. A count only in a log nobody
+# reads would be L357.
+
+on:
+  schedule:
+    # Daily, because scripts/check-scheduled-runs.sh reads only a daily schedule.
+    # The run lists 30 days one day at a time and reads the jobs of each re-run,
+    # which took about a minute on the day it was written.
+    - cron: '37 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # To list runs and read the jobs of each attempt. The token cannot start a run.
+  actions: read
+  issues: write
+
+concurrency:
+  group: flaky-jobs
+  cancel-in-progress: false
+
+jobs:
+  count:
+    name: A job that went red then green on a re-run is counted
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # THE THREE OUTCOMES ARE KEPT APART (L11). 0 no flake in the window, 1 at
+      # least one, 2 a day or an attempt could not be read.
+      - name: Count them
+        id: ask
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 scripts/check-flaky-jobs.sh | tee verdict.txt
+          status="${PIPESTATUS[0]}"
+          set -e
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+
+      - name: Say so, once
+        if: steps.ask.outputs.status == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: A job went red then green on a re-run of the same commit
+        run: |
+          set -uo pipefail
+          {
+            echo "The count changed on $(date -u +%Y-%m-%d):"
+            echo
+            sed 's/^/    /' verdict.txt
+          } > comment-body.md
+          {
+            echo "Opened automatically by the Flaky jobs workflow (ovation#493)."
+            echo
+            sed 's/^/    /' verdict.txt
+            echo
+            echo "Each job above failed on one attempt of a run and passed when the"
+            echo "same run was re-run, on the same commit. Each time cost a full re-run,"
+            echo "and the re-run is what hid it. A job that recurs here is a flaky test"
+            echo "to find by name rather than a red to press re-run on."
+            echo
+            echo "This issue is commented on only when the count changes, and closed"
+            echo "by this workflow once the last 30 days hold none."
+          } > issue-body.md
+
+          set +e
+          bash scripts/report-finding.sh stands \
+            --title "${TITLE}" \
+            --body-file issue-body.md \
+            --comment-file comment-body.md \
+            --milestone Ungrouped \
+            --label priority-p3 --label ci-hygiene --label monitoring \
+            --verdict-file verdict.txt
+          reported=$?
+          set -e
+          # 0 filed the issue, 1 commented because the count changed, 9 wrote
+          # nothing because the issue already says this count. Every other code
+          # is a refusal the script has already explained (L184).
+          case "${reported}" in
+            0|1|9) ;;
+            *) exit "${reported}" ;;
+          esac
+
+      - name: Close it once the window holds none
+        if: steps.ask.outputs.status == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: A job went red then green on a re-run of the same commit
+        run: |
+          set -uo pipefail
+          {
+            echo "No job went red then green on a re-run in the 30 days to $(date -u +%Y-%m-%d), so this is closed."
+            echo
+            sed 's/^/    /' verdict.txt
+          } > close-body.md
+
+          set +e
+          bash scripts/report-finding.sh cleared \
+            --title "${TITLE}" \
+            --comment-file close-body.md
+          reported=$?
+          set -e
+          # 2 closed it, 3 means none was open, the ordinary state of a clean month.
+          case "${reported}" in
+            2|3) ;;
+            *) exit "${reported}" ;;
+          esac
+
+      - name: Refuse a run that could not measure
+        if: steps.ask.outputs.status != '0' && steps.ask.outputs.status != '1'
+        run: |
+          echo "::error::The flaky job count could not be taken. See the log above."
+          exit 1
