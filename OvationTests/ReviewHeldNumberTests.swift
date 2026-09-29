@@ -440,4 +440,39 @@ struct ReviewHeldNumberTests {
 
         #expect(!problems.open.contains { $0.kind == .reviewNumbersNotReleased })
     }
+
+    // MARK: who may write the hold (review of 8a0073b)
+
+    /// The app's source files calling `name(`, by file name. Tests are not scanned: a
+    /// test constructing an unsaved invoice is not a writer of the store.
+    private static func callers(of name: String, _ file: StaticString = #filePath) throws -> Set<String> {
+        let root = URL(fileURLWithPath: "\(file)").deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Ovation")
+        var found: Set<String> = []
+        let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        while let url = walker?.nextObject() as? URL {
+            guard url.pathExtension == "swift" else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            // A CALL, not the declaration: `func name(` is where it is written.
+            let calls = text.components(separatedBy: "\(name)(").count - 1
+            let declarations = text.components(separatedBy: "func \(name)(").count - 1
+            if calls > declarations { found.insert(url.lastPathComponent) }
+        }
+        return found
+    }
+
+    /// SWIFT CANNOT LIMIT A METHOD TO ONE OTHER FILE, so "only the allocator calls
+    /// it" is a convention, and this is what holds it (L407). A second writer of the
+    /// hold would decide which numbers a launch gives back without the allocator's
+    /// refusals, which is the one thing ovation#362 exists to prevent.
+    @Test("only the allocator takes or gives back a review's hold, anywhere in the app")
+    func onlyTheAllocatorWritesTheHold() throws {
+        for name in ["holdNumberForAReview", "giveBackReviewedNumber"] {
+            #expect(try Self.callers(of: name) == ["InvoiceNumberAllocator.swift"],
+                    "\(name) is called outside the allocator")
+        }
+        // The control (L98): a scan that read nothing would find no callers at all,
+        // and the expectation above would fail on that rather than pass.
+        #expect(try Self.callers(of: "recordSendState").count >= 2)
+    }
 }

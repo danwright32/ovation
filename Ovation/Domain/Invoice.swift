@@ -203,19 +203,24 @@ extension OvationSchemaV8 {
         /// with those numbers, so they are kept, and a gap is explainable where one
         /// number on two invoices is not.
         ///
-        /// PRIVATE TO SET, so the compiler rather than a scan keeps its writers to
-        /// the ones named here (L613).
+        /// WHAT ENFORCES WHO WRITES IT, stated as it is rather than as hoped (L407).
+        /// PRIVATE TO SET, so the compiler keeps direct writes to three methods of
+        /// this class: `recordSendState(_:)`, and the two below. The compiler CANNOT
+        /// keep those two to the allocator, because Swift cannot limit a method to one
+        /// other file; that half is a convention, and
+        /// `ReviewHeldNumberTests.onlyTheAllocatorWritesTheHold` scans the app's
+        /// sources and fails on a call from anywhere else.
         private(set) var numberHeldByAReview: Bool = false
 
-        /// A review takes `number` for this invoice. Only the allocator calls it, in
-        /// the save it reads back.
+        /// A review takes `number` for this invoice. Called only by the allocator, in
+        /// the save it reads back, by the convention the field describes.
         func holdNumberForAReview(_ number: Int64) {
             self.number = number
             numberHeldByAReview = true
         }
 
-        /// A review's number goes back into the sequence. Only the allocator calls
-        /// it, after every refusal has been asked.
+        /// A review's number goes back into the sequence. Called only by the
+        /// allocator, after every refusal has been asked, by the same convention.
         func giveBackReviewedNumber() {
             number = nil
             numberHeldByAReview = false
