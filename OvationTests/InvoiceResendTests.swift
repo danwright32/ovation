@@ -74,15 +74,18 @@ struct InvoiceResendTests {
                                approved: [String] = ["booker@client.example"],
                                footer: InvoiceFooter = .fixed,
                                chargedUnder: TaxStatus?? = nil,
-                               readiness: InvoiceSenderTests.Readiness = .init()) async -> InvoiceSendOutcome {
+                               readiness: InvoiceSenderTests.Readiness = .init(),
+                               sender: InvoiceSender? = nil,
+                               saveRecord: @escaping InvoiceSender.RecordSave = InvoiceSender.savingRecord)
+        async -> InvoiceSendOutcome {
         let answeredAt = later
         // BY DEFAULT THE PAGE WAS DRAWN UNDER WHAT THE INVOICE WAS CHARGED UNDER, as a
         // real review's is; a case passes another to stage the mismatch.
         let charged = (try? Self.invoice(id, in: container))?.taxStatusCharged
-        return await InvoiceSender(modelContainer: container).resend(
+        return await (sender ?? InvoiceSender(modelContainer: container)).resend(
             id, as: kind, render: render(chargedUnder: chargedUnder ?? charged), message: "Hello,\n\nA reminder.\n\nThank you,\nDan",
             settings: settings, footer: footer, approvedRecipients: approved,
-            through: readiness.route(gmail), clock: { answeredAt })
+            through: readiness.route(gmail), clock: { answeredAt }, saveRecord: saveRecord)
     }
 
     // MARK: the sender
@@ -127,6 +130,33 @@ struct InvoiceResendTests {
         #expect(gmail.sent.isEmpty)
         #expect(readiness.calls == 0, "a refusal made Gmail ready, which can open a browser")
         #expect(try Self.invoice(id, in: container).sentStatus == .notSent)
+    }
+
+    /// A CANCELLED INVOICE AND A DELETED ONE ARE DIFFERENT CAUSES (ovation#601, L11), so
+    /// each says its own. A deleted invoice was a draft, so its closure is asked before
+    /// whether it was sent, or it would be refused as never sent.
+    @Test("a closed invoice is refused in the words of how it closed", arguments: [
+        (InvoiceMailKind.reminder, "cancelled", true, "This invoice was cancelled, so no reminder was sent."),
+        (.copy, "cancelled", true, "This invoice was cancelled, so no copy was sent."),
+        (.reminder, "deleted", false, "This invoice was deleted, so no reminder was sent."),
+        (.copy, "deleted", false, "This invoice was deleted, so no copy was sent."),
+        (.reminder, "deleted", true, "This invoice was deleted, so no reminder was sent."),
+    ])
+    func aclosedInvoiceIsRefused(kind: InvoiceMailKind, closure: String, wasSent: Bool, expected: String)
+        async throws {
+        let (container, id) = try Self.sent(sent: wasSent)
+        let context = ModelContext(container)
+        let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>()).first { $0.persistentModelID == id })
+        let day = BusinessDate.stamping(Self.noon)
+        invoice.closure = closure == "cancelled" ? .cancelled(on: day, reason: "called off")
+                                                 : .deleted(on: day, reason: "never going to bill it")
+        try context.save()
+        let gmail = InvoiceSenderTests.FakeGmail()
+
+        let outcome = await Self.resend(kind, id, in: container, gmail: gmail)
+
+        #expect(outcome == .refused(expected))
+        #expect(gmail.sent.isEmpty)
     }
 
     @Test("a reminder about an invoice paid in full is refused")
@@ -218,11 +248,13 @@ struct InvoiceResendTests {
     // MARK: the reviewer and the sheet
 
     private static func reviewer(_ container: ModelContainer, gmail: InvoiceSenderTests.FakeGmail = .init(),
-                                 settings: URL?) -> InvoiceReviewer {
+                                 settings: URL?,
+                                 saveRecord: @escaping InvoiceSender.RecordSave = InvoiceSender.savingRecord)
+        -> InvoiceReviewer {
         let noon = Self.noon
         return InvoiceReviewer(container: container, footer: { .fixed }, settingsFile: settings,
                                makeSender: { _ in .success(SendingRoute(sender: gmail, ready: { nil })) },
-                               clock: { noon })
+                               clock: { noon }, saveRecord: saveRecord)
     }
 
     @Test("Remind opens the sheet on a reminder: its subject and message, no number taken")
@@ -430,6 +462,61 @@ struct InvoiceResendTests {
         #expect(mail.threadId == nil)
         #expect(mail.inReplyTo == nil)
         #expect(mail.references == nil)
+    }
+
+    /// A save that fails as a full disk would, so the path that says a reminder went
+    /// but was not recorded runs rather than only its sentence (ovation#608, L1).
+    private struct DiskFull: LocalizedError {
+        var errorDescription: String? { "the disk is full" }
+    }
+    private static let failingSave: InvoiceSender.RecordSave = { _ in throw DiskFull() }
+
+    @Test("a reminder or a copy that went but could not be recorded says so, still reads as sent, and records nothing",
+          arguments: [InvoiceMailKind.reminder, .copy])
+    func anunrecordedResendIsSaid(kind: InvoiceMailKind) async throws {
+        let (container, id) = try Self.sent()
+        let gmail = InvoiceSenderTests.FakeGmail()
+
+        let outcome = await Self.resend(kind, id, in: container, gmail: gmail, saveRecord: Self.failingSave)
+
+        #expect(outcome == .sent(at: Self.later, to: ["booker@client.example"],
+                                 notRecorded: InvoiceMail.notRecorded(kind.noun, "the disk is full")))
+        #expect(gmail.sent.count == 1, "it went, whatever happened to its record")
+        #expect(try Self.messages(id, in: container).isEmpty)
+        #expect(try ModelContext(container).fetch(FetchDescriptor<SentMessage>()).isEmpty,
+                "no record was left behind, attached or loose")
+        #expect(try Self.invoice(id, in: container).sentStatus == .sent(route: .ovationSentIt, at: Self.firstSent))
+    }
+
+    /// THE FAILED RECORD IS ROLLED BACK, not merely left unsaved: the same sender's next
+    /// save would otherwise write it alongside its own, and the history would list a
+    /// reminder under the time the failed one went as well as the one that was saved.
+    @Test("the next reminder's save does not carry the one whose record failed")
+    func afailedRecordIsNotSavedByTheNext() async throws {
+        let (container, id) = try Self.sent()
+        let sender = InvoiceSender(modelContainer: container)
+        let gmail = InvoiceSenderTests.FakeGmail()
+
+        _ = await Self.resend(.reminder, id, in: container, gmail: gmail, sender: sender,
+                              saveRecord: Self.failingSave)
+        gmail.receipt = SentReceipt(threadId: "thread-2", messageID: "<second@messages.example>")
+        let second = await Self.resend(.reminder, id, in: container, gmail: gmail, sender: sender)
+
+        #expect(second == .sent(at: Self.later, to: ["booker@client.example"]))
+        let recorded = try Self.messages(id, in: container)
+        #expect(recorded.map(\.messageID) == ["<second@messages.example>"])
+    }
+
+    @Test("the sheet says a reminder went and that its record could not be kept")
+    func thesheetSaysItWasNotRecorded() async throws {
+        let (container, id) = try Self.sent()
+        let reviewer = Self.reviewer(container, settings: try Self.settingsFile(), saveRecord: Self.failingSave)
+        let review = try await reviewer.open(id, as: .reminder).get()
+
+        await review.send()
+
+        #expect(review.state == .sent(at: Self.noon, to: ["booker@client.example"],
+                                      notRecorded: InvoiceMail.notRecorded("reminder", "the disk is full")))
     }
 
     @Test("the sentence for a reminder that went but could not be recorded, word for word")
