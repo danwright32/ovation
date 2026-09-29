@@ -189,16 +189,13 @@ struct LaunchBackupOutcomeTests {
     @Test("archives that never answer cost the launch one deadline between them")
     func stuckArchivesCostOneDeadline() async {
         let stuck = Stuck()
-        let waits = DeadlineAfterFirstAnswer(stuck)
+        let waits = DeadlineOnceOneIsStuck(stuck)
         let size = BackupSize(files: 4_000, bytes: 1_000_000_000)
 
         let checked = await LaunchBackupOutcome.recheck(
             ["a", "s1", "s2", "s3"], now: Self.dayStartingAtTheFirst(of: 4),
             measuring: { size }, sleeping: waits.sleep) { name in
-                if name == "a" {
-                    defer { stuck.answered() }
-                    return .verified(name)
-                }
+                if name == "a" { return .verified(name) }
                 stuck.block()
                 return .verified(name)
             }
@@ -244,22 +241,30 @@ struct LaunchBackupOutcomeTests {
     }
 
     /// Work that never answers until the test lets it go, and a record of whether
-    /// the one that does answer has.
+    /// any has started waiting.
+    ///
+    /// STARTED WAITING IS THE SIGNAL, not "a" returning. The names are asked one
+    /// after another and each answer is kept before the next is asked, so the
+    /// first stuck one starting means "a"'s answer is already kept. Signalling
+    /// when "a" returned ended the wait before its answer was kept, a race.
     private final class Stuck: @unchecked Sendable {
         private let gate = DispatchSemaphore(value: 0)
         private let lock = NSLock()
-        private var done = false
-        var hasAnswered: Bool { lock.withLock { done } }
-        func answered() { lock.withLock { done = true } }
-        func block() { gate.wait(); gate.signal() }
+        private var reached = false
+        var isWaiting: Bool { lock.withLock { reached } }
+        func block() {
+            lock.withLock { reached = true }
+            gate.wait()
+            gate.signal()
+        }
         func release() { gate.signal() }
     }
 
     /// The measurement's wait never ends (it always answers first). Every other
-    /// wait is recorded and ends as soon as the answering archive has answered,
-    /// which is the deadline passing with the rest still stuck: no real time is
+    /// wait is recorded and ends as soon as a stuck archive has started, which is
+    /// the deadline passing with the rest still stuck: no real time is
     /// paid, and nothing depends on how busy the machine is (L290).
-    private final class DeadlineAfterFirstAnswer: @unchecked Sendable {
+    private final class DeadlineOnceOneIsStuck: @unchecked Sendable {
         private let lock = NSLock()
         private var recorded: [Duration] = []
         private let stuck: Stuck
@@ -274,7 +279,7 @@ struct LaunchBackupOutcomeTests {
                 }
                 lock.withLock { recorded.append(duration) }
                 var polls = 0
-                while !stuck.hasAnswered, polls < 2_000 {
+                while !stuck.isWaiting, polls < 2_000 {
                     polls += 1
                     try await Task.sleep(for: .milliseconds(5))
                 }

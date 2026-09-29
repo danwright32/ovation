@@ -167,8 +167,10 @@ struct StoreDocumentReferencesTests {
             + "CREATE TABLE ZEXPENSE (Z_PK INTEGER PRIMARY KEY, ZRELATIVEPATH TEXT, ZSHA256 TEXT); "
             + "INSERT INTO ZEXPENSE (ZRELATIVEPATH, ZSHA256) VALUES ('ee/ee.pdf', 'ee');"
         guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+            // Read BEFORE closing: a closed connection has no message to give.
+            let message = String(cString: sqlite3_errmsg(handle))
             sqlite3_close(handle)
-            throw FixtureFailure.statementFailed(String(cString: sqlite3_errmsg(handle)))
+            throw FixtureFailure.statementFailed(message)
         }
         // Copied WHILE the writer holds it, which is the only moment the log is
         // guaranteed to exist: closing the last connection checkpoints it away.
