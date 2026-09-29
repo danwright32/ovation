@@ -259,14 +259,15 @@ struct BackstageGrantTests {
 
     @Test("a client file that is there but a placeholder is refused as unusable, naming the field")
     func aplaceholderClientIsUnusable() async throws {
-        let folder = try Self.folder(client: #"{"clientId":"PASTE_CLIENT_ID_HERE","clientSecret":"x"}"#)
-        let manager = try #require(try OvationGmail.authManager(credentialsDirectory: folder))
+        try await Self.inFolder(client: #"{"clientId":"PASTE_CLIENT_ID_HERE","clientSecret":"x"}"#) { folder in
+            let manager = try #require(try OvationGmail.authManager(credentialsDirectory: folder))
 
-        await #expect {
-            _ = try await manager.validAccessToken()
-        } throws: { error in
-            guard case GmailAuthManager.AuthError.clientConfigUnusable = error else { return false }
-            return error.localizedDescription.contains("clientId")
+            await #expect {
+                _ = try await manager.validAccessToken()
+            } throws: { error in
+                guard case GmailAuthManager.AuthError.clientConfigUnusable = error else { return false }
+                return error.localizedDescription.contains("clientId")
+            }
         }
     }
 
@@ -274,54 +275,85 @@ struct BackstageGrantTests {
     func amissingClientIsStillMissing() async throws {
         // The positive control for the case above: a refusal that fired on every
         // file would pass it while telling Dan to go and find a file he has (L159).
-        let folder = try Self.folder(client: nil)
-        let manager = try #require(try OvationGmail.authManager(credentialsDirectory: folder))
+        try await Self.inFolder(client: nil) { folder in
+            let manager = try #require(try OvationGmail.authManager(credentialsDirectory: folder))
 
-        await #expect(throws: GmailAuthManager.AuthError.noClientConfig) {
-            _ = try await manager.validAccessToken()
+            await #expect(throws: GmailAuthManager.AuthError.noClientConfig) {
+                _ = try await manager.validAccessToken()
+            }
         }
     }
 
     @Test("a refresh that Google answers with less than gmail.send is refused naming gmail.send")
     func anarrowedRefreshIsRefused() async throws {
-        let folder = try Self.folder(client: Self.usableClient())
-        try Self.saveToken(in: folder, accessToken: nil, granted: OvationGmail.approvedScopes)
-        let manager = try Self.manager(in: folder, reply: #"{"access_token":"new","expires_in":3599,"scope":"https://www.googleapis.com/auth/gmail.readonly","token_type":"Bearer"}"#)
+        try await Self.inFolder(client: Self.usableClient()) { folder in
+            try Self.saveToken(in: folder, accessToken: nil, granted: OvationGmail.approvedScopes)
+            let manager = try Self.manager(in: folder, reply: #"{"access_token":"new","expires_in":3599,"scope":"https://www.googleapis.com/auth/gmail.readonly","token_type":"Bearer"}"#)
 
-        await #expect(throws: GmailAuthManager.AuthError.scopesNotGranted(OvationGmail.approvedScopes)) {
-            _ = try await manager.validAccessToken()
+            await #expect(throws: GmailAuthManager.AuthError.scopesNotGranted(OvationGmail.approvedScopes)) {
+                _ = try await manager.validAccessToken()
+            }
         }
     }
 
     @Test("a refresh whose reply names no scope is refused rather than read as the request")
     func anunreportedGrantIsRefused() async throws {
-        let folder = try Self.folder(client: Self.usableClient())
-        try Self.saveToken(in: folder, accessToken: nil, granted: OvationGmail.approvedScopes)
-        let manager = try Self.manager(in: folder, reply: #"{"access_token":"new","expires_in":3599,"token_type":"Bearer"}"#)
+        try await Self.inFolder(client: Self.usableClient()) { folder in
+            try Self.saveToken(in: folder, accessToken: nil, granted: OvationGmail.approvedScopes)
+            let manager = try Self.manager(in: folder, reply: #"{"access_token":"new","expires_in":3599,"token_type":"Bearer"}"#)
 
-        await #expect(throws: GmailAuthManager.AuthError.grantUnreported) {
-            _ = try await manager.validAccessToken()
+            await #expect(throws: GmailAuthManager.AuthError.grantUnreported) {
+                _ = try await manager.validAccessToken()
+            }
         }
     }
 
     @Test("a refresh granting gmail.send hands out the new token")
     func acoveringRefreshSucceeds() async throws {
         // The positive control for both refusals above (L159).
-        let folder = try Self.folder(client: Self.usableClient())
-        try Self.saveToken(in: folder, accessToken: nil, granted: OvationGmail.approvedScopes)
-        let manager = try Self.manager(in: folder, reply: #"{"access_token":"new","expires_in":3599,"scope":"https://www.googleapis.com/auth/gmail.send","token_type":"Bearer"}"#)
+        try await Self.inFolder(client: Self.usableClient()) { folder in
+            try Self.saveToken(in: folder, accessToken: nil, granted: OvationGmail.approvedScopes)
+            let manager = try Self.manager(in: folder, reply: #"{"access_token":"new","expires_in":3599,"scope":"https://www.googleapis.com/auth/gmail.send","token_type":"Bearer"}"#)
 
-        #expect(try await manager.validAccessToken() == "new")
+            #expect(try await manager.validAccessToken() == "new")
+        }
     }
 
     @Test("a token as the installed app saved it still sends, with no sign in and no network")
     func theinstalledShapeStillWorks() async throws {
-        let folder = try Self.folder(client: Self.usableClient())
-        try Self.saveToken(in: folder, accessToken: "saved", granted: OvationGmail.approvedScopes)
-        let manager = try Self.manager(in: folder, reply: nil)
+        try await Self.inFolder(client: Self.usableClient()) { folder in
+            try Self.saveToken(in: folder, accessToken: "saved", granted: OvationGmail.approvedScopes)
+            let manager = try Self.manager(in: folder, reply: nil)
 
-        #expect(try await manager.validAccessToken() == "saved")
-        #expect(manager.isConnected)
+            #expect(try await manager.validAccessToken() == "saved")
+            #expect(manager.isConnected)
+        }
+    }
+
+    @Test("the credentials folder a case used is gone once it returns")
+    func thefolderIsRemovedAfterACase() async throws {
+        var used: URL?
+        try await Self.inFolder(client: Self.usableClient()) { folder in
+            try Self.saveToken(in: folder, accessToken: "saved", granted: OvationGmail.approvedScopes)
+            used = folder
+            #expect(FileManager.default.fileExists(atPath: GmailCredentials.tokenURL(in: folder).path))
+        }
+        let folder = try #require(used)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    @Test("and gone when the case throws, which is the exit a failing case takes")
+    func thefolderIsRemovedAfterAThrow() async throws {
+        enum Stop: Error { case stop }
+        var used: URL?
+        await #expect(throws: Stop.stop) {
+            try await Self.inFolder(client: Self.usableClient()) { folder in
+                used = folder
+                throw Stop.stop
+            }
+        }
+        let folder = try #require(used)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
     }
 
     // A CLIENT IN THE SHAPE GOOGLE ISSUES, since 0.4.0 refuses anything else
@@ -338,15 +370,21 @@ struct BackstageGrantTests {
     private enum NetworkTouched: Error { case touched }
 
     /// A folder of its own under the system temporary directory, which is the
-    /// throwaway root backstage lets a test run write credentials into (backstage#44).
-    private static func folder(client: String?) throws -> URL {
+    /// throwaway root backstage lets a test run write credentials into
+    /// (backstage#44), handed to `body` and REMOVED on every way out of it,
+    /// returning or throwing. Each case writes a client file and a token here, and
+    /// a folder left behind per case per run is credential shaped files piling up
+    /// in the temporary directory for ever.
+    static func inFolder(client: String?,
+                         _ body: @MainActor (URL) async throws -> Void) async throws {
         let folder = URL.temporaryDirectory
             .appending(path: "ovation-grant-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
         if let client {
             try Data(client.utf8).write(to: GmailCredentials.clientConfigURL(in: folder))
         }
-        return folder
+        try await body(folder)
     }
 
     private static func saveToken(in folder: URL, accessToken: String?, granted: [String]) throws {
