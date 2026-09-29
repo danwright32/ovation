@@ -379,7 +379,7 @@ check_exit "a label list answering something that is not issue numbers cannot me
 check "and it is not read as a list of numbers" \
     "$(failing_list "$LISTED" "echo 'HTTP 504: try again'" | grep -c 'could not be listed')" "1"
 
-# NO LABELLED ISSUE AT ALL IS A LEGITIMATE STATE. On 2026-09-30 Dan settled
+# NO LABELLED ISSUE AT ALL IS A LEGITIMATE STATE. On 2026-09-29 Dan settled
 # every open design question and the label came off all seven issues, so a list
 # with nothing on it is the tracker saying nothing is waiting, and it passes.
 # The issues the section still names are still asked about, in the first

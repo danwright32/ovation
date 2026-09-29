@@ -13,9 +13,10 @@ tracker are two vocabularies, and nothing held them to each other.
 
 THE RULE IS DAN'S, 2026-09-29: every numbered sub-step of a phase whose milestone
 is OPEN owes a filed issue, and every OPEN issue in that milestone maps back to a
-sub-step. The second half was narrowed by Dan on 2026-09-30, answering the first
-real run on pull request 628: closed issues are history and are not counted.
-That run had found 92 closed issues citing no sub-step, which nobody would edit. A phase with no open milestone is not checked until it is opened, which
+sub-step. The second half was narrowed by Dan later on 2026-09-29, answering
+the first real run on pull request 628: closed issues are history and are not
+counted. That run had found 92 closed issues citing no sub-step, which nobody
+would edit. A phase with no open milestone is not checked until it is opened, which
 is what keeps this from being a coverage report full of legitimately unissued
 steps that nobody reads (L400).
 
@@ -33,7 +34,7 @@ each foundation issue on the feature milestone that cannot ship without it.
 
 WHICH ISSUES MUST MAP BACK: every OPEN issue in a milestone a phase's
 `Milestone:` line names, when that milestone is open. A closed one is history
-(Dan, 2026-09-30) and is not read in this direction at all, whatever it cites.
+(Dan, 2026-09-29) and is not read in this direction at all, whatever it cites.
 In the other direction a closed issue still counts: a sub-step whose issue was
 closed has an issue, which is what finished work looks like. A milestone
 reached only through Phase 1's table (`Ungrouped` is one) is no phase's milestone,
@@ -278,7 +279,7 @@ def main(argv):
         milestone = (issue.get("milestone") or {}).get("title")
         if milestone not in open_phase_milestones:
             continue
-        # ONLY OPEN ISSUES MAP BACK (Dan, 2026-09-30). Asked as "is it open"
+        # ONLY OPEN ISSUES MAP BACK (Dan, 2026-09-29). Asked as "is it open"
         # rather than "is it closed", so an issue whose state is missing or
         # unexpected is still judged rather than waved through (L42).
         if (issue.get("state") or "").upper() == "CLOSED":

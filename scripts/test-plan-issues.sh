@@ -167,7 +167,7 @@ check "and named with the milestone its table row gives it" \
 
 # ---------------------------------------------------------------------------
 # UNMAPPED: an OPEN issue in an open phase milestone that cites no sub-step.
-# Dan decided on 2026-09-30 that closed issues are history and do not have to
+# Dan decided on 2026-09-29 that closed issues are history and do not have to
 # map back, so each direction has its own case: a closed unmapped issue passes,
 # an open one refuses.
 # ---------------------------------------------------------------------------

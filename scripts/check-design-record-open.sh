@@ -62,7 +62,7 @@ opening such an issue.
 
 AN EMPTY LIST IS A LEGITIMATE STATE. It was first written as CANNOT MEASURE, on
 the reasoning that a renamed label and a tracker with nothing waiting look the
-same (L543). On 2026-09-30 Dan settled every open design question and the label
+same (L543). On 2026-09-29 Dan settled every open design question and the label
 came off all seven issues, so nothing waiting is a real day and must pass. It is
 SAID rather than passed silently, and a label list that could not be READ is
 still CANNOT MEASURE, because a failure and an empty answer are different things.

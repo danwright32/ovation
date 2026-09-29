@@ -3,7 +3,7 @@ name: Plan issues
 # ovation#180. scripts/check-plan-issues.sh holds the plan's numbered sub-steps and
 # the tracker to each other: every sub-step of a phase whose milestone is open owes
 # a filed issue, and every OPEN issue in that milestone maps back to a sub-step
-# (Dan's rule, 2026-09-29, narrowed to open issues on 2026-09-30, because closed
+# (Dan's rule, 2026-09-29, later that day narrowed to open issues, because closed
 # issues are history). It reads the LIVE tracker, so its verdict changes when an
 # issue is filed or a milestone opens, with no commit in between; that is why it
 # runs here on a schedule rather than in the push gate, for the reason
