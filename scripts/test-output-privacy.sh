@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 134
+harness_begin "output privacy tests" 140
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
