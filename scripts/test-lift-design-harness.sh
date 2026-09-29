@@ -22,7 +22,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design harness lift tests" 141
+harness_begin "design harness lift tests" 147
 
 TARGET="scripts/lift-design-harness.sh"
 require_target "$TARGET"
@@ -489,6 +489,19 @@ check_exit "a round script holding a closing script tag is refused, since it run
 frame_spec "$WORK/frame-window.json" "framed.html" 'window=""'
 check_exit "a frame whose window selector is empty is refused as a spec" \
     4 lift "$WORK/frame-window.json" "$WORK/out"
+# A FIELD THE MODE DOES NOT USE IS REFUSED, NAMED, never ignored: a frame spec
+# carrying a lifted builder's fields (or the other way round) reads as though
+# they did something.
+frame_spec "$WORK/frame-liftfields.json" "framed.html" 'screen=".screen"' \
+    'builder_ends_before="draw();"'
+check_exit "a frame spec carrying a lifted builder's fields is refused" \
+    4 lift "$WORK/frame-liftfields.json" "$WORK/frame-liftfields-out"
+check "and it names each one" \
+    "$(says "$(run "$WORK/frame-liftfields.json" "$WORK/frame-liftfields-out")" "builder_ends_before, screen")" "yes"
+spec_for "$WORK/lift-framefields.json" "standin.html" 'stage=480'
+check_exit "and a lift spec carrying a frame's field is refused the same way" \
+    4 lift "$WORK/lift-framefields.json" "$WORK/lift-framefields-out"
+
 frame_spec "$WORK/frame-var.json" "framed.html" 'patch="word.js"' \
     'moves=[{"field": "word", "variable": "WORD", "values": ["A", "B"]}]'
 check_exit "a round script's move naming a builder variable is refused, not dropped" \
@@ -969,6 +982,76 @@ TMPDIR="$LEFT" python3 "$TARGET" --check "$SPEC" "$OUT" >/dev/null 2>&1
 TMPDIR="$LEFT" python3 "$TARGET" --check "$WORK/lost.json" "$LOST" >/dev/null 2>&1
 check "no --check leaves its page behind, passing or refusing, framed or lifted" \
     "$(find "$LEFT" -maxdepth 1 -name 'ovation-*' | wc -l | tr -d ' ')" "0"
+
+# THE STALL CLOCK (ovation#560 review). A switcher builds every option at once
+# and shows one, so a frame built and never put on a page must cost nothing
+# while it waits: no timer re-armed for as long as the page is open. And a
+# frame that IS on a page and never draws must still say so. Both are driven in
+# one page holding the written builder, with every setTimeout counted.
+clock_page() {
+    local builder="$1" into="$2"
+    python3 - "$builder" "$into" <<'PY'
+import sys
+builder = open(sys.argv[1], encoding="utf-8").read()
+page = """<!doctype html><html><head><meta charset="utf-8">
+<script>
+window.TIMERS = 0;
+var realTimeout = window.setTimeout;
+window.setTimeout = function (f, ms) { window.TIMERS += 1; return realTimeout(f, ms); };
+</script></head><body><div id="shown" style="width: 480px"></div>
+<script>""" + builder + """</script>
+<script>
+(function () {
+  var hidden = [liftFrame({}, true), liftFrame({}, true), liftFrame({}, true)];
+  var before = window.TIMERS;
+  realTimeout(function () {
+    var idle = window.TIMERS - before;
+    var box = liftFrame({}, true);
+    box._frame.removeAttribute("srcdoc");
+    box._frame.src = "about:blank";
+    box._frame.onload = null;
+    document.getElementById("shown").appendChild(box);
+    realTimeout(function () {
+      var pre = document.createElement("pre");
+      pre.id = "ovation-probe";
+      pre.textContent = JSON.stringify({ idle: idle, state: box.getAttribute("data-state"),
+        said: box.querySelector(".lift-frame-cap").textContent });
+      document.body.appendChild(pre);
+    }, 2500);
+  }, 2000);
+})();
+</script></body></html>"""
+open(sys.argv[2], "w", encoding="utf-8").write(page)
+PY
+}
+clock_read() {
+    python3 - "$1" "$2" <<'PY'
+import json, os, sys
+sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "lib"))
+from design_render import open_browser
+with open_browser() as session:
+    report = session.render(sys.argv[1], "", budget=9000)
+print(report.get(sys.argv[2]) if isinstance(report, dict) else "no report")
+PY
+}
+# The frame that never loads: its load listener is gone and its wait is short,
+# so the clock is what has to speak.
+plant_frame "$WORK/stalls" 'var LIFT_WAIT_MS = 10000;' 'var LIFT_WAIT_MS = 1000;'
+python3 - "$WORK/stalls/builder.js" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+old = 'fr.addEventListener("load", function () { liftFrameLoaded(box); });'
+assert old in text, "the plant matched nothing, so this case proves nothing"
+open(path, "w", encoding="utf-8").write(text.replace(old, ""))
+PY
+clock_page "$WORK/stalls/builder.js" "$WORK/clock.html"
+check "frames built and never shown arm no timer while they wait" \
+    "$(clock_read "$WORK/clock.html" idle)" "0"
+check "and a frame on a page that never draws says so, rather than loading for ever" \
+    "$(clock_read "$WORK/clock.html" state)" "failed"
+check "in words that say how long it waited" \
+    "$(clock_read "$WORK/clock.html" said | grep -c 'has not drawn after 1 seconds')" "1"
 
 check "and every one of those runs left the committed design files untouched" \
     "$(shasum -a 256 docs/design/invoice-pdf.html docs/design/invoice-list.html)" "$BEFORE"

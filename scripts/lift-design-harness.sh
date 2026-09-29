@@ -239,6 +239,10 @@ class Refusal(Exception):
 # ---------------------------------------------------------------------------
 
 FRAME_REQUIRED = ["source", "moves"]
+# The fields only one mode reads. A spec carrying the other mode's is refused.
+LIFT_ONLY = ["screen", "fixtures", "label", "screen_from", "option_one",
+             "builder_ends_before", "strip", "page_rules", "variant"]
+FRAME_ONLY = ["window", "patch", "stage", "viewport"]
 # The frame is drawn at the width the rendering checks draw every design file at,
 # so the window it shows is laid out as the checks see it, and judged on a stage
 # narrower than most windows, so the scale and its caption are always exercised.
@@ -270,6 +274,20 @@ def read_spec(path):
         raise Refusal(BAD_SPEC, "the spec's mode is %r, and the one mode there is is "
                                 "\"frame\"; leave it out for a lifted builder"
                       % (spec["mode"],))
+    # A FIELD THE MODE DOES NOT USE IS REFUSED BY NAME. Carried quietly, a lifted
+    # builder's `screen` in a frame spec, or a frame's `stage` in a lift spec,
+    # reads as a setting that did something (L11).
+    foreign = sorted(key for key in spec
+                     if key in (LIFT_ONLY if framing else FRAME_ONLY))
+    if foreign:
+        raise Refusal(BAD_SPEC,
+                      "the spec is for %s, and carries %s it does not use: %s."
+                      % ("a frame" if framing else "a lifted builder",
+                         "a field" if len(foreign) == 1 else "fields", ", ".join(foreign)),
+                      "Remove %s, or %s." % ("it" if len(foreign) == 1 else "them",
+                                              "drop \"mode\": \"frame\" to lift a builder"
+                                              if framing else
+                                              "set \"mode\": \"frame\" to frame the file"))
     missing = [key for key in (FRAME_REQUIRED if framing else REQUIRED) if key not in spec]
     if missing:
         raise Refusal(BAD_SPEC,
@@ -1462,20 +1480,26 @@ function liftFrame(variant, bare) {
   clip.append(fr);
   box.append(cap, clip);
   /* A frame that never loads must not read as one still loading. The clock
-     starts when the box is on a page, because a switcher builds every option
-     at once and shows one. */
-  var since = null;
-  (function watch() {
-    if (box.getAttribute("data-state") !== "loading") { return; }
-    if (!box.isConnected) { since = null; setTimeout(watch, 500); return; }
-    if (since === null) { since = Date.now(); }
-    if (Date.now() - since > LIFT_WAIT_MS) {
-      liftFrameSay(box, "failed", "The window has not drawn after " + (LIFT_WAIT_MS / 1000)
-        + " seconds. Reload the page to try again.");
-      return;
-    }
-    setTimeout(watch, 500);
-  })();
+     starts when the box is SHOWN, never before: a switcher builds every option
+     at once and shows one, so an option waiting unseen costs nothing, no timer
+     and no poll. An intersection observer is told when the box first has a
+     place on screen, which is exactly when its frame starts to load, and it is
+     let go once the frame has drawn or failed. */
+  if (typeof IntersectionObserver === "function") {
+    var clock = null;
+    var seen = new IntersectionObserver(function (entries) {
+      if (box.getAttribute("data-state") !== "loading") { seen.disconnect(); return; }
+      if (clock !== null || !entries.some(function (e) { return e.isIntersecting; })) { return; }
+      clock = setTimeout(function () {
+        seen.disconnect();
+        if (box.getAttribute("data-state") === "loading") {
+          liftFrameSay(box, "failed", "The window has not drawn after " + (LIFT_WAIT_MS / 1000)
+            + " seconds. Reload the page to try again.");
+        }
+      }, LIFT_WAIT_MS);
+    });
+    seen.observe(box);
+  }
   return box;
 }
 
