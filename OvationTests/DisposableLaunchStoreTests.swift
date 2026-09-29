@@ -75,8 +75,21 @@ struct DisposableLaunchStoreTests {
         #expect(!waited.launchIsStillToRun)
     }
 
+    /// Waits until the gate holds `count` parked waiters, on the condition rather
+    /// than a number of turns (L290), and under a deadline so a waiter that never
+    /// parks fails here by name rather than hanging (L110). A launch that had not
+    /// yet reached the gate would otherwise look exactly like one parked on it.
+    private static func waitUntilParked(_ gate: DisposableLaunchStore.Gate, count: Int = 1)
+        async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while gate.parked < count && clock.now < deadline { await Task.yield() }
+        try #require(gate.parked == count,
+                     "the launch never parked on the gate: \(gate.parked) parked, wanted \(count)")
+    }
+
     @Test("a disposable launch waits on Starting until it is asked, then opens", .timeLimit(.minutes(1)))
-    func aDisposableLaunchWaitsForTheAsk() async {
+    func aDisposableLaunchWaitsForTheAsk() async throws {
         let gate = DisposableLaunchStore.Gate()
         var finished = false
         let launch = Task { @MainActor in
@@ -85,21 +98,23 @@ struct DisposableLaunchStoreTests {
             finished = true
             return opening
         }
-        // Several turns of the main actor, which is where the launch waits.
-        for _ in 0..<20 { await Task.yield() }
+        try await Self.waitUntilParked(gate)
         #expect(!finished, "the launch opened before anything asked")
         gate.ask()
         let waited = await launch.value
         #expect(waited.opening?.outcome == .opened)
+        #expect(gate.parked == 0)
     }
 
-    @Test("a launch cancelled while it waits is let go, opens nothing, and leaves the gate usable", .timeLimit(.minutes(1)))
-    func aCancelledWaitIsLetGo() async {
+    @Test("a launch cancelled while PARKED is let go, opens nothing, and leaves the gate usable", .timeLimit(.minutes(1)))
+    func aCancelledWaitIsLetGo() async throws {
         let gate = DisposableLaunchStore.Gate()
         let launch = Task { @MainActor in
             await DisposableLaunchStore.openWhenAsked(isDisposableLaunch: true, gate: gate)
         }
-        for _ in 0..<20 { await Task.yield() }
+        // PARKED FIRST, so the cancel below is the one the handler releases, never
+        // the check a task that begins already cancelled takes before parking.
+        try await Self.waitUntilParked(gate)
         launch.cancel()
         let waited = await launch.value
         #expect(waited.opening == nil, "a cancelled launch opened a store for a window that has gone")
@@ -109,5 +124,37 @@ struct DisposableLaunchStoreTests {
         #expect(waited.launchIsStillToRun)
         #expect(!waited.isNotADisposableLaunch)
         #expect(!gate.hasBeenAsked, "letting a cancelled wait go is not an ask")
+        #expect(gate.parked == 0, "the released continuation is not left parked")
+    }
+
+    @Test("a launch that begins already cancelled is let go, and leaves nothing parked", .timeLimit(.minutes(1)))
+    func aLaunchCancelledBeforeItParksIsLetGo() async {
+        let gate = DisposableLaunchStore.Gate()
+        let launch = Task { @MainActor in
+            await DisposableLaunchStore.openWhenAsked(isDisposableLaunch: true, gate: gate)
+        }
+        // Cancelled in the same turn it was made, so it has not run a line yet.
+        launch.cancel()
+        let waited = await launch.value
+        #expect(waited.launchIsStillToRun)
+        #expect(gate.parked == 0)
+    }
+
+    @Test("an ask and a cancel arriving together are an ask: the store opens and the launch is done", .timeLimit(.minutes(1)))
+    func anAskThatReleasedTheWaitIsNotUndoneByACancel() async throws {
+        let gate = DisposableLaunchStore.Gate()
+        let launch = Task { @MainActor in
+            await DisposableLaunchStore.openWhenAsked(isDisposableLaunch: true, gate: gate)
+        }
+        try await Self.waitUntilParked(gate)
+        // BOTH IN ONE TURN. The ask resumes the parked wait, and the cancel then
+        // lands on a task already released. Called let go, this would consume the
+        // ask and leave the next launch nothing to wait for and nothing opened.
+        gate.ask()
+        launch.cancel()
+        let waited = await launch.value
+        #expect(waited.opening?.outcome == .opened,
+                "the ask released the wait, so the cancel after it must not undo it")
+        #expect(!waited.launchIsStillToRun)
     }
 }

@@ -54,40 +54,58 @@ enum DisposableLaunchStore {
     final class Gate {
         static let shared = Gate()
 
+        /// How one wait ended. Carried out of the wait itself, because by the
+        /// time the waiter runs again the task may be cancelled either way, and
+        /// only the continuation's resumer knows which released it.
+        enum End: Equatable {
+            /// A test asked, before the wait or while it was parked.
+            case asked
+            /// The task was cancelled before the wait parked, or while it was
+            /// parked and before anything asked.
+            case letGo
+        }
+
         private var asked = false
-        private var waiting: [UUID: CheckedContinuation<Void, Never>] = [:]
+        private var waiting: [UUID: CheckedContinuation<End, Never>] = [:]
 
         /// Whether anything has asked yet. A hosted case reads it before asking,
         /// because once asked the window is on the shell for the rest of the host.
         var hasBeenAsked: Bool { asked }
 
+        /// How many launches are parked on the gate now, so a test can wait until
+        /// one really is rather than for a number of turns (L290).
+        var parked: Int { waiting.count }
+
         func ask() {
             asked = true
             let released = waiting.values
             waiting = [:]
-            for continuation in released { continuation.resume() }
+            for continuation in released { continuation.resume(returning: .asked) }
         }
 
-        func wait() async {
-            if asked { return }
+        /// WHICHEVER RESUMES THE PARKED WAIT FIRST DECIDES HOW IT ENDED, and each
+        /// continuation is resumed once because it is removed as it is resumed.
+        /// So an ask that released the wait is not undone by a cancel landing
+        /// after it: the cancel finds nothing parked, and the wait ends `asked`.
+        func wait() async -> End {
+            if asked { return .asked }
             let id = UUID()
-            await withTaskCancellationHandler {
+            return await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
-                    // CANCELLED BEFORE IT PARKED: the handler below has already run
-                    // and found nothing to release, so this is the only chance.
-                    if Task.isCancelled {
-                        continuation.resume()
-                    } else {
-                        waiting[id] = continuation
-                    }
+                    waiting[id] = continuation
                 }
             } onCancel: {
-                Task { @MainActor in self.release(id) }
+                // ONE PATH FOR EVERY CANCEL. A task already cancelled runs this at
+                // once, but the hop to the main actor lands only after the park
+                // above, which is this same main actor job; so it finds the wait
+                // parked either way. A separate check before parking was measured
+                // redundant (deleting it failed nothing) and is not kept.
+                Task { @MainActor in self.letGo(id) }
             }
         }
 
-        private func release(_ id: UUID) {
-            waiting.removeValue(forKey: id)?.resume()
+        private func letGo(_ id: UUID) {
+            waiting.removeValue(forKey: id)?.resume(returning: .letGo)
         }
     }
 
@@ -97,8 +115,8 @@ enum DisposableLaunchStore {
     enum Waited {
         /// A real launch. It never waited, and nothing here concerns it.
         case notADisposableLaunch
-        /// A test launch whose task was cancelled while it waited. It opened
-        /// nothing and finished nothing.
+        /// A test launch whose task was cancelled while it waited, before anything
+        /// asked. It opened nothing and finished nothing.
         case letGo
         /// A test launch that was asked, and what asking opened.
         case opened(Opening)
@@ -128,16 +146,19 @@ enum DisposableLaunchStore {
 
     /// A store in memory for a disposable launch once a test asks for it; at once
     /// `notADisposableLaunch` for a real one; `letGo` for a test launch whose
-    /// task was cancelled while it waited.
+    /// task was cancelled while it waited and before anything asked.
     @MainActor
     static func openWhenAsked(
         isDisposableLaunch: Bool = AppEnvironment.isDisposableLaunch(),
         gate: Gate = .shared
     ) async -> Waited {
         guard isDisposableLaunch else { return .notADisposableLaunch }
-        await gate.wait()
-        // A launch cancelled while it waited has no window left to open a store for.
-        guard !Task.isCancelled else { return .letGo }
+        // LET GO ONLY WHEN THE WAIT WAS. A cancel arriving after an ask released
+        // the wait leaves it `asked`, and the store opens. Read from the task
+        // instead, that cancel would turn a test's answered ask into a launch
+        // that opened nothing, leaving the shell to depend on whether SwiftUI
+        // ever starts the window's task again.
+        guard await gate.wait() == .asked else { return .letGo }
         return open(isDisposableLaunch: isDisposableLaunch).map(Waited.opened)
             ?? .notADisposableLaunch
     }
