@@ -85,9 +85,26 @@ match at least one line or it is a refusal.
 
 `moves` is what the round's one variable is. Each entry names a value the design
 file HARD CODES in its builder, the variable that replaces it, and the variant
-field that sets it. THEY ARE VALUES IN THE BUILDER, NEVER IN THE STYLESHEET, and
-a round moving a CSS value is not something this does; it is said here so nobody
-reads the silence as coverage.
+field that sets it.
+
+A MOVE CAN BE A STYLESHEET RULE INSTEAD (ovation#560). Every round of ovation#110
+moved a CSS value, and because this tool moved builder values only, each was a
+hand built frame embedding the whole design file, which shipped three faults
+into switchers that were found only by looking. A move naming a `rule` and a
+`property` has no `variable`:
+
+      {"field": "rowPad", "rule": ".row", "property": "padding",
+       "holds": "4px", "values": ["4px", "14px"]}
+
+The declaration is rewritten as `padding: var(--lift-rowPad, 4px)`, so a variant
+naming no value draws the design file's own, and buildScreen sets
+`--lift-rowPad` on the screen it builds. ON THE SCREEN, never in a stylesheet of
+the option's own, so two options drawn at once under one switcher cannot reach
+each other's value. The rule is matched whole as the design file writes it,
+BEFORE any page rule is retargeted, so a round on what the screen inherits from
+`body` names `body`. A rule that is not there, a property it never declares, a
+declaration holding another value than `holds`, and a custom property name the
+stylesheet already uses are each a refusal, because each reads as a step taken.
 
 `values` is what the round's options give that field, as the switcher's variants
 carry it, at least two and all different (ovation#407). THEY ARE THERE SO
@@ -102,10 +119,15 @@ the one option where the moved value still holds its original and so the one
 option that cannot see it (L101, L159). So after the faithfulness check `--check`
 draws option 1's fixture once per value of each move, every other move left at
 option 1, and refuses when two values draw the same screen. "The same screen" is
-the built element's markup, its text and attributes included, and every
-element's tag, classes and box: a word changed inside a fixed width box moves no
-box, and a width changed through a class moves no text, so either alone would
-pass a move the other can see. The values are compared, never printed: a
+the built element's markup, its text and attributes included, every element's
+computed style, and every element's tag, classes and box: a word changed inside
+a fixed width box moves no box, a width changed through a class moves no text,
+and a colour moves neither, so any one alone would pass a move another can see.
+The markup is read with the lift's own `--lift-` properties taken off, because a
+stylesheet move writes one onto the screen for every value, and counting it
+would prove a move overridden by a later rule moves something (L63). A stylesheet
+move is refused this way when a later or more specific rule wins, which is the
+fault it most often has. The values are compared, never printed: a
 refusal names them by their place in the list.
 
 WHAT IT PRINTS is file names, selectors, class names, counts and boxes. It never
@@ -210,11 +232,31 @@ def read_spec(path):
     for index, move in enumerate(moves):
         if not isinstance(move, dict):
             raise Refusal(BAD_SPEC, "move %d is not an object" % (index + 1))
-        for key in ("field", "variable", "holds"):
+        # A MOVE NAMING A RULE IS A STYLESHEET MOVE (ovation#560), and its shape
+        # is its own: a rule and a property say where it is, and a builder
+        # variable would be declared and never read, so naming one is refused
+        # rather than quietly ignored.
+        in_styles = "rule" in move
+        needed = ("field", "rule", "property", "holds") if in_styles \
+            else ("field", "variable", "holds")
+        for key in needed:
             if not isinstance(move.get(key), str) or not move[key].strip():
                 raise Refusal(BAD_SPEC, "move %d has no %s, so nothing says what it moves "
                                         "or what it moves it from" % (index + 1, key))
-        if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", move["variable"]):
+        if in_styles:
+            if "variable" in move:
+                raise Refusal(BAD_SPEC,
+                              "move %d names a stylesheet rule and a builder variable, and a "
+                              "stylesheet move declares no variable: the builder would never "
+                              "read it." % (index + 1),
+                              "Drop the variable; the move is named by its field.")
+            # THE FIELD NAMES THE CUSTOM PROPERTY, --lift-<field>, and is read in
+            # the builder as variant.<field>, so it has to be both.
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", move["field"]):
+                raise Refusal(BAD_SPEC, "move %d names the field %r, which cannot name a "
+                                        "custom property and a variant field both"
+                              % (index + 1, move["field"]))
+        elif not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", move["variable"]):
             raise Refusal(BAD_SPEC, "move %d names the variable %r, which is not a name "
                                     "JavaScript can declare" % (index + 1, move["variable"]))
         # THE VALUES THE ROUND GIVES IT, which is what --check draws to prove the
@@ -372,6 +414,114 @@ def retarget(css, page_rules, name):
     return css, counted
 
 
+def custom_property(move):
+    """The custom property a stylesheet move is carried by, derived from its
+    field so the builder and the stylesheet cannot name two different ones."""
+    return "--lift-" + move["field"]
+
+
+def declarations(css, open_brace):
+    """(start, end, property, value start, value end) for each declaration in
+    the rule whose block opens at `open_brace`, and where the block closes.
+
+    Split at the semicolons that sit outside quotes, comments and parentheses,
+    because a `url(data:...;base64,...)` carries one and a split through it
+    would read half a value as a property."""
+    found, i, n = [], open_brace + 1, len(css)
+    start, paren = i, 0
+
+    def close(at):
+        text = css[start:at]
+        colon = text.find(":")
+        if colon > 0 and text[:colon].strip():
+            found.append((start, at, text[:colon].strip().lower(),
+                          start + colon + 1, at))
+
+    while i < n:
+        c = css[i]
+        if c == "/" and css.startswith("/*", i):
+            end = css.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+            continue
+        if c in "\"'":
+            quote, i = c, i + 1
+            while i < n and css[i] != quote:
+                i += 2 if css[i] == "\\" else 1
+            i += 1
+            continue
+        if c == "(":
+            paren += 1
+        elif c == ")":
+            paren -= 1
+        elif c == ";" and paren == 0:
+            close(i)
+            start = i + 1
+        elif c == "}" and paren == 0:
+            close(i)
+            return found, i
+        i += 1
+    return found, n
+
+
+def move_rules(css, moves, name):
+    """Turn each stylesheet move's declaration into a custom property, with the
+    design file's own value as its fallback (ovation#560).
+
+    THE FALLBACK IS THE FILE'S VALUE, so a harness drawn with no variant draws
+    exactly what the design file draws, and the faithfulness check judges the
+    lift rather than the move. The property is SET ON THE BUILT SCREEN by
+    buildScreen, never in a stylesheet of its own, so two options drawn at once
+    under one switcher cannot take each other's value.
+
+    Each step that takes no effect is its own refusal, because each reads as
+    taken: a rule that is not there, a property that rule never declares, and a
+    declaration holding some other value than the one the spec says it moves
+    from. Values are never printed, only counted (docs/PRIVACY-FLOOR.md)."""
+    counted = {}
+    for move in [m for m in moves if "rule" in m]:
+        prop = custom_property(move)
+        if prop in css:
+            raise Refusal(LIFT_REFUSED,
+                          "move %r would be carried by %s, and %s's stylesheet already "
+                          "uses that name, so the lift would change what it means."
+                          % (move["field"], prop, name))
+        wanted = " ".join(move["rule"].split())
+        rules = [s for s in selector_spans(css, name) if " ".join(s[2].split()) == wanted]
+        if not rules:
+            raise Refusal(LIFT_REFUSED,
+                          "no rule in %s has the selector %r, so move %r would move nothing."
+                          % (name, move["rule"], move["field"]),
+                          "The selector is matched whole, as the design file writes it, "
+                          "before any page rule is retargeted.")
+        property_name = move["property"].strip().lower()
+        holds = " ".join(move["holds"].split())
+        edits, declared = [], 0
+        for _start, brace, _text in rules:
+            for _d0, _d1, prop_name, v0, v1 in declarations(css, brace)[0]:
+                if prop_name != property_name:
+                    continue
+                declared += 1
+                value = css[v0:v1]
+                important = re.search(r"\s*!\s*important\s*$", value, re.I)
+                core = value[:important.start()] if important else value
+                if " ".join(core.split()) != holds:
+                    continue
+                lead = len(core) - len(core.lstrip())
+                edits.append((v0 + lead, v0 + len(core.rstrip()),
+                              "var(%s, %s)" % (prop, core.strip())))
+        if not edits:
+            raise Refusal(LIFT_REFUSED,
+                          "the rule %r in %s declares %s %d time(s), none of them with the "
+                          "value the move says it holds, so move %r would move nothing."
+                          % (move["rule"], name, property_name, declared, move["field"]),
+                          "The value is compared whole, with its spacing ignored and any "
+                          "!important left where it is.")
+        for start, end, replacement in sorted(edits, reverse=True):
+            css = css[:start] + replacement + css[end:]
+        counted[move["field"]] = len(edits)
+    return css, counted
+
+
 # ---------------------------------------------------------------------------
 # The builder.
 # ---------------------------------------------------------------------------
@@ -440,7 +590,7 @@ def apply_moves(body, moves, name):
     draw the same screen while the spec said otherwise (L100).
     """
     counted = {}
-    for move in moves:
+    for move in [m for m in moves if "rule" not in m]:
         variable, holds = move["variable"], move["holds"]
         hits = body.count(holds)
         if hits == 0:
@@ -478,8 +628,9 @@ def build_screen(spec):
         "  variant = variant || {};",
     ]
     for move in spec["moves"]:
-        lines.append("  %s = (variant.%s !== undefined) ? variant.%s : %s;"
-                     % (move["variable"], move["field"], move["field"], move["holds"]))
+        if "rule" not in move:
+            lines.append("  %s = (variant.%s !== undefined) ? variant.%s : %s;"
+                         % (move["variable"], move["field"], move["field"], move["holds"]))
     lines += [
         "  var fixtures = (%s);" % spec["fixtures"],
         "  var wanted = variant.%s;" % spec["label"],
@@ -494,7 +645,18 @@ def build_screen(spec):
         "      \", and exactly one has to. A label matching none draws an empty page.\");",
         "  }",
         "  var fixture = found[0];",
-        "  return (%s);" % spec["screen_from"],
+        "  var built = (%s);" % spec["screen_from"],
+    ]
+    # A STYLESHEET MOVE IS SET ON THE SCREEN ITSELF (ovation#560), and only when
+    # the variant names it, so a variant naming none draws the declaration's
+    # own fallback, which is the design file's value.
+    for move in spec["moves"]:
+        if "rule" in move:
+            lines.append("  if (variant.%s !== undefined) { built.style.setProperty(%s, "
+                         "String(variant.%s)); }"
+                         % (move["field"], json.dumps(custom_property(move)), move["field"]))
+    lines += [
+        "  return built;",
         "}",
         "",
     ]
@@ -510,7 +672,11 @@ def lift(spec):
     with open(path, encoding="utf-8", errors="replace") as handle:
         text = handle.read()
 
-    css, retargeted = retarget(one_style_block(text, name), spec["page_rules"], name)
+    # THE STYLESHEET MOVES ARE MADE BEFORE THE RETARGET, on the selectors as the
+    # design file writes them, so a round on what the screen inherits from
+    # `body` names `body` and not whatever the lift renamed it to.
+    css, moved_rules = move_rules(one_style_block(text, name), spec["moves"], name)
+    css, retargeted = retarget(css, spec["page_rules"], name)
     body = last_script(text, name)
     kept = cut_at(body.split("\n"), spec["builder_ends_before"], name)
     kept, stripped = strip_lines(kept, spec["strip"], name)
@@ -523,6 +689,7 @@ def lift(spec):
                       "Strip the file's own definition, or rename it, before lifting.")
 
     lifted, moved = apply_moves(lifted, spec["moves"], name)
+    moved.update(moved_rules)
 
     head = ["/* Lifted from %s by scripts/lift-design-harness.sh (ovation#196)." % name,
             "   Do not edit by hand: re-run the lift, and --check says when this is no",
@@ -530,9 +697,12 @@ def lift(spec):
             "",
             "   WHAT THIS ROUND MOVES. Each variable below is a value the design file",
             "   hard codes. buildScreen puts the variant's own value in its place, and",
-            "   falls back to what the design file holds when the variant names none. */"]
+            "   falls back to what the design file holds when the variant names none.",
+            "   A stylesheet move has no variable here: buildScreen sets its custom",
+            "   property on the screen it builds (ovation#560). */"]
     for move in spec["moves"]:
-        head.append("var %s = %s;" % (move["variable"], move["holds"]))
+        if "rule" not in move:
+            head.append("var %s = %s;" % (move["variable"], move["holds"]))
     head.append("")
 
     builder = "\n".join(head) + lifted + build_screen(spec)
@@ -592,6 +762,54 @@ function ovationMeasure(root, ignore) {
    that reports every other fault (L215). */
 function ovationCheckSelectors(ignore) {
   ignore.forEach(function (selector) { document.querySelector(selector); });
+}
+/* WHAT A MOVE IS JUDGED BY, beside the boxes (ovation#407, ovation#560): the
+   built screen's markup and every element's computed style.
+
+   The markup is read from a COPY with the lift's own custom properties taken
+   off, because a stylesheet move writes its value onto the screen's style
+   attribute and markup compared whole would differ for every value even where
+   another rule overrides the declaration and nothing on screen moves. The proof
+   must not count its own mechanism (L63).
+
+   Computed style is there because a colour or a weight moves no box and no
+   word, so boxes and markup alone would refuse a real colour round as inert.
+   Custom properties are left out of it for the same reason as above, and the
+   ::before and ::after of each element are read too, since a rule on one of
+   those is a rule the screen draws. Each element's style is reduced to a hash
+   in the page, because the whole of it runs to megabytes on a real screen. */
+function ovationLook(root) {
+  var copy = root.cloneNode(true);
+  [copy].concat(Array.prototype.slice.call(copy.querySelectorAll("[style]"))).forEach(function (node) {
+    if (!node.style) { return; }
+    for (var i = node.style.length - 1; i >= 0; i--) {
+      var name = node.style[i];
+      if (name.indexOf("--lift-") === 0) { node.style.removeProperty(name); }
+    }
+    if (node.getAttribute("style") === "") { node.removeAttribute("style"); }
+  });
+  function hash(text) {
+    var a = 0xdeadbeef, b = 0x41c6ce57;
+    for (var i = 0; i < text.length; i++) {
+      var c = text.charCodeAt(i);
+      a = Math.imul(a ^ c, 2654435761);
+      b = Math.imul(b ^ c, 1597334677);
+    }
+    a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909);
+    b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909);
+    return (b >>> 0).toString(16) + ":" + (a >>> 0).toString(16);
+  }
+  function styleOf(node, pseudo) {
+    var s = getComputedStyle(node, pseudo), out = [];
+    for (var i = 0; i < s.length; i++) {
+      if (s[i].indexOf("--") !== 0) { out.push(s[i] + ":" + s.getPropertyValue(s[i])); }
+    }
+    return out.join(";");
+  }
+  var styles = [root].concat(Array.prototype.slice.call(root.querySelectorAll("*"))).map(function (node) {
+    return hash([styleOf(node, null), styleOf(node, "::before"), styleOf(node, "::after")].join("|"));
+  });
+  return { markup: copy.outerHTML, styles: styles };
 }
 """
 
@@ -668,7 +886,11 @@ def probe_for_harness(spec, variant=None, markup=False):
     var built = buildScreen(%(variant)s);
     document.body.appendChild(built);
     report = ovationMeasure(built, IGNORE);
-    if (%(markup)s) { report.markup = built.outerHTML; }
+    if (%(markup)s) {
+      var look = ovationLook(built);
+      report.markup = look.markup;
+      report.styles = look.styles;
+    }
   } catch (e) { report = { error: String((e && e.message) || e) }; }
   var pre = document.createElement("pre");
   pre.id = "ovation-probe";
@@ -793,7 +1015,8 @@ def prove_moves(session, spec, page):
             report = read_report(session, page, probe_for_harness(spec, variant, True),
                                  "the harness with value %d of variant.%s"
                                  % (index + 1, move["field"]))
-            drawn.append(json.dumps([report.get("markup"), report["rows"]]))
+            drawn.append(json.dumps([report.get("markup"), report.get("styles"),
+                                     report["rows"]]))
         twin = None
         for later in range(len(drawn)):
             for earlier in range(later):
@@ -900,6 +1123,14 @@ def report_moves(moved):
         print("INERT: variant.%s draws the same screen for values %d and %d, so a round "
               "moving it would offer a choice between copies of one screen."
               % (move["field"], first, second))
+        if "rule" in move:
+            print("    The declaration %s feeds is not the one the screen draws. The usual "
+                  "cause is a later or more specific rule setting %s on the same "
+                  "elements, or a rule that matches nothing inside the screen."
+                  % (custom_property(move), move["property"]))
+            print("    Move the declaration that wins, which the browser's inspector "
+                  "names for the element, or name the rule it is written in.")
+            continue
         print("    The builder does not read %s while it builds the screen. The usual "
               "cause is a literal evaluated once, when the script loads, that already "
               "holds the original value by the time buildScreen assigns the variable."
@@ -932,8 +1163,12 @@ def write(spec, out_dir):
     for marker in sorted(stripped):
         print("  stripped     %d line(s) of the file's own mounting code" % stripped[marker])
     for move in spec["moves"]:
-        print("  moves        variant.%s through %s, %d place(s) in the builder"
-              % (move["field"], move["variable"], moved[move["field"]]))
+        if "rule" in move:
+            print("  moves        variant.%s through %s, %d declaration(s) in the stylesheet"
+                  % (move["field"], custom_property(move), moved[move["field"]]))
+        else:
+            print("  moves        variant.%s through %s, %d place(s) in the builder"
+                  % (move["field"], move["variable"], moved[move["field"]]))
     print("  option 1     %r, picked by label, and buildScreen refuses any other count"
           % spec["option_one"])
     print("  next         --check renders both and compares, draws each move's values "

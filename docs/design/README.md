@@ -458,6 +458,16 @@ offered a choice between two copies of one screen with the lift and `--check` bo
 move in the spec lists the `values` the round's options give it, and `--check` draws option 1's
 fixture once per value, markup and boxes, and refuses with exit 8 when two draw the same screen.
 
+**A move can be a stylesheet rule** (ovation#560). Every round of ovation#110 moved a CSS value, and
+because the lift moved builder values only, each was a hand built frame embedding the whole design
+file, which shipped an empty frame, a window cut off by a scroll that did not happen, and a readout
+that did not match its drawing. A move naming a `rule` and a `property` rewrites that declaration as
+a custom property whose fallback is the file's own value, and `buildScreen` sets it on the screen it
+builds, so options drawn side by side cannot reach each other's value. The proof that it moves
+anything compares computed style as well as markup and boxes, since a colour moves neither, and
+leaves the lift's own custom property out of the markup, so a declaration a later rule overrides is
+refused as inert rather than passed.
+
 ## Nothing carries CSS for a screen it does not draw
 
 **`scripts/check-design-dead-rules.sh` refuses a rule the file that holds it can never apply.** Each

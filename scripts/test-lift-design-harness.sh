@@ -22,7 +22,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design harness lift tests" 72
+harness_begin "design harness lift tests" 97
 
 TARGET="scripts/lift-design-harness.sh"
 require_target "$TARGET"
@@ -284,6 +284,81 @@ check "a cut that high still leaves a builder to lift" \
     "$(grep -c '^function buildThing(f) {$' "$STRIPPED/builder.js")" "1"
 
 # ---------------------------------------------------------------------------
+# 4b. A MOVE IN THE STYLESHEET (ovation#560). Every round of ovation#110 moved a
+#     stylesheet rule, and each one was a hand built frame embedding the whole
+#     design file, because this tool moved builder values only. A move naming a
+#     `rule` and a `property` is a stylesheet move: the declaration becomes a
+#     custom property with the file's own value as its fallback, and buildScreen
+#     sets it on the screen it builds, so two options drawn side by side cannot
+#     reach each other's value.
+# ---------------------------------------------------------------------------
+RULEMOVE='{"field": "rowPad", "rule": ".row", "property": "padding", "holds": "4px", "values": ["4px", "14px"]}'
+spec_for "$WORK/rule.json" "standin.html" "moves=[$RULEMOVE]"
+RULEOUT="$WORK/ruleout"
+check_exit "a move naming a stylesheet rule lifts" 0 lift "$WORK/rule.json" "$RULEOUT"
+check "the declaration it names now reads a custom property, the file's value its fallback" \
+    "$(grep -c '^\.row { padding: var(--lift-rowPad, 4px); }$' "$RULEOUT/screen.css")" "1"
+check "and buildScreen sets that property on the screen it builds, from the variant" \
+    "$(grep -c 'built.style.setProperty("--lift-rowPad", String(variant.rowPad))' "$RULEOUT/builder.js")" "1"
+check "no builder variable is declared for it: the one line naming it is the one setting it" \
+    "$(grep -c 'rowPad' "$RULEOUT/builder.js")" "1"
+check "the lift says it moved one declaration in the stylesheet" \
+    "$(says "$(run "$WORK/rule.json" "$RULEOUT")" "moves        variant.rowPad through --lift-rowPad, 1 declaration(s) in the stylesheet")" "yes"
+
+# A PAGE RULE CAN BE MOVED AND RETARGETED IN ONE LIFT. The move is made on the
+# selector as the design file writes it, before the retarget renames it, so a
+# round on the typography the screen inherits from `body` names `body`.
+spec_for "$WORK/rule-body.json" "standin.html" \
+    'moves=[{"field": "size", "rule": "body", "property": "font-size", "holds": "20px", "values": ["20px", "15px"]}]'
+check_exit "a move in a rule that is retargeted onto the screen lifts" \
+    0 lift "$WORK/rule-body.json" "$WORK/rulebody"
+check "and the retargeted rule carries the moved declaration" \
+    "$(grep -c '^\.screen { font-family: ui-monospace, monospace; font-size: var(--lift-size, 20px);' "$WORK/rulebody/screen.css")" "1"
+
+spec_for "$WORK/rule-noprop.json" "standin.html" \
+    'moves=[{"field": "rowPad", "rule": ".row", "values": ["4px", "14px"], "holds": "4px"}]'
+check_exit "a stylesheet move naming no property is refused as a spec" \
+    4 lift "$WORK/rule-noprop.json" "$WORK/out"
+spec_for "$WORK/rule-var.json" "standin.html" \
+    'moves=[{"field": "rowPad", "rule": ".row", "property": "padding", "variable": "ROW_PAD", "holds": "4px", "values": ["4px", "14px"]}]'
+check_exit "and one naming a builder variable too, which it would never declare" \
+    4 lift "$WORK/rule-var.json" "$WORK/out"
+spec_for "$WORK/rule-field.json" "standin.html" \
+    'moves=[{"field": "row pad", "rule": ".row", "property": "padding", "holds": "4px", "values": ["4px", "14px"]}]'
+check_exit "and one whose field cannot name a custom property" \
+    4 lift "$WORK/rule-field.json" "$WORK/out"
+
+spec_for "$WORK/rule-norule.json" "standin.html" \
+    'moves=[{"field": "rowPad", "rule": ".nothing", "property": "padding", "holds": "4px", "values": ["4px", "14px"]}]'
+check_exit "a stylesheet move naming a rule the stylesheet does not have is refused" \
+    6 lift "$WORK/rule-norule.json" "$WORK/out"
+check "and it says the rule is not there, naming the selector" \
+    "$(says "$(run "$WORK/rule-norule.json" "$WORK/out")" "no rule in standin.html has the selector '.nothing'")" "yes"
+spec_for "$WORK/rule-nodecl.json" "standin.html" \
+    'moves=[{"field": "rowPad", "rule": ".row", "property": "margin", "holds": "4px", "values": ["4px", "14px"]}]'
+check_exit "one naming a property the rule does not declare is refused" \
+    6 lift "$WORK/rule-nodecl.json" "$WORK/out"
+spec_for "$WORK/rule-noval.json" "standin.html" \
+    'moves=[{"field": "rowPad", "rule": ".row", "property": "padding", "holds": "9px", "values": ["4px", "14px"]}]'
+check_exit "one whose rule declares the property with another value is refused" \
+    6 lift "$WORK/rule-noval.json" "$WORK/out"
+check "and it counts what the rule does declare, without printing a value" \
+    "$(says "$(run "$WORK/rule-noval.json" "$WORK/out")" "declares padding 1 time(s), none of them with the value the move says it holds")" "yes"
+
+TAKENPROP="$WORK/takenprop.html"
+python3 - "$STANDIN" "$TAKENPROP" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+mark = ".rail { width: 80px; }"
+assert mark in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(
+    text.replace(mark, ".rail { width: 80px; --lift-rowPad: 1px; }", 1))
+PY
+spec_for "$WORK/takenprop.json" "takenprop.html" "moves=[$RULEMOVE]"
+check_exit "one whose custom property the stylesheet already uses is refused" \
+    6 lift "$WORK/takenprop.json" "$WORK/out"
+
+# ---------------------------------------------------------------------------
 # Everything below renders. With no browser there is no answer to give, and
 # giving one would be a green tick over an unrun check.
 # ---------------------------------------------------------------------------
@@ -354,6 +429,46 @@ check "it names the move and the values that drew the same screen" \
 check "and it names the cause to look for" "$(says "$INERTSAYS" "evaluated once, when the script loads")" "yes"
 check "it never prints a value, so no fixture's wording reaches the terminal" \
     "$(grep -c 'Waiting on you' <<< "$INERTSAYS")" "0"
+
+# ovation#560. THE SAME PROOF FOR A STYLESHEET MOVE, and it has to judge what is
+# DRAWN. The move itself writes the custom property onto the screen's own style
+# attribute, so markup compared whole would differ for every value even when the
+# declaration it feeds is overridden and nothing on screen moves; the proof must
+# not count its own mechanism. And a colour moves no box and no word, so the
+# proof has to compare computed style as well, or a real colour round would be
+# refused as inert.
+RULESAYS="$(run --check "$WORK/rule.json" "$RULEOUT")"
+check_exit "a stylesheet move's harness draws the design file's screen" \
+    0 lift --check "$WORK/rule.json" "$RULEOUT"
+check "and the move is proved to move the screen" \
+    "$(says "$RULESAYS" "MOVES: variant.rowPad draws 2 different screens")" "yes"
+check_exit "a move in a retargeted page rule is proved to move it too" \
+    0 lift --check "$WORK/rule-body.json" "$WORK/rulebody"
+
+spec_for "$WORK/rule-colour.json" "standin.html" \
+    'moves=[{"field": "tint", "rule": ".screen", "property": "background", "holds": "#EEEEEE", "values": ["#EEEEEE", "#333333"]}]'
+python3 "$TARGET" "$WORK/rule-colour.json" "$WORK/rulecolour" >/dev/null 2>&1
+check_exit "a colour, which moves no box and no word, is proved to move the screen" \
+    0 lift --check "$WORK/rule-colour.json" "$WORK/rulecolour"
+
+OVERRIDDEN="$WORK/overridden.html"
+python3 - "$STANDIN" "$OVERRIDDEN" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+mark = ".rail { width: 80px; }"
+assert mark in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(
+    text.replace(mark, mark + "\n.screen .row { padding: 4px; }", 1))
+PY
+spec_for "$WORK/overridden.json" "overridden.html" "moves=[$RULEMOVE]"
+python3 "$TARGET" "$WORK/overridden.json" "$WORK/overriddenout" >/dev/null 2>&1
+OVERSAYS="$(run --check "$WORK/overridden.json" "$WORK/overriddenout")"
+check "a declaration another rule overrides still draws option 1 faithfully" \
+    "$(says "$OVERSAYS" "SAME:")" "yes"
+check_exit "but moving it is refused as inert, whatever its own attribute says" \
+    8 lift --check "$WORK/overridden.json" "$WORK/overriddenout"
+check "and the cause it names is the one a stylesheet move has" \
+    "$(says "$OVERSAYS" "a later or more specific rule")" "yes"
 
 spec_for "$WORK/nolabel.json" "standin.html" 'option_one="Three"'
 check_exit "an option 1 label on no fixture cannot be read" \
@@ -510,6 +625,21 @@ PY
 python3 "$TARGET" "$WORK/action-at-load.json" "$WORK/action-at-load" >/dev/null 2>&1
 check_exit "and with its rows back in a literal built at load, the same round is refused" \
     8 lift --check "$WORK/action-at-load.json" "$WORK/action-at-load"
+
+# ovation#560 ON A COMMITTED FILE. A colour moves no word and no box, so this is
+# the computed style half of the proof carrying the claim on a screen somebody
+# will actually run a round on. (A move on .railname was tried first and refused
+# as inert, correctly: this fixture draws no rail entry that carries one.)
+python3 - "$WORK/list.json" "$WORK/weight.json" <<'PY'
+import json, sys
+spec = json.load(open(sys.argv[1], encoding="utf-8"))
+spec["moves"] = [{"field": "saidInk", "rule": ".said", "property": "color",
+                  "holds": "var(--faint)", "values": ["var(--faint)", "#B00020"]}]
+json.dump(spec, open(sys.argv[2], "w", encoding="utf-8"), indent=1)
+PY
+check_exit "a stylesheet move on the committed invoice list lifts" \
+    0 lift "$WORK/weight.json" "$WORK/weight"
+check_exit "and is proved faithful and moving" 0 lift --check "$WORK/weight.json" "$WORK/weight"
 
 check_exit "a harness page in quirks mode is caught, which is ovation#194" \
     1 env OVATION_HARNESS_QUIRKS=1 python3 "$TARGET" --check "$WORK/pdf.json" "$PDF"
