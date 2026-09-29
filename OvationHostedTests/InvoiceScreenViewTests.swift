@@ -334,8 +334,8 @@ struct InvoiceScreenViewTests {
         let rush = try #require(presenter.serviceTypes.first { $0.name == "Rush turnaround" })
         let preview = try #require(presenter.serviceTypes.first { $0.name == "Preview images" })
 
-        #expect(InvoiceScreenView.prefill(for: rush) == "150.00")
-        #expect(InvoiceScreenView.prefill(for: preview) == "")
+        #expect(LineBeingAdded.prefill(for: rush) == "150.00")
+        #expect(LineBeingAdded.prefill(for: preview) == "")
     }
 
     /// A TYPE WITH NO NAME CANNOT BE CREATED, and the control says so by looking

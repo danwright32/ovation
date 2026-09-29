@@ -58,8 +58,13 @@ struct AppearanceParityTests {
     /// with nothing checking it held. Over a sample it shows the due date band;
     /// over a real review it shows the send half, the redirect band and the Send
     /// controls, which is where a native control is most likely to be added next.
+    ///
+    /// THE INVOICE WITH A LINE BEING ADDED IS ITS OWN (ovation#489). The row's
+    /// amount field is a native text field, which paints its own background, and
+    /// the chosen type's shade is new; neither is on the invoice at rest.
     enum Screen: String, CaseIterable {
         case theInvoice
+        case theInvoiceAddingALine
         case theInvoiceList
         case theInvoiceSettings
         case theSettingsWindow
@@ -105,6 +110,12 @@ struct AppearanceParityTests {
         switch screen {
         case .theInvoice:
             InvoiceScreenView(presenter: try Self.invoice(), close: {}, setTime: { _, _, _ in })
+        case .theInvoiceAddingALine:
+            let presenter = try Self.invoice(offering: true)
+            let rush = try #require(presenter.serviceTypes.first { $0.name == "Rush turnaround" })
+            InvoiceScreenView(presenter: presenter, close: {}, setTime: { _, _, _ in },
+                              addLine: { _, _ in }, createType: { _, _ in },
+                              lineBeingAdded: Self.adding(rush))
         case .theInvoiceList:
             InvoiceListView(presenter: try Self.list(), heldMoney: "500.00",
                             selected: .constant(nil), open: { _ in })
@@ -136,8 +147,11 @@ struct AppearanceParityTests {
     /// A DRAFT WITH THE TIME FIELDS ON IT, because the native control is the whole
     /// reason this suite exists and a fixture without one would pass whatever
     /// happened (L159).
-    private static func invoice() throws -> InvoiceScreenPresenter {
+    private static func invoice(offering: Bool = false) throws -> InvoiceScreenPresenter {
         let context = ModelContext(try OvationSchema.container(inMemory: true))
+        let rush = ServiceType(name: "Rush turnaround", role: .ordinary,
+                               defaultUnitAmount: Money(dollars: 150))
+        if offering { context.insert(rush) }
         let client = Client(name: "Cedar Hill Youth Orchestra", taxStatus: .notExempt)
         context.insert(client)
         let invoice = Invoice(client: client, kind: .photography, invoiceDate: today,
@@ -150,7 +164,15 @@ struct AppearanceParityTests {
         invoice.add(shoot)
         invoice.add(LineItem.hourly(hours: Hours(whole: 1), at: Money(dollars: 250),
                                     describedAs: "Photography", for: shoot))
-        return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today)
+        return InvoiceScreenPresenter(invoice: invoice, footer: .fixed, today: today,
+                                      serviceTypes: offering ? [rush] : [])
+    }
+
+    /// A line being added with its type chosen and its usual amount in the field.
+    private static func adding(_ type: InvoiceScreenPresenter.ServiceChoice) -> LineBeingAdded {
+        var line = LineBeingAdded()
+        line.choose(type)
+        return line
     }
 
     /// THE WINDOW AS SETTINGS BUILDS IT, over a throwaway defaults suite, because
