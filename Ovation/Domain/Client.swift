@@ -29,7 +29,7 @@
 import Foundation
 import SwiftData
 
-extension OvationSchemaV7 {
+extension OvationSchemaV8 {
     @Model
     final class Client {
         var id: UUID = UUID()
@@ -262,4 +262,4 @@ extension OvationSchemaV7 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a newer version exists, this line moves to it and
 // every call site is already correct.
-typealias Client = OvationSchemaV7.Client
+typealias Client = OvationSchemaV8.Client

@@ -437,6 +437,8 @@ struct OvationApp: App {
         var list: InvoiceListSource?
         var placing: HeldMoneyPass?
         if let container = openedStore.container {
+            // ovation#362. Before any screen has the store, so no review is open yet.
+            await InvoiceNumberAllocator.giveBackAbandonedReviewNumbers(over: container)
             let context = ModelContext(container)
             rosterPair = RosterLaunch.presenters(
                 fetchClients: { try context.fetch(FetchDescriptor<Client>()) },

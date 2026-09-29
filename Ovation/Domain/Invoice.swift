@@ -170,7 +170,7 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
 
 }
 
-extension OvationSchemaV7 {
+extension OvationSchemaV8 {
     @Model
     final class Invoice {
         /// Ovation's own identity, minted fresh and never derived from anything
@@ -181,6 +181,45 @@ extension OvationSchemaV7 {
         /// NIL WHILE IT IS A DRAFT, which is what lets Dan combine two drafts without
         /// burning a number (PRD 5.1a). The allocator itself is ovation#37.
         var number: Int64?
+
+        /// Whether `number` is here only because a review took it, with no message
+        /// carrying it ever handed to Gmail (ovation#362, schema version 8).
+        ///
+        /// WRITTEN IN THE SAME SAVE AS THE NUMBER by `InvoiceNumberAllocator.allocate`,
+        /// and let go of by `recordSendState(_:)` the moment any send state is
+        /// recorded, which for Ovation's own send is the attempt saved BEFORE Gmail is
+        /// called. So a quit on either side of that call can only ever keep a number:
+        /// before it, the number is still held and the next launch gives it back;
+        /// after it, the number is not held and nothing gives it back, because the
+        /// client may have it (PRD 6, L186, L33).
+        ///
+        /// IT IS NEVER SET AGAIN ONCE LET GO, and that is Dan's rule of 2026-09-21: a
+        /// number a send was attempted with stays, even after he says it did not go,
+        /// because he can be wrong. Only `allocate` sets it, and `allocate` refuses an
+        /// invoice that already has a number.
+        ///
+        /// FALSE ON EVERY INVOICE NUMBERED BEFORE VERSION 8, and false is the safe
+        /// reading rather than a guess: nothing recorded whether a send was attempted
+        /// with those numbers, so they are kept, and a gap is explainable where one
+        /// number on two invoices is not.
+        ///
+        /// PRIVATE TO SET, so the compiler rather than a scan keeps its writers to
+        /// the ones named here (L613).
+        private(set) var numberHeldByAReview: Bool = false
+
+        /// A review takes `number` for this invoice. Only the allocator calls it, in
+        /// the save it reads back.
+        func holdNumberForAReview(_ number: Int64) {
+            self.number = number
+            numberHeldByAReview = true
+        }
+
+        /// A review's number goes back into the sequence. Only the allocator calls
+        /// it, after every refusal has been asked.
+        func giveBackReviewedNumber() {
+            number = nil
+            numberHeldByAReview = false
+        }
 
         /// What the money is for. PRD 5.2a.
         var kind: InvoiceKind = InvoiceKind.photography
@@ -469,6 +508,11 @@ extension OvationSchemaV7 {
         /// draft again, and a draft follows its client.
         func recordSendState(_ status: SentStatus) {
             sentStatus = status
+            // ANY SEND STATE ENDS A REVIEW'S HOLD ON THE NUMBER (ovation#362), and
+            // this is the one place every send state is written, so no writer can
+            // record an attempt and leave the number looking like a review's to
+            // give back. Going back to not sent does not restore it: see the field.
+            numberHeldByAReview = false
             if status == .notSent {
                 taxStatusWhenSent = nil
             } else {
@@ -673,6 +717,6 @@ extension OvationSchemaV7 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a newer version exists, this line moves to it and
 // every call site is already correct.
-typealias Invoice = OvationSchemaV7.Invoice
+typealias Invoice = OvationSchemaV8.Invoice
 
-extension OvationSchemaV7.Invoice: SentTaxStamping {}
+extension OvationSchemaV8.Invoice: SentTaxStamping {}

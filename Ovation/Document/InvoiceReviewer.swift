@@ -9,6 +9,8 @@
 // render made at Review carries that number and the send attaches that same render.
 // `InvoiceNumberAllocator.release` refuses an invoice whose send was accepted or is
 // unsettled, so closing after either keeps the number: a client may already hold it.
+// Since ovation#362 it also refuses any number a send was ever attempted with, which
+// the send records by letting go of the review's hold before Gmail is called.
 //
 // THE PRESENTER AND SESSION ARE BUILT HERE, ONCE, never inside a sheet's content, which
 // re-runs on every body evaluation and would re-render the PDF, and "the preview is the
@@ -69,6 +71,13 @@ final class InvoiceReviewer {
             } catch {
                 return .failure(.couldNotNumber(String(describing: error)))
             }
+        } else if kind == nil, invoice.numberHeldByAReview, let left = invoice.number {
+            // A NUMBER AN EARLIER REVIEW LEFT, still held because nothing was ever sent
+            // with it and the launch could not give it back (ovation#362). This review
+            // takes it up as its own, so closing unsent hands it back through the same
+            // refusals, rather than the invoice being stuck with a number no review
+            // will ever return.
+            taken = left
         }
         // READ AGAIN AFTER THE ALLOCATOR'S WRITE, from the context the page is built in,
         // so the page carries the number that was just taken rather than none.

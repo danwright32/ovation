@@ -33,7 +33,7 @@ enum OvationSchema {
         SentMessage.self,
     ]
 
-    static var schema: Schema { Schema(models, version: OvationSchemaV7.versionIdentifier) }
+    static var schema: Schema { Schema(models, version: OvationSchemaV8.versionIdentifier) }
 
     /// Today's shape, with a NAME (ovation#105).
     ///
@@ -47,7 +47,7 @@ enum OvationSchema {
     ///
     /// It delegates to `models` rather than repeating the list, so the two
     /// cannot drift into disagreement about what the store holds (L41).
-    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV7.self }
+    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV8.self }
 
     /// A container over a store file, or an in memory one for tests.
     ///
@@ -351,23 +351,73 @@ enum OvationSchemaV6: VersionedSchema {
 /// have changed since (L192, L443). `SchemaMigrationTests` carries a real version
 /// 6 store across and reads every row back.
 ///
-/// ITS TYPES ARE THE APP'S OWN, in `Ovation/Domain`, declared in extensions of
-/// THIS version with a `typealias` in each file pointing the bare name here. That
-/// is what makes "the shape in force" and "version 7" one thing rather than two
-/// that can drift.
-///
-/// WHAT THE NEXT VERSION COSTS, said here so it is not rediscovered. Version 8
-/// means taking a frozen copy of these eleven classes the way the six shape files
-/// hold versions 1 to 6, because a version cannot reuse another's types for
-/// anything it is related to. That is measured rather than assumed; the
-/// measurement and its error message are on `OvationSchemaV1.models`.
+/// ITS CLASSES ARE IN `OvationSchemaV7Shape.swift`, frozen, moved there the day
+/// version 8 existed (ovation#362), for the reason every older version's were.
+/// VERSION 7 WAS WRITTEN TO DISK by the installed app, so its frozen copy is held
+/// to the fingerprint `SchemaFingerprintTests` pinned rather than to anybody's
+/// reading.
 enum OvationSchemaV7: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(7, 0, 0) }
 
     /// What version 7 holds, said by version 7.
     ///
+    /// NOT `OvationSchema.models`, for the reason version 1's list records.
+    static var models: [any PersistentModel.Type] { [
+        Client.self,
+        Invoice.self,
+        Shoot.self,
+        LineItem.self,
+        ServiceType.self,
+        Payment.self,
+        PaymentAllocation.self,
+        Refund.self,
+        Expense.self,
+        ReferralLedgerEntry.self,
+        SentMessage.self,
+    ] }
+}
+
+/// Version 8: version 7 plus the record that a review holds an invoice's number
+/// (ovation#362).
+///
+/// THE ONE DIFFERENCE IS ONE ADDED FIELD WITH A DEFAULT, `Invoice.numberHeldByAReview`,
+/// which is why the stage below is lightweight, measured for the earlier additive
+/// changes in `SchemaMigrationTests` and for this one there too.
+///
+/// WHY IT HAD TO BE STORED. A quit while the review sheet is open leaves nothing to
+/// close it, so the number it took stays on an invoice that was never sent. At the
+/// next launch that invoice looks the same whether the app quit mid review or a
+/// moment after Gmail accepted the message, and in the second case giving the number
+/// back puts one number on two invoices (PRD 6, L186, L33). Only a record written
+/// with the number, and let go of before Gmail is called, can tell them apart.
+///
+/// NOTHING IS FILLED FOR ROWS ALREADY THERE, and that is the safe reading rather
+/// than a gap. Every invoice numbered before this version arrives not held, so no
+/// launch gives its number back: nothing recorded whether a send was attempted with
+/// it, and a kept number is a gap where a returned one could be a duplicate.
+///
+/// THE SHARED ADDRESS ACKNOWLEDGEMENT the issue's first comment also asked for
+/// needs no field here: `Client.sharedAddressAcknowledgedFor` and
+/// `sharedAddressAcknowledgedOn` have been stored since version 1, recorded against
+/// the address, and every frozen copy carries them.
+///
+/// ITS TYPES ARE THE APP'S OWN, in `Ovation/Domain`, declared in extensions of
+/// THIS version with a `typealias` in each file pointing the bare name here. That
+/// is what makes "the shape in force" and "version 8" one thing rather than two
+/// that can drift.
+///
+/// WHAT THE NEXT VERSION COSTS, said here so it is not rediscovered. Version 9
+/// means taking a frozen copy of these eleven classes the way the seven shape files
+/// hold versions 1 to 7, because a version cannot reuse another's types for
+/// anything it is related to. That is measured rather than assumed; the
+/// measurement and its error message are on `OvationSchemaV1.models`.
+enum OvationSchemaV8: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(8, 0, 0) }
+
+    /// What version 8 holds, said by version 8.
+    ///
     /// NOT `OvationSchema.models`, for the reason version 1's list records. This
-    /// one and the app's list DO agree today, because version 7 is the shape in
+    /// one and the app's list DO agree today, because version 8 is the shape in
     /// force, and `check-schema-registered.sh` holds the NEWEST version to the app
     /// for exactly that reason.
     static var models: [any PersistentModel.Type] { [
@@ -410,7 +460,7 @@ enum OvationSchemaV7: VersionedSchema {
 enum OvationMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [OvationSchemaV1.self, OvationSchemaV2.self, OvationSchemaV3.self, OvationSchemaV4.self,
-         OvationSchemaV5.self, OvationSchemaV6.self, OvationSchemaV7.self]
+         OvationSchemaV5.self, OvationSchemaV6.self, OvationSchemaV7.self, OvationSchemaV8.self]
     }
 
     /// THE FIRST FOUR ARE LIGHTWEIGHT, AND THAT IS A MEASUREMENT RATHER THAN A HOPE.
@@ -440,6 +490,11 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
             // lightweight, and nothing is filled: see `OvationSchemaV7`.
             // `SchemaMigrationTests` carries a real version 6 store across.
             .lightweight(fromVersion: OvationSchemaV6.self, toVersion: OvationSchemaV7.self),
+            // ONE ADDED FIELD WITH A DEFAULT (ovation#362), so lightweight, and every
+            // existing invoice arrives not held, which keeps its number: see
+            // `OvationSchemaV8`. `SchemaMigrationTests` carries a real version 7 store
+            // across.
+            .lightweight(fromVersion: OvationSchemaV7.self, toVersion: OvationSchemaV8.self),
         ]
     }
 }

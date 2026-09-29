@@ -54,7 +54,18 @@
 // back only when it is still the highest in the store, and refuses every other
 // case by name with nothing written. A number anybody outside Ovation may hold is
 // never returned: sent, of unknown send, imported, or closed.
+//
+// AND ONLY A NUMBER A REVIEW STILL HOLDS (ovation#362). A quit mid review leaves
+// nothing to close the sheet, and at launch a numbered unsent invoice looks the same
+// whether the app quit mid review or a moment after Gmail accepted the message. So
+// `allocate` records the hold in the save that takes the number, the send's attempt
+// lets go of it in the save written before Gmail is called, and `release` refuses a
+// number no review holds. That makes Dan's rule of 2026-09-21 the allocator's rather
+// than the screens': a number a send was ever attempted with is never given back,
+// even once he says it did not go. `releaseNumbersAbandonedReviewsHeld` is the launch
+// sweep, and it gives back only held numbers, through `release` and its refusals.
 import Foundation
+import os
 import SwiftData
 
 enum InvoiceNumberRefusal: Error, Equatable {
@@ -91,6 +102,17 @@ enum InvoiceNumberRefusal: Error, Equatable {
     case importedNumber(number: Int64)
     /// PRD 6: a cancelled invoice keeps its number, and so does a deleted one.
     case invoiceIsClosed(number: Int64)
+    /// ovation#362. No review holds it: a send was attempted with it, so a client
+    /// may have it whatever the invoice says now (Dan, 2026-09-21), or it was taken
+    /// before Ovation recorded holds, when nothing said whether one had been.
+    case notHeldByAReview(number: Int64)
+}
+
+/// What the launch sweep did (ovation#362): the numbers it gave back, highest first,
+/// and each held number it kept with the refusal that kept it.
+struct AbandonedReviewSweep: Equatable, Sendable {
+    let released: [Int64]
+    let kept: [Int64: InvoiceNumberRefusal]
 }
 
 @ModelActor
@@ -100,7 +122,8 @@ actor InvoiceNumberAllocator {
     /// actually issued is derived from the store every time.
     static let sequenceStartsAt: Int64 = 1_123
 
-    /// Issues the next number in the sequence to a draft.
+    /// Issues the next number in the sequence to a draft, recording in the same
+    /// save that a review holds it (ovation#362). Review is the only caller.
     @discardableResult
     func allocate(to invoiceID: PersistentIdentifier) throws -> Int64 {
         let all = try allInvoices()
@@ -119,7 +142,7 @@ actor InvoiceNumberAllocator {
         // is finite and `next` only rises.
         while taken.contains(next) { next += 1 }
 
-        try write(next, onto: invoice)
+        try write(next, onto: invoice, heldByAReview: true)
         return next
     }
 
@@ -141,7 +164,7 @@ actor InvoiceNumberAllocator {
             throw InvoiceNumberRefusal.numberAlreadyHeld(number: number)
         }
 
-        try write(number, onto: invoice)
+        try write(number, onto: invoice, heldByAReview: false)
     }
 
     /// Gives back the number a review took, when the sheet closes without sending.
@@ -173,6 +196,12 @@ actor InvoiceNumberAllocator {
         // already have delivered and the next review issued it again.
         case .attempting: throw InvoiceNumberRefusal.sendIsInFlight(number: number)
         }
+        // ovation#362. ASKED AFTER THE SEND STATE, so an invoice that is sent or in
+        // flight still refuses by the reason that names it, and this catches the
+        // one those cannot: a draft again after an attempt, which is `notSent`.
+        guard invoice.numberHeldByAReview else {
+            throw InvoiceNumberRefusal.notHeldByAReview(number: number)
+        }
         // Cancelled, deleted and imported rows count toward the highest, for the
         // reason `allInvoices` gives: their numbers are spent.
         //
@@ -182,14 +211,14 @@ actor InvoiceNumberAllocator {
         // the number could be handed back. It is NOT handed back here: the row
         // still exists, nothing outside Ovation has ever seen the number, and a
         // gap in the sequence is explainable while a number meaning two different
-        // invoices is not (PRD 6, L186). Giving it back is ovation#362's question,
-        // where the crash-safe half of it lives, and it is answered there once
-        // rather than half answered here.
+        // invoices is not (PRD 6, L186). ovation#362 left that as it is: its launch
+        // sweep gives back only through this method, so a deleted draft still
+        // holding a review's number is refused above as closed and keeps it.
         if let highest = all.compactMap(\.number).max(), highest > number {
             throw InvoiceNumberRefusal.notTheHighest(number: number, highest: highest)
         }
 
-        invoice.number = nil
+        invoice.giveBackReviewedNumber()
         try modelContext.save()
 
         // READ BACK, for the same reason as `write`: a number that did not really
@@ -199,6 +228,35 @@ actor InvoiceNumberAllocator {
         guard stored == nil else {
             throw InvoiceNumberRefusal.readBackDisagreed(wrote: number, found: stored)
         }
+    }
+
+    /// Gives back every number a review still held when the app last stopped
+    /// (ovation#362). Run once at launch, BEFORE any review can open, because a
+    /// review opened first would hold a number this could not tell from an
+    /// abandoned one.
+    ///
+    /// EVERY GIVE BACK GOES THROUGH `release`, so the sweep has no rules of its own
+    /// to drift from the sheet's (L370): a number that is not the highest, or whose
+    /// invoice is closed, is kept and reported.
+    ///
+    /// FROM THE TOP DOWN, because `release` gives back only the highest number, so
+    /// two reviews open at the quit would otherwise keep the lower for no reason.
+    func releaseNumbersAbandonedReviewsHeld() throws -> AbandonedReviewSweep {
+        let held = try allInvoices()
+            .filter(\.numberHeldByAReview)
+            .compactMap { invoice in invoice.number.map { ($0, invoice.persistentModelID) } }
+            .sorted { $0.0 > $1.0 }
+        var released: [Int64] = []
+        var kept: [Int64: InvoiceNumberRefusal] = [:]
+        for (number, id) in held {
+            do {
+                try release(number, from: id)
+                released.append(number)
+            } catch let refusal as InvoiceNumberRefusal {
+                kept[number] = refusal
+            }
+        }
+        return AbandonedReviewSweep(released: released, kept: kept)
     }
 
     /// Every invoice in the store, and the target is found IN it rather than
@@ -227,8 +285,15 @@ actor InvoiceNumberAllocator {
         try modelContext.fetch(FetchDescriptor<Invoice>())
     }
 
-    private func write(_ number: Int64, onto invoice: Invoice) throws {
-        invoice.number = number
+    /// Writes a number, and whether a review holds it, in ONE save (ovation#362): a
+    /// number that landed without its hold would be one no launch could give back,
+    /// and a hold that landed without its number would mean nothing.
+    private func write(_ number: Int64, onto invoice: Invoice, heldByAReview: Bool) throws {
+        if heldByAReview {
+            invoice.holdNumberForAReview(number)
+        } else {
+            invoice.number = number
+        }
         try modelContext.save()
 
         // READ BACK. The write is a request until the store says otherwise, and a
@@ -241,4 +306,29 @@ actor InvoiceNumberAllocator {
             throw InvoiceNumberRefusal.readBackDisagreed(wrote: number, found: stored)
         }
     }
+}
+
+extension InvoiceNumberAllocator {
+    /// The launch's one call (ovation#362): the sweep over the store that has just
+    /// opened, awaited before the container is handed to any screen, so no review
+    /// can hold a number the sweep would mistake for an abandoned one.
+    ///
+    /// A SWEEP THAT FAILS LEAVES EVERY HOLD WHERE IT WAS, which is the safe side:
+    /// the invoice keeps its number and its next review takes it up (see
+    /// `InvoiceReviewer.open`). So it is logged rather than raised on screen, and it
+    /// still says so, because a quiet failure here would read as a launch that found
+    /// nothing held (L98).
+    static func giveBackAbandonedReviewNumbers(over container: ModelContainer) async {
+        do {
+            let sweep = try await InvoiceNumberAllocator(modelContainer: container)
+                .releaseNumbersAbandonedReviewsHeld()
+            if !sweep.released.isEmpty || !sweep.kept.isEmpty {
+                logger.notice("Numbers left by reviews at the last quit: gave back \(sweep.released, privacy: .public), kept \(sweep.kept.keys.sorted(), privacy: .public)")
+            }
+        } catch {
+            logger.fault("Numbers left by reviews at the last quit could not be given back: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private static let logger = Logger(subsystem: "com.danwright.ovation", category: "invoice-numbers")
 }

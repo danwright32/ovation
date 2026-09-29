@@ -43,7 +43,7 @@ struct SchemaMigrationTests {
         // money was taken back off an invoice. IT IS 6 SINCE ovation#482, which
         // added the tax status each invoice was sent under. IT IS 7 SINCE
         // ovation#596, which added a record of every message sent about an invoice.
-        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(7, 0, 0))
+        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(8, 0, 0))
     }
 
     @Test("the version's models are exactly the ones the store holds")
@@ -60,7 +60,7 @@ struct SchemaMigrationTests {
         let named = OvationMigrationPlan.schemas.map { $0.versionIdentifier }
         #expect(named == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0),
                           Schema.Version(4, 0, 0), Schema.Version(5, 0, 0),
-                          Schema.Version(6, 0, 0), Schema.Version(7, 0, 0)])
+                          Schema.Version(6, 0, 0), Schema.Version(7, 0, 0), Schema.Version(8, 0, 0)])
     }
 
     @Test("and every consecutive pair has a stage carrying a store across it")
@@ -97,6 +97,7 @@ struct SchemaMigrationTests {
             ("version 5", OvationSchemaV5.models),
             ("version 6", OvationSchemaV6.models),
             ("version 7", OvationSchemaV7.models),
+            ("version 8", OvationSchemaV8.models),
         ]
         for (name, models) in versions {
             #expect(Set(models.map(ObjectIdentifier.init)).count == models.count,
@@ -196,6 +197,23 @@ struct SchemaMigrationTests {
                 "version 6 lists the entity version 7 added, so the two describe one shape")
         #expect(ObjectIdentifier(OvationSchemaV6.Invoice.self) != ObjectIdentifier(Invoice.self),
                 "version 7 is using version 6's class, so the two describe one shape")
+    }
+
+    /// The same statement for version 7, FROZEN WITHOUT the hold version 8 records
+    /// (ovation#362): its invoice is its own class, and the app's is another.
+    @Test("and version 7 is frozen without the review hold version 8 added")
+    func theolderVersionHasNoReviewHold() throws {
+        let frozen = OvationSchemaV7.Invoice()
+        frozen.number = 1_150
+        let current = Invoice(client: nil, kind: .photography, invoiceDate: nil,
+                              hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
+        current.holdNumberForAReview(1_151)
+
+        #expect(frozen.number == 1_150)
+        #expect(current.numberHeldByAReview)
+        #expect(OvationSchemaV7.models.contains { $0 == OvationSchemaV7.SentMessage.self })
+        #expect(ObjectIdentifier(OvationSchemaV7.Invoice.self) != ObjectIdentifier(Invoice.self),
+                "version 8 is using version 7's class, so the two describe one shape")
     }
 
     @Test("and version 1 still has the field version 2 dropped, which is what it is FOR")
@@ -723,6 +741,64 @@ struct SchemaMigrationTests {
         #expect(again.sentMessages.first?.gmailThreadID == "thread-9")
         #expect(again.sentMessages.first?.subject == "Re: Invoice 1131")
         #expect(again.sentMessages.first?.messageID == "<m9@messages.example>")
+    }
+
+    /// ovation#362. A real version 7 store, written through version 7's own frozen
+    /// classes, opens under version 8 with every row it held, its sent messages
+    /// included, and with EVERY numbered invoice arriving not held. That is the part
+    /// that matters: nothing recorded whether a send was attempted with a number taken
+    /// before version 8, so the launch sweep must keep it, and does.
+    @Test("a real version 7 store opens under version 8, and no number it held is given back")
+    func therealStoreMigratesFromVersionSeven() async throws {
+        let url = try Self.scratchStore("real-7")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
+
+        do {
+            let schema = Schema(versionedSchema: OvationSchemaV7.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            let client = OvationSchemaV7.Client()
+            client.name = "Calder Street Theatre"
+            client.email = "office@calder.example"
+            let sent = OvationSchemaV7.Invoice()
+            sent.number = 1_131
+            sent.client = client
+            sent.sentStatus = .sent(route: .ovationSentIt, at: sentAt)
+            let message = OvationSchemaV7.SentMessage()
+            message.kind = .invoice
+            message.recipients = ["office@calder.example"]
+            message.sentAt = sentAt
+            message.subject = "Invoice 1131"
+            message.gmailThreadID = "thread-7"
+            message.invoice = sent
+            // THE CASE THE SWEEP MUST NOT TOUCH: numbered, unsent, and the highest,
+            // which is exactly what an invoice left by a quit mid review looks like,
+            // and exactly what one left by a quit just after Gmail accepted looks like.
+            let reviewed = OvationSchemaV7.Invoice()
+            reviewed.number = 1_132
+            reviewed.client = client
+            for model in [client, sent, message, reviewed] as [any PersistentModel] { context.insert(model) }
+            try context.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+        }
+
+        let container = try OvationSchema.container(at: url)
+        let context = ModelContext(container)
+        let invoices = try context.fetch(FetchDescriptor<Invoice>())
+        #expect(invoices.count == 2, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
+        let sent = try #require(invoices.first { $0.number == 1_131 })
+        #expect(sent.sentStatus == .sent(route: .ovationSentIt, at: sentAt))
+        #expect(sent.sentMessages.first?.gmailThreadID == "thread-7")
+        #expect(sent.client?.email == "office@calder.example")
+        #expect(invoices.allSatisfy { !$0.numberHeldByAReview }, "a hold was invented for a number nobody recorded")
+
+        let sweep = try await InvoiceNumberAllocator(modelContainer: container).releaseNumbersAbandonedReviewsHeld()
+        #expect(sweep.released.isEmpty, "a number taken before version 8 was given back on a guess")
+        #expect(try ModelContext(container).fetch(FetchDescriptor<Invoice>()).compactMap(\.number).sorted()
+                == [1_131, 1_132])
     }
 
     // MARK: every entity, every field, the whole way (ovation#408)
