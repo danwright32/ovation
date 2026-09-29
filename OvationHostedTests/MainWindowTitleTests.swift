@@ -69,50 +69,24 @@ struct MainWindowTitleTests {
             .map { $0 == .aqua || $0 == .vibrantLight } ?? false
     }
 
-    /// THE MAC IS MADE DARK FOR THIS PROCESS ONLY, through the app's own appearance,
-    /// which is what a window with none of its own inherits from the system. Dan's
-    /// Mac is in Dark mode and CI's is not, so the case sets it rather than depending
-    /// on the machine (L504).
-    private static func withTheMacDark<T>(_ body: @MainActor () throws -> T) rethrows -> T {
+    /// THE MAC IS MADE DARK OR LIGHT FOR THIS PROCESS ONLY, through the app's own
+    /// appearance, which is what a window with none of its own inherits from the
+    /// system. Dan's Mac is in Dark mode and CI's is not, so the case sets each
+    /// rather than depending on the machine (L504).
+    private static func withTheMac<T>(_ appearance: NSAppearance.Name,
+                                      _ body: @MainActor () throws -> T) rethrows -> T {
         let before = NSApp.appearance
-        NSApp.appearance = NSAppearance(named: .darkAqua)
+        NSApp.appearance = NSAppearance(named: appearance)
         defer { NSApp.appearance = before }
+        // One pass of the run loop, so a change of appearance has propagated.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         return try body()
-    }
-
-    /// Dan, 2026-09-27, on the installed build with his Mac in Dark mode: the top of
-    /// the window was "kind of jarringly black". Measured in this test host on the
-    /// real window before the fix: its appearance was nil and its title bar resolved
-    /// VibrantDark, because the light pin lived on each screen and the screen the
-    /// window opens on (Starting) carried none.
-    ///
-    /// ASKED OF THE TITLE BAR ITSELF, not only the window, because the title bar is
-    /// what Dan saw, and it is a view AppKit owns rather than one of ours.
-    @Test("the main window and its title bar are light when the Mac is dark")
-    func theTitleBarIsLightWhenTheMacIsDark() throws {
-        try Self.withTheMacDark {
-            let window = try #require(Self.mainWindow(),
-                                      "the app's main window never appeared in the test host")
-            // One pass of the run loop, so a change of appearance has propagated.
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-            #expect(!Self.isLight(NSApp.effectiveAppearance),
-                    "the Mac has to read as dark for this to prove anything")
-
-            #expect(window.appearance?.name == .aqua, "the pin sets the window's own")
-            #expect(Self.isLight(window.effectiveAppearance))
-            let titleBar = try #require(window.standardWindowButton(.closeButton)?.superview,
-                                        "the window has no title bar to ask")
-            #expect(Self.isLight(titleBar.effectiveAppearance))
-            // THE TITLE BAR DRAWS NOTHING OF ITS OWN (the design record, lines 147 to
-            // 167): the rail runs under the traffic lights and the content draws the
-            // chrome, so the system's title bar material is not what anyone sees.
-            #expect(window.titlebarAppearsTransparent)
-        }
     }
 
     /// Draws a view in a window made the way the scene makes the main window,
     /// ordered back far outside every display (never front, as `OffscreenShot`),
-    /// and hands back what its content drew.
+    /// and hands back what its content drew. The camera the tokens' swatches are
+    /// drawn through; the shell itself is photographed in the real window.
     private static func picture(of view: some View, size: NSSize) throws -> NSBitmapImageRep {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable,
@@ -163,53 +137,152 @@ struct MainWindowTitleTests {
         }
     }
 
-    /// The design record's window top, drawn by the shell in a window made the way
-    /// the scene makes the main window, with the Mac dark: the rail's colour under
-    /// the traffic lights, and `--chrome` over the content for 38 points ending in
-    /// a one point `--rule`.
+    /// What the real window's content drew, as the shell draws it into the window.
+    private static func picture(ofTheRealWindow window: NSWindow) throws -> NSBitmapImageRep {
+        window.layoutIfNeeded()
+        window.displayIfNeeded()
+        let content = try #require(window.contentView)
+        let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
+        content.cacheDisplay(in: content.bounds, to: bitmap)
+        return bitmap
+    }
+
+    /// THE REAL WINDOW, WITH THE SHELL IN IT (ovation#604), in both appearances of
+    /// the Mac.
     ///
-    /// A WINDOW MADE HERE, and that is the residual stated rather than hidden: the
-    /// test host never gets past the Starting screen, so the real window never
-    /// shows the shell. The case above holds the real window to the same style.
-    @Test("the rail runs to the top of the window and the content carries the chrome title bar")
-    func theWindowTopIsTheDesignRecords() throws {
-        try Self.withTheMacDark {
-            let clients = (0..<3).map { i -> Client in
-                let client = Client(name: "Client \(i)", taxStatus: .neverRecorded)
-                client.email = "c\(i)@example.example"
-                return client
-            }
-            let shell = ShellView(
-                shell: ShellPresenter(selected: .roster, rosterHasWork: { true }),
-                roster: RosterPresenter(clients: clients, write: { _, _ in }),
-                problems: ProblemsStore(journal: InMemoryProblemsJournal()))
-            let width: CGFloat = 1000
-            let bitmap = try Self.picture(of: shell, size: NSSize(width: width, height: 680))
-            func at(_ x: CGFloat, _ y: CGFloat) -> String { Self.hex(bitmap, x: x, y: y, width: width) }
-            // FILED WHEN ASKED, like every shot suite, so the top can be looked at
-            // rather than only sampled (L606). Opt in, and never a condition of the
-            // assertions below.
-            let environment = ProcessInfo.processInfo.environment
-            let named = environment["OVATION_SHOT_DIR"]
-                ?? environment["TEST_RUNNER_OVATION_SHOT_DIR"] ?? ""
-            if !named.isEmpty, let png = bitmap.representation(using: .png, properties: [:]) {
-                try png.write(to: URL(fileURLWithPath: named).appending(path: "window-top.png"))
-            }
+    /// Dan, 2026-09-27, on the installed build with his Mac in Dark mode: the top of
+    /// the window was "kind of jarringly black". Measured in this test host on the
+    /// real window before the fix: its appearance was nil and its title bar resolved
+    /// VibrantDark, because the light pin lived on each screen and the screen the
+    /// window opens on (Starting) carried none.
+    ///
+    /// IT USED TO BE TWO CASES, and the second drew the shell in a window made here,
+    /// because the test host never got past the Starting screen: a disposable launch
+    /// opened no store, so the shell never owned the real window. A regression only
+    /// the scene's own window has (its appearance, its title bar, its safe area) was
+    /// invisible to both (L472, L3). A disposable launch now opens a store in memory
+    /// when this case asks (`DisposableLaunchStore`), so it asks the window Dan
+    /// actually gets, on Starting and then on the shell. ONE CASE, because the order
+    /// is the point: Starting can only be asked before the shell has shown.
+    ///
+    /// ASKED OF THE TITLE BAR ITSELF, not only the window, because the title bar is
+    /// what Dan saw, and it is a view AppKit owns rather than one of ours. And the
+    /// design record's window top is SAMPLED FROM THE HEIGHT THE SHELL DRAWS
+    /// (ovation#607): points written as numbers here would go on sampling the old
+    /// rows the day `ShellView.titleBarHeight` moves (L401).
+    @Test("the real window shows the shell, light, with the design record's window top, whether the Mac is dark or light")
+    func theRealWindowTopIsTheDesignRecords() async throws {
+        try await Self.askTheRealWindow()
+        // AND AGAIN, IN THE SAME HOST, which is what a retry or a repeated run
+        // does: the gate stays asked and the window stays on the shell, and the
+        // second pass must still hold rather than refuse (ovation#604 review).
+        try await Self.askTheRealWindow()
+    }
 
-            let tokens = try Self.swatches(
-                [OvationPalette.rail, OvationPalette.chrome, OvationPalette.rule,
-                 OvationPalette.background],
-                size: NSSize(width: width, height: 680))
-            let (rail, chrome, rule, page) = (tokens[0], tokens[1], tokens[2], tokens[3])
-            #expect(Set([rail, chrome, rule, page]).count == 4,
-                    "the four tokens have to draw differently for this to tell them apart")
+    private static func askTheRealWindow() async throws {
+        let window = try #require(Self.mainWindow(),
+                                  "the app's main window never appeared in the test host")
 
-            let content = OvationWindow.railWidth + 200
-            #expect(at(100, 4) == rail, "the rail under the traffic lights")
-            #expect(at(content, 4) == chrome, "--chrome at the top")
-            #expect(at(content, 30) == chrome, "--chrome under the title bar")
-            #expect(at(content, 37.5) == rule, "--rule ending it at 38")
-            #expect(at(content, 40) == page, "the screen's own page below it")
+        let railPoint = OvationWindow.railWidth / 2
+        let startingSize = try #require(window.contentView?.bounds.size)
+        let rail = try Self.swatches([OvationPalette.rail], size: startingSize)[0]
+
+        // FIRST THE STARTING SCREEN, which carries no pin of its own, so only the
+        // scene's pin can make this window light. The shell pins its window as
+        // well, so once it has shown this could no longer tell whether the scene's
+        // pin is there; that is why the store opens only when asked, below.
+        //
+        // ONCE PER HOST. The gate is the app's own and the window cannot go back
+        // to Starting, so a second run of this case in one host (a retry, a
+        // repeat) finds the shell up. That is read from the gate as it stood when
+        // the case began, never guessed from the pixels, and said rather than
+        // failed: the Starting half ran on the first run, and the shell half runs
+        // on every one.
+        let startingWasAskedAlready = DisposableLaunchStore.Gate.shared.hasBeenAsked
+        if startingWasAskedAlready {
+            print("MAIN WINDOW: the store was opened by an earlier run in this host, so "
+                + "Starting was asked then and only the shell is asked now.")
+        } else {
+            try Self.withTheMac(.darkAqua) {
+                let before = Self.hex(try Self.picture(ofTheRealWindow: window), x: railPoint,
+                                      y: 4, width: startingSize.width)
+                try #require(before != rail,
+                             "the shell was showing before anything asked for the store")
+                #expect(!Self.isLight(NSApp.effectiveAppearance),
+                        "the Mac has to read as dark for this to prove anything")
+                #expect(window.appearance?.name == .aqua, "the scene's pin sets the window's own")
+                let titleBar = try #require(window.standardWindowButton(.closeButton)?.superview,
+                                            "the window has no title bar to ask")
+                #expect(Self.isLight(titleBar.effectiveAppearance))
+            }
+        }
+
+        // THEN THE SHELL, WAITED FOR ON THE CONDITION (L290): the launch opens the
+        // store in memory once asked, from its own task. The rail under the traffic
+        // lights is drawn by the shell and by nothing else. Asking twice is harmless.
+        DisposableLaunchStore.Gate.shared.ask()
+        var seen = "none"
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            let width = try #require(window.contentView?.bounds.width)
+            seen = Self.hex(try Self.picture(ofTheRealWindow: window), x: railPoint, y: 4,
+                            width: width)
+            if seen == rail { break }
+            // SLEPT, NOT SPUN. The launch finishes on the main actor, and a run loop
+            // turned from inside this main actor job never runs another one: spun
+            // here, the shell never came (measured, the whole 20 seconds).
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try #require(seen == rail,
+                     "the real window never showed the shell: its top left read \(seen), not the rail's \(rail)")
+
+        for mac in [NSAppearance.Name.darkAqua, .aqua] {
+            try Self.withTheMac(mac) {
+                #expect(Self.isLight(NSApp.effectiveAppearance) == (mac == .aqua),
+                        "the Mac has to read as \(mac.rawValue) for this to prove anything")
+
+                #expect(window.appearance?.name == .aqua, "the pin sets the window's own")
+                #expect(Self.isLight(window.effectiveAppearance))
+                let titleBar = try #require(window.standardWindowButton(.closeButton)?.superview,
+                                            "the window has no title bar to ask")
+                #expect(Self.isLight(titleBar.effectiveAppearance))
+                // THE TITLE BAR DRAWS NOTHING OF ITS OWN (the design record, lines 147
+                // to 167): the rail runs under the traffic lights and the content draws
+                // the chrome, so the system's title bar material is not what anyone sees.
+                #expect(window.titlebarAppearsTransparent)
+
+                let size = try #require(window.contentView?.bounds.size)
+                let tokens = try Self.swatches(
+                    [OvationPalette.rail, OvationPalette.chrome, OvationPalette.rule,
+                     OvationPalette.background],
+                    size: size)
+                let (rail, chrome, rule, page) = (tokens[0], tokens[1], tokens[2], tokens[3])
+                #expect(Set([rail, chrome, rule, page]).count == 4,
+                        "the four tokens have to draw differently for this to tell them apart")
+
+                let bitmap = try Self.picture(ofTheRealWindow: window)
+                // FILED WHEN ASKED, like every shot suite, so the top can be looked at
+                // rather than only sampled (L606). Opt in, and never a condition of the
+                // assertions below.
+                let environment = ProcessInfo.processInfo.environment
+                let named = environment["OVATION_SHOT_DIR"]
+                    ?? environment["TEST_RUNNER_OVATION_SHOT_DIR"] ?? ""
+                if !named.isEmpty, let png = bitmap.representation(using: .png, properties: [:]) {
+                    try png.write(to: URL(fileURLWithPath: named)
+                        .appending(path: "window-top-\(mac.rawValue).png"))
+                }
+
+                func at(_ x: CGFloat, _ y: CGFloat) -> String {
+                    Self.hex(bitmap, x: x, y: y, width: size.width)
+                }
+                let bar = ShellView.titleBarHeight
+                let content = OvationWindow.railWidth + 200
+                #expect(at(railPoint, 4) == rail, "the rail under the traffic lights")
+                #expect(at(content, 4) == chrome, "--chrome at the top")
+                #expect(at(content, bar - 8) == chrome, "--chrome under the title bar")
+                #expect(at(content, bar - 0.5) == rule, "--rule ending it at \(bar)")
+                #expect(at(content, bar + 2) == page, "the screen's own page below it")
+            }
         }
     }
 }
