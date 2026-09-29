@@ -40,7 +40,8 @@ a month of this repository's runs reached it on the day this was written. A day
 that reaches the limit, like an attempt holding more jobs than were returned, is
 refused rather than read as complete (L211).
 
-IT PRINTS NO DATE, so what it prints changes only when the count does, and the
+ITS VERDICT CARRIES NO DATE AND NO WINDOW TOTAL, so what a finding prints on
+stdout changes only when the flaky jobs or their counts do, and the
 finding reporter (ovation#339) can say it once per verdict rather than once per
 run.
 
@@ -182,8 +183,13 @@ def main(argv):
             names[workflow], name, len(where),
             ", ".join("run %d on %s" % pair for pair in where)))
     print("FOUND: %d job(s) went red then green on a re-run of the same commit, %d "
-          "time(s) in all, over the last %d days (%d run(s), %d re-run)."
-          % (len(flaky), total, WINDOW_DAYS, len(runs), len(rerun)))
+          "time(s) in all, over the last %d days." % (len(flaky), total, WINDOW_DAYS))
+    # THE TOTALS GO TO STDERR, which reaches the log and not the verdict. The
+    # window slides every day, so how many runs it holds moves while the flaky
+    # set stays put, and stdout is what the workflow hands report-finding.sh as
+    # its verdict: a total there commented on the finding every day (ovation#512).
+    print("Read %d run(s) over the last %d days, %d re-run."
+          % (len(runs), WINDOW_DAYS, len(rerun)), file=sys.stderr)
     return 1
 
 

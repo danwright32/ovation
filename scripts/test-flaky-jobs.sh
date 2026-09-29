@@ -12,7 +12,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "flaky job count tests" 27
+harness_begin "flaky job count tests" 29
 
 TARGET="scripts/check-flaky-jobs.sh"
 require_target "$TARGET"
@@ -106,7 +106,28 @@ check "and it is named with its workflow, its count and the commit" \
 check "and the job that passed both times is not accused" \
     "$(run_it | grep -c 'Build both configurations')" "0"
 check "and the verdict counts it" \
-    "$(run_it | grep -c 'FOUND: 1 job(s) went red then green on a re-run of the same commit, 1 time(s) in all')" "1"
+    "$(run_it | grep -c 'FOUND: 1 job(s) went red then green on a re-run of the same commit, 1 time(s) in all, over the last 30 days.$')" "1"
+
+# THE VERDICT CHANGES ONLY WHEN THE FINDING DOES. What the check prints on
+# stdout is what the workflow hands report-finding.sh as --verdict-file, and a
+# new comment is written whenever that text differs. The window slides every
+# day, so the number of runs in it moves while the flaky set stays put; a
+# verdict carrying that number would comment on the finding daily (ovation#512).
+# So two windows with different run totals and the same flake must say the same
+# thing, and the totals go to stderr, which reaches the log and not the verdict.
+verdict_only() {
+    FIX="$FIX" OVATION_GH="$WORK/gh" OVATION_REPO="owner/repo" \
+        OVATION_FLAKY_TODAY="2026-09-29" python3 "$TARGET" 2>/dev/null
+}
+FIRST_VERDICT="$(verdict_only)"
+runs 2026-09-22 "$(run_row 30 1 10 CI dddddddd33333333)" "$(run_row 31 1 12 Other eeeeeeee44444444)"
+SECOND_VERDICT="$(verdict_only)"
+check "more runs in the window with the same flake give an identical verdict" \
+    "$([ "$FIRST_VERDICT" = "$SECOND_VERDICT" ] && echo same || printf 'differs:\n%s\n---\n%s' "$FIRST_VERDICT" "$SECOND_VERDICT")" "same"
+check "and the totals still reach the log, on stderr" \
+    "$(FIX="$FIX" OVATION_GH="$WORK/gh" OVATION_REPO="owner/repo" OVATION_FLAKY_TODAY="2026-09-29" \
+        python3 "$TARGET" 2>&1 >/dev/null | grep -c 'Read 3 run(s) over the last 30 days, 1 re-run')" "1"
+rm -f "$FIX/runs-2026-09-22.json"
 
 # COUNTED PER JOB ACROSS RUNS, keyed on the workflow's id rather than its name,
 # and the name shown is the one the newest run carried.
