@@ -225,6 +225,34 @@ struct AddingALineTests {
         }
     }
 
+    /// A ROW OF THE LIST THAT NAMES NO TYPE ON OFFER STILL CLOSES THE LIST. The
+    /// list can outlive the types it was drawn from (one retired in the
+    /// meantime), and a press that left the list standing with nothing chosen
+    /// would be a dead control (L109). The row stays as it was, with no type
+    /// written into it by a guess (L75).
+    @Test("a list row that matches no type closes the list and chooses nothing")
+    func anunmatchedRowClosesTheList() async throws {
+        let screen = screen(Written())
+        ViewHosting.host(view: screen)
+        defer { ViewHosting.expel() }
+
+        try await Self.step(screen) { view in try view.find(button: "Add a line").tap() }
+        try await Self.step(screen) { view in
+            try view.find(AddingLineRow.self).find(ViewType.Button.self).tap()
+        }
+        try await Self.step(screen) { view in
+            let row = try view.find(AddingLineRow.self).actualView()
+            #expect(row.line.listIsOpen, "the list never opened")
+            row.choose(PopupList.Choice(id: "Travel", says: "Travel"))
+        }
+        try await Self.step(screen) { view in
+            let line = try view.find(AddingLineRow.self).actualView().line
+            #expect(line.listIsOpen == false, "the list stayed open over a press that did nothing")
+            #expect(line.chosen == nil)
+            #expect(line.amount == "")
+        }
+    }
+
     // MARK: clicking away (PRD 51q)
 
     /// A READABLE AMOUNT IS WRITTEN WHEN THE FIELD IS LEFT, and the row goes.

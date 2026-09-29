@@ -810,8 +810,16 @@ struct InvoiceScreenView: View {
                 // FOUND BACK BY THE ROW'S OWN IDENTITY rather than by position,
                 // because a list addressed by position writes whatever currently
                 // occupies it (L237).
+                //
+                // A ROW THAT NAMES NO TYPE ON OFFER STILL CLOSES THE LIST, and
+                // chooses nothing rather than the nearest type (L75). The list can
+                // outlive a type retired meanwhile, and a press that left it
+                // standing with nothing chosen would be a dead control (L109).
                 guard let chosen = presenter.serviceTypes
-                    .first(where: { $0.name == row.id }) else { return }
+                    .first(where: { $0.name == row.id }) else {
+                    lineBeingAdded?.listIsOpen = false
+                    return
+                }
                 lineBeingAdded?.choose(chosen)
             },
             commit: commitLine,
