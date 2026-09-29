@@ -468,6 +468,16 @@ anything compares computed style as well as markup and boxes, since a colour mov
 leaves the lift's own custom property out of the markup, so a declaration a later rule overrides is
 refused as inert rather than passed.
 
+**And a round can frame the design file instead of lifting it.** A spec whose `mode` is `frame`
+writes a builder that draws the committed file itself in a frame showing only its `.win`, with each
+option's stylesheet moves set inside its own frame and an optional round script run after the file's
+own. It is the frame those rounds built by hand, with their three faults made its job: every closing
+tag in the embedded page is escaped, so it cannot end the switcher's script; the frame is as tall as
+its page and placed by the window's measured position, so it never relies on a scroll; and its caption,
+the window's width and the scale it is drawn at, is measured in the switcher's own page. `--check`
+draws it the way the switcher does and refuses, with exit 9, an empty frame, a frame showing anything
+but the window, and a caption that disagrees with the drawing.
+
 ## Nothing carries CSS for a screen it does not draw
 
 **`scripts/check-design-dead-rules.sh` refuses a rule the file that holds it can never apply.** Each
