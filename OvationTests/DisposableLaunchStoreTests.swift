@@ -88,4 +88,17 @@ struct DisposableLaunchStoreTests {
         let opening = await launch.value
         #expect(opening?.outcome == .opened)
     }
+
+    @Test("a launch cancelled while it waits is let go, opens nothing, and leaves the gate usable", .timeLimit(.minutes(1)))
+    func aCancelledWaitIsLetGo() async {
+        let gate = DisposableLaunchStore.Gate()
+        let launch = Task { @MainActor in
+            await DisposableLaunchStore.openWhenAsked(isDisposableLaunch: true, gate: gate)
+        }
+        for _ in 0..<20 { await Task.yield() }
+        launch.cancel()
+        let opening = await launch.value
+        #expect(opening == nil, "a cancelled launch opened a store for a window that has gone")
+        #expect(!gate.hasBeenAsked, "letting a cancelled wait go is not an ask")
+    }
 }

@@ -40,28 +40,59 @@ enum DisposableLaunchStore {
     /// AN ASK BEFORE THE WAIT IS KEPT, not lost: the test and the launch's task
     /// race, and a gate that only released waiters already waiting would leave
     /// the window on Starting whenever the test won.
+    ///
+    /// A CANCELLED WAIT IS LET GO. The launch waits from the window's `.task`,
+    /// which SwiftUI cancels when the window goes; a continuation that ignored
+    /// that would stay parked in `waiting` for the life of the process (L110).
+    ///
+    /// NO DEADLINE, deliberately. Holding the window on Starting is the job, and
+    /// a deadline that opened the store anyway would put the shell up before a
+    /// slow test could ask of Starting, which is the case this exists for. The
+    /// hold ends when a test asks, when the task is cancelled, or when the test
+    /// host exits, and only a test launch ever reaches it.
     @MainActor
     final class Gate {
         static let shared = Gate()
 
         private var asked = false
-        private var waiting: [CheckedContinuation<Void, Never>] = []
+        private var waiting: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+        /// Whether anything has asked yet. A hosted case reads it before asking,
+        /// because once asked the window is on the shell for the rest of the host.
+        var hasBeenAsked: Bool { asked }
 
         func ask() {
             asked = true
-            let released = waiting
-            waiting = []
+            let released = waiting.values
+            waiting = [:]
             for continuation in released { continuation.resume() }
         }
 
         func wait() async {
             if asked { return }
-            await withCheckedContinuation { waiting.append($0) }
+            let id = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    // CANCELLED BEFORE IT PARKED: the handler below has already run
+                    // and found nothing to release, so this is the only chance.
+                    if Task.isCancelled {
+                        continuation.resume()
+                    } else {
+                        waiting[id] = continuation
+                    }
+                }
+            } onCancel: {
+                Task { @MainActor in self.release(id) }
+            }
+        }
+
+        private func release(_ id: UUID) {
+            waiting.removeValue(forKey: id)?.resume()
         }
     }
 
     /// A store in memory for a disposable launch once a test asks for it, or nil
-    /// at once for a real launch.
+    /// at once for a real launch, and nil for a launch cancelled while it waited.
     @MainActor
     static func openWhenAsked(
         isDisposableLaunch: Bool = AppEnvironment.isDisposableLaunch(),
@@ -69,6 +100,8 @@ enum DisposableLaunchStore {
     ) async -> Opening? {
         guard isDisposableLaunch else { return nil }
         await gate.wait()
+        // A launch cancelled while it waited has no window left to open a store for.
+        guard !Task.isCancelled else { return nil }
         return open(isDisposableLaunch: isDisposableLaunch)
     }
 

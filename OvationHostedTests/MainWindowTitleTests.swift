@@ -172,6 +172,14 @@ struct MainWindowTitleTests {
     /// rows the day `ShellView.titleBarHeight` moves (L401).
     @Test("the real window shows the shell, light, with the design record's window top, whether the Mac is dark or light")
     func theRealWindowTopIsTheDesignRecords() async throws {
+        try await Self.askTheRealWindow()
+        // AND AGAIN, IN THE SAME HOST, which is what a retry or a repeated run
+        // does: the gate stays asked and the window stays on the shell, and the
+        // second pass must still hold rather than refuse (ovation#604 review).
+        try await Self.askTheRealWindow()
+    }
+
+    private static func askTheRealWindow() async throws {
         let window = try #require(Self.mainWindow(),
                                   "the app's main window never appeared in the test host")
 
@@ -183,22 +191,35 @@ struct MainWindowTitleTests {
         // scene's pin can make this window light. The shell pins its window as
         // well, so once it has shown this could no longer tell whether the scene's
         // pin is there; that is why the store opens only when asked, below.
-        try Self.withTheMac(.darkAqua) {
-            let before = Self.hex(try Self.picture(ofTheRealWindow: window), x: railPoint, y: 4,
-                                  width: startingSize.width)
-            try #require(before != rail,
-                         "the shell was already showing, so the Starting screen cannot be asked")
-            #expect(!Self.isLight(NSApp.effectiveAppearance),
-                    "the Mac has to read as dark for this to prove anything")
-            #expect(window.appearance?.name == .aqua, "the scene's pin sets the window's own")
-            let titleBar = try #require(window.standardWindowButton(.closeButton)?.superview,
-                                        "the window has no title bar to ask")
-            #expect(Self.isLight(titleBar.effectiveAppearance))
+        //
+        // ONCE PER HOST. The gate is the app's own and the window cannot go back
+        // to Starting, so a second run of this case in one host (a retry, a
+        // repeat) finds the shell up. That is read from the gate as it stood when
+        // the case began, never guessed from the pixels, and said rather than
+        // failed: the Starting half ran on the first run, and the shell half runs
+        // on every one.
+        let startingWasAskedAlready = DisposableLaunchStore.Gate.shared.hasBeenAsked
+        if startingWasAskedAlready {
+            print("MAIN WINDOW: the store was opened by an earlier run in this host, so "
+                + "Starting was asked then and only the shell is asked now.")
+        } else {
+            try Self.withTheMac(.darkAqua) {
+                let before = Self.hex(try Self.picture(ofTheRealWindow: window), x: railPoint,
+                                      y: 4, width: startingSize.width)
+                try #require(before != rail,
+                             "the shell was showing before anything asked for the store")
+                #expect(!Self.isLight(NSApp.effectiveAppearance),
+                        "the Mac has to read as dark for this to prove anything")
+                #expect(window.appearance?.name == .aqua, "the scene's pin sets the window's own")
+                let titleBar = try #require(window.standardWindowButton(.closeButton)?.superview,
+                                            "the window has no title bar to ask")
+                #expect(Self.isLight(titleBar.effectiveAppearance))
+            }
         }
 
         // THEN THE SHELL, WAITED FOR ON THE CONDITION (L290): the launch opens the
         // store in memory once asked, from its own task. The rail under the traffic
-        // lights is drawn by the shell and by nothing else.
+        // lights is drawn by the shell and by nothing else. Asking twice is harmless.
         DisposableLaunchStore.Gate.shared.ask()
         var seen = "none"
         let deadline = Date().addingTimeInterval(20)
