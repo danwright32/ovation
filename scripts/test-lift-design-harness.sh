@@ -22,7 +22,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design harness lift tests" 72
+harness_begin "design harness lift tests" 147
 
 TARGET="scripts/lift-design-harness.sh"
 require_target "$TARGET"
@@ -284,6 +284,232 @@ check "a cut that high still leaves a builder to lift" \
     "$(grep -c '^function buildThing(f) {$' "$STRIPPED/builder.js")" "1"
 
 # ---------------------------------------------------------------------------
+# 4b. A MOVE IN THE STYLESHEET (ovation#560). Every round of ovation#110 moved a
+#     stylesheet rule, and each one was a hand built frame embedding the whole
+#     design file, because this tool moved builder values only. A move naming a
+#     `rule` and a `property` is a stylesheet move: the declaration becomes a
+#     custom property with the file's own value as its fallback, and buildScreen
+#     sets it on the screen it builds, so two options drawn side by side cannot
+#     reach each other's value.
+# ---------------------------------------------------------------------------
+RULEMOVE='{"field": "rowPad", "rule": ".row", "property": "padding", "holds": "4px", "values": ["4px", "14px"]}'
+spec_for "$WORK/rule.json" "standin.html" "moves=[$RULEMOVE]"
+RULEOUT="$WORK/ruleout"
+check_exit "a move naming a stylesheet rule lifts" 0 lift "$WORK/rule.json" "$RULEOUT"
+check "the declaration it names now reads a custom property, the file's value its fallback" \
+    "$(grep -c '^\.row { padding: var(--lift-rowPad, 4px); }$' "$RULEOUT/screen.css")" "1"
+check "and buildScreen sets that property on the screen it builds, from the variant" \
+    "$(grep -c 'built.style.setProperty("--lift-rowPad", String(variant.rowPad))' "$RULEOUT/builder.js")" "1"
+check "no builder variable is declared for it: the one line naming it is the one setting it" \
+    "$(grep -c 'rowPad' "$RULEOUT/builder.js")" "1"
+check "the lift says it moved one declaration in the stylesheet" \
+    "$(says "$(run "$WORK/rule.json" "$RULEOUT")" "moves        variant.rowPad through --lift-rowPad, 1 declaration(s) in the stylesheet")" "yes"
+
+# A PAGE RULE CAN BE MOVED AND RETARGETED IN ONE LIFT. The move is made on the
+# selector as the design file writes it, before the retarget renames it, so a
+# round on the typography the screen inherits from `body` names `body`.
+spec_for "$WORK/rule-body.json" "standin.html" \
+    'moves=[{"field": "size", "rule": "body", "property": "font-size", "holds": "20px", "values": ["20px", "15px"]}]'
+check_exit "a move in a rule that is retargeted onto the screen lifts" \
+    0 lift "$WORK/rule-body.json" "$WORK/rulebody"
+check "and the retargeted rule carries the moved declaration" \
+    "$(grep -c '^\.screen { font-family: ui-monospace, monospace; font-size: var(--lift-size, 20px);' "$WORK/rulebody/screen.css")" "1"
+
+spec_for "$WORK/rule-noprop.json" "standin.html" \
+    'moves=[{"field": "rowPad", "rule": ".row", "values": ["4px", "14px"], "holds": "4px"}]'
+check_exit "a stylesheet move naming no property is refused as a spec" \
+    4 lift "$WORK/rule-noprop.json" "$WORK/out"
+spec_for "$WORK/rule-var.json" "standin.html" \
+    'moves=[{"field": "rowPad", "rule": ".row", "property": "padding", "variable": "ROW_PAD", "holds": "4px", "values": ["4px", "14px"]}]'
+check_exit "and one naming a builder variable too, which it would never declare" \
+    4 lift "$WORK/rule-var.json" "$WORK/out"
+spec_for "$WORK/rule-field.json" "standin.html" \
+    'moves=[{"field": "row pad", "rule": ".row", "property": "padding", "holds": "4px", "values": ["4px", "14px"]}]'
+check_exit "and one whose field cannot name a custom property" \
+    4 lift "$WORK/rule-field.json" "$WORK/out"
+
+spec_for "$WORK/rule-norule.json" "standin.html" \
+    'moves=[{"field": "rowPad", "rule": ".nothing", "property": "padding", "holds": "4px", "values": ["4px", "14px"]}]'
+check_exit "a stylesheet move naming a rule the stylesheet does not have is refused" \
+    6 lift "$WORK/rule-norule.json" "$WORK/out"
+check "and it says the rule is not there, naming the selector" \
+    "$(says "$(run "$WORK/rule-norule.json" "$WORK/out")" "no rule in standin.html has the selector '.nothing'")" "yes"
+spec_for "$WORK/rule-nodecl.json" "standin.html" \
+    'moves=[{"field": "rowPad", "rule": ".row", "property": "margin", "holds": "4px", "values": ["4px", "14px"]}]'
+check_exit "one naming a property the rule does not declare is refused" \
+    6 lift "$WORK/rule-nodecl.json" "$WORK/out"
+spec_for "$WORK/rule-noval.json" "standin.html" \
+    'moves=[{"field": "rowPad", "rule": ".row", "property": "padding", "holds": "9px", "values": ["4px", "14px"]}]'
+check_exit "one whose rule declares the property with another value is refused" \
+    6 lift "$WORK/rule-noval.json" "$WORK/out"
+check "and it counts what the rule does declare, without printing a value" \
+    "$(says "$(run "$WORK/rule-noval.json" "$WORK/out")" "declares padding 1 time(s), none of them with the value the move says it holds")" "yes"
+
+TAKENPROP="$WORK/takenprop.html"
+python3 - "$STANDIN" "$TAKENPROP" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+mark = ".rail { width: 80px; }"
+assert mark in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(
+    text.replace(mark, ".rail { width: 80px; --lift-rowPad: 1px; }", 1))
+PY
+spec_for "$WORK/takenprop.json" "takenprop.html" "moves=[$RULEMOVE]"
+check_exit "one whose custom property the stylesheet already uses is refused" \
+    6 lift "$WORK/takenprop.json" "$WORK/out"
+LONGERPROP="$WORK/longerprop.html"
+python3 - "$STANDIN" "$LONGERPROP" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+mark = ".rail { width: 80px; }"
+assert mark in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(
+    text.replace(mark, ".rail { width: 80px; --lift-rowPadding: 1px; }", 1))
+PY
+spec_for "$WORK/longerprop.json" "longerprop.html" "moves=[$RULEMOVE]"
+check_exit "but one whose name only BEGINS a property the stylesheet uses is not" \
+    0 lift "$WORK/longerprop.json" "$WORK/longerout"
+spec_for "$WORK/twoprops.json" "standin.html" \
+    'moves=[{"field": "rowPadding", "rule": ".rail", "property": "width", "holds": "80px", "values": ["80px", "90px"]}, {"field": "rowPad", "rule": ".row", "property": "padding", "holds": "4px", "values": ["4px", "14px"]}]'
+check_exit "nor is a move whose name begins the one an earlier move wrote" \
+    0 lift "$WORK/twoprops.json" "$WORK/twopropsout"
+
+# ---------------------------------------------------------------------------
+# 4c. THE FRAME MODE (ovation#560). Every round of ovation#110 was a hand built
+#     frame embedding the committed file, and three faults shipped through it
+#     into switchers and were found only by looking: the embedded page's own
+#     closing script tag ended the builder early and left an empty frame, a load
+#     time scroll that did not happen in Dan's Chrome showed the page's intro
+#     instead of the window, and an option's stated measurement did not match
+#     what it drew. So the frame is a mode of this tool, and each of the three is
+#     planted below and has to be refused by name.
+#
+#     The stand in carries what makes each fault possible: a script (so a
+#     closing tag), a tall intro ABOVE the window (so a frame that shows the top
+#     of the page shows the wrong thing), and a window wider than the stage the
+#     check draws it on (so the frame has to scale, and the caption has a number
+#     to get wrong).
+# ---------------------------------------------------------------------------
+FSTANDIN="$WORK/framed.html"
+cat > "$FSTANDIN" <<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A framed stand in</title>
+<style>
+body { margin: 0; font-family: ui-monospace, monospace; font-size: 16px; background: #DDDDDD; }
+.intro { height: 700px; padding: 40px; }
+.win { width: 640px; margin: 0 60px 80px; background: #FFFFFF; border-radius: 10px; }
+.row { padding: 4px; }
+.head { font-size: 20px; }
+</style>
+</head>
+<body>
+<div class="intro"><h1>Everything above the window</h1><p>An intro a frame must not show.</p></div>
+<div id="stage"></div>
+<script>
+function draw() {
+  var win = document.createElement("div");
+  win.className = "win";
+  var head = document.createElement("div");
+  head.className = "head";
+  head.textContent = "Needs you";
+  win.append(head);
+  ["First", "Second", "Third"].forEach(function (w) {
+    var r = document.createElement("div");
+    r.className = "row";
+    r.textContent = w;
+    win.append(r);
+  });
+  document.getElementById("stage").replaceChildren(win);
+}
+draw();
+</script>
+</body>
+</html>
+HTML
+
+frame_spec() {
+    local into="$1" source="$2"
+    shift 2
+    python3 - "$into" "$source" "$@" <<'PY'
+import json, sys
+spec = {
+    "mode": "frame",
+    "source": sys.argv[2],
+    "window": ".win",
+    "moves": [{"field": "rowPad", "rule": ".row", "property": "padding", "holds": "4px",
+               "values": ["4px", "14px"]}],
+    "same": {"tolerance": 0, "ignore": []}
+}
+for change in sys.argv[3:]:
+    key, value = change.split("=", 1)
+    if value == "__DROP__":
+        spec.pop(key, None)
+    else:
+        spec[key] = json.loads(value)
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(spec, handle, indent=1)
+PY
+}
+
+printf 'document.querySelector(".head").textContent = LIFT_VARIANT.word || "Needs you";\n' > "$WORK/word.js"
+FSPEC="$WORK/framed.json"
+frame_spec "$FSPEC" "framed.html"
+FOUT="$WORK/frameout"
+check_exit "a frame lift writes the harness" 0 lift "$FSPEC" "$FOUT"
+check "both files it names are there" \
+    "$([ -f "$FOUT/screen.css" ] && [ -f "$FOUT/builder.js" ] && echo both || echo missing)" "both"
+check "the builder defines buildScreen exactly once" \
+    "$(grep -c '^function buildScreen(variant) {$' "$FOUT/builder.js")" "1"
+# THE FIRST FAULT, AS TEXT: a builder is inlined in a script element, and any
+# closing tag inside it ends that element. The design file carries one of its
+# own, so the embedded page must carry none that the HTML parser can read.
+check "the embedded page carries no closing tag a script element would end at" \
+    "$(grep -c '</' "$FOUT/builder.js")" "0"
+check "and the stylesheet move is made in the embedded page" \
+    "$(grep -c 'var(--lift-rowPad, 4px)' "$FOUT/builder.js")" "1"
+check "the lift says what it framed" \
+    "$(says "$(run "$FSPEC" "$FOUT")" "framed       .win")" "yes"
+
+frame_spec "$WORK/frame-nopatch.json" "framed.html" 'moves=[{"field": "word", "values": ["A", "B"]}]'
+check_exit "a move the round's own script would carry, with no script named, is refused" \
+    4 lift "$WORK/frame-nopatch.json" "$WORK/out"
+printf 'document.querySelector(".head").textContent = "Fixed";\n' > "$WORK/deaf.js"
+frame_spec "$WORK/frame-deaf.json" "framed.html" 'patch="deaf.js"' \
+    'moves=[{"field": "word", "values": ["A", "B"]}]'
+check_exit "a round script that never reads the field it is said to move is refused" \
+    6 lift "$WORK/frame-deaf.json" "$WORK/out"
+printf 'var s = "</script>"; LIFT_VARIANT.word;\n' > "$WORK/closes.js"
+frame_spec "$WORK/frame-closes.json" "framed.html" 'patch="closes.js"' \
+    'moves=[{"field": "word", "values": ["A", "B"]}]'
+check_exit "a round script holding a closing script tag is refused, since it runs inside one" \
+    6 lift "$WORK/frame-closes.json" "$WORK/out"
+frame_spec "$WORK/frame-window.json" "framed.html" 'window=""'
+check_exit "a frame whose window selector is empty is refused as a spec" \
+    4 lift "$WORK/frame-window.json" "$WORK/out"
+# A FIELD THE MODE DOES NOT USE IS REFUSED, NAMED, never ignored: a frame spec
+# carrying a lifted builder's fields (or the other way round) reads as though
+# they did something.
+frame_spec "$WORK/frame-liftfields.json" "framed.html" 'screen=".screen"' \
+    'builder_ends_before="draw();"'
+check_exit "a frame spec carrying a lifted builder's fields is refused" \
+    4 lift "$WORK/frame-liftfields.json" "$WORK/frame-liftfields-out"
+check "and it names each one" \
+    "$(says "$(run "$WORK/frame-liftfields.json" "$WORK/frame-liftfields-out")" "builder_ends_before, screen")" "yes"
+spec_for "$WORK/lift-framefields.json" "standin.html" 'stage=480'
+check_exit "and a lift spec carrying a frame's field is refused the same way" \
+    4 lift "$WORK/lift-framefields.json" "$WORK/lift-framefields-out"
+
+frame_spec "$WORK/frame-var.json" "framed.html" 'patch="word.js"' \
+    'moves=[{"field": "word", "variable": "WORD", "values": ["A", "B"]}]'
+check_exit "a round script's move naming a builder variable is refused, not dropped" \
+    4 lift "$WORK/frame-var.json" "$WORK/frame-var-out"
+check "and it says a frame has nowhere to put one" \
+    "$(says "$(run "$WORK/frame-var.json" "$WORK/frame-var-out")" "names a variable, which a frame has nowhere to put")" "yes"
+
+# ---------------------------------------------------------------------------
 # Everything below renders. With no browser there is no answer to give, and
 # giving one would be a green tick over an unrun check.
 # ---------------------------------------------------------------------------
@@ -354,6 +580,46 @@ check "it names the move and the values that drew the same screen" \
 check "and it names the cause to look for" "$(says "$INERTSAYS" "evaluated once, when the script loads")" "yes"
 check "it never prints a value, so no fixture's wording reaches the terminal" \
     "$(grep -c 'Waiting on you' <<< "$INERTSAYS")" "0"
+
+# ovation#560. THE SAME PROOF FOR A STYLESHEET MOVE, and it has to judge what is
+# DRAWN. The move itself writes the custom property onto the screen's own style
+# attribute, so markup compared whole would differ for every value even when the
+# declaration it feeds is overridden and nothing on screen moves; the proof must
+# not count its own mechanism. And a colour moves no box and no word, so the
+# proof has to compare computed style as well, or a real colour round would be
+# refused as inert.
+RULESAYS="$(run --check "$WORK/rule.json" "$RULEOUT")"
+check_exit "a stylesheet move's harness draws the design file's screen" \
+    0 lift --check "$WORK/rule.json" "$RULEOUT"
+check "and the move is proved to move the screen" \
+    "$(says "$RULESAYS" "MOVES: variant.rowPad draws 2 different screens")" "yes"
+check_exit "a move in a retargeted page rule is proved to move it too" \
+    0 lift --check "$WORK/rule-body.json" "$WORK/rulebody"
+
+spec_for "$WORK/rule-colour.json" "standin.html" \
+    'moves=[{"field": "tint", "rule": ".screen", "property": "background", "holds": "#EEEEEE", "values": ["#EEEEEE", "#333333"]}]'
+python3 "$TARGET" "$WORK/rule-colour.json" "$WORK/rulecolour" >/dev/null 2>&1
+check_exit "a colour, which moves no box and no word, is proved to move the screen" \
+    0 lift --check "$WORK/rule-colour.json" "$WORK/rulecolour"
+
+OVERRIDDEN="$WORK/overridden.html"
+python3 - "$STANDIN" "$OVERRIDDEN" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+mark = ".rail { width: 80px; }"
+assert mark in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(
+    text.replace(mark, mark + "\n.screen .row { padding: 4px; }", 1))
+PY
+spec_for "$WORK/overridden.json" "overridden.html" "moves=[$RULEMOVE]"
+python3 "$TARGET" "$WORK/overridden.json" "$WORK/overriddenout" >/dev/null 2>&1
+OVERSAYS="$(run --check "$WORK/overridden.json" "$WORK/overriddenout")"
+check "a declaration another rule overrides still draws option 1 faithfully" \
+    "$(says "$OVERSAYS" "SAME:")" "yes"
+check_exit "but moving it is refused as inert, whatever its own attribute says" \
+    8 lift --check "$WORK/overridden.json" "$WORK/overriddenout"
+check "and the cause it names is the one a stylesheet move has" \
+    "$(says "$OVERSAYS" "a later or more specific rule")" "yes"
 
 spec_for "$WORK/nolabel.json" "standin.html" 'option_one="Three"'
 check_exit "an option 1 label on no fixture cannot be read" \
@@ -511,8 +777,281 @@ python3 "$TARGET" "$WORK/action-at-load.json" "$WORK/action-at-load" >/dev/null 
 check_exit "and with its rows back in a literal built at load, the same round is refused" \
     8 lift --check "$WORK/action-at-load.json" "$WORK/action-at-load"
 
+# ovation#560 ON A COMMITTED FILE. A colour moves no word and no box, so this is
+# the computed style half of the proof carrying the claim on a screen somebody
+# will actually run a round on. (A move on .railname was tried first and refused
+# as inert, correctly: this fixture draws no rail entry that carries one.)
+python3 - "$WORK/list.json" "$WORK/weight.json" <<'PY'
+import json, sys
+spec = json.load(open(sys.argv[1], encoding="utf-8"))
+spec["moves"] = [{"field": "saidInk", "rule": ".said", "property": "color",
+                  "holds": "var(--faint)", "values": ["var(--faint)", "#B00020"]}]
+json.dump(spec, open(sys.argv[2], "w", encoding="utf-8"), indent=1)
+PY
+check_exit "a stylesheet move on the committed invoice list lifts" \
+    0 lift "$WORK/weight.json" "$WORK/weight"
+check_exit "and is proved faithful and moving" 0 lift --check "$WORK/weight.json" "$WORK/weight"
+
 check_exit "a harness page in quirks mode is caught, which is ovation#194" \
     1 env OVATION_HARNESS_QUIRKS=1 python3 "$TARGET" --check "$WORK/pdf.json" "$PDF"
+
+# ---------------------------------------------------------------------------
+# 7. THE FRAME, RENDERED (ovation#560). --check inlines the builder in a page's
+#    script element the way the switcher does, draws each option on a stage
+#    narrower than the window, and judges the drawing from the page: where the
+#    window lands inside the frame, and whether the caption's width and scale are
+#    the ones the drawing has. Each of the three faults is then planted in a copy
+#    of the written builder and has to be refused by name.
+# ---------------------------------------------------------------------------
+frame_spec "$FSPEC" "framed.html" 'stage=480'
+python3 "$TARGET" "$FSPEC" "$FOUT" >/dev/null 2>&1
+FSAYS="$(run --check "$FSPEC" "$FOUT")"
+check_exit "the frame it just wrote draws the design file's window" 0 lift --check "$FSPEC" "$FOUT"
+check "and the window it frames is the one the design file draws" "$(says "$FSAYS" "SAME:")" "yes"
+check "the caption states the window's true width and the scale it is drawn at" \
+    "$(says "$FSAYS" "FRAMED: the caption says 640 points at 71%, and the drawing is 640 points at 71%")" "yes"
+check "and the stylesheet move is proved to move the window" \
+    "$(says "$FSAYS" "MOVES: variant.rowPad draws 2 different screens")" "yes"
+
+plant_frame() {
+    local into="$1" old="$2" new="$3"
+    mkdir -p "$into"
+    cp "$FOUT/screen.css" "$into/screen.css"
+    python3 - "$FOUT/builder.js" "$into/builder.js" "$old" "$new" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+old, new = sys.argv[3], sys.argv[4]
+assert old in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(text.replace(old, new))
+PY
+}
+
+# FAULT ONE: the embedded page's closing tag, unescaped, ends the builder's
+# script and the switcher draws an empty frame.
+plant_frame "$WORK/unescaped" '<\/' '</'
+check_exit "a builder whose embedded page ends its script early is refused" \
+    9 lift --check "$FSPEC" "$WORK/unescaped"
+check "and it says the frame would be empty, and why" \
+    "$(says "$(run --check "$FSPEC" "$WORK/unescaped")" "ended the script it is inlined in")" "yes"
+
+# FAULT TWO: a frame that shows the top of the page shows the intro, not the
+# window. The frame has to place the window by measuring it, never by scrolling.
+plant_frame "$WORK/unplaced" '" translate(" + (-left) + "px, " + (-top) + "px)"' '""'
+check_exit "a frame that shows the top of the page instead of the window is refused" \
+    9 lift --check "$FSPEC" "$WORK/unplaced"
+check "and it says the frame shows something other than the window" \
+    "$(says "$(run --check "$FSPEC" "$WORK/unplaced")" "shows something other than the window")" "yes"
+SCROLLS="$WORK/scrolls.html"
+python3 - "$FSTANDIN" "$SCROLLS" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+mark = "draw();\n</script>"
+assert mark in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(
+    text.replace(mark, "draw();\nwindow.scrollTo(0, 500);\n</script>", 1))
+PY
+frame_spec "$WORK/scrolls.json" "scrolls.html" 'stage=480'
+python3 "$TARGET" "$WORK/scrolls.json" "$WORK/scrollsout" >/dev/null 2>&1
+check_exit "a design file that scrolls itself at load is framed on its window all the same" \
+    0 lift --check "$WORK/scrolls.json" "$WORK/scrollsout"
+
+# FAULT THREE: a stated measurement the drawing does not have. The caption is
+# read beside an independent measurement of the frame, width and scale both.
+plant_frame "$WORK/wrongwidth" '"The window is " + Math.round(r.width)' '"The window is " + LIFT_VIEWPORT'
+check_exit "a caption stating a width the window does not have is refused" \
+    9 lift --check "$FSPEC" "$WORK/wrongwidth"
+check "and it names both numbers, the caption's and the drawing's" \
+    "$(says "$(run --check "$FSPEC" "$WORK/wrongwidth")" "the caption says 1440 points at 71%, and the drawing is 640 points at 71%")" "yes"
+plant_frame "$WORK/wrongscale" '" points wide, drawn here at " + Math.round(s * 100)' '" points wide, drawn here at " + 100'
+check_exit "a caption stating a scale the drawing is not at is refused" \
+    9 lift --check "$FSPEC" "$WORK/wrongscale"
+
+# THE EMPTY STAGE ABOVE THE WINDOW (approved by Dan, 2026-09-29). The switcher
+# centres whatever is on its stage, so a frame shorter than the stage sat
+# halfway down the page with about 250 points of nothing above it. The check
+# draws on a stage that centres the same way, and a copy of the stylesheet
+# without the frame's own pin to the top has to be refused.
+mkdir -p "$WORK/unpinned"
+cp "$FOUT/builder.js" "$WORK/unpinned/builder.js"
+python3 - "$FOUT/screen.css" "$WORK/unpinned/screen.css" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+old = ".lift-frame { margin: 0 auto auto; "
+assert old in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(text.replace(old, ".lift-frame { ", 1))
+PY
+check_exit "a frame the stage centres, with empty stage above the window, is refused" \
+    9 lift --check "$FSPEC" "$WORK/unpinned"
+check "and it says how much empty stage sits above the window" \
+    "$(says "$(run --check "$FSPEC" "$WORK/unpinned")" "points of empty stage above the window")" "yes"
+
+# A FRAME DRAWN WHILE ITS STAGE IS HIDDEN reads no width, and a switcher that
+# hides the options it is not showing would leave it at full size, wider than
+# the stage, with nothing to refit it when its tab is shown. The check draws one
+# frame on a hidden stage and then shows it, and a builder that does not watch
+# its stage has to be refused.
+plant_frame "$WORK/unwatched" 'liftFrameWatchStage(box);' ''
+check_exit "a frame that is not refitted when its hidden stage is shown is refused" \
+    9 lift --check "$FSPEC" "$WORK/unwatched"
+check "and it says the frame was never fitted once its stage had a width" \
+    "$(says "$(run --check "$FSPEC" "$WORK/unwatched")" "was never fitted once its stage had a width")" "yes"
+
+# THE SAME ROUNDING ON BOTH SIDES. The caption rounds half up, as a browser
+# script does, so a window 640.5 points wide is captioned 641, and the check
+# must round the drawing the same way rather than call a true caption false.
+HALF="$WORK/half.html"
+python3 - "$FSTANDIN" "$HALF" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+old = ".win { width: 640px;"
+assert old in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(text.replace(old, ".win { width: 640.5px;", 1))
+PY
+frame_spec "$WORK/half.json" "half.html" 'stage=480'
+python3 "$TARGET" "$WORK/half.json" "$WORK/halfout" >/dev/null 2>&1
+check_exit "a window a half point wide of a whole number is captioned and checked alike" \
+    0 lift --check "$WORK/half.json" "$WORK/halfout"
+check "and the caption it reads says 641" \
+    "$(says "$(run --check "$WORK/half.json" "$WORK/halfout")" "the caption says 641 points")" "yes"
+
+# A BUILDER THAT CANNOT RUN IS NOT A BUILDER CUT SHORT. Both leave buildScreen
+# undefined, and only one is the closing tag fault, so each says its own cause.
+plant_frame "$WORK/syntax" 'function liftFrameSay(box, state, words) {' 'function liftFrameSay((box, state, words) {'
+SYNTAXSAYS="$(run --check "$FSPEC" "$WORK/syntax")"
+check_exit "a builder that does not parse is refused" 9 lift --check "$FSPEC" "$WORK/syntax"
+check "as a builder that could not run" "$(says "$SYNTAXSAYS" "the builder could not run")" "yes"
+check "and not as one whose closing tag ended it" "$(says "$SYNTAXSAYS" "ended the script")" "no"
+plant_frame "$WORK/throws" 'var LIFT_MARGIN = 16;' 'throw new Error("planted at load"); var LIFT_MARGIN = 16;'
+THROWSAYS="$(run --check "$FSPEC" "$WORK/throws")"
+check "a builder that throws as it loads, its functions defined all the same, is refused" \
+    "$(says "$THROWSAYS" "the builder could not run: Uncaught Error: planted at load")" "yes"
+check "and it never reaches the measuring, where its unset constants would read as nulls" \
+    "$(says "$THROWSAYS" "Traceback")" "no"
+
+frame_spec "$WORK/frame-nowin.json" "framed.html" 'window=".nothing"' 'stage=480'
+python3 "$TARGET" "$WORK/frame-nowin.json" "$WORK/framenowin" >/dev/null 2>&1
+check_exit "a window selector matching nothing in the design file is refused" \
+    9 lift --check "$WORK/frame-nowin.json" "$WORK/framenowin"
+check "and it says how many matched" \
+    "$(says "$(run --check "$WORK/frame-nowin.json" "$WORK/framenowin")" "0 element(s) in the framed page match .nothing")" "yes"
+
+FOVER="$WORK/frame-over.html"
+python3 - "$FSTANDIN" "$FOVER" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+mark = ".head { font-size: 20px; }"
+assert mark in text, "the plant matched nothing, so this case proves nothing"
+open(sys.argv[2], "w", encoding="utf-8").write(text.replace(mark, mark + "\n.win .row { padding: 4px; }", 1))
+PY
+frame_spec "$WORK/frame-over.json" "frame-over.html" 'stage=480'
+python3 "$TARGET" "$WORK/frame-over.json" "$WORK/frameoverout" >/dev/null 2>&1
+check_exit "a framed stylesheet move another rule overrides is refused as inert" \
+    8 lift --check "$WORK/frame-over.json" "$WORK/frameoverout"
+
+printf 'document.querySelector(".head").textContent = LIFT_VARIANT.word || "Needs you";\n' > "$WORK/word.js"
+frame_spec "$WORK/frame-word.json" "framed.html" 'patch="word.js"' 'stage=480' \
+    'moves=[{"field": "word", "values": ["Needs you", "Waiting on you"]}]'
+python3 "$TARGET" "$WORK/frame-word.json" "$WORK/frameword" >/dev/null 2>&1
+check_exit "a round script that reads its field moves the window, and the frame proves it" \
+    0 lift --check "$WORK/frame-word.json" "$WORK/frameword"
+
+# THE COMMITTED INVOICE LIST, framed, which is what the rounds of ovation#110
+# built by hand. A colour moves no word and no box.
+python3 - "$WORK/frame-list.json" "$PWD/docs/design/invoice-list.html" <<'PY'
+import json, sys
+json.dump({
+    "mode": "frame",
+    "source": sys.argv[2],
+    "window": ".win",
+    "moves": [{"field": "saidInk", "rule": ".said", "property": "color",
+               "holds": "var(--faint)", "values": ["var(--faint)", "#B00020"]}],
+    "same": {"tolerance": 0, "ignore": []}
+}, open(sys.argv[1], "w", encoding="utf-8"), indent=1)
+PY
+check_exit "the committed invoice list frames" 0 lift "$WORK/frame-list.json" "$WORK/framelist"
+check_exit "and its frame draws its window, placed and captioned truly, and the move moves it" \
+    0 lift --check "$WORK/frame-list.json" "$WORK/framelist"
+
+# EVERY --check WRITES A PAGE HOLDING A COPY OF THE DESIGN FILE, and it is
+# removed on every way out, a refusal as much as a pass, in both modes.
+LEFT="$WORK/tmp-left"
+mkdir -p "$LEFT"
+TMPDIR="$LEFT" python3 "$TARGET" --check "$FSPEC" "$FOUT" >/dev/null 2>&1
+TMPDIR="$LEFT" python3 "$TARGET" --check "$FSPEC" "$WORK/unescaped" >/dev/null 2>&1
+TMPDIR="$LEFT" python3 "$TARGET" --check "$SPEC" "$OUT" >/dev/null 2>&1
+TMPDIR="$LEFT" python3 "$TARGET" --check "$WORK/lost.json" "$LOST" >/dev/null 2>&1
+check "no --check leaves its page behind, passing or refusing, framed or lifted" \
+    "$(find "$LEFT" -maxdepth 1 -name 'ovation-*' | wc -l | tr -d ' ')" "0"
+
+# THE STALL CLOCK (ovation#560 review). A switcher builds every option at once
+# and shows one, so a frame built and never put on a page must cost nothing
+# while it waits: no timer re-armed for as long as the page is open. And a
+# frame that IS on a page and never draws must still say so. Both are driven in
+# one page holding the written builder, with every setTimeout counted.
+clock_page() {
+    local builder="$1" into="$2"
+    python3 - "$builder" "$into" <<'PY'
+import sys
+builder = open(sys.argv[1], encoding="utf-8").read()
+page = """<!doctype html><html><head><meta charset="utf-8">
+<script>
+window.TIMERS = 0;
+var realTimeout = window.setTimeout;
+window.setTimeout = function (f, ms) { window.TIMERS += 1; return realTimeout(f, ms); };
+</script></head><body><div id="shown" style="width: 480px"></div>
+<script>""" + builder + """</script>
+<script>
+(function () {
+  var hidden = [liftFrame({}, true), liftFrame({}, true), liftFrame({}, true)];
+  var before = window.TIMERS;
+  realTimeout(function () {
+    var idle = window.TIMERS - before;
+    var box = liftFrame({}, true);
+    box._frame.removeAttribute("srcdoc");
+    box._frame.src = "about:blank";
+    box._frame.onload = null;
+    document.getElementById("shown").appendChild(box);
+    realTimeout(function () {
+      var pre = document.createElement("pre");
+      pre.id = "ovation-probe";
+      pre.textContent = JSON.stringify({ idle: idle, state: box.getAttribute("data-state"),
+        said: box.querySelector(".lift-frame-cap").textContent });
+      document.body.appendChild(pre);
+    }, 2500);
+  }, 2000);
+})();
+</script></body></html>"""
+open(sys.argv[2], "w", encoding="utf-8").write(page)
+PY
+}
+clock_read() {
+    python3 - "$1" "$2" <<'PY'
+import json, os, sys
+sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "lib"))
+from design_render import open_browser
+with open_browser() as session:
+    report = session.render(sys.argv[1], "", budget=9000)
+print(report.get(sys.argv[2]) if isinstance(report, dict) else "no report")
+PY
+}
+# The frame that never loads: its load listener is gone and its wait is short,
+# so the clock is what has to speak.
+plant_frame "$WORK/stalls" 'var LIFT_WAIT_MS = 10000;' 'var LIFT_WAIT_MS = 1000;'
+python3 - "$WORK/stalls/builder.js" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+old = 'fr.addEventListener("load", function () { liftFrameLoaded(box); });'
+assert old in text, "the plant matched nothing, so this case proves nothing"
+open(path, "w", encoding="utf-8").write(text.replace(old, ""))
+PY
+clock_page "$WORK/stalls/builder.js" "$WORK/clock.html"
+check "frames built and never shown arm no timer while they wait" \
+    "$(clock_read "$WORK/clock.html" idle)" "0"
+check "and a frame on a page that never draws says so, rather than loading for ever" \
+    "$(clock_read "$WORK/clock.html" state)" "failed"
+check "in words that say how long it waited" \
+    "$(clock_read "$WORK/clock.html" said | grep -c 'has not drawn after 1 seconds')" "1"
 
 check "and every one of those runs left the committed design files untouched" \
     "$(shasum -a 256 docs/design/invoice-pdf.html docs/design/invoice-list.html)" "$BEFORE"

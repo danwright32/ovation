@@ -458,6 +458,29 @@ offered a choice between two copies of one screen with the lift and `--check` bo
 move in the spec lists the `values` the round's options give it, and `--check` draws option 1's
 fixture once per value, markup and boxes, and refuses with exit 8 when two draw the same screen.
 
+**A move can be a stylesheet rule** (ovation#560). Every round of ovation#110 moved a CSS value, and
+because the lift moved builder values only, each was a hand built frame embedding the whole design
+file, which shipped an empty frame, a window cut off by a scroll that did not happen, and a readout
+that did not match its drawing. A move naming a `rule` and a `property` rewrites that declaration as
+a custom property whose fallback is the file's own value, and `buildScreen` sets it on the screen it
+builds, so options drawn side by side cannot reach each other's value. The proof that it moves
+anything compares computed style as well as markup and boxes, since a colour moves neither, and
+leaves the lift's own custom property out of the markup, so a declaration a later rule overrides is
+refused as inert rather than passed.
+
+**And a round can frame the design file instead of lifting it.** A spec whose `mode` is `frame`
+writes a builder that draws the committed file itself in a frame showing only its `.win`, with each
+option's stylesheet moves set inside its own frame and an optional round script run after the file's
+own. It is the frame those rounds built by hand, with their three faults made its job: every closing
+tag in the embedded page is escaped, so it cannot end the switcher's script; the frame is as tall as
+its page and placed by the window's measured position, so it never relies on a scroll; and its caption,
+the window's width and the scale it is drawn at, is measured in the switcher's own page. `--check`
+draws it the way the switcher does and refuses, with exit 9, an empty frame, a frame showing anything
+but the window, and a caption that disagrees with the drawing. The frame is also pinned to the top of
+the stage, since the switcher's centring left about 250 points of empty stage above a framed window,
+and it is fitted again whenever its stage changes size, so an option built while hidden is measured
+when its tab is shown; `--check` refuses both.
+
 ## Nothing carries CSS for a screen it does not draw
 
 **`scripts/check-design-dead-rules.sh` refuses a rule the file that holds it can never apply.** Each
