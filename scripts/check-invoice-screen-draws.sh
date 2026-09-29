@@ -266,6 +266,119 @@ window.addEventListener("load", function () {
       }
     }
 
+    /* ---- leaving a line being added, and changing its type (ovation#489) ----
+
+       Dan settled these on 2026-09-29 and every one of them is behaviour, so each
+       is driven here the way a person does it rather than read from the source.
+       The row the panel claim above left open is the one used. */
+    function wordsUnder() {
+      return Array.prototype.map.call(document.querySelectorAll(".laddbtn"),
+                                      function (b) { return b.textContent; });
+    }
+    function pick(name) {
+      var opened = document.querySelector(".lrow.newrow .typebtn");
+      if (opened) opened.click();
+      var entry = Array.prototype.filter.call(
+        document.querySelectorAll(".poplist button"),
+        function (b) { return b.textContent === name; })[0];
+      if (entry) entry.click();
+      return !!entry;
+    }
+    function amountNow() {
+      var f = document.querySelector(".lamt");
+      return f ? f.value : null;
+    }
+    function escapeOn() {
+      var target = document.querySelector(".lamt") || document.querySelector(".lrow.newrow");
+      if (target) target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    }
+    if (document.querySelector(".lrow.newrow")) {
+      claim("while a line is being added, Cancel stands where Add a line was",
+            wordsUnder().join(",") === "Cancel", JSON.stringify(wordsUnder()));
+
+      /* THE CHOSEN TYPE STAYS THE CHOOSER, SHADED WITH NO BORDER, and the row's
+         shading reaches 8px past the columns while the chooser keeps the column
+         edge (PRD 51t). Read off the drawn page against the header's own edge. */
+      var chosenBtn = document.querySelector(".lrow.newrow .typebtn.chosen");
+      var header = document.querySelector(".lhd");
+      var newRow = document.querySelector(".lrow.newrow");
+      if (!chosenBtn || !header) {
+        claim("a chosen type stays the chooser, shaded, 8px inside the row's shading", false,
+              chosenBtn ? "no column header to measure against" : "the chosen type is not a chooser");
+      } else {
+        var cs = getComputedStyle(chosenBtn);
+        /* The token as it resolves AT THE CHOOSER, which is where it paints,
+           rather than on some ancestor chosen here. */
+        var sel = cs.getPropertyValue("--selbg").trim();
+        var probeSel = document.createElement("i");
+        probeSel.style.background = sel;
+        document.body.append(probeSel);
+        var selRgb = getComputedStyle(probeSel).backgroundColor;
+        probeSel.remove();
+        var hl = header.getBoundingClientRect().left;
+        var rl = newRow.getBoundingClientRect().left;
+        var bl = chosenBtn.getBoundingClientRect().left;
+        claim("a chosen type stays the chooser, shaded, 8px inside the row's shading",
+              cs.backgroundColor === selRgb && cs.borderTopColor === "rgba(0, 0, 0, 0)"
+                && Math.round(hl - rl) === 8 && Math.round(bl - hl) === 0,
+              "fill " + cs.backgroundColor + " (selection " + selRgb + "), border "
+                + cs.borderTopColor + ", shading starts " + Math.round(hl - rl)
+                + "px before the column, chooser " + Math.round(bl - hl) + "px after it");
+      }
+
+      /* AN UNTOUCHED AMOUNT GOES WITH ITS TYPE, A TYPED ONE STAYS (PRD 51r). */
+      var before = amountNow();
+      var replaced = pick("Preview images") && amountNow() === "";
+      var f2 = document.querySelector(".lamt");
+      if (f2) { f2.value = "90"; f2.dispatchEvent(new Event("input")); }
+      var kept = pick("Rush turnaround") && amountNow() === "90";
+      claim("changing the type replaces an untouched amount and keeps a typed one",
+            replaced && kept,
+            "the usual " + JSON.stringify(before) + " became " + (replaced ? "empty" : "something else")
+              + ", and a typed 90 " + (kept ? "was kept" : "became " + JSON.stringify(amountNow())));
+
+      /* ESCAPE CLOSES THE LIST, THEN THE LINE (PRD 51s), writing nothing. */
+      var linesBefore = document.querySelectorAll(".lrow").length;
+      var chooserNow = document.querySelector(".lrow.newrow .typebtn");
+      if (chooserNow) chooserNow.click();
+      var listOpen = !!document.querySelector(".lrow.newrow .poplist");
+      escapeOn();
+      var afterFirst = { list: !!document.querySelector(".poplist"),
+                         row: !!document.querySelector(".lrow.newrow") };
+      escapeOn();
+      var afterSecond = !!document.querySelector(".lrow.newrow");
+      claim("Escape closes the type list first, then the line, and writes nothing",
+            listOpen && !afterFirst.list && afterFirst.row && !afterSecond
+              && document.querySelectorAll(".lrow").length === linesBefore - 1
+              && wordsUnder().join(",") === "Add a line",
+            "list " + (listOpen ? "opened" : "DID NOT OPEN") + "; first Escape: list "
+              + (afterFirst.list ? "still open" : "closed") + ", row " + (afterFirst.row ? "kept" : "GONE")
+              + "; second Escape: row " + (afterSecond ? "STILL THERE" : "gone")
+              + "; beneath the table " + JSON.stringify(wordsUnder()));
+
+      /* CANCEL CLEARS A LINE AND WRITES NOTHING, whatever is typed (PRD 51p). */
+      var addAgain = document.querySelector(".laddbtn");
+      if (addAgain) addAgain.click();
+      pick("Rush turnaround");
+      var f3 = document.querySelector(".lamt");
+      if (f3) { f3.value = "60"; f3.dispatchEvent(new Event("input")); }
+      var cancel = Array.prototype.filter.call(document.querySelectorAll(".laddbtn"),
+                                               function (b) { return b.textContent === "Cancel"; })[0];
+      if (cancel) cancel.click();
+      claim("Cancel clears the line being added and writes nothing",
+            !!cancel && !document.querySelector(".lrow.newrow")
+              && document.querySelectorAll(".lrow").length === linesBefore - 1
+              && wordsUnder().join(",") === "Add a line",
+            (cancel ? "Cancel pressed" : "NO CANCEL") + ", rows " + document.querySelectorAll(".lrow").length
+              + " against " + (linesBefore - 1) + " before the line was started, beneath the table "
+              + JSON.stringify(wordsUnder()));
+
+      /* The row the geometry claims below measure, put back as it was. */
+      var restore = document.querySelector(".laddbtn");
+      if (restore) restore.click();
+      pick("Rehearsal coverage");
+    }
+
     /* ---- the due date, in the foot ---- */
     var foot = document.querySelector(".invwhen");
     var duebtn = document.querySelector(".duebtn");

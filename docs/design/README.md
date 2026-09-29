@@ -1639,6 +1639,56 @@ draws no placeholder reading `0.00`: a zero total is a legitimate comped invoice
 figure the screen has not been given is never drawn as one. An amount it cannot read leaves the row
 where it is rather than committing a line worth nothing.
 
+### Leaving a line being added, and changing its type, settled 2026-09-29 (ovation#489)
+
+**Before this, a line being added could only leave the screen by being written.** `invoice.html`
+drew no way out and the round of 8 September drew none, so it was the design as agreed rather than a
+fault in building it, and it was put to Dan as a design question. On 2026-09-23 he answered both
+halves: Escape clears a half added line, a quiet Cancel word does the same for the mouse, and the
+type can be changed until the amount is written. The rest was settled on 2026-09-29, three rendered
+rounds and one set of written answers, each recorded here with what it was kept against.
+
+**Cancel takes Add a line's place, in the same spot**, while a line is being added, and Add a line
+comes back when the row is written or cancelled. Kept against Cancel beside Choose a type and Cancel
+in the row's empty Rate cell. The word that opened the row is the word that closes it, and the row
+itself is unchanged. It is the same quiet word, and it writes nothing whatever is typed. In the app
+it is drawn whenever a row is, because a row with no way out is the defect this was filed for.
+
+**Leaving the amount field commits a readable amount, as it always did, and leaves the row open
+otherwise.** Leaving it for the row's own open list is not leaving the line: without that exception a
+blur on the way to the list would write the line at the very moment Dan was changing its type. The
+same holds for a press on the chooser or on Cancel, which in the design file take no focus from the
+field (`keepsFocus`), as the app's plain buttons take none when clicked. Found while building it: a
+redraw takes the focused field off the page and the browser blurs it as it goes, which committed the
+line on any redraw, so the file now ignores a blur during a redraw.
+
+**Changing the type replaces the amount only while it is still the old type's usual amount.** An
+amount that came from the old type was never Dan's figure, and keeping it would price the new line at
+the wrong type's rate; an amount he typed is his. Compared as amounts rather than text, so `150` is
+still the usual `150.00`, and with no type yet the usual is an empty field, so an amount typed before
+the type was chosen counts as his.
+
+**Escape with the type list open closes the list, and a second Escape cancels the line**, the order a
+person backs out of anything, the innermost thing first. The amount field takes focus when the row
+appears and whenever the list closes, which is where the next keystroke belongs and what lets Escape
+reach the row at all, since the chooser is a plain button that a click does not focus.
+
+**A chosen type stays the chooser.** Kept against plain text that reopens the list, which reads as a
+line already written with nothing at rest saying it can be pressed. Dan then objected to the bordered
+rounded button in two ways, its edge touching the column's and the border itself, and a further round
+held the inset fixed and moved only the treatment: **shaded with no border**, a soft rounded patch of
+`--selbg` with the triangle and the name in `--soft` (`.typebtn.chosen`), kept against an underlined
+name and a square hairline outline. Before a type is chosen the bordered button asks a question; after
+it, the shade says the answer can still be changed without asking again.
+
+**The inset is 8px on every side, reached by the shading rather than by moving the controls.** Measured
+in the file before it: the chooser and the amount field sat 0px from the shaded row's edge while the
+row gave them 8px above and below, because `.lrow` has no side padding. So the adding row's tint now
+reaches 8px past the columns on each side and nothing leaves the column edges the other lines use,
+the amount's one right edge included. `asserted by check-invoice-screen-draws.sh`, which also drives
+Cancel, both Escapes and a change of type with and without a typed amount, each refused by name on a
+damaged copy in `scripts/test-invoice-screen-draws.sh`.
+
 ### The due date, settled 2026-09-08
 
 **The date in the foot opens the terms an invoice is written on**, each showing the date it lands

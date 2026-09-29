@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 63
+harness_begin "invoice screen rendering checks" 75
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -336,6 +336,50 @@ judge "$ALWAYSQUIET"
 check_rendered_status "a Total quietened on every invoice is refused" "$(case_of "$ALWAYSQUIET")" "1"
 check "and the claim that fired names the invoice with no Outstanding line" \
     "$(claims_of "$ALWAYSQUIET")" "with no Outstanding line, Total keeps the heavy figure;"
+
+# 19. ADD A LINE BESIDE CANCEL (ovation#489). Dan settled that Cancel TAKES Add a
+#     line's place while a line is being added; drawing both puts back a second
+#     way to start a line from a screen already starting one.
+BOTHWORDS="$WORK/both-words.html"
+check "the word's branch is where the mutation expects it" \
+    "$(mutate "$BOTHWORDS" 's/^  } else if (isDraft) {$/  } if (isDraft) {/' '^  } if (isDraft) {$')" "1"
+judge "$BOTHWORDS"
+check_rendered_status "Add a line drawn beside Cancel is refused" "$(case_of "$BOTHWORDS")" "1"
+check "and the claim that fired names where Cancel stands" \
+    "$(claims_of "$BOTHWORDS")" "while a line is being added, Cancel stands where Add a line was;"
+
+# 20. ESCAPE SKIPPING THE LIST (ovation#489). Without the first branch one Escape
+#     with the type list open throws the whole line away, which is the press Dan
+#     settled should only close the list.
+ONEESCAPE="$WORK/one-escape.html"
+check "the list branch is gone from the mutated copy" \
+    "$(mutate "$ONEESCAPE" 's/^    if (TYPEOPEN) { TYPEOPEN = false; redraw(focusAmount); return; }$//' 'if (TYPEOPEN) { TYPEOPEN = false; redraw(focusAmount)')" "0"
+judge "$ONEESCAPE"
+check_rendered_status "an Escape that cancels the line past an open list is refused" "$(case_of "$ONEESCAPE")" "1"
+check "and the claim that fired names the order Escape backs out in" \
+    "$(claims_of "$ONEESCAPE")" "Escape closes the type list first, then the line, and writes nothing;"
+
+# 21. A TYPED AMOUNT OVERWRITTEN (ovation#489). Always taking the new type's usual
+#     amount throws away a figure Dan typed, silently, the moment he corrects the
+#     type.
+OVERWRITTEN="$WORK/overwritten.html"
+check "the amount rule is where the mutation expects it" \
+    "$(mutate "$OVERWRITTEN" 's/value: untouched ? null : typed };/value: null };/' 'amount: type.amount, value: null };')" "1"
+judge "$OVERWRITTEN"
+check_rendered_status "a typed amount replaced by a change of type is refused" "$(case_of "$OVERWRITTEN")" "1"
+check "and the claim that fired names the amount rule" \
+    "$(claims_of "$OVERWRITTEN")" "changing the type replaces an untouched amount and keeps a typed one;"
+
+# 22. THE CHOSEN TYPE BACK IN ITS BORDERED BUTTON (ovation#489). Dan rejected the
+#     bordered rounded button once a type is chosen; without the rule the chooser
+#     keeps it, and nothing but the drawn page shows the difference.
+BORDERED="$WORK/bordered.html"
+check "the chosen treatment is gone from the mutated copy" \
+    "$(mutate "$BORDERED" 's/^\.typebtn\.chosen { background: var(--selbg); border-color: transparent; }$//' '^\.typebtn\.chosen {')" "0"
+judge "$BORDERED"
+check_rendered_status "a chosen type drawn as the bordered button is refused" "$(case_of "$BORDERED")" "1"
+check "and the claim that fired names the chosen type's treatment" \
+    "$(claims_of "$BORDERED")" "a chosen type stays the chooser, shaded, 8px inside the row's shading;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.

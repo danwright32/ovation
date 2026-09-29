@@ -306,8 +306,17 @@ color: var(--faint); }
 .laddbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* The row being filled in, sunk, which is what this screen already uses for a
-   surface you are working on. */
-.lrow.newrow { background: var(--sunk); }
+   surface you are working on.
+
+   THE SHADING REACHES 8PX PAST THE COLUMNS ON EACH SIDE (Dan, 2026-09-29,
+   ovation#489). Measured before it: the chooser and the amount field sat 0px
+   from the shaded row's edge, because `.lrow` has no side padding and each
+   control fills to its column edge, while the same row gave them 8px above and
+   below. Dan's screenshot showed the chooser's edge touching the column's. So
+   the tint bleeds outward rather than the controls moving inward: every control
+   gets 8px on all four sides, and nothing leaves the column edges the other
+   lines use, the amount's one right edge included. */
+.lrow.newrow { background: var(--sunk); margin: 0 -8px; padding-left: 8px; padding-right: 8px; }
 
 /* AND IT DOES NOT CLIP ITS OWN CONTROL. `.ldesc` sets `overflow: hidden` so a
    long description ellipsises, and an absolutely positioned element inside a
@@ -327,6 +336,17 @@ color: var(--faint); }
            background: var(--chrome); border: 1px solid var(--rule);
            border-radius: 5px; padding: 1px 8px; }
 .typebtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* A CHOSEN TYPE STAYS THE CHOOSER, SHADED WITH NO BORDER (Dan, 2026-09-29,
+   ovation#489, two rounds). The first kept the name as the button, against
+   plain text that reopens the list: plain text reads as a line already
+   written, and nothing at rest says it can be pressed. The second settled the
+   button's treatment with the inset held at 8px in every option: a soft patch
+   of the selection shade, kept against an underlined name and a square hairline
+   outline. Before a type is chosen the bordered button asks a question; after,
+   the shade says the answer can still be changed without asking it again.
+   The border stays as a transparent 1px box so the row's height does not move
+   when the type is chosen. */
+.typebtn.chosen { background: var(--selbg); border-color: transparent; }
 .typebtn .tri { flex: none; width: 0; height: 0;
                 border-left: 4px solid transparent; border-right: 4px solid transparent;
                 border-top: 5px solid var(--faint); }
@@ -2313,9 +2333,9 @@ function newTypePanel() {
     var usual = parseFloat(amount.value.replace(/[$,]/g, ""));
     var type = { name: typed, amount: isFinite(usual) ? usual : null };
     if (!TYPES.some(function (t) { return t.name === typed; })) TYPES.push(type);
-    ADDING = type;
+    chooseType(type);
     PANEL = false;
-    redraw();
+    redraw(focusAmount);
   }
 
   var acts = el("div", "panelacts");
@@ -2344,29 +2364,68 @@ function newTypePanel() {
   return holder;
 }
 
+/* CHOOSING A TYPE, AND CHOOSING AGAIN (Dan, 2026-09-29, ovation#489, PRD 51r).
+   The amount goes with the old type only while it is still that type's usual
+   amount: an amount that came from the old type was never Dan's figure, and
+   keeping it would price the new line at the wrong type's rate, while one he
+   typed himself is his. Compared as amounts rather than text, so 150 is still
+   the usual 150.00. With no type yet, or none usual, the usual is an empty
+   field, so an amount typed before the type was chosen counts as his. */
+function chooseType(type) {
+  var typed = typeof ADDING.value === "string" ? ADDING.value
+    : (ADDING.amount === null || ADDING.amount === undefined ? "" : screenMoney(ADDING.amount));
+  var usual = ADDING.name ? ADDING.amount : null;
+  var n = parseFloat(typed.replace(/[$,]/g, ""));
+  var untouched = usual === null || usual === undefined
+    ? typed.trim() === "" : isFinite(n) && Math.abs(n - usual) < 0.005;
+  ADDING = { name: type.name, amount: type.amount, value: untouched ? null : typed };
+  TYPEOPEN = false;
+}
+
+/* THE NEXT KEYSTROKE BELONGS IN THE AMOUNT, and Escape needs something in the
+   row holding focus to reach it, so the field takes focus when the row appears
+   and whenever the list closes. */
+function focusAmount() {
+  var field = document.querySelector(".lamt");
+  if (field) field.focus();
+}
+
+/* A PRESS THAT MUST NOT TAKE FOCUS FROM THE FIELD. Leaving the field commits a
+   readable amount (PRD 51q), so a press on the row's own chooser, or on Cancel,
+   that blurred it first would write the line at the moment Dan was changing its
+   type or abandoning it. The app's plain buttons take no focus when clicked, and
+   this is that behaviour in a browser. */
+function keepsFocus(control) {
+  control.addEventListener("mousedown", function (e) { e.preventDefault(); });
+}
+
 /* THE ROW BEING FILLED IN. The type first, then the amount, in the row itself. */
 function addingRow() {
   var row = el("div", "lrow newrow");
   var desc = el("div", "ldesc");
-  if (ADDING.name) {
-    desc.textContent = ADDING.name;
-  } else {
-    var wrap = el("span", "popwrap");
-    var btn = el("button", "typebtn");
-    btn.type = "button";
-    btn.append(el("span", null, "Choose a type"), el("span", "tri"));
-    btn.setAttribute("aria-expanded", String(TYPEOPEN));
-    btn.addEventListener("click", function () { TYPEOPEN = !TYPEOPEN; redraw(); });
-    wrap.append(btn);
-    if (TYPEOPEN) {
-      wrap.append(typeList(function (type) {
-        ADDING = type;
-        TYPEOPEN = false;
-        redraw();
-      }));
-    }
-    desc.append(wrap);
+  /* THE TYPE STAYS THE CHOOSER UNTIL THE LINE IS WRITTEN (Dan, 2026-09-29, PRD
+     51t), so a type chosen by mistake is changed where it was chosen rather than
+     by starting the line again. Once answered it is drawn shaded with no border,
+     `.typebtn.chosen`, and it opens the same one list. */
+  var wrap = el("span", "popwrap");
+  var btn = el("button", "typebtn" + (ADDING.name ? " chosen" : ""));
+  btn.type = "button";
+  btn.append(el("span", null, ADDING.name || "Choose a type"), el("span", "tri"));
+  btn.setAttribute("aria-expanded", String(TYPEOPEN));
+  if (ADDING.name) btn.setAttribute("aria-label", "Type, " + ADDING.name);
+  keepsFocus(btn);
+  btn.addEventListener("click", function () {
+    TYPEOPEN = !TYPEOPEN;
+    redraw(TYPEOPEN ? null : focusAmount);
+  });
+  wrap.append(btn);
+  if (TYPEOPEN) {
+    wrap.append(typeList(function (type) {
+      chooseType(type);
+      redraw(focusAmount);
+    }));
   }
+  desc.append(wrap);
 
   var cell = el("div", "fig");
   var field = el("input", "lamt");
@@ -2377,14 +2436,22 @@ function addingRow() {
   if (ADDING.amount !== null && ADDING.amount !== undefined) {
     field.value = screenMoney(ADDING.amount);
   }
+  /* AND WHAT DAN TYPED, where he typed something, which a change of type keeps
+     (PRD 51r) and a redraw must not throw away. */
+  if (typeof ADDING.value === "string") field.value = ADDING.value;
+  field.addEventListener("input", function () { ADDING.value = field.value; });
   /* NO PLACEHOLDER READING 0.00. A zero total is a legitimate comped invoice
      (PRD 5.1b), so a figure the screen has not been given is never drawn as one,
      which is the rule the hours column already keeps. */
   function commit() {
+    /* A field a redraw is taking off the page is not being left by anybody,
+       and the row it belonged to may already be gone. */
+    if (REDRAWING || !field.isConnected || !ADDING) return;
     var n = parseFloat(field.value.replace(/[$,]/g, ""));
     /* An amount it cannot read leaves the row where it is, rather than adding a
-       line worth nothing that would be indistinguishable from a comped one. */
-    if (!isFinite(n)) return;
+       line worth nothing that would be indistinguishable from a comped one. So
+       does a line with no type yet: there is nothing to write it as. */
+    if (!isFinite(n) || !ADDING.name) return;
     EXTRA.push({ name: ADDING.name, amount: n });
     ADDING = null;
     redraw();
@@ -2392,8 +2459,22 @@ function addingRow() {
   field.addEventListener("keydown", function (e) {
     if (e.key === "Enter") { e.preventDefault(); commit(); }
   });
-  field.addEventListener("blur", commit);
+  /* LEAVING THE FIELD COMMITS A READABLE AMOUNT (Dan, 2026-09-29, PRD 51q), as
+     it always did, and leaves the row open otherwise. Leaving it for the row's
+     own open list is not leaving the line. */
+  field.addEventListener("blur", function () { if (!TYPEOPEN) commit(); });
   cell.append(field);
+
+  /* ESCAPE CLOSES THE LIST FIRST AND THE LINE SECOND (Dan, 2026-09-29, PRD 51s),
+     the order a person backs out of anything, the innermost thing first. On the
+     row, so it is heard from the field, the chooser and the list alike. */
+  row.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    if (TYPEOPEN) { TYPEOPEN = false; redraw(focusAmount); return; }
+    ADDING = null;
+    redraw();
+  });
 
   row.append(desc, el("div", "fig", ""), el("div", "fig", ""), cell);
   return row;
@@ -2508,11 +2589,27 @@ function buildInvoice() {
              el("div", "fig", "250.00"), amt);
   lines.append(lhd, row);
   EXTRA.forEach(function (x) { lines.append(extraRow(x)); });
-  if (ADDING) lines.append(addingRow());
-  if (isDraft) {
+  if (ADDING) {
+    lines.append(addingRow());
+    /* CANCEL TAKES ADD A LINE'S PLACE, IN THE SAME SPOT, while a line is being
+       added, and Add a line comes back when the row is written or cancelled
+       (Dan, 2026-09-29, ovation#489, PRD 51p). Kept against Cancel beside
+       Choose a type and Cancel in the row's empty Rate cell: the word that
+       opened the row is the word that closes it, and the row is unchanged. It
+       is the same quiet word, and it writes nothing, whatever is typed. */
+    var cancelWord = el("button", "laddbtn", "Cancel");
+    cancelWord.type = "button";
+    keepsFocus(cancelWord);
+    cancelWord.addEventListener("click", function () {
+      ADDING = null;
+      TYPEOPEN = false;
+      redraw();
+    });
+    lines.append(cancelWord);
+  } else if (isDraft) {
     var addWord = el("button", "laddbtn", "Add a line");
     addWord.type = "button";
-    addWord.addEventListener("click", function () { ADDING = { name: null }; redraw(); });
+    addWord.addEventListener("click", function () { ADDING = { name: null }; redraw(focusAmount); });
     lines.append(addWord);
   }
 
@@ -2968,8 +3065,19 @@ function discountEdit() {
   return edit;
 }
 
+/* True while the page is being rebuilt. A focused field taken off the page
+   is blurred by the browser as it goes, and the amount field commits on blur,
+   so without this any redraw while it held focus wrote the line being added
+   (measured 2026-09-29: the held money claims saw an extra 140.00 line). */
+var REDRAWING = false;
+
 function redraw(after) {
-  document.getElementById("stage").replaceChildren(buildInvoiceScreen());
+  REDRAWING = true;
+  try {
+    document.getElementById("stage").replaceChildren(buildInvoiceScreen());
+  } finally {
+    REDRAWING = false;
+  }
   placeRailPop();
   placeCoveringPane();
   if (after) after();

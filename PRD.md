@@ -363,6 +363,16 @@ window owns, never in a view, so redrawing, zooming or reopening the sheet canno
 
 51o. **Once Record is pressed, the history opens with the new payment marked** (Dan, 2026-09-25, round 6 of ovation#510), kept against the invoice's own change being the whole acknowledgement and against a sentence in the foot. The history is the record of what was done, so the payment is shown where it now lives, which is 51d's pane pushing the invoice across rather than covering it.
 
+51p. **While a line is being added, Cancel takes the place of the `Add a line` word beneath the table, in the same spot, and `Add a line` comes back when the line is written or cancelled** (Dan, 2026-09-29, ovation#489, from a rendered round). Kept against Cancel beside `Choose a type` and Cancel in the row's empty Rate cell: the word that opened the row is the word that closes it. Cancel writes nothing, whatever has been typed, and it is drawn whenever a line is being added, because before this a line being added could only leave the screen by being written.
+
+51q. **Leaving the amount field of a line being added writes the line if its amount can be read, as it always did, and leaves the row open with what was typed if it cannot** (Dan, 2026-09-29, ovation#489). Leaving the field for the row's own type list is not leaving the line, so opening the list never writes it.
+
+51r. **The type of a line being added can be changed until the line is written, and changing it replaces the amount only while the amount is still the old type's usual amount** (Dan, 2026-09-23 and 2026-09-29, ovation#489). An amount Dan typed himself is kept. The comparison is of amounts, not text, so `150` is still a usual `150.00`, and an amount typed before any type was chosen counts as typed.
+
+51s. **Escape on a line being added closes the type list if it is open, and cancels the line if it is not**, so with the list open the first press closes the list and a second cancels the line (Dan, 2026-09-29, ovation#489). A cancelled line writes nothing, exactly as 51p.
+
+51t. **A chosen type stays the chooser, drawn shaded with no border**: a soft rounded patch of the selection shade (`--selbg`) with its triangle and the name in `--soft`, opening the same list (Dan, 2026-09-29, ovation#489, two rendered rounds). Kept against plain text that reopens the list, an underlined name, and a square hairline outline. **The row being added gives its controls 8 points on every side**: its shading reaches 8 past the columns on each side, and the chooser and the amount field stay on the column edges every other line uses.
+
 52. **The agreed rendering of the review and send screen is committed at `docs/design/review-send.html`**,
 with the same discipline as 49, 50f and 51: one self contained file, no build step, the decision
 record inside it, and the chooser it came from stripped out. Settled with Dan over six rounds on

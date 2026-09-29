@@ -68,7 +68,9 @@ struct InvoiceScreenShotTests {
                                   setTime: { _, _, _ in },
                                   answerTax: { _, _ in },
                                   addLine: { _, _ in }, createType: { _, _ in },
-                                  setDiscount: { _ in }, payment: Self.payment(for: state),
+                                  setDiscount: { _ in },
+                                  lineBeingAdded: Self.line(for: state, presenter: presenter),
+                                  payment: Self.payment(for: state),
                                   review: {}, resend: { _ in },
                                   history: Self.history(for: state, presenter: presenter)),
                 size: Self.windowSize, scheme: .light, to: file)
@@ -83,7 +85,9 @@ struct InvoiceScreenShotTests {
                                   setTime: { _, _, _ in },
                                   answerTax: { _, _ in },
                                   addLine: { _, _ in }, createType: { _, _ in },
-                                  setDiscount: { _ in }, payment: Self.payment(for: state),
+                                  setDiscount: { _ in },
+                                  lineBeingAdded: Self.line(for: state, presenter: presenter),
+                                  payment: Self.payment(for: state),
                                   review: {}, resend: { _ in },
                                   history: Self.history(for: state, presenter: presenter)),
                 size: Self.windowSize, scheme: .dark, to: darkFile)
@@ -107,7 +111,9 @@ struct InvoiceScreenShotTests {
                                   setTime: { _, _, _ in },
                                   answerTax: { _, _ in },
                                   addLine: { _, _ in }, createType: { _, _ in },
-                                  setDiscount: { _ in }, payment: Self.payment(for: state),
+                                  setDiscount: { _ in },
+                                  lineBeingAdded: Self.line(for: state, presenter: presenter),
+                                  payment: Self.payment(for: state),
                                   review: {}, resend: { _ in },
                                   history: Self.history(for: state, presenter: presenter)),
                 size: Self.halfScreenSize, scheme: .light, to: file)
@@ -158,6 +164,32 @@ struct InvoiceScreenShotTests {
         /// pane is seen at its real content rather than only saying what was not
         /// recorded. Open, pushing at the full window and covering at half screen.
         case historyWithRecordedSends
+        /// ovation#489, PRD 51p. Add a line just pressed: the row asks for a type,
+        /// and Cancel stands where Add a line was.
+        case addingALine
+        /// ovation#489, PRD 51t. Rush turnaround chosen and its usual amount in the
+        /// field: the chosen type stays the chooser, shaded with no border, and the
+        /// shading reaches 8 past the columns on each side.
+        case addingALineWithItsType
+    }
+
+    /// The line being added, for the two states that show one, and nil for the
+    /// rest. SEEDED, because a picture cannot press Add a line.
+    private static func line(for state: State, presenter: InvoiceScreenPresenter) -> LineBeingAdded? {
+        switch state {
+        case .addingALine:
+            return LineBeingAdded()
+        case .addingALineWithItsType:
+            var line = LineBeingAdded()
+            guard let rush = presenter.serviceTypes.first(where: { $0.name == "Rush turnaround" }) else {
+                Issue.record("Rush turnaround is not offered, so the picture would show no chosen type")
+                return line
+            }
+            line.choose(rush)
+            return line
+        default:
+            return nil
+        }
     }
 
     /// The history pane, open with the payment marked for the state that shows it,

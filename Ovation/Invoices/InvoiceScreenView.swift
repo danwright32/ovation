@@ -101,16 +101,20 @@ struct InvoiceScreenView: View {
     @State private var discountTyped = ""
     @State private var discountIsPercent = true
 
-    /// Which type the row being filled in is for, or nil while it is still being
-    /// chosen. Local to this viewing, like the revealed times above it: a row
-    /// half built is a state of looking at the screen, not of the invoice.
-    @State private var adding: InvoiceScreenPresenter.ServiceChoice?
-    /// Whether a row is being added at all, which is separate from which type it
-    /// is for: the row exists before the type is chosen. TWO PIECES OF STATE
-    /// BECAUSE THEY ARE TWO FACTS, and folding them into one optional would make
-    /// "no row" and "a row with no type yet" the same thing (L544).
-    @State private var addingARow = false
-    @State private var typedAmount = ""
+    /// The line being added, or nil where none is. Local to this viewing, like
+    /// the revealed times above it: a row half built is a state of looking at the
+    /// screen, not of the invoice.
+    ///
+    /// ONE OPTIONAL VALUE (ovation#489). It was a flag and an optional type, kept
+    /// apart so "no row" and "a row with no type yet" stayed two facts (L544);
+    /// `LineBeingAdded` keeps them two, and nil is "no row". Escape has to see
+    /// the type, the amount and the open list at once, which is why they moved
+    /// into one value.
+    ///
+    /// NOT PRIVATE, AND NOTHING IN THE APP SETS IT. The shell builds this screen
+    /// without it, so it starts at nil; the shot suites start it with a row open,
+    /// because a picture cannot press Add a line (L606).
+    @State var lineBeingAdded: LineBeingAdded? = nil
     @State private var panelIsOpen = false
     @State private var typedName = ""
     @State private var typedUsual = ""
@@ -195,6 +199,11 @@ struct InvoiceScreenView: View {
     /// What a screen reader hears after the payment just recorded.
     static let justRecorded = "just recorded"
 
+    /// Lets a hosted test reach this screen's `@State` while it is on screen
+    /// (ovation#485), which is how the line being added is driven the way Dan
+    /// drives it. Nothing in the app sends to it.
+    let inspection = Inspection<Self>()
+
     /// The design record's own column widths, named once so the header and every
     /// row are laid out by one declaration and cannot drift apart (L553).
     private enum Column {
@@ -251,6 +260,7 @@ struct InvoiceScreenView: View {
             }
         }
         .ovationAppearance()
+        .onReceive(inspection.notice) { inspection.visit(self, $0) }
     }
 
     /// Everything below the head: the lines, the money and the foot, which the pane
@@ -261,8 +271,12 @@ struct InvoiceScreenView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     columnHeader
                     ForEach(presenter.lines) { line(for: $0) }
-                    if addingARow { addingRow }
-                    if offersALine { addWord }
+                    if lineBeingAdded != nil {
+                        addingRow
+                        cancelWord
+                    } else if offersALine {
+                        addWord
+                    }
                     if let refusedLine { refusal(refusedLine) }
                     money
                     if let question = presenter.taxQuestion { taxQuestion(question) }
@@ -746,27 +760,47 @@ struct InvoiceScreenView: View {
     /// a surface is for, and `check-one-action-word.sh` refuses a second
     /// underline anywhere in the app's Swift.
     private var addWord: some View {
-        Button("Add a line") {
-            addingARow = true
-            adding = nil
-            typedAmount = ""
-        }
-        .buttonStyle(.plain)
-        .font(.system(size: 13.5))
-        .foregroundStyle(OvationPalette.quiet)
-        .padding(.horizontal, Column.sideMargin)
-        .padding(.top, 10)
-        .padding(.bottom, 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        quietWord("Add a line") { lineBeingAdded = LineBeingAdded() }
+    }
+
+    /// CANCEL TAKES ADD A LINE'S PLACE, IN THE SAME SPOT, while a line is being
+    /// added, and Add a line comes back when the row is written or cancelled
+    /// (Dan, 2026-09-29, PRD 51p). Kept against Cancel beside Choose a type and
+    /// Cancel in the row's empty Rate cell: the word that opened the row is the
+    /// word that closes it, and the row itself is unchanged.
+    ///
+    /// DRAWN WHENEVER A ROW IS, not only where Add a line would be, because a row
+    /// with no way out is the defect ovation#489 was filed for.
+    ///
+    /// IT WRITES NOTHING, whatever is typed, which is the difference between it
+    /// and leaving the field (PRD 51q).
+    private var cancelWord: some View {
+        quietWord("Cancel") { lineBeingAdded = nil }
+    }
+
+    /// The one quiet word beneath the table, so Cancel is Add a line's own
+    /// treatment rather than a copy of it that can drift (L613).
+    private func quietWord(_ words: String, _ action: @escaping () -> Void) -> some View {
+        Button(words, action: action)
+            .buttonStyle(.plain)
+            .font(.system(size: 13.5))
+            .foregroundStyle(OvationPalette.quiet)
+            .padding(.horizontal, Column.sideMargin)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The row being filled in, which is its own view so that every state of it
     /// is a case a test can produce (L442).
     private var addingRow: some View {
         AddingLineRow(
-            chosen: adding,
+            // A SET AFTER THE ROW HAS GONE IS DROPPED rather than making a new
+            // row: the list's popover can report itself closed after Cancel has
+            // already cleared the line, and that must not bring it back.
+            line: Binding(get: { lineBeingAdded ?? LineBeingAdded() },
+                          set: { if lineBeingAdded != nil { lineBeingAdded = $0 } }),
             types: Self.typeRows(for: presenter.serviceTypes),
-            amount: $typedAmount,
             askNewType: createType == nil ? nil : {
                 typedName = ""
                 typedUsual = ""
@@ -778,10 +812,12 @@ struct InvoiceScreenView: View {
                 // occupies it (L237).
                 guard let chosen = presenter.serviceTypes
                     .first(where: { $0.name == row.id }) else { return }
-                adding = chosen
-                typedAmount = Self.prefill(for: chosen)
+                lineBeingAdded?.choose(chosen)
             },
             commit: commitLine,
+            escape: {
+                if lineBeingAdded?.escape() == .lineCancelled { lineBeingAdded = nil }
+            },
             columns: (Column.hours, Column.rate, Column.amount,
                       Column.gap, Column.sideMargin))
         .sheet(isPresented: $panelIsOpen) { newTypePanel }
@@ -793,8 +829,7 @@ struct InvoiceScreenView: View {
             guard let awaitingType,
                   let made = Self.newlyMade(named: awaitingType, in: types) else { return }
             self.awaitingType = nil
-            adding = made
-            typedAmount = Self.prefill(for: made)
+            lineBeingAdded?.choose(made)
         }
     }
 
@@ -810,16 +845,6 @@ struct InvoiceScreenView: View {
     static func typeRows(for types: [InvoiceScreenPresenter.ServiceChoice])
         -> [PopupList.Choice] {
         types.map { PopupList.Choice(id: $0.name, says: $0.name) }
-    }
-
-    /// What the amount field starts at when a type is chosen.
-    ///
-    /// A TYPE WITH NO USUAL AMOUNT LEAVES IT EMPTY, never a zero: the design
-    /// record says in terms that a type charging nothing and a type with no usual
-    /// amount are different things, and one of them would prefill every line it
-    /// is used on with 0.00 (PRD 5.1b).
-    static func prefill(for type: InvoiceScreenPresenter.ServiceChoice) -> String {
-        type.usually.map(PDFText.amount) ?? ""
     }
 
     /// The type a name was just asked for, once it is there.
@@ -852,11 +877,9 @@ struct InvoiceScreenView: View {
     /// line worth nothing that would be indistinguishable from a comped one,
     /// which is the design record's own rule and PRD 5.1b's reason.
     private func commitLine() {
-        guard let adding, let amount = Money.read(typedAmount) else { return }
-        addLine?(adding.id, amount)
-        addingARow = false
-        self.adding = nil
-        typedAmount = ""
+        guard let written = lineBeingAdded?.written else { return }
+        addLine?(written.type, written.amount)
+        lineBeingAdded = nil
     }
 
     /// A NEW SERVICE TYPE. It asks one question beyond the name, what the type
