@@ -208,6 +208,20 @@ struct AddingLineRowTests {
                       Int((c.blueComponent * 255).rounded()))
     }
 
+    /// THE HOURS AND THE RATE STAY BLANK. A flat charge has neither, and a
+    /// quantity of nothing is not drawn, which is the rule the rows above this
+    /// one already keep (PRD 5.1b). Asked before a type and after one, because
+    /// the row now draws the same cells in both.
+    @Test("the hours and the rate are drawn as nothing, not as zero")
+    func thehoursAndRateAreBlank() throws {
+        for view in [Self.row(), Self.row(chosen: Self.chosen("Rush turnaround", nil))] {
+            let drawn = try Self.text(in: view)
+
+            #expect(!drawn.contains("0"))
+            #expect(!drawn.contains("0.00"))
+        }
+    }
+
     // MARK: the amount
 
     /// THE FIELD IS WHAT IT WAS GIVEN, so a prefilled amount is drawn and an
