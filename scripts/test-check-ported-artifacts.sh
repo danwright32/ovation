@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ported artifact check tests" 38
+harness_begin "ported artifact check tests" 42
 
 TARGET="scripts/check-ported-artifacts.sh"
 require_target "$TARGET"
@@ -325,5 +325,37 @@ OUT22="$(run_check "$T22")"; ST22=$?
 check "a run holding both outcomes reports the one that refuses" "$ST22" "4"
 check "and the summary counts them separately rather than as one number" \
     "$(printf '%s' "$OUT22" | grep -cE '1 not on this machine.*1 unmeasurable|1 unmeasurable.*1 not on this machine')" "1"
+
+
+# 23. THE CHECK'S OWN LIBRARIES GOING MISSING (ovation#571, ovation#399). A
+#     missing library must refuse as could not run, exit 2, and name what was
+#     missing, rather than run on with whole rules absent (L98, L488). Both
+#     refusals are PRODUCED here, because a regression to a bare `.` would
+#     otherwise pass the suite (L1, L151). Run from a copy so the real
+#     scripts/lib is never touched, and with the seams set so nothing reads a
+#     real sibling (L2). Copied case for case from backstage#69.
+T23="$(new_tree 23)"
+port_header "danwright32/downbeat" "scripts/x.sh" "$ON_MAIN" > "$T23/ported.sh"
+LIBLESS="$WORK/libless"
+mkdir -p "$LIBLESS/scripts/lib"
+cp "$TARGET" "$LIBLESS/scripts/"
+cp scripts/lib/require.sh "$LIBLESS/scripts/lib/"
+# repo-git.sh is deliberately NOT copied.
+LIBLESS_OUT="$(cd "$LIBLESS" && OVATION_SIBLING_SEARCH_ROOTS="$WORK/roots" OVATION_PORT_SCAN_ROOT="$T23" \
+    "./$TARGET" 2>&1)"; LIBLESS_STATUS=$?
+check "a missing library is refused as could not run" "$LIBLESS_STATUS" "2"
+check "and the refusal names the library" \
+    "$(printf '%s' "$LIBLESS_OUT" | grep -c 'repo-git.sh is missing')" "1"
+
+REQLESS="$WORK/reqless"
+mkdir -p "$REQLESS/scripts/lib"
+cp "$TARGET" "$REQLESS/scripts/"
+cp scripts/lib/repo-git.sh "$REQLESS/scripts/lib/"
+# require.sh is deliberately NOT copied.
+REQLESS_OUT="$(cd "$REQLESS" && OVATION_SIBLING_SEARCH_ROOTS="$WORK/roots" OVATION_PORT_SCAN_ROOT="$T23" \
+    "./$TARGET" 2>&1)"; REQLESS_STATUS=$?
+check "a missing loader is refused as could not run" "$REQLESS_STATUS" "2"
+check "and the refusal names the loader" \
+    "$(printf '%s' "$REQLESS_OUT" | grep -c 'require.sh is missing')" "1"
 
 harness_end

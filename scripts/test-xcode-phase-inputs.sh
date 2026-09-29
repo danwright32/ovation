@@ -30,7 +30,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "xcode phase inputs tests" 39
+harness_begin "xcode phase inputs tests" 50
 
 LIB="scripts/lib/xcode-phase-inputs.sh"
 require_target "$LIB"
@@ -57,6 +57,7 @@ cat > "$F/scripts/run-tests.sh" <<'EOF'
 . "$REPO_ROOT/scripts/lib/pin.sh"
 floor="$(cat "$REPO_ROOT/scripts/floor.txt")"
 . "$REPO_ROOT/scripts/lib/removed.sh"
+python3 "$REPO_ROOT/scripts/documented.py"
 EOF
 printf '#!/bin/bash\npython3 "$(dirname "$0")/../deep.py"\n' > "$F/scripts/lib/pin.sh"
 printf 'print("deep")\n' > "$F/scripts/deep.py"
@@ -68,6 +69,31 @@ printf '#!/bin/bash\necho design\n' > "$F/scripts/check-design-thing.sh"
 printf '#!/bin/bash\nOVATION_XCODEBUILD=stub xcodebuild -version\nbash scripts/lonely.sh\n' > "$F/scripts/test-fake.sh"
 printf '#!/bin/bash\necho lonely\n' > "$F/scripts/lonely.sh"
 printf '#!/bin/bash\n# this once ran xcodebuild, and now only says so\necho tool\n' > "$F/scripts/tool.sh"
+# A PYTHON DOCSTRING IS PROSE, like a comment (ovation#603). The first shape is
+# the one the scripts here use: a file named .sh that bash hands to python3, and
+# whose docstring is assigned to __doc__ because the line above it is a string.
+# A triple quoted string that is an ARGUMENT is code, and stays code, because
+# reading it as prose would miss a file the phase runs (L93).
+cat > "$F/scripts/documented.py" <<'EOF'
+#!/usr/bin/env python3
+''''exec python3 "$0" "$@" #'''
+__doc__ = """Names docmodule.sh in a module docstring,
+and docmodule2.sh on a later line of it.
+"""
+import subprocess
+
+
+def run():
+    """Names docfunc.sh in a function docstring."""
+    subprocess.run(["bash", "codenamed.sh"])
+    subprocess.run(["python3", "plain.py"])
+    subprocess.run(
+        """bash literal.sh""", shell=True)
+EOF
+printf '"""Names plaindoc.sh in a plain module docstring."""\nprint("plain")\n' > "$F/scripts/plain.py"
+for name in docmodule docmodule2 docfunc codenamed literal plaindoc; do
+    printf '#!/bin/bash\necho %s\n' "$name" > "$F/scripts/$name.sh"
+done
 cat > "$F/Ovation/Reader.swift" <<'EOF'
 import Foundation
 enum Reader {
@@ -108,6 +134,20 @@ check "a file the runner names that is no longer on disk is still read" \
 
 check "a script named only in a comment is not read" \
     "$(verdict scripts/commented.sh)" "not read"
+check "a script named only in a module docstring is not read (ovation#603)" \
+    "$(verdict scripts/docmodule.sh)" "not read"
+check "nor one named on a later line of that docstring" \
+    "$(verdict scripts/docmodule2.sh)" "not read"
+check "nor one named only in a function docstring" \
+    "$(verdict scripts/docfunc.sh)" "not read"
+check "nor one named only in a plain module docstring" \
+    "$(verdict scripts/plaindoc.sh)" "not read"
+check "the file holding that plain docstring is still read, by its code" \
+    "$(verdict scripts/plain.py)" "read"
+check "a script the documented file's code names is read" \
+    "$(verdict scripts/codenamed.sh)" "read"
+check "and so is one named in a triple quoted string that is an argument" \
+    "$(verdict scripts/literal.sh)" "read"
 check "a script nothing in the phase names is not read" \
     "$(verdict scripts/check-design-thing.sh)" "not read"
 # THE SHELL SUITES RUN ON EVERY PUSH WHATEVER THE GATE DECIDES, so a suite that
@@ -176,7 +216,9 @@ check "a design check the gate runs is not read" \
 # built and no real lock is taken (L2, L291), and the environment is emptied so
 # no seam from the shell that launched this suite answers for the run (L439).
 # xtrace is exported through SHELLOPTS, so every bash the runner starts traces
-# too, and PS4 carries the file each traced line came from.
+# too, and PS4 carries the file each traced line came from, relative to the
+# checkout, because bash 3.2 keeps only about a hundred characters of an
+# expanded PS4 and an absolute path on a long checkout was cut mid name.
 SUITE_FLOCK=""
 for candidate in /opt/homebrew/bin/flock /usr/local/bin/flock /usr/bin/flock; do
     [ -x "$candidate" ] && { SUITE_FLOCK="$candidate"; break; }
@@ -188,12 +230,15 @@ done
 T="$WORK/trace"
 mkdir -p "$T/standin.xcodeproj"
 printf 'com.apple.finder\n' > "$T/domains"
-# $1 is what OVATION_SKIP_XCODE_PHASE says, $2 where the trace goes. The live
+# $1 is what OVATION_SKIP_XCODE_PHASE says, $2 where the trace goes, and $3 the
+# checkout to run it from, this one unless said. The live
 # data bracket is aimed at a throwaway root by its own seams (ovation#570), not
 # only by the emptied HOME, so it stays off Dan's folder if that line changes.
 traced_run() {
+    local root="${3:-$REPO_ROOT}"
     env -i HOME="$T" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
-        PS4='+@@XT@@${BASH_SOURCE[0]:-}@@ ' SHELLOPTS=xtrace \
+        XPI_TRACE_ROOT="$root" \
+        PS4='+@@XT@@${BASH_SOURCE[0]#"$XPI_TRACE_ROOT"/}@@ ' SHELLOPTS=xtrace \
         OVATION_SKIP_XCODE_PHASE="$1" \
         OVATION_XCODEBUILD="$T/no-xcodebuild" \
         OVATION_XCODE_VERSION_FILE="$T/no-pin" \
@@ -207,7 +252,7 @@ traced_run() {
         OVATION_XCODE_PROJECT="$T/standin.xcodeproj" \
         OVATION_LIVE_DATA_ROOT="$T/live-data" OVATION_LIVE_DATA_PROCESS_LIST=/usr/bin/true \
         OVATION_LIVE_DATA_LAST_USED=/usr/bin/true \
-        bash "$REPO_ROOT/scripts/run-tests.sh" > "$2" 2>&1
+        bash "$root/scripts/run-tests.sh" > "$2" 2>&1
 }
 
 traced_run "" "$T/run.txt"
@@ -216,10 +261,14 @@ traced_run 1 "$T/skipped.txt"
 SKIPPED_STATUS=$?
 
 # Every path under scripts/ the trace mentions that is a file in this tree, as a
-# path relative to the repository.
+# path relative to the repository. $2 is the checkout the trace ran from, this
+# one unless said. The checkout's own path is taken off first: a checkout whose
+# path names scripts, a worktree called b2-scripts, otherwise matches as
+# scripts/scripts/..., which is no file, and the trace appears to see nothing.
 traced_scripts() {
-    grep '@@XT@@' "$1" | grep -oE 'scripts/[A-Za-z0-9_./-]+' | sort -u | while IFS= read -r p; do
-        [ -f "$REPO_ROOT/$p" ] && printf '%s\n' "$p"
+    local root="${2:-$REPO_ROOT}"
+    grep '@@XT@@' "$1" | perl -pe 'BEGIN { $r = shift } s/\Q$r\E\///g' "$root" | grep -oE 'scripts/[A-Za-z0-9_./-]+' | sort -u | while IFS= read -r p; do
+        [ -f "$root/$p" ] && printf '%s\n' "$p"
     done
 }
 
@@ -263,5 +312,26 @@ check "a traced script the derivation missed is reported" \
     "$(traced_but_not_read "$T/planted.txt")" "scripts/check-design-dead-rules.sh"
 check "every script the Xcode phase itself touched is one the derivation reads" \
     "$(phase_only_not_read)" ""
+
+# A CHECKOUT WHOSE PATH NAMES scripts, AND IS LONG. A worktree called b2-scripts
+# made every traced path read as scripts/scripts/..., which is no file, so the
+# trace saw nothing and all three trace checks failed on a healthy tree. And
+# bash 3.2 cuts an expanded PS4 at about a hundred characters, so on a long
+# checkout path the file each traced line came from was cut off mid name. The
+# same checkout is run through a link whose path has both properties.
+LONG_ROOT="$WORK/a checkout whose path names scripts and runs past the length bash keeps of PS4/b2-scripts"
+mkdir -p "$(dirname "$LONG_ROOT")"
+ln -s "$REPO_ROOT" "$LONG_ROOT"
+traced_run "" "$T/long.txt" "$LONG_ROOT"
+check "the runner traced from that checkout ran to the end" "$?" "0"
+check "and the trace still saw the runner and the libraries it sources" \
+    "$(traced_scripts "$T/long.txt" "$LONG_ROOT" | grep -cE '^scripts/(run-tests\.sh|lib/dir-lock\.sh|lib/xcode-pin\.sh|lib/ensure-xcode-project\.sh)$')" "4"
+check "and every traced line carries the whole name of the file it came from" \
+    "$(grep '@@XT@@' "$T/long.txt" | grep -cv '@@XT@@[^@]*@@ ')" "0"
+# A file only a COMMAND names, never the source of a traced line, is seen through
+# the command text alone, so that is where the checkout's path has to come off.
+printf '+@@XT@@scripts/run-tests.sh@@ cat %s/scripts/lib/script-roles.tsv\n' "$LONG_ROOT" > "$T/named.txt"
+check "and a file named only in a traced command is seen from that checkout" \
+    "$(traced_scripts "$T/named.txt" "$LONG_ROOT" | grep -c '^scripts/lib/script-roles.tsv$')" "1"
 
 harness_end
