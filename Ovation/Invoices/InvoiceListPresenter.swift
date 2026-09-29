@@ -87,11 +87,22 @@ final class InvoiceListPresenter {
     /// where he is not searching.
     ///
     /// IT LIVES ON THE PRESENTER rather than on the view, because the view is
-    /// taken down whenever an invoice is opened and built again when it closes,
-    /// and `InvoiceListSource` hands it on to the next presenter when a write
-    /// builds the list again. Held anywhere shorter lived, a search would clear
-    /// itself while Dan was working through what it found.
-    var query: String = ""
+    /// taken down whenever an invoice is opened and built again when it closes.
+    /// The presenter is not the longest lived holder either: a write builds a
+    /// new one and a failed read leaves none, so every change is also reported
+    /// through `queryChanged` to `InvoiceListSource`, which outlives both and
+    /// hands the search to the next list it builds (L14).
+    var query: String = "" {
+        didSet {
+            guard query != oldValue else { return }
+            shown = Self.narrow(bands, to: query)
+            queryChanged?(query)
+        }
+    }
+
+    /// Told of every change to `query`, by whatever keeps the search beyond this
+    /// presenter's life.
+    @ObservationIgnored var queryChanged: ((String) -> Void)?
 
     /// Whether a search is narrowing the list. Spaces alone are not a search.
     var isSearching: Bool { !Self.trimmed(query).isEmpty }
@@ -111,11 +122,19 @@ final class InvoiceListPresenter {
     /// THE CARD IS NOT NARROWED. It counts what needs Dan, and typing a client's
     /// name changes nothing about that; the round held it identical in both
     /// options.
-    var shown: [BandRows] {
-        let words = Self.trimmed(query)
+    ///
+    /// STORED, AND NARROWED ONCE PER CHANGE of the query or the list, never on
+    /// read. The body reads it several times per pass and passes run on events
+    /// that change no data, so a computed filter asked every row of every band
+    /// again each time (L383, L471). `bands` is fixed for this presenter's life,
+    /// so the query is the only input that moves.
+    private(set) var shown: [BandRows] = []
+
+    private nonisolated static func narrow(_ bands: [BandRows], to query: String) -> [BandRows] {
+        let words = trimmed(query)
         guard !words.isEmpty else { return bands }
         return bands.compactMap { band in
-            let matches = band.rows.filter { Self.row($0, matches: words) }
+            let matches = band.rows.filter { row($0, matches: words) }
             return matches.isEmpty ? nil : BandRows(band: band.band, rows: matches)
         }
     }
@@ -206,6 +225,7 @@ final class InvoiceListPresenter {
         }
 
         card = Self.card(over: bands)
+        shown = bands
     }
 
     // MARK: the card

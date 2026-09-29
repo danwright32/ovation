@@ -478,7 +478,9 @@ color: var(--faint); }
       or it bounced; a check under 7 days old keeps its place among the checks.</p>
       <p>Dan, 2026-09-29 (ovation#546), over a line under To confirm in the card and a standing line
       in the rail's foot, with no red in any of the three. An age before Mark cleared does not fit the
-      action column. PRD 46h.</p></div>
+      action column. PRD 46h.</p>
+      <p><b>Only a row in the overdue group carries an age</b>, because only it is overdue: not a
+      check, and not an invoice the waiting group moved. Approved by Dan on 2026-09-29.</p></div>
     <div><h3>The idle half</h3>
       <p><b>Disclosures, with Sent awaiting payment open.</b> The group you have money riding on stays
       visible. No "Nothing to do" label above them, because the group names already say it.</p>
@@ -1029,6 +1031,11 @@ function windowFor(layout) {
                 el("span", "n", String(waiting.length)));
     band.append(lead, el("div", "sum", HELD_ON_CLIENT + " held"));
     scroll.append(band);
+    /* NO AGE ON A MOVED ROW. The fixture's 29d and 17d are what those two
+       invoices would carry among the overdue, and only a row in the overdue group is
+       overdue, so only it carries an age (PRD 46h, approved by Dan on
+       2026-09-29 on ovation#631). The row is rebuilt from its facts rather than
+       copied, which is what leaves the age behind. */
     waiting.forEach(function (r) {
       scroll.append(rowEl({ c: r.c, s: r.s, d: r.d, n: r.n, a: r.a, act: "Use it here" }, false));
     });

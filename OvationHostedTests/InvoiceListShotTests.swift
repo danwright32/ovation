@@ -18,11 +18,12 @@
 // AT THE REAL POPULATION, thirteen rows rather than two: drafts waiting on their
 // times, drafts priced and ready to send, an invoice whose send could not be
 // settled, sent invoices still open, and two checks waiting to clear, one of
-// them late (ovation#546). It does NOT carry every one of the eight
+// them late (ovation#546), with Cedar Hill holding 500.00 against several open
+// invoices so the held money band leads. It does NOT carry every one of the eight
 // action words, and that is stated rather than implied: `Remind` needs an overdue
-// invoice and `Use it here` needs held money that could settle one, and neither
-// is in this fixture. What it does carry is one word of each KIND, a live one and
-// two with nowhere to go, which is what this picture is for (L11).
+// invoice and none is in this fixture. What it does carry is one word of each
+// KIND, a live one and two with nowhere to go, which is what this picture is for
+// (L11).
 //
 // OPT IN, AND IT SAYS WHEN IT DID NOTHING (L98).
 import AppKit
@@ -50,10 +51,13 @@ struct InvoiceListShotTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let context = ModelContext(try OvationSchema.container(inMemory: true))
+        // BUILT ONCE. It was built twice, once for the invoices and once for the
+        // held money, so the money was held by a SECOND Cedar Hill that owned
+        // none of the invoices drawn, and the held money band this picture claims
+        // to show was never in it (L1).
+        let population = Self.population(context)
         let presenter = InvoiceListPresenter(
-            invoices: Self.population(context).invoices,
-            heldMoney: Self.population(context).held,
-            today: Self.today)
+            invoices: population.invoices, heldMoney: population.held, today: Self.today)
         let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
                                    selected: .constant(nil), open: { _ in }, settle: { _ in }, review: { _ in })
 
@@ -77,10 +81,10 @@ struct InvoiceListShotTests {
 
         let rows = presenter.bands.flatMap { $0.rows }
         #expect(rows.count == 13, "the population is \(rows.count) rows, not the real thirteen")
-        // ovation#546: the late check LEADS the invoices that need Dan (this
-        // population holds no held money band to sit under), and the recent one
-        // keeps its place among the checks.
-        #expect(presenter.bands.first?.band == .checkNotClearedAfterSevenDays)
+        // ovation#546: the late check LEADS the invoices that need Dan, under the
+        // held money band, and the recent one keeps its place among the checks.
+        #expect(Array(presenter.bands.map(\.band).prefix(2))
+                == [.toPlace, .checkNotClearedAfterSevenDays])
         #expect(presenter.bands.contains { $0.band == .checkNotCleared })
 
         // ovation#449: A SEARCH, and a search that finds nothing, each in both

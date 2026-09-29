@@ -102,6 +102,35 @@ struct InvoiceListSourceTests {
         #expect(after.query == "Cedar")
     }
 
+    /// A READ THAT FAILS TAKES THE LIST AWAY, and the list was the only thing
+    /// holding the search. The field keeps showing Dan's words through the
+    /// failure, so the next good read must narrow by them rather than bring the
+    /// whole list back under them (L14).
+    @Test("a search survives a read that failed, and narrows the next one that works")
+    func asearchSurvivesAFailedRead() throws {
+        struct Unreadable: Error {}
+        let context = ModelContext(try OvationSchema.container(inMemory: true))
+        let client = Self.client(context)
+        Self.invoice(context, for: client, sent: true)
+        var failing = false
+        let source = InvoiceListSource(
+            read: {
+                if failing { throw Unreadable() }
+                return (invoices: try context.fetch(FetchDescriptor<Invoice>()),
+                        clients: try context.fetch(FetchDescriptor<Client>()))
+            },
+            problems: Self.problems(), now: { Self.noon })
+
+        try #require(source.list).query = "Cedar"
+        failing = true
+        source.reread()
+        #expect(source.list == nil, "the read did not fail, so this proves nothing")
+        failing = false
+        source.reread()
+
+        #expect(try #require(source.list).query == "Cedar")
+    }
+
     // MARK: the defect itself
 
     /// THE ACCEPTANCE TEST FOR ovation#451, and it is written over a real

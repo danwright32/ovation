@@ -87,6 +87,10 @@ final class InvoiceListSource {
     /// together (L14).
     private(set) var clients: ClientsPresenter?
 
+    /// ovation#449. What the invoice list is being searched for, kept here because
+    /// this outlives every list it builds, including through a read that failed.
+    private var query = ""
+
     private let read: Read
     /// How to make a read only context, where there is a store at all. Nil under
     /// the closure based initialiser, which a test drives without one.
@@ -174,11 +178,14 @@ final class InvoiceListSource {
 
         // THE SEARCH IS HANDED ON (ovation#449). The list is built again on every
         // write, and a search that cleared itself whenever a payment was recorded
-        // would bring the whole list back under the words still in the field.
-        let searching = list?.query ?? ""
-        list = InvoiceListPresenter(invoices: store.invoices, heldMoney: held,
-                                    today: .stamping(moment))
-        list?.query = searching
+        // would bring the whole list back under the words still in the field. It
+        // is kept HERE rather than read off the old list, because a failed read
+        // leaves no old list to read it from (L14).
+        let made = InvoiceListPresenter(invoices: store.invoices, heldMoney: held,
+                                        today: .stamping(moment))
+        made.query = query
+        made.queryChanged = { [weak self] words in self?.query = words }
+        list = made
         heldMoney = Self.heldMoneyLine(store.clients)
         clients = ClientsPresenter(clients: store.clients)
 
