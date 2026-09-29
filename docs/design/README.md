@@ -709,6 +709,9 @@ was settled: by not building one. The flat list was rejected because it dropped 
 facts, the money held and the paid total, for as long as the search was on. The card is not
 narrowed. The file's `SEARCH` control steps through no search, the round's search and a search that
 finds nothing; the sentence that last one says was drafted with the app, not chosen in a round.
+**The file's search is narrower than the app's, and says so**: the closed groups are counted here
+rather than listed, so the paid rows a search opens are named for Cedar Hill alone, and any other
+query matching a paid invoice draws none. The app holds every row and searches all of them.
 **The look of the search field was not part of the question and is not settled.** The file draws a
 stand in; the app draws the platform's own `NSSearchField`, because SwiftUI's `.searchable` puts its
 field in the window's toolbar and this window deliberately has none (ovation#123, ovation#593).

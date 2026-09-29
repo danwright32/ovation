@@ -471,7 +471,9 @@ color: var(--faint); }
       narrowed, because a search changes nothing about what needs you.</p>
       <p>Dan, 2026-09-29 (ovation#449), over replacing the bands with one flat list, which dropped the
       bands' own facts, the held money and the paid total, while searching. The look of the search
-      field was not part of the round and has not been judged. PRD 39a.</p></div>
+      field was not part of the round and has not been judged. PRD 39a.</p>
+      <p>This file counts the closed groups rather than listing them, so its search can open Paid or
+      cleared only for Cedar Hill, the round's query. The app searches every invoice.</p></div>
     <div><h3>A check that has not cleared</h3>
       <p><b>After 7 days it moves to the top of the list</b>, leading the invoices that need you, with
       no mark of its own. Position is the whole callout. By then the check was likely never deposited,
@@ -1098,8 +1100,13 @@ function windowFor(layout) {
 var SEARCHES = [null, "Cedar Hill", "Linden Park"];
 var SEARCH = null;
 /* Three of the fifteen paid invoices are Cedar Hill's. The Paid or cleared group
-   only counts its rows while it is closed, so the ones a search opens it to show
-   are named here. Invented, like every fixture name in this file. */
+   only COUNTS its rows here, it never lists them, so this file cannot search
+   them: the ones a search opens it to show are named here, for Cedar Hill alone.
+   Any other query that would match a paid invoice draws no paid row in this
+   file, and that is this rendering's limit, not the product's: the app searches
+   every paid invoice, since it holds every row. The same is true of the other
+   closed groups, whose rows this file does not hold either. Invented, like every
+   fixture name in this file. */
 var PAID_MATCHES = {
   "Cedar Hill": { sum: "3,530.00", rows: [
     { c: "Cedar Hill Youth Orchestra", s: "Winter showcase", d: "14 Feb 2026", n: "1003", a: "980.00", said: "paid 2 Mar" },

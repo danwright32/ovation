@@ -537,6 +537,28 @@ struct InvoiceListPresenterTests {
         #expect(list.bands.last?.rows.map(\.number) == ["1036"])
     }
 
+    @Test("two late checks are ordered by the day each check was recorded, oldest first")
+    func lateChecksAreOrderedByTheirRecordedDay() throws {
+        // PRD 46h: the check waiting longest is what makes an invoice late, so
+        // among late checks it leads. The shoots run the OTHER way on purpose, so
+        // an order read off the shoot date cannot pass this.
+        let context = try Self.store()
+        let saints = Self.client(context, "Saint Anne's Chamber Series")
+        let linden = Self.client(context, "Linden Park Brass")
+        let olderShootNewerCheck = Self.invoice(context, for: saints, shoot: Self.day(-60),
+                                                due: Self.day(-46), number: 1020, sent: true)
+        Self.settle(olderShootNewerCheck, in: context, on: Self.day(-8), method: .check,
+                    cleared: false)
+        let newerShootOlderCheck = Self.invoice(context, for: linden, shoot: Self.day(-30),
+                                                due: Self.day(-16), number: 1030, sent: true)
+        Self.settle(newerShootOlderCheck, in: context, on: Self.day(-20), method: .check,
+                    cleared: false)
+
+        let list = Self.present([olderShootNewerCheck, newerShootOlderCheck])
+        let late = try #require(list.bands.first { $0.band == .checkNotClearedAfterSevenDays })
+        #expect(late.rows.map(\.number) == ["1030", "1020"])
+    }
+
     @Test("the late check carries no mark of its own: the same word, no age, counted as before")
     func alateCheckHasNoMarkOfItsOwn() throws {
         let context = try Self.store()

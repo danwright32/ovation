@@ -209,7 +209,15 @@ final class InvoiceListPresenter {
             // SORTED ON THE SAME NUMBER THE BAND WAS DECIDED FROM, so a row cannot
             // sit in a band on one reading of its date and be ordered by another
             // (L545). A dateless draft is banded as long ago and sorts that way.
-            byBand[band, default: []].append((row, standing.shootDay ?? Int.min))
+            //
+            // EXCEPT THE LATE CHECK, which is ordered by the day its check was
+            // recorded (PRD 46h, ovation#546): the check waiting longest is what
+            // makes an invoice late, so it leads, whatever its shoot date says.
+            // An unreadable recorded day is already `Int.min` and leads too.
+            let sortKey = band == .checkNotClearedAfterSevenDays
+                ? (standing.checkRecordedDay ?? Int.min)
+                : (standing.shootDay ?? Int.min)
+            byBand[band, default: []].append((row, sortKey))
         }
 
         // OLDEST FIRST WITHIN EACH BAND (PRD section 6), with the invoice's own id
