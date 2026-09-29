@@ -27,8 +27,9 @@ struct OvationApp: App {
     /// two containers over one file are two writers (ovation#84).
     @State private var opened: ModelContainer?
     /// ovation#40, PRD 44a. The roster pass and the rail around it. Both nil
-    /// where no store was opened, which is every disposable launch, and where
-    /// the client list could not be read, which raises its own problem.
+    /// where no store was opened, and where the client list could not be read,
+    /// which raises its own problem. A disposable launch opens no store until a
+    /// hosted test asks for one kept in memory (ovation#604), and then has both.
     @State private var roster: RosterPresenter?
     @State private var shell: ShellPresenter?
     /// The invoice list, which is the screen the window opens on (ovation#49),
