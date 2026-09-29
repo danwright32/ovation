@@ -1,0 +1,151 @@
+name: Backstage release
+
+# ovation#576. project.yml pins the shared backstage package to one exact
+# version, and an exact pin never looks for a newer one: 0.4.0 and 0.5.0 were
+# both published while Ovation went on building 0.3.0 and nothing said so.
+# Moving the pin stays a person's decision, because a new version must arrive
+# with Ovation's own suite run against it. Noticing that one EXISTS is this.
+#
+# WHY THIS AND NOT DEPENDABOT OR SWIFT PACKAGE is measured and recorded in the
+# header of scripts/check-backstage-release.sh, which owns the question. This
+# file owns the words and the reporting only.
+#
+# NOT A GATE IN ci.yml, for runner-xcode.yml's reason: the answer changes with
+# NO COMMIT IN BETWEEN, when backstage tags a release, so as a gate it would
+# arrive as a red build on whichever unrelated push came next (L538).
+#
+# THE MECHANISM IS scripts/report-finding.sh (ovation#339), as for every other
+# scheduled finding here: one issue, commented on only when the verdict changes
+# (ovation#512), and closed when the pin is current again (L393, L269).
+
+on:
+  schedule:
+    # Daily, because scripts/check-scheduled-runs.sh reads only a daily schedule
+    # and would refuse any other rather than guess its period. The cost is one
+    # short Linux job a day.
+    - cron: '41 6 * * *'
+  # AND WHENEVER THE PIN OR THIS CHECK CHANGES, so a move of the pin closes the
+  # finding the same day rather than the next morning.
+  push:
+    branches: [main]
+    paths:
+      - project.yml
+      - scripts/check-backstage-release.sh
+      - .github/workflows/backstage-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: backstage-release
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: The pinned backstage is still its newest release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # backstage IS PRIVATE, so its tags are read with the same token and the
+      # same script the Mac jobs use to resolve it, which refuses by name when the
+      # secret is absent rather than surfacing as an unreadable listing (L11).
+      - name: Let git read the private backstage repository
+        env:
+          BACKSTAGE_READ_TOKEN: ${{ secrets.BACKSTAGE_READ_TOKEN }}
+        run: bash scripts/configure-private-package-access.sh
+
+      # THE FOUR OUTCOMES ARE KEPT APART (L11). 0 the pin is current, 3 a newer
+      # release exists, 1 the pin names no published tag, 2 nothing could be
+      # measured and so nothing is known.
+      - name: Compare the pin with backstage's releases
+        id: ask
+        run: |
+          set +e
+          bash scripts/check-backstage-release.sh | tee verdict.txt
+          status="${PIPESTATUS[0]}"
+          set -e
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+
+      # A NEWER RELEASE EXISTS. p2: nothing is broken, and moving is a decision
+      # to make with the release notes in front of you (L112).
+      - name: Say so when backstage has a newer release
+        if: steps.ask.outputs.status == '3'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: backstage has a release newer than the one Ovation pins
+        run: |
+          set -uo pipefail
+          {
+            echo "Still true on $(date -u +%Y-%m-%d):"
+            echo
+            sed 's/^/    /' verdict.txt
+          } > comment-body.md
+          {
+            echo "Opened automatically by the Backstage release workflow (ovation#576)."
+            echo
+            sed 's/^/    /' verdict.txt
+            echo
+            echo "Nothing is broken. project.yml pins backstage exactly, so Ovation"
+            echo "keeps building the pinned version until somebody moves it. Read each"
+            echo "release's notes above for what changes for Ovation, adapt any call"
+            echo "site they name, and move the pin with the full suite run against it."
+            echo
+            echo "This issue is commented on rather than duplicated while it is open,"
+            echo "and closed by this workflow once the pin is the newest release again."
+          } > issue-body.md
+
+          set +e
+          bash scripts/report-finding.sh stands \
+            --title "${TITLE}" \
+            --body-file issue-body.md \
+            --comment-file comment-body.md \
+            --milestone Ungrouped \
+            --label priority-p2 --label ci-hygiene --label tech-debt \
+            --verdict-file verdict.txt
+          reported=$?
+          set -e
+          # 0 filed it, 1 commented because the verdict changed, 9 wrote nothing
+          # because the issue already says this verdict (ovation#512). Every other
+          # code is a refusal the script has already explained (L184).
+          case "${reported}" in
+            0|1|9) ;;
+            *) exit "${reported}" ;;
+          esac
+
+      # AND IT IS CLOSED WHEN IT IS OVER, because a finding left open after it
+      # stops being true reads as outstanding (L269).
+      - name: Close it once the pin is current again
+        if: steps.ask.outputs.status == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          {
+            echo "The pin is backstage's newest release again on $(date -u +%Y-%m-%d), so this is closed."
+            echo
+            sed 's/^/    /' verdict.txt
+          } > close-body.md
+          set +e
+          bash scripts/report-finding.sh cleared \
+            --title "backstage has a release newer than the one Ovation pins" \
+            --comment-file close-body.md
+          reported=$?
+          set -e
+          # 2 closed it, 3 means none was open, the ordinary state on a current day.
+          case "${reported}" in
+            2|3) ;;
+            *) exit "${reported}" ;;
+          esac
+
+      # A FAILURE TO MEASURE, OR A PIN NAMING NO TAG, FAILS THE JOB and opens
+      # nothing: both are states to look at in this run's own log, and "a fetch
+      # failed" is not a finding anybody can act on a day later (L98, L11).
+      - name: Refuse a run that could not compare
+        if: steps.ask.outputs.status == '1' || steps.ask.outputs.status == '2'
+        run: |
+          echo "::error::The backstage pin could not be compared with its releases. See the log above."
+          exit 1
