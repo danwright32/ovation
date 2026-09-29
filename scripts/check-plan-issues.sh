@@ -12,8 +12,10 @@ the issues were derived by reading the plan once. The plan's numbering and the
 tracker are two vocabularies, and nothing held them to each other.
 
 THE RULE IS DAN'S, 2026-09-29: every numbered sub-step of a phase whose milestone
-is OPEN owes a filed issue, and every issue in that milestone maps back to a
-sub-step. A phase with no open milestone is not checked until it is opened, which
+is OPEN owes a filed issue, and every OPEN issue in that milestone maps back to a
+sub-step. The second half was narrowed by Dan on 2026-09-30, answering the first
+real run on pull request 628: closed issues are history and are not counted.
+That run had found 92 closed issues citing no sub-step, which nobody would edit. A phase with no open milestone is not checked until it is opened, which
 is what keeps this from being a coverage report full of legitimately unissued
 steps that nobody reads (L400).
 
@@ -29,9 +31,11 @@ WHICH MILESTONE A SUB-STEP IS ON. The phase's `Milestone:` line, unless a table
 row in the plan gives that sub-step one of its own, which is how Phase 1 tracks
 each foundation issue on the feature milestone that cannot ship without it.
 
-WHICH ISSUES MUST MAP BACK: every issue, open or closed, in a milestone a phase's
-`Milestone:` line names, when that milestone is open. Closed ones are in the
-milestone as much as open ones, and the decision says every issue. A milestone
+WHICH ISSUES MUST MAP BACK: every OPEN issue in a milestone a phase's
+`Milestone:` line names, when that milestone is open. A closed one is history
+(Dan, 2026-09-30) and is not read in this direction at all, whatever it cites.
+In the other direction a closed issue still counts: a sub-step whose issue was
+closed has an issue, which is what finished work looks like. A milestone
 reached only through Phase 1's table (`Ungrouped` is one) is no phase's milestone,
 so its other issues owe nothing to the plan.
 
@@ -56,7 +60,7 @@ Outcomes, each said differently because each needs different work (L11):
 
     ISSUED             a sub-step owed an issue, and an issue cites it
     UNISSUED           a sub-step owed an issue, and no issue cites it
-    UNMAPPED           an issue in an open phase milestone cites no sub-step
+    UNMAPPED           an open issue in an open phase milestone cites no sub-step
     STRAY              one cites only sub-steps the plan does not number
     NO SUCH MILESTONE  the plan names a milestone the tracker does not have
     NOT OWED           a sub-step or phase with no milestone, or a closed one
@@ -274,19 +278,22 @@ def main(argv):
         milestone = (issue.get("milestone") or {}).get("title")
         if milestone not in open_phase_milestones:
             continue
+        # ONLY OPEN ISSUES MAP BACK (Dan, 2026-09-30). Asked as "is it open"
+        # rather than "is it closed", so an issue whose state is missing or
+        # unexpected is still judged rather than waved through (L42).
+        if (issue.get("state") or "").upper() == "CLOSED":
+            continue
         numbers = cites[issue["number"]]
-        state = (issue.get("state") or "").lower() or "unknown state"
         if numbers & set(subs):
             mapped += 1
         elif numbers:
             refused["STRAY"] += 1
-            print("  STRAY      ovation#%d (%s) in `%s` cites plan %s, which the plan does "
-                  "not number" % (issue["number"], state, milestone,
-                                  ", ".join(sorted(numbers))))
+            print("  STRAY      ovation#%d in `%s` cites plan %s, which the plan does "
+                  "not number" % (issue["number"], milestone, ", ".join(sorted(numbers))))
         else:
             refused["UNMAPPED"] += 1
-            print("  UNMAPPED   ovation#%d (%s) in `%s` cites no plan sub-step"
-                  % (issue["number"], state, milestone))
+            print("  UNMAPPED   ovation#%d in `%s` cites no plan sub-step"
+                  % (issue["number"], milestone))
 
     if not owed and not open_phase_milestones:
         print("CANNOT MEASURE: no sub-step is owed an issue and no phase milestone is "
@@ -298,7 +305,7 @@ def main(argv):
             print("REFUSED: %d sub-step(s) of an open milestone have no issue."
                   % refused["UNISSUED"])
         if refused["UNMAPPED"] or refused["STRAY"]:
-            print("REFUSED: %d issue(s) in an open phase milestone map to no sub-step "
+            print("REFUSED: %d open issue(s) in an open phase milestone map to no sub-step "
                   "(%d cite nothing, %d cite a number the plan does not have)."
                   % (refused["UNMAPPED"] + refused["STRAY"], refused["UNMAPPED"],
                      refused["STRAY"]))
@@ -309,7 +316,7 @@ def main(argv):
               "sub-step with no issue may belong out of the plan, and an issue that "
               "maps to nothing may belong in it.")
         return 1
-    print("OK: %d sub-step(s) owed an issue and every one has one, and all %d issue(s) "
+    print("OK: %d sub-step(s) owed an issue and every one has one, and all %d open issue(s) "
           "in %d open phase milestone(s) map back to a sub-step."
           % (owed, mapped, len(open_phase_milestones)))
     return 0

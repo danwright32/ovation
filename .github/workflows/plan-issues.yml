@@ -2,8 +2,9 @@ name: Plan issues
 
 # ovation#180. scripts/check-plan-issues.sh holds the plan's numbered sub-steps and
 # the tracker to each other: every sub-step of a phase whose milestone is open owes
-# a filed issue, and every issue in that milestone maps back to a sub-step (Dan's
-# rule, 2026-09-29). It reads the LIVE tracker, so its verdict changes when an
+# a filed issue, and every OPEN issue in that milestone maps back to a sub-step
+# (Dan's rule, 2026-09-29, narrowed to open issues on 2026-09-30, because closed
+# issues are history). It reads the LIVE tracker, so its verdict changes when an
 # issue is filed or a milestone opens, with no commit in between; that is why it
 # runs here on a schedule rather than in the push gate, for the reason
 # design-record.yml records for its own check (L538, L376).
@@ -70,7 +71,7 @@ jobs:
             echo
             echo "Every numbered sub-step of docs/IMPLEMENTATION-PLAN.md on an open"
             echo "milestone owes a filed issue that cites it as \`Plan N.M\`, and every"
-            echo "issue in an open phase milestone maps back to one. The verdict above"
+            echo "OPEN issue in an open phase milestone maps back to one. The verdict above"
             echo "names each one that does not. A sub-step with no issue may belong out"
             echo "of the plan, and an issue that maps to nothing may belong in it, so a"
             echo "person decides which rather than this workflow."

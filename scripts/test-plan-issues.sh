@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "plan issue mapping tests" 40
+harness_begin "plan issue mapping tests" 44
 
 TARGET="scripts/check-plan-issues.sh"
 require_target "$TARGET"
@@ -166,24 +166,41 @@ check "and named with the milestone its table row gives it" \
     "$(said 'UNISSUED   plan 1.1 (line 18, milestone `Year end`)')" "1"
 
 # ---------------------------------------------------------------------------
-# UNMAPPED: an issue in an open phase milestone that cites no sub-step. Closed
-# issues are in the milestone too, and the decision says every issue.
+# UNMAPPED: an OPEN issue in an open phase milestone that cites no sub-step.
+# Dan decided on 2026-09-30 that closed issues are history and do not have to
+# map back, so each direction has its own case: a closed unmapped issue passes,
+# an open one refuses.
 # ---------------------------------------------------------------------------
 healthy
 { cat "$ISSUES" | python3 -c 'import json,sys
 d=json.load(sys.stdin)
 d.append({"number":70,"state":"CLOSED","title":"t","body":"Nothing cited.","milestone":{"title":"Expenses"}})
+print(json.dumps(d))'; } > "$ISSUES.new" && mv "$ISSUES.new" "$ISSUES"
+check_exit "a CLOSED issue citing no sub-step passes, because closed issues are history" 0 run_it
+check "and it is not accused" "$(said 'ovation#70')" "0"
+check "and the verdict counts only the open issues it asked about" \
+    "$(said 'all 1 open issue(s) in 1 open phase milestone(s) map back')" "1"
+
+{ cat "$ISSUES" | python3 -c 'import json,sys
+d=json.load(sys.stdin)
 d.append({"number":71,"state":"OPEN","title":"t","body":"Phase four, in words only.","milestone":{"title":"Expenses"}})
 print(json.dumps(d))'; } > "$ISSUES.new" && mv "$ISSUES.new" "$ISSUES"
-check_exit "an issue in an open phase milestone citing no sub-step is refused" 1 run_it
-check "and a closed one is named" \
-    "$(said 'UNMAPPED   ovation#70 (closed) in `Expenses` cites no plan sub-step')" "1"
-check "and an open one is named" \
-    "$(said 'UNMAPPED   ovation#71 (open) in `Expenses` cites no plan sub-step')" "1"
-check "and the verdict counts both" \
-    "$(said 'REFUSED: 2 issue(s) in an open phase milestone map to no sub-step')" "1"
+check_exit "an OPEN issue in an open phase milestone citing no sub-step is refused" 1 run_it
+check "and it is named" \
+    "$(said 'UNMAPPED   ovation#71 in `Expenses` cites no plan sub-step')" "1"
+check "and the closed one beside it is still not accused" "$(said 'ovation#70')" "0"
+check "and the verdict counts only the open one" \
+    "$(said 'REFUSED: 1 open issue(s) in an open phase milestone map to no sub-step')" "1"
 check "and the mapped ones are not accused" \
     "$(said 'ovation#60 ')" "0"
+
+# A CLOSED STRAY IS HISTORY TOO: only open issues are asked to map back.
+healthy
+{ cat "$ISSUES" | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+d.append({"number":74,"state":"CLOSED","title":"t","body":"Plan 4.9 once.","milestone":{"title":"Expenses"}})
+print(json.dumps(d))'; } > "$ISSUES.new" && mv "$ISSUES.new" "$ISSUES"
+check_exit "a closed issue citing a number the plan lacks passes" 0 run_it
 
 # A CITATION IN THE TITLE COUNTS as much as one in the body.
 healthy
@@ -203,7 +220,7 @@ d.append({"number":73,"state":"OPEN","title":"t","body":"Plan 4.9 says so.","mil
 print(json.dumps(d))'; } > "$ISSUES.new" && mv "$ISSUES.new" "$ISSUES"
 check_exit "an issue citing only a sub-step the plan does not number is refused" 1 run_it
 check "and it is told apart from one citing nothing" \
-    "$(said 'STRAY      ovation#73 (open) in `Expenses` cites plan 4.9, which the plan does not number')" "1"
+    "$(said 'STRAY      ovation#73 in `Expenses` cites plan 4.9, which the plan does not number')" "1"
 
 # ---------------------------------------------------------------------------
 # NO SUCH MILESTONE: the plan names a milestone the tracker does not have, so
