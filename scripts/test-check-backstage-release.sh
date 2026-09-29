@@ -17,7 +17,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "backstage release watch tests" 30
+harness_begin "backstage release watch tests" 33
 
 TARGET="scripts/check-backstage-release.sh"
 require_target "$TARGET"
@@ -222,5 +222,36 @@ check "and a workflow whose condition stopped matching an outcome is caught" \
     "$(wiring_gaps "$WORK/broken-wiring.yml" | grep -c .)" "2"
 check "and the check documents four outcomes, so the comparison has something to compare" \
     "$(documented_codes | grep -c .)" "4"
+
+
+# 14. THE FINDING'S TITLE IS WRITTEN ONCE. report-finding.sh finds the open issue
+#     by its exact title, so a close step carrying its own copy that drifted from
+#     the filing step's would match nothing and exit 3, which is the ordinary
+#     "none was open" state: the finding would stay open for ever with every run
+#     green (L41). So the title is one workflow level variable, it is the only
+#     place the words appear, and every report-finding call passes that variable.
+title_gaps() {
+    local wf="$1" defined titles
+    defined="$(grep -cE '^  FINDING_TITLE: ' "$wf")"
+    [ "$defined" -eq 1 ] || echo "FINDING_TITLE defined $defined time(s) at workflow level"
+    titles="$(grep -E -- '--title ' "$wf")"
+    [ -n "$titles" ] || echo "no report-finding call passes a title"
+    grep -vF -- '--title "${FINDING_TITLE}"' <<< "$titles" | grep -q . && echo "a call passes a title other than FINDING_TITLE"
+    local words
+    words="$(sed -nE 's/^  FINDING_TITLE: (.*)$/\1/p' "$wf")"
+    [ -z "$words" ] || [ "$(grep -cF -- "$words" "$wf")" -eq 1 ] || echo "the title's words are written more than once"
+}
+check "the finding's title is defined once and every report-finding call passes it" \
+    "$(title_gaps .github/workflows/backstage-release.yml)" ""
+check "and there are two calls passing it, the filing and the close" \
+    "$(grep -cF -- '--title "${FINDING_TITLE}"' .github/workflows/backstage-release.yml)" "2"
+# The SECOND call only, by awk rather than sed's 0,/re/ address, which BSD sed on
+# this Mac does not have and GNU sed on the Linux job does (L434).
+awk -v copy='--title "backstage has a release newer than the one Ovation pins"' '
+    index($0, "--title \"${FINDING_TITLE}\"") { n++; if (n == 2) sub(/--title "\$\{FINDING_TITLE\}"/, copy) }
+    { print }
+' .github/workflows/backstage-release.yml > "$WORK/second-copy.yml"
+check "and a close step carrying its own copy of the words is caught" \
+    "$(title_gaps "$WORK/second-copy.yml" | grep -c .)" "2"
 
 harness_end

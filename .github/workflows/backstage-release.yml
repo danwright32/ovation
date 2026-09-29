@@ -38,6 +38,13 @@ permissions:
   contents: read
   issues: write
 
+# THE FINDING'S TITLE, WRITTEN ONCE. report-finding.sh finds the open issue by
+# its exact title, so the close step and the filing step must pass the same
+# words; a second copy that drifted would make the close match nothing, which it
+# reports as the ordinary "none was open" (L41). Its suite fails on a second copy.
+env:
+  FINDING_TITLE: backstage has a release newer than the one Ovation pins
+
 concurrency:
   group: backstage-release
   cancel-in-progress: false
@@ -76,7 +83,6 @@ jobs:
         if: steps.ask.outputs.status == '3'
         env:
           GH_TOKEN: ${{ github.token }}
-          TITLE: backstage has a release newer than the one Ovation pins
         run: |
           set -uo pipefail
           {
@@ -100,7 +106,7 @@ jobs:
 
           set +e
           bash scripts/report-finding.sh stands \
-            --title "${TITLE}" \
+            --title "${FINDING_TITLE}" \
             --body-file issue-body.md \
             --comment-file comment-body.md \
             --milestone Ungrouped \
@@ -131,7 +137,7 @@ jobs:
           } > close-body.md
           set +e
           bash scripts/report-finding.sh cleared \
-            --title "backstage has a release newer than the one Ovation pins" \
+            --title "${FINDING_TITLE}" \
             --comment-file close-body.md
           reported=$?
           set -e
