@@ -78,6 +78,30 @@ struct InvoiceListSourceTests {
         source.list?.bands.first?.band
     }
 
+    // MARK: a search survives the list being read again (ovation#449)
+
+    /// THE LIST IS BUILT AGAIN ON EVERY WRITE, so a search held on the list alone
+    /// would be wiped by the first payment recorded while Dan was searching, and
+    /// the whole list would come back under a field still showing his words.
+    @Test("a search survives the list being read again after a write")
+    func asearchSurvivesARereading() throws {
+        let context = ModelContext(try OvationSchema.container(inMemory: true))
+        let client = Self.client(context)
+        Self.invoice(context, for: client, sent: true)
+        let source = InvoiceListSource(
+            read: { (invoices: try context.fetch(FetchDescriptor<Invoice>()),
+                     clients: try context.fetch(FetchDescriptor<Client>())) },
+            problems: Self.problems(), now: { Self.noon })
+
+        let before = try #require(source.list)
+        before.query = "Cedar"
+        source.reread()
+
+        let after = try #require(source.list)
+        #expect(after !== before, "the list was not built again, so this proves nothing")
+        #expect(after.query == "Cedar")
+    }
+
     // MARK: the defect itself
 
     /// THE ACCEPTANCE TEST FOR ovation#451, and it is written over a real

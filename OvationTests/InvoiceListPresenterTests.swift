@@ -507,6 +507,183 @@ struct InvoiceListPresenterTests {
         #expect(row.amount == "comped")
     }
 
+    // MARK: a check not cleared 7 days after it was recorded (ovation#546)
+
+    /// A sent invoice paid in full by a check recorded that many days before today.
+    private static func paidByCheck(_ context: ModelContext, for client: Client,
+                                    recordedDaysAgo days: Int, number: Int64) -> Invoice {
+        let invoice = Self.invoice(context, for: client, shoot: Self.day(-40), due: Self.day(-26),
+                                   number: number, sent: true)
+        Self.settle(invoice, in: context, on: Self.day(-days), method: .check, cleared: false)
+        return invoice
+    }
+
+    @Test("a check not cleared 7 days after it was recorded leads the list, under held money")
+    func alateCheckLeadsTheList() throws {
+        let context = try Self.store()
+        let saints = Self.client(context, "Saint Anne's Chamber Series")
+        let linden = Self.client(context, "Linden Park Brass")
+        let harbor = Self.client(context, "Harbor Light Opera")
+        let late = Self.paidByCheck(context, for: saints, recordedDaysAgo: 9, number: 1033)
+        let recent = Self.paidByCheck(context, for: linden, recordedDaysAgo: 3, number: 1036)
+        // A draft whose shoot is today, which led the list before this.
+        let today = Self.invoice(context, for: harbor, shoot: Self.today)
+
+        let list = Self.present([recent, today, late])
+        #expect(list.bands.map(\.band)
+                == [.checkNotClearedAfterSevenDays, .draftShootToday, .checkNotCleared])
+        #expect(list.bands.first?.rows.map(\.number) == ["1033"])
+        // THE RECENT CHECK KEEPS ITS PLACE among the checks: only the late one moves.
+        #expect(list.bands.last?.rows.map(\.number) == ["1036"])
+    }
+
+    @Test("the late check carries no mark of its own: the same word, no age, counted as before")
+    func alateCheckHasNoMarkOfItsOwn() throws {
+        let context = try Self.store()
+        let saints = Self.client(context, "Saint Anne's Chamber Series")
+        let linden = Self.client(context, "Linden Park Brass")
+        let late = Self.paidByCheck(context, for: saints, recordedDaysAgo: 9, number: 1033)
+        let recent = Self.paidByCheck(context, for: linden, recordedDaysAgo: 3, number: 1036)
+
+        let list = Self.present([late, recent])
+        let rows = list.bands.flatMap(\.rows)
+        let lateRow = try #require(rows.first { $0.number == "1033" })
+        let recentRow = try #require(rows.first { $0.number == "1036" })
+        // POSITION IS THE WHOLE CALLOUT (Dan, 2026-09-29). Its due date passed 26
+        // days ago, and an age word there would be a mark the round did not choose.
+        #expect(lateRow.action == InvoiceListPresenter.Action.markCleared)
+        #expect(lateRow.age == nil)
+        #expect(recentRow.age == nil)
+        #expect(list.card == [InvoiceListPresenter.CardLine(label: "To confirm", count: 2)])
+    }
+
+    @Test("the seven days are counted from the recorded date against the injected day")
+    func thesevenDaysAreCountedFromTheRecordedDate() throws {
+        let context = try Self.store()
+        let saints = Self.client(context, "Saint Anne's Chamber Series")
+        let check = Self.paidByCheck(context, for: saints, recordedDaysAgo: 6, number: 1033)
+
+        // Six days after it was recorded it is still an ordinary check.
+        #expect(Self.present([check]).bands.map(\.band) == [.checkNotCleared])
+        // The next day, read against a later injected day and nothing else changed,
+        // it has turned late.
+        let tomorrow = InvoiceListPresenter(invoices: [check], heldMoney: [:], today: Self.day(1))
+        #expect(tomorrow.bands.map(\.band) == [.checkNotClearedAfterSevenDays])
+    }
+
+    @Test("a check that has cleared is paid, however long ago it was recorded")
+    func aclearedCheckIsNeverLate() throws {
+        let context = try Self.store()
+        let saints = Self.client(context, "Saint Anne's Chamber Series")
+        let invoice = Self.invoice(context, for: saints, shoot: Self.day(-40), due: Self.day(-26),
+                                   number: 1033, sent: true)
+        Self.settle(invoice, in: context, on: Self.day(-30), method: .check, cleared: true)
+        #expect(Self.present([invoice]).bands.map(\.band) == [.paidOrCleared])
+    }
+
+    // MARK: searching the list (ovation#449)
+
+    /// The design round's own search: one client, with invoices in three bands.
+    private static func cedarHillAndOthers(_ context: ModelContext) -> [Invoice] {
+        let cedar = Self.client(context, "Cedar Hill Youth Orchestra")
+        let harbor = Self.client(context, "Harbor Light Opera")
+        let overdue = Self.invoice(context, for: cedar, shoot: Self.day(-30), due: Self.day(-16),
+                                   number: 1026, sent: true)
+        Self.shoot(overdue, named: "Family concert", on: Self.day(-30))
+        let draft = Self.invoice(context, for: cedar, shoot: Self.day(-2))
+        Self.shoot(draft, named: "Side by Side concert", on: Self.day(-2))
+        let paid = Self.invoice(context, for: cedar, shoot: Self.day(-60), due: Self.day(-46),
+                                number: 1011, sent: true)
+        // NO NAMED SHOOT ON THE PAID ONE: a shoot with no hours makes an invoice
+        // unpriced, and an unpriced invoice is never paid (ovation#582).
+        Self.settle(paid, in: context, on: Self.day(-50))
+        let other = Self.invoice(context, for: harbor, shoot: Self.day(-25), due: Self.day(-11),
+                                 number: 1021, sent: true)
+        Self.shoot(other, named: "Tosca, opening night", on: Self.day(-25))
+        let ahead = Self.invoice(context, for: harbor, shoot: Self.day(10))
+        Self.shoot(ahead, named: "Autumn Winds", on: Self.day(10))
+        return [overdue, draft, paid, other, ahead]
+    }
+
+    @Test("a search narrows the bands in place: each match stays in its band, a band with none goes")
+    func asearchNarrowsTheBandsInPlace() throws {
+        let context = try Self.store()
+        let list = Self.present(Self.cedarHillAndOthers(context))
+        list.query = "Cedar Hill"
+
+        #expect(list.shown.map(\.band) == [.overdue, .draftNeedsSending, .paidOrCleared])
+        #expect(list.shown.map { $0.rows.map(\.number) } == [["1026"], ["draft"], ["1011"]])
+        // EACH MATCH KEEPS THE BAND IT CAME FROM: the narrowed list is the full one
+        // with rows taken out, never a second reading of where they belong.
+        for band in list.shown {
+            let whole = try #require(list.bands.first { $0.band == band.band })
+            #expect(band.rows.allSatisfy { row in whole.rows.contains(row) })
+        }
+        // AND THE CARD IS NOT NARROWED. It counts what needs Dan, and a search does
+        // not change what needs him (the round held it identical).
+        #expect(list.card == Self.present(Self.cedarHillAndOthers(try Self.store())).card)
+    }
+
+    @Test("no search, or one of only spaces, shows the whole list")
+    func anemptySearchShowsEverything() throws {
+        let context = try Self.store()
+        let list = Self.present(Self.cedarHillAndOthers(context))
+        #expect(list.shown == list.bands)
+        list.query = "   "
+        #expect(list.shown == list.bands)
+        #expect(!list.isSearching)
+    }
+
+    @Test("a search ignores case and accents, and matches the shoot and the number too")
+    func asearchMatchesClientShootAndNumber() throws {
+        let context = try Self.store()
+        let list = Self.present(Self.cedarHillAndOthers(context))
+
+        list.query = "cedar hill"
+        #expect(list.shown.flatMap(\.rows).count == 3)
+        list.query = "TOSCA"
+        #expect(list.shown.flatMap(\.rows).map(\.number) == ["1021"])
+        list.query = "1011"
+        #expect(list.shown.map(\.band) == [.paidOrCleared])
+        #expect(list.shown.flatMap(\.rows).map(\.number) == ["1011"])
+        list.query = "Cédar"
+        #expect(list.shown.flatMap(\.rows).count == 3)
+    }
+
+    @Test("a combined invoice is found by any of its shoots, not only the one it names")
+    func acombinedInvoiceIsFoundByAnyShoot() throws {
+        let context = try Self.store()
+        let harbor = Self.client(context, "Harbor Light Opera")
+        let combined = Self.invoice(context, for: harbor, shoot: Self.day(-2))
+        Self.shoot(combined, named: "Tosca, dress rehearsal", on: Self.day(-4))
+        Self.shoot(combined, named: "Tosca, opening night", on: Self.day(-2))
+
+        let list = Self.present([combined])
+        list.query = "dress rehearsal"
+        #expect(list.shown.flatMap(\.rows).map(\.shoot) == ["Tosca, opening night"])
+    }
+
+    @Test("the word draft is not a number, so searching it finds no invoice by its column")
+    func draftIsNotSearchedAsANumber() throws {
+        // A SEARCH IS NOT A STATE FILTER (the round's own reasoning: each match
+        // keeps its band, so none is needed). `draft` is the column saying there is
+        // no number, and matching it would turn the search into one.
+        let context = try Self.store()
+        let list = Self.present(Self.cedarHillAndOthers(context))
+        list.query = "draft"
+        #expect(list.shown.isEmpty)
+    }
+
+    @Test("a search matching nothing shows nothing, and the list still knows it holds invoices")
+    func asearchMatchingNothing() throws {
+        let context = try Self.store()
+        let list = Self.present(Self.cedarHillAndOthers(context))
+        list.query = "Westfield"
+        #expect(list.shown.isEmpty)
+        #expect(!list.bands.isEmpty)
+        #expect(list.isSearching)
+    }
+
     // MARK: helpers
 
     private static func written(_ day: BusinessDate) -> String {

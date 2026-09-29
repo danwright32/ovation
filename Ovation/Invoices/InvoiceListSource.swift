@@ -172,8 +172,13 @@ final class InvoiceListSource {
             held[client] = client.moneyHeld
         }
 
+        // THE SEARCH IS HANDED ON (ovation#449). The list is built again on every
+        // write, and a search that cleared itself whenever a payment was recorded
+        // would bring the whole list back under the words still in the field.
+        let searching = list?.query ?? ""
         list = InvoiceListPresenter(invoices: store.invoices, heldMoney: held,
                                     today: .stamping(moment))
+        list?.query = searching
         heldMoney = Self.heldMoneyLine(store.clients)
         clients = ClientsPresenter(clients: store.clients)
 

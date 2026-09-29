@@ -376,6 +376,18 @@ color: var(--faint); }
 /* tint only: a left bar flush against a dark rail is invisible, and a tint
    is what macOS uses for selection regardless */
 .row.sel { background: var(--selbg); }
+/* THE SEARCH FIELD (ovation#449). Its LOOK HAS NOT BEEN JUDGED: the round that
+   settled what a search does held the field's appearance out of the question,
+   and the app draws the platform's own search field rather than this one. It
+   sits at the right of the toolbar, where the round drew it. */
+.search { margin-left: auto; display: flex; align-items: center; gap: 7px; width: 230px; box-sizing: border-box; padding: 5px 9px; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); color: var(--faint); font-size: 13px; }
+.search svg { flex: none; }
+.search .q { flex: 1; color: var(--ink); }
+.search .q.empty { color: var(--faint); }
+.search .x { color: var(--faint); font-size: 14px; line-height: 1; }
+/* A SEARCH THAT FINDS NOTHING SAYS SO, never a blank list under the heads. Its
+   sentence was drafted with the app, not chosen in a round. */
+.nomatch { padding: 24px; font-size: 13px; color: var(--soft); }
 
 
 </style>
@@ -452,6 +464,21 @@ color: var(--faint); }
       still an invoice waiting to be sent.</p>
       <p>Dan, 2026-09-19 (ovation#364), with the number and the word drawn side by side on the real
       screen. PRD 46g.</p></div>
+    <div><h3>A search</h3>
+      <p><b>It narrows the bands in place.</b> A band holding a match stays, with its count narrowed
+      and opened so the matches show; a band with no match is not drawn. Each match keeps the band it
+      came from, so no separate state filter is needed to reach every state. The card is not
+      narrowed, because a search changes nothing about what needs you.</p>
+      <p>Dan, 2026-09-29 (ovation#449), over replacing the bands with one flat list, which dropped the
+      bands' own facts, the held money and the paid total, while searching. The look of the search
+      field was not part of the round and has not been judged. PRD 39a.</p></div>
+    <div><h3>A check that has not cleared</h3>
+      <p><b>After 7 days it moves to the top of the list</b>, leading the invoices that need you, with
+      no mark of its own. Position is the whole callout. By then the check was likely never deposited,
+      or it bounced; a check under 7 days old keeps its place among the checks.</p>
+      <p>Dan, 2026-09-29 (ovation#546), over a line under To confirm in the card and a standing line
+      in the rail's foot, with no red in any of the three. An age before Mark cleared does not fit the
+      action column. PRD 46h.</p></div>
     <div><h3>The idle half</h3>
       <p><b>Disclosures, with Sent awaiting payment open.</b> The group you have money riding on stays
       visible. No "Nothing to do" label above them, because the group names already say it.</p>
@@ -522,6 +549,25 @@ color: var(--faint); }
    same size (L1: an option nobody can tell apart is not an option). A function
    is re-read every draw, so a moved value reaches the screen. */
 function groupsFor() { return [
+  /* A CHECK NOT CLEARED 7 DAYS AFTER IT WAS RECORDED LEADS THE LIST (Dan,
+     2026-09-29, ovation#546, PRD 46h), from a rendered round of three options
+     moving one variable, with no red in any: "Moved to the top of the list".
+     It leaves its place among the checks and leads the invoices that need you,
+     under the waiting group, with NO MARK OF ITS OWN: the same Mark cleared, no
+     age. Position is the whole callout. Saint Anne's check was recorded on
+     28 Aug 2026, 9 days before this fixture's Sun 6 Sep; `recorded` carries it so
+     the fixture records the state rather than only its effect.
+     Rejected: a line under To confirm in the sidebar card, and a standing line in
+     the sidebar's foot. An age word before Mark cleared, the way 34d sits before
+     Remind, was drawn and measured and does not fit: the action column is 84px,
+     Mark cleared alone takes 80, and 9d beside it ran into the amount.
+     A CHECK UNDER 7 DAYS OLD KEEPS ITS PLACE, fourth among the groups below. The
+     round drew one, Linden Park Brass, recorded 3 days before; it is not in this
+     file because the rail is chrome shared with three other design files, and a
+     third invoice to confirm here would make this card say To confirm 3 while
+     theirs say 2. */
+  { sum: "1,100.00", rows: [
+    { c: "Saint Anne's Chamber Series", s: "Advent Vespers", d: "11 Aug 2026", n: "1033", a: "1,100.00", recorded: "28 Aug 2026", act: "Mark cleared" }]},
   { sum: "3,700.00", rows: [
     { c: "Harbor Light Opera", n: "draft", a: "3,700.00", act: "Send",
       shoots: [{ s: "Tosca, dress rehearsal", d: "2 Sep 2026" },
@@ -570,8 +616,6 @@ function groupsFor() { return [
        date and the missing hours, the answer is not on this invoice at all. The
        amount IS known, so the amount column is the money rather than a word. */
     { c: "Pemberton Early Music", s: "Candlemas Vespers", d: "28 Aug 2026", n: "draft", a: "900.00", act: "Add tax status" }]},
-  { sum: "1,100.00", rows: [
-    { c: "Saint Anne's Chamber Series", s: "Advent Vespers", d: "11 Aug 2026", n: "1033", a: "1,100.00", act: "Mark cleared" }]},
   { sum: "1,320.00", rows: [
     { c: "Alder Street Opera", s: "La Boheme, act three", d: "24 Aug 2026", n: "1037", a: "1,320.00", act: "Mark unsent" }]}
 ]; }
@@ -945,7 +989,7 @@ function windowFor(layout) {
 
   var main = el("div", "main");
   var tbar = el("div", "toolbar");
-  tbar.append(el("h4", null, "Invoices"), el("div", "meta", "Last looked 2 minutes ago"));
+  tbar.append(el("h4", null, "Invoices"), searchField(), el("div", "meta", "Last looked 2 minutes ago"));
   main.append(tbar);
 
   var head = el("div", "colhead");
@@ -1021,6 +1065,7 @@ function windowFor(layout) {
     if (g[3]) SENT.forEach(function (r) { var n = rowEl(r, false); n.classList.add("idle"); scroll.append(n); });
   });
   main.append(scroll);
+  if (SEARCH) narrowForSearch(scroll);
 
   app.append(tb, side, main);
   if (railParts.pop) app.append(railParts.pop);
@@ -1030,6 +1075,115 @@ function windowFor(layout) {
 }
 
 
+
+/* A SEARCH NARROWS THE BANDS IN PLACE (Dan, 2026-09-29, ovation#449, PRD 39a),
+   from a rendered round of two options moving one variable: "Narrow the bands in
+   place". A band holding a match stays, with its count narrowed and opened so the
+   matches show, and a band with no match is not drawn. EACH MATCH KEEPS THE BAND
+   IT CAME FROM, so a search needs no separate state filter to reach every state.
+   Rejected: replacing the bands with one flat list, which dropped the bands' own
+   facts (500.00 held, the paid total) for as long as the search was on.
+   THE CARD IS NOT NARROWED: it counts what needs you, and the round held it
+   identical in both options.
+   The SEARCH control below steps through no search, the round's own search
+   (Cedar Hill, 6 invoices: 2 waiting on held money, 1 draft to send, 3 paid)
+   and a search matching nothing, whose sentence was drafted with the app. */
+var SEARCHES = [null, "Cedar Hill", "Linden Park"];
+var SEARCH = null;
+/* Three of the fifteen paid invoices are Cedar Hill's. The Paid or cleared group
+   only counts its rows while it is closed, so the ones a search opens it to show
+   are named here. Invented, like every fixture name in this file. */
+var PAID_MATCHES = {
+  "Cedar Hill": { sum: "3,530.00", rows: [
+    { c: "Cedar Hill Youth Orchestra", s: "Winter showcase", d: "14 Feb 2026", n: "1003", a: "980.00", said: "paid 2 Mar" },
+    { c: "Cedar Hill Youth Orchestra", s: "Harvest serenade", d: "9 May 2026", n: "1011", a: "1,150.00", said: "paid 28 May" },
+    { c: "Cedar Hill Youth Orchestra", s: "Season finale", d: "13 Jun 2026", n: "1017", a: "1,400.00", said: "paid 2 Jul" }]}
+};
+
+function searchField() {
+  var f = el("div", "search");
+  f.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">'
+    + '<circle cx="5" cy="5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+    + '<path d="M8 8l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+  f.append(el("span", "q" + (SEARCH ? "" : " empty"), SEARCH || "Search"));
+  if (SEARCH) f.append(el("span", "x", "×"));
+  f.setAttribute("role", "searchbox");
+  f.setAttribute("aria-label", "Search invoices");
+  return f;
+}
+
+function moneyOf(rows) {
+  var t = 0;
+  rows.forEach(function (r) {
+    var txt = r.querySelector(".amt").textContent.replace(/,/g, "");
+    if (/^[0-9.]+$/.test(txt)) t += Math.round(parseFloat(txt) * 100);
+  });
+  return (t / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/* Takes the drawn list and narrows it in place: the rows are the ones drawn
+   above, removed rather than drawn again, so a match cannot land anywhere its
+   band did not already put it. */
+function narrowForSearch(scroll) {
+  [].forEach.call(scroll.querySelectorAll(".row"), function (r) {
+    var who = r.querySelector(".client").textContent + "\n" + r.querySelector(".sub").textContent;
+    if (who.toLowerCase().indexOf(SEARCH.toLowerCase()) === -1) r.remove();
+  });
+  var idleLabels = IDLE.map(function (g) { return g[0]; });
+  var discs = [].slice.call(scroll.querySelectorAll(".disc"));
+  var idle = discs.filter(function (d) {
+    return idleLabels.indexOf(d.querySelector(".lead b").textContent) !== -1;
+  });
+  var waitingBand = discs.filter(function (d) { return idle.indexOf(d) === -1; })[0] || null;
+  idle.forEach(function (d) {
+    var label = d.querySelector(".lead b").textContent;
+    var rows = [], k = d.nextElementSibling;
+    while (k && k.classList.contains("row")) { rows.push(k); k = k.nextElementSibling; }
+    var paid = label === "Paid or cleared" ? PAID_MATCHES[SEARCH] : null;
+    if (paid) {
+      var anchor = d;
+      paid.rows.forEach(function (r) {
+        var n = rowEl(r, false); n.classList.add("idle"); anchor.after(n); anchor = n; rows.push(n);
+      });
+    }
+    if (!rows.length) { d.remove(); return; }
+    d.classList.add("open");
+    d.querySelector(".n").textContent = String(rows.length);
+    d.querySelector(".sum").textContent = paid ? paid.sum : moneyOf(rows);
+  });
+  [].forEach.call(scroll.querySelectorAll(".afterwaiting"), function (r) { r.classList.remove("afterwaiting"); });
+  if (waitingBand) {
+    var wrows = [], w = waitingBand.nextElementSibling;
+    while (w && w.classList.contains("row") && w.querySelector(".act")
+           && w.querySelector(".act").textContent === "Use it here") { wrows.push(w); w = w.nextElementSibling; }
+    if (!wrows.length) { waitingBand.remove(); }
+    else {
+      waitingBand.querySelector(".n").textContent = String(wrows.length);
+      if (w && w.classList.contains("row")) w.classList.add("afterwaiting");
+    }
+  }
+  [].forEach.call(scroll.querySelectorAll(".firstidle"), function (x) { x.classList.remove("firstidle"); });
+  var left = idle.filter(function (d) { return d.isConnected; });
+  if (left.length) left[0].classList.add("firstidle");
+  if (!scroll.querySelector(".row")) {
+    scroll.replaceChildren(el("div", "nomatch", "No invoice matches “" + SEARCH + "”."));
+  }
+}
+
+var searchBtn = el("button", "tab");
+searchBtn.type = "button";
+function searchLabel() {
+  searchBtn.replaceChildren(el("span", "k", "SEARCH"),
+    el("span", null, SEARCH ? (PAID_MATCHES[SEARCH] ? "Searching " + SEARCH : "A search matching nothing")
+                            : "No search"));
+}
+searchBtn.addEventListener("click", function () {
+  SEARCH = SEARCHES[(SEARCHES.indexOf(SEARCH) + 1) % SEARCHES.length];
+  searchLabel();
+  drawList();
+  placeRailPop();
+});
+searchLabel();
 
 /* THE RAIL'S SETTLED DAY (ovation#193). The rail is chrome, so whatever a day
    with nothing waiting looks like, it looks like that on every screen, and until
@@ -1052,6 +1206,6 @@ railBtn.addEventListener("click", function () {
   placeRailPop();
 });
 railLabel();
-document.getElementById("tabs").append(railBtn);
+document.getElementById("tabs").append(railBtn, searchBtn);
 drawList();
 </script>

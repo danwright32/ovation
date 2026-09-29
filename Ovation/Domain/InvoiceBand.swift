@@ -37,6 +37,21 @@ enum InvoiceBand: String, CaseIterable, Codable, Hashable, Sendable {
     /// invoice in here is also a draft or also overdue, and it is drawn once.
     case toPlace
 
+    /// ovation#546. Paid by a check that has still not cleared 7 days after it was
+    /// recorded, which by then was likely never deposited or bounced. Confirm it.
+    ///
+    /// POSITION IS THE WHOLE CALLOUT (Dan, 2026-09-29, from a rendered round of
+    /// three with no red in any): the late check leaves its place among the checks
+    /// and LEADS the invoices that need him, under the held money band, with no
+    /// mark of its own. Rejected: a line under To confirm in the sidebar card, and
+    /// a standing line in the sidebar's foot. An age word before `Mark cleared`,
+    /// the way `34d` sits before `Remind`, was measured and does not fit the 84
+    /// point action column.
+    ///
+    /// SEVEN DAYS, NOT TEN OR FOURTEEN (Dan, 2026-09-25), accepting that a slow
+    /// check may occasionally lead the list before it clears.
+    case checkNotClearedAfterSevenDays
+
     /// Group 1. Draft, shoot is today. Send it today.
     case draftShootToday
 
@@ -146,9 +161,19 @@ struct InvoiceStanding: Equatable, Hashable, Sendable {
     /// where a silent permissive default is worst.
     var datesCouldNotBeRead: Bool
 
+    /// ovation#546. The day the oldest check still waiting to clear against this
+    /// invoice was recorded, and nil where no check is waiting.
+    ///
+    /// A RECORDED DATE THAT WOULD NOT READ IS `Int.min`, never nil, which reads as
+    /// long ago and so puts the check in front of Dan. It is the side the dateless
+    /// draft and the unreadable due date fail to, for the same reason: a fault in a
+    /// stored record is shown rather than parked among the ordinary (L50, L42).
+    var checkRecordedDay: Int?
+
     init(ending: Ending? = nil, sent: SentStatus = .notSent, shootDay: Int? = nil,
          dueDay: Int? = nil, money: Money = .nothing,
-         couldSettleMoreThanOne: Bool = false, datesCouldNotBeRead: Bool = false) {
+         couldSettleMoreThanOne: Bool = false, datesCouldNotBeRead: Bool = false,
+         checkRecordedDay: Int? = nil) {
         self.ending = ending
         self.sent = sent
         self.shootDay = shootDay
@@ -156,6 +181,7 @@ struct InvoiceStanding: Equatable, Hashable, Sendable {
         self.money = money
         self.couldSettleMoreThanOne = couldSettleMoreThanOne
         self.datesCouldNotBeRead = datesCouldNotBeRead
+        self.checkRecordedDay = checkRecordedDay
     }
 
     /// Whether this invoice is drawn in the list at all.
@@ -272,8 +298,18 @@ extension InvoiceBand {
             return it.isLiveDraft
                 && (it.datesCouldNotBeRead || (it.shootDay ?? Int.min) < Self.today)
 
+        // ovation#546. THE TWO CHECK BANDS SPLIT ONE STATE ON ONE NUMBER, each
+        // written in full rather than as "whatever the other did not take". A
+        // standing with no recorded day is not late, which is only ever a standing
+        // built by hand: one read from an invoice with a waiting check always
+        // carries a day, `Int.min` where it would not read.
+        case .checkNotClearedAfterSevenDays:
+            return it.isLiveIssued && it.money == .allOfItAwaitingAClearedCheck
+                && (it.checkRecordedDay ?? Int.max) <= Self.today - Self.checkIsLateAfterDays
+
         case .checkNotCleared:
             return it.isLiveIssued && it.money == .allOfItAwaitingAClearedCheck
+                && (it.checkRecordedDay ?? Int.max) > Self.today - Self.checkIsLateAfterDays
 
         case .paidOrCleared:
             return it.isLiveIssued && it.money == .allOfItCleared
@@ -314,6 +350,11 @@ extension InvoiceBand {
     /// fixture cannot walk into another state while the suite runs (L130, L74).
     /// The list converts real dates into this frame once, at the top.
     static let today = 0
+
+    /// ovation#546. How many days after it was recorded an uncleared check leads
+    /// the list: on the seventh day it is late (Dan, 2026-09-25, chosen over 10
+    /// and 14).
+    static let checkIsLateAfterDays = 7
 }
 
 private extension InvoiceStanding {
@@ -374,7 +415,26 @@ extension InvoiceStanding {
             // nobody gave (L50).
             datesCouldNotBeRead:
                 (invoice.invoiceDate != nil && Self.day(of: invoice.invoiceDate, from: today) == nil)
-                || (invoice.dueDate != nil && Self.day(of: invoice.dueDate, from: today) == nil))
+                || (invoice.dueDate != nil && Self.day(of: invoice.dueDate, from: today) == nil),
+            checkRecordedDay: Self.checkRecordedDay(of: invoice, from: today))
+    }
+
+    /// The day the oldest check still waiting to clear against this invoice was
+    /// recorded, in the same day numbers as every other date here, or nil where
+    /// no check is waiting (ovation#546).
+    ///
+    /// THE OLDEST, because one invoice can be settled by two checks and it is the
+    /// one waiting longest that makes it late. READ THROUGH `isWaitingToClear`, the
+    /// one predicate the check band and the invoice screen already share (L16), and
+    /// only over allocations that still stand, as `money(of:)` reads them.
+    private static func checkRecordedDay(of invoice: Invoice, from today: BusinessDate) -> Int? {
+        let waiting = invoice.allocations.compactMap { allocation -> Payment? in
+            guard allocation.releasedOn == nil, let payment = allocation.payment,
+                  payment.isWaitingToClear else { return nil }
+            return payment
+        }
+        guard !waiting.isEmpty else { return nil }
+        return waiting.map { day(of: $0.receivedOn, from: today) ?? Int.min }.min()
     }
 
     /// How many days after `today` that day falls, and nil where there is no day.

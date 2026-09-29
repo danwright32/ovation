@@ -43,7 +43,15 @@ struct InvoiceBandTests {
 
     private static let dueDays: [Int?] = [nil, past, future]
 
-    /// Every combination of the six facts a band is allowed to read.
+    /// ovation#546. The day a check still waiting to clear was recorded: none, the
+    /// day it turns late, the day before that, and one whose date would not read
+    /// (`Int.min`, which is how a standing read from an invoice carries it).
+    private static let checkDays: [Int?] = [
+        nil, InvoiceBand.today - InvoiceBand.checkIsLateAfterDays,
+        InvoiceBand.today - InvoiceBand.checkIsLateAfterDays + 1, Int.min,
+    ]
+
+    /// Every combination of the seven facts a band is allowed to read.
     private static var everyStanding: [InvoiceStanding] {
         var all: [InvoiceStanding] = []
         for ending in endings {
@@ -58,11 +66,14 @@ struct InvoiceBandTests {
                                 // across it in both directions exactly as it does
                                 // across every other fact.
                                 for unreadable in [false, true] {
-                                    all.append(InvoiceStanding(
-                                        ending: ending, sent: sent, shootDay: shootDay,
-                                        dueDay: dueDay, money: money,
-                                        couldSettleMoreThanOne: couldSettle,
-                                        datesCouldNotBeRead: unreadable))
+                                    for checkDay in checkDays {
+                                        all.append(InvoiceStanding(
+                                            ending: ending, sent: sent, shootDay: shootDay,
+                                            dueDay: dueDay, money: money,
+                                            couldSettleMoreThanOne: couldSettle,
+                                            datesCouldNotBeRead: unreadable,
+                                            checkRecordedDay: checkDay))
+                                    }
                                 }
                             }
                         }
@@ -93,7 +104,8 @@ struct InvoiceBandTests {
         } ?? "no due date"
         let place = it.couldSettleMoreThanOne ? ", could settle more than one" : ""
         let unread = it.datesCouldNotBeRead ? ", DATES WOULD NOT READ" : ""
-        return "\(ending), \(sent), \(shoot), \(due), \(it.money)\(place)\(unread)"
+        let check = it.checkRecordedDay.map { ", check recorded on day \($0)" } ?? ""
+        return "\(ending), \(sent), \(shoot), \(due), \(it.money)\(place)\(unread)\(check)"
     }
 
     // MARK: the property
@@ -193,6 +205,39 @@ struct InvoiceBandTests {
         #expect(InvoiceBand.allCases.filter { $0.claims(check) } == [.checkNotCleared])
     }
 
+    // MARK: a check not cleared after seven days (ovation#546)
+
+    private static func paidByCheck(recordedOn day: Int?) -> InvoiceStanding {
+        InvoiceStanding(
+            sent: .sent(route: .ovationSentIt, at: Date(timeIntervalSince1970: 1_700_000_000)),
+            shootDay: Self.past, dueDay: Self.past, money: .allOfItAwaitingAClearedCheck,
+            checkRecordedDay: day)
+    }
+
+    @Test("a check not cleared 7 days after it was recorded leaves the check band for its own")
+    func acheckSevenDaysUnclearedIsLate() {
+        let late = Self.paidByCheck(recordedOn: InvoiceBand.today - 7)
+        #expect(InvoiceBand.allCases.filter { $0.claims(late) } == [.checkNotClearedAfterSevenDays])
+        let later = Self.paidByCheck(recordedOn: InvoiceBand.today - 30)
+        #expect(InvoiceBand.allCases.filter { $0.claims(later) } == [.checkNotClearedAfterSevenDays])
+    }
+
+    @Test("a check recorded 6 days ago still waits among the checks")
+    func acheckSixDaysUnclearedIsNotLate() {
+        let recent = Self.paidByCheck(recordedOn: InvoiceBand.today - 6)
+        #expect(InvoiceBand.allCases.filter { $0.claims(recent) } == [.checkNotCleared])
+        let today = Self.paidByCheck(recordedOn: InvoiceBand.today)
+        #expect(InvoiceBand.allCases.filter { $0.claims(today) } == [.checkNotCleared])
+    }
+
+    @Test("a check whose recorded date would not read is put in front of Dan, not left waiting")
+    func acheckWithAnUnreadableDateIsLate() {
+        // THE SAME SIDE the dateless draft and the unreadable due date fail to
+        // (L50, L42): a fault in a stored record is shown, never parked.
+        let unread = Self.paidByCheck(recordedOn: Int.min)
+        #expect(InvoiceBand.allCases.filter { $0.claims(unread) } == [.checkNotClearedAfterSevenDays])
+    }
+
     @Test("the band that cuts across takes its row out of the band it would otherwise be in")
     func toPlaceMovesRatherThanCopies() {
         // PRD 46d. Overdue in every other respect, and drawn once, at the top.
@@ -207,8 +252,10 @@ struct InvoiceBandTests {
     func theOrderIsTheScreensOrder() {
         // PRD 46: the bands are not drawn, but they decide the order, so the order
         // is read from this list rather than restated by the screen (L41).
+        // ovation#546: the late check LEADS the invoices that need Dan, under the
+        // held money band and above everything else (Dan, 2026-09-29).
         #expect(InvoiceBand.allCases == [
-            .toPlace, .draftShootToday, .overdue, .draftNeedsSending, .checkNotCleared,
+            .toPlace, .checkNotClearedAfterSevenDays, .draftShootToday, .overdue, .draftNeedsSending, .checkNotCleared,
             .sayWhetherItWasSent, .sentAwaitingPayment, .draftShootAhead,
             .paidOrCleared, .cancelled,
         ])

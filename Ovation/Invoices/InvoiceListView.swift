@@ -20,6 +20,7 @@
 // arrived, so lateness is an age in tabular figures, a duration rather than an
 // alarm. Red belongs to the Problems store alone, and if this screen borrows that
 // vocabulary the one surface that should alarm him has nothing left to say with.
+import AppKit
 import SwiftData
 import SwiftUI
 
@@ -84,10 +85,16 @@ struct InvoiceListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // NOTHING TO SEARCH ON THE HEALTHY EMPTY DAY, so no field over it: a
+            // search box above "Nothing is waiting" offers a control that can only
+            // ever find nothing (L109).
+            if !presenter.bands.isEmpty || presenter.isSearching { search }
             columnHeader
             if let said = presenter.returning(to: selected).sentence { rowHasGone(said) }
             if presenter.bands.isEmpty {
                 empty
+            } else if presenter.shown.isEmpty {
+                nothingMatches
             } else {
                 rows
             }
@@ -95,6 +102,44 @@ struct InvoiceListView: View {
         .background(OvationPalette.background)
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
         .ovationAppearance()
+    }
+
+    // MARK: the search (ovation#449)
+
+    /// Where the list is searched, at the right of the row above the column heads,
+    /// which is where the design record's round drew it.
+    ///
+    /// THE PLATFORM'S OWN SEARCH FIELD, and its LOOK HAS NOT BEEN JUDGED: the round
+    /// that settled what a search does held the field's appearance out of the
+    /// question. It is `NSSearchField` rather than SwiftUI's `.searchable`, because
+    /// `.searchable` puts its field in the WINDOW's toolbar and this window
+    /// deliberately has none (ovation#123, ovation#593, `MainWindowTitleTests`).
+    private var search: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            InvoiceSearchField(text: $presenter.query)
+                .frame(width: 230)
+        }
+        .padding(.horizontal, Column.sideMargin)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+    }
+
+    /// A SEARCH THAT FOUND NOTHING SAYS SO, never a blank list under the heads,
+    /// which would read as a list that failed to draw (L10). It is a different
+    /// sentence from the healthy empty day, because it means a different thing:
+    /// there are invoices, and none of them is this.
+    private var nothingMatches: some View {
+        Text(Self.nothingMatches(presenter.query))
+            .font(.system(size: 13))
+            .foregroundStyle(OvationPalette.soft)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(Column.sideMargin)
+    }
+
+    /// The sentence for a search that found nothing, quoting what was searched.
+    static func nothingMatches(_ query: String) -> String {
+        "No invoice matches \u{201C}\(query.trimmingCharacters(in: .whitespacesAndNewlines))\u{201D}."
     }
 
     // MARK: the heads
@@ -178,7 +223,7 @@ struct InvoiceListView: View {
 
     @ViewBuilder
     private var bandsAndRows: some View {
-                ForEach(Array(presenter.bands.enumerated()), id: \.element.band) { index, band in
+                ForEach(Array(presenter.shown.enumerated()), id: \.element.band) { index, band in
                     if band.band == .toPlace, let heldMoney {
                         waitingHead(heldMoney)
                     }
@@ -191,7 +236,7 @@ struct InvoiceListView: View {
                     // contents, which is the fault the design record records being
                     // caught on 2026-09-10: a band saying 2 above a list that did
                     // not hold 2.
-                    if band.band == .toPlace && index < presenter.bands.count - 1 {
+                    if band.band == .toPlace && index < presenter.shown.count - 1 {
                         Divider()
                             .overlay(OvationPalette.rule)
                             .padding(.top, 16)
@@ -413,8 +458,9 @@ struct InvoiceListView: View {
     static func isIdle(_ band: InvoiceBand) -> Bool {
         switch band {
         case .draftShootAhead, .paidOrCleared, .cancelled: return true
-        case .toPlace, .draftShootToday, .overdue, .draftNeedsSending,
-             .checkNotCleared, .sayWhetherItWasSent, .sentAwaitingPayment: return false
+        case .toPlace, .checkNotClearedAfterSevenDays, .draftShootToday, .overdue,
+             .draftNeedsSending, .checkNotCleared, .sayWhetherItWasSent,
+             .sentAwaitingPayment: return false
         }
     }
 
@@ -440,5 +486,54 @@ struct InvoiceListView: View {
         if let age = row.age { said.append("\(age) past due") }
         if let action = row.action { said.append(action) }
         return said.filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+}
+
+/// ovation#449. The invoice list's search field: AppKit's own `NSSearchField`,
+/// with its magnifier, its placeholder and its clear button, rather than one drawn
+/// here (L607).
+///
+/// EVERY CHANGE REACHES THE LIST AS IT IS TYPED, and clearing it with the field's
+/// own button reaches it too: that button sends the field's action and no text
+/// change, so the action is wired as well as the delegate.
+struct InvoiceSearchField: NSViewRepresentable {
+
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = "Search"
+        field.sendsSearchStringImmediately = true
+        field.stringValue = text
+        field.delegate = context.coordinator
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.searched(_:))
+        field.setAccessibilityLabel("Search invoices")
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        // COMPARED BEFORE IT IS SET, because setting the value moves the caret to
+        // the end, and this runs on every update while Dan types (L663).
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            text.wrappedValue = field.stringValue
+        }
+
+        @objc func searched(_ field: NSSearchField) {
+            text.wrappedValue = field.stringValue
+        }
     }
 }

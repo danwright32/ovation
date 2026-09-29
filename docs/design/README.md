@@ -60,6 +60,8 @@ three things in it are web idioms that must be translated rather than copied:
 | Money held | A figure, in dollars, on its own line UNDER the card rather than a fifth count in it, in the colour the rail's status lines use. Settled 2026-09-10 (ovation#187, PRD 46b), and drawn only when there is some. |
 | Money waiting to be placed | A group at the TOP of the list, open and labelled, holding the invoices a client's held money could settle where it can settle more than one and Ovation will not choose (PRD 14j, 46d). Settled 2026-09-10 (ovation#190). |
 | Idle invoices | Disclosures at the foot, with Sent awaiting payment open by default. No "Nothing to do" label above them: the group names already say it. |
+| A late check | A check not cleared 7 days after it was recorded LEADS the list, under the waiting group, with no mark of its own. Settled 2026-09-29 (ovation#546, PRD 46h). |
+| Search | Narrows the bands in place: a band with matches stays, its count narrowed and opened, and a band with none is not drawn. A search finding nothing says so. The card is not narrowed. Settled 2026-09-29 (ovation#449, PRD 39a); the field's own look is not settled. |
 | Colour | Espresso `#3B2B21`. Light mode only, deliberately (PRD 43). No red anywhere (PRD 45). |
 
 ### Waiting on you to place money, settled 2026-09-10 (ovation#190)
@@ -690,6 +692,38 @@ further down this same file, and the same drift put a false claim into an issue 
 ovation#172, which is why this paragraph sits ABOVE the heading rather than inside it. The check
 runs in CI rather than on every push, because it asks GitHub and a gate that refuses on every
 machine without a network is one people learn to skip.
+
+## Two decisions of 2026-09-29, and where each is drawn
+
+**Both were made by Dan from a rendered round moving one variable**, and each is now in
+`invoice-list.html`, with the round's question and his answer beside the code it produced, and in
+the PRD as a numbered requirement. The rounds' own working files were not committed: the chooser is
+not the design.
+
+**A search narrows the bands in place** (`ovation#449`, PRD 39a). Two options, the search field, its
+query and every row it finds held identical in both: "Narrow the bands in place" against "Replace
+with one flat list". A band holding a match stays, with its count narrowed and opened so the
+matches show, and a band with no match is not drawn. Each match keeps the band it came from, so a
+search needs no separate state filter to reach every state, which is how the filters half of PRD 39
+was settled: by not building one. The flat list was rejected because it dropped the bands' own
+facts, the money held and the paid total, for as long as the search was on. The card is not
+narrowed. The file's `SEARCH` control steps through no search, the round's search and a search that
+finds nothing; the sentence that last one says was drafted with the app, not chosen in a round.
+**The look of the search field was not part of the question and is not settled.** The file draws a
+stand in; the app draws the platform's own `NSSearchField`, because SwiftUI's `.searchable` puts its
+field in the window's toolbar and this window deliberately has none (ovation#123, ovation#593).
+
+**A check not cleared 7 days after it was recorded moves to the top of the list** (`ovation#546`,
+PRD 46h). Dan asked on 2026-09-25 for something to stop him forgetting to mark a check cleared, and
+chose 7 days over 10 and 14, because by then it was likely never deposited or it bounced. Three
+options, one mark each, no red in any: "Moved to the top of the list", "A line under To confirm" in
+the sidebar card, and "A line in the sidebar's foot". He took the first: the late check leaves its
+place among the checks and leads the invoices that need him, under the waiting group, with no mark
+of its own, so position is the whole callout. A fourth, an age word before `Mark cleared` the way
+`34d` sits before `Remind`, was drawn and left out because it does not fit: the action column is
+84px, `Mark cleared` alone takes 80, and `9d` beside it ran into the amount, measured 2026-09-29.
+The round's second check, recorded 3 days before, is not in the file, because a third invoice to
+confirm would make this rail's card disagree with the three other files that draw it.
 
 ## Seven decisions of 2026-09-26, and where each is drawn
 
