@@ -29,6 +29,15 @@ import SwiftData
 @ModelActor
 actor InvoiceSender {
 
+    /// How a reminder's or a copy's record is saved once Gmail accepted it.
+    ///
+    /// A SEAM SO THAT SAVE CAN BE MADE TO FAIL (ovation#608). An in-memory store never
+    /// refuses a save, so without it the path that says a reminder went but could not
+    /// be recorded had a tested sentence and had never once run (L1, L151). Every
+    /// caller but a test takes `savingRecord`.
+    typealias RecordSave = @Sendable (ModelContext) throws -> Void
+    static let savingRecord: RecordSave = { try $0.save() }
+
     func send(_ invoiceID: PersistentIdentifier, render: RenderedInvoice, message: String,
               settings: SendingSettings, footer: InvoiceFooter, approvedRecipients: [String],
               through route: SendingRoute, clock: @Sendable () -> Date) async -> InvoiceSendOutcome {
@@ -175,7 +184,8 @@ actor InvoiceSender {
     func resend(_ invoiceID: PersistentIdentifier, as kind: InvoiceMailKind, render: RenderedInvoice,
                 message: String, settings: SendingSettings, footer: InvoiceFooter,
                 approvedRecipients: [String], through route: SendingRoute,
-                clock: @Sendable () -> Date) async -> InvoiceSendOutcome {
+                clock: @Sendable () -> Date,
+                saveRecord: RecordSave = InvoiceSender.savingRecord) async -> InvoiceSendOutcome {
         let sender = route.sender
         guard let invoice = try? modelContext.fetch(FetchDescriptor<Invoice>())
             .first(where: { $0.persistentModelID == invoiceID }) else {
@@ -249,7 +259,7 @@ actor InvoiceSender {
         modelContext.insert(record)
         record.invoice = invoice
         do {
-            try modelContext.save()
+            try saveRecord(modelContext)
         } catch {
             // IT WENT, and that is said first; what failed is only the record of it
             // (L12). Rolled back so a half written record is not saved by the next
@@ -401,12 +411,19 @@ enum InvoiceMailKind: Equatable, Hashable, Sendable, CaseIterable {
     ///
     /// ASKED AT OPENING AND AGAIN AT THE PRESS (L567): the invoice can be paid or
     /// cancelled between the two.
+    ///
+    /// CANCELLED AND DELETED ARE TWO CAUSES, SO TWO SENTENCES (ovation#601, L11). How
+    /// it closed is asked before whether it was sent, because a deleted invoice was a
+    /// draft and would otherwise be refused as never sent; a cancelled one was sent, so
+    /// the order changes nothing for it.
     func refusal(for invoice: Invoice) -> String? {
+        switch invoice.closure {
+        case .cancelled: return "This invoice was cancelled, so no \(noun) was sent."
+        case .deleted: return "This invoice was deleted, so no \(noun) was sent."
+        case nil: break
+        }
         guard invoice.sentStatus.wasSent else {
             return "This invoice has not been sent, so there is no \(noun) to send. Nothing was sent."
-        }
-        if invoice.closure != nil {
-            return "This invoice was cancelled, so no \(noun) was sent."
         }
         if self == .reminder, invoice.amountOutstanding <= .zero {
             return Self.reminderPaidInFull

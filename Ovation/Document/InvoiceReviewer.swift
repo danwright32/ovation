@@ -26,20 +26,25 @@ final class InvoiceReviewer {
     private let settingsFile: URL?
     private let makeSender: @MainActor (SendingSettings) async -> Result<SendingRoute, SenderUnavailable>
     private let clock: @Sendable () -> Date
+    private let saveRecord: InvoiceSender.RecordSave
 
     /// - Parameters:
     ///   - settingsFile: where the sending settings live, or nil in a build that must never
     ///     send (a Debug build, a disposable launch), which is its own answer at Send.
     ///   - makeSender: Gmail for these settings, or why it cannot be had. Asked only at the
     ///     press, after everything else has been answered.
+    ///   - saveRecord: how a reminder's or a copy's record is saved, which only a test
+    ///     replaces, to make that save fail (ovation#608).
     init(container: ModelContainer, footer: @escaping () -> InvoiceFooter, settingsFile: URL?,
          makeSender: @escaping @MainActor (SendingSettings) async -> Result<SendingRoute, SenderUnavailable>,
-         clock: @escaping @Sendable () -> Date) {
+         clock: @escaping @Sendable () -> Date,
+         saveRecord: @escaping InvoiceSender.RecordSave = InvoiceSender.savingRecord) {
         self.container = container
         self.footer = footer
         self.settingsFile = settingsFile
         self.makeSender = makeSender
         self.clock = clock
+        self.saveRecord = saveRecord
     }
 
     /// The review of this invoice, numbered, rendered once, or why it cannot be opened.
@@ -202,7 +207,8 @@ final class InvoiceReviewer {
         if let kind = review.kind {
             outcome = await sender.resend(
                 review.invoiceID, as: kind, render: render, message: review.message, settings: settings,
-                footer: footer, approvedRecipients: review.goingTo, through: route, clock: clock)
+                footer: footer, approvedRecipients: review.goingTo, through: route, clock: clock,
+                saveRecord: saveRecord)
         } else {
             outcome = await sender.send(
                 review.invoiceID, render: render, message: review.message, settings: settings,
