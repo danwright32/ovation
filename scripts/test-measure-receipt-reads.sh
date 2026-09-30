@@ -20,7 +20,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "photographed receipt probe tests" 48
+harness_begin "photographed receipt probe tests" 57
 
 TARGET="scripts/measure-receipt-reads.py"
 require_target "$TARGET"
@@ -103,7 +103,17 @@ sips -r 90 "$WORK/upright.png" --out "$RECEIPTS/quillfeather-d.png" >/dev/null 2
 printf 'x' > "$RECEIPTS/.DS_Store"
 
 RESULTS="$WORK/results"
-OUT="$(./"$TARGET" --folder "$RECEIPTS" --results "$RESULTS" 2>&1)"; STATUS=$?
+# THE READER CAN BE REPLACED only so this suite can drive its own UNMEASURED
+# path below; empty means the real one, compiled from source.
+OUT="$(OVATION_RECEIPT_READER="${OVATION_TEST_RECEIPT_READER:-}" \
+    ./"$TARGET" --folder "$RECEIPTS" --results "$RESULTS" 2>&1)"; STATUS=$?
+# VISION THAT CANNOT RUN HERE IS UNMEASURED, BY NAME, never a pass and never a
+# failure of every case after it (L411). Asked before any assertion, so no
+# earlier verdict is swallowed by the exit.
+if [ "$STATUS" = "2" ] && grep -q '^CANNOT MEASURE: Vision text recognition' <<< "$OUT"; then
+    harness_cannot_measure "Vision text recognition refused to run on this machine, so no drawn receipt was read." \
+        "$(head -n 3 <<< "$OUT")"
+fi
 check "the probe measures four drawn receipts successfully" "$STATUS" "0"
 [ "$STATUS" = "0" ] || printf '%s\n' "$OUT" | head -n 30 | sed 's/^/        /'
 
@@ -248,5 +258,75 @@ check "and no refusal wrote a results file" \
     "$(ls "$WORK/r1" "$WORK/r2" "$WORK/r3" "$WORK/repo/out" 2>/dev/null | grep -c results-)" "0"
 check_exit "a Mac without the Swift compiler answers CANNOT MEASURE, not a result" 2 \
     env PATH="$WORK/no-tools" "$(command -v python3)" "$TARGET" --folder "$RECEIPTS" --results "$WORK/r4"
+
+# WHAT THE READER SAID, WHEN IT WAS NOT ITS JSON (L11). On CI the only words
+# were "not its JSON", which named no cause. Stand in readers, so each shape of
+# bad output can be produced on purpose.
+printf '#!/bin/bash\necho "objc[1]: a framework warning"\necho "{\\"x\\":"\necho "a note on stderr" >&2\n' > "$WORK/junk-reader"
+printf '#!/bin/bash\nprintf %%s "{\\"receipts\\": [{\\"text\\": \\"QUILLFEATHER"\n' > "$WORK/cut-reader"
+chmod +x "$WORK/junk-reader" "$WORK/cut-reader"
+JUNK="$(OVATION_RECEIPT_READER="$WORK/junk-reader" ./"$TARGET" --folder "$RECEIPTS" --results "$WORK/r5" 2>&1)"; JUNK_STATUS=$?
+check "output that is not the reader's JSON is refused" \
+    "$JUNK_STATUS:$(grep -c '^REFUSED: the Vision reader wrote something that is not its JSON' <<< "$JUNK")" "1:1"
+check "and the refusal names the reader's exit status and what it wrote to stderr" \
+    "$(grep -c 'exit status 0' <<< "$JUNK"):$(grep -c 'a note on stderr' <<< "$JUNK")" "1:1"
+check "and quotes the first line of stdout, which was not receipt JSON" \
+    "$(grep -c 'objc\[1\]: a framework warning' <<< "$JUNK")" "1"
+CUT="$(OVATION_RECEIPT_READER="$WORK/cut-reader" ./"$TARGET" --folder "$RECEIPTS" --results "$WORK/r6" 2>&1)"
+check "JSON cut short is refused by its size, never quoted, since it can carry a receipt's text" \
+    "$(grep -c 'bytes of JSON that do not parse' <<< "$CUT"):$(grep -ci quillfeather <<< "$CUT")" "1:0"
+
+# VISION REFUSING IS ITS OWN CAUSE, not an unreadable image and not a result.
+printf '#!/bin/bash\nprintf %%s "{\\"osVersion\\": \\"x\\", \\"textRecognitionRevision\\": 3, \\"barcodeRevision\\": 4, \\"receipts\\": [{\\"index\\": 1, \\"readable\\": false, \\"visionRefused\\": true, \\"error\\": \\"Vision refused: no model\\", \\"pixelWidth\\": 0, \\"pixelHeight\\": 0, \\"observations\\": [], \\"observationsWithCorrection\\": [], \\"barcodes\\": []}]}"\n' > "$WORK/refusing-reader"
+chmod +x "$WORK/refusing-reader"
+REFUSING="$(OVATION_RECEIPT_READER="$WORK/refusing-reader" ./"$TARGET" --folder "$RECEIPTS" --results "$WORK/r7" 2>&1)"; REFUSING_STATUS=$?
+check "Vision refusing to recognise text answers CANNOT MEASURE, naming Vision's own words" \
+    "$REFUSING_STATUS:$(grep -c '^CANNOT MEASURE: Vision text recognition refused on this machine: Vision refused: no model' <<< "$REFUSING")" "2:1"
+# And THIS SUITE, run where Vision refuses, says UNMEASURED rather than failing
+# every case or passing. Run once, nested, with the refusing reader standing in.
+if [ -z "${OVATION_TEST_RECEIPT_READER:-}" ]; then
+    NESTED="$(OVATION_TEST_RECEIPT_READER="$WORK/refusing-reader" "$0" 2>&1)"; NESTED_STATUS=$?
+    check "the suite, where Vision cannot run, exits CANNOT MEASURE and says why" \
+        "$NESTED_STATUS:$(grep -c 'Vision text recognition refused to run on this machine' <<< "$NESTED")" "2:1"
+else
+    check "the nested run does not nest again" "nested" "nested"
+fi
+
+# A LINE ITEM IS NOT A PAYMENT because a word inside it looks like one. The
+# payment words matched bare substrings, so Postcard, Cardstock, Author copy,
+# Prepaid and Exchange fee were all taken for payment lines and dropped from
+# the sum (review of ovation#636).
+WORDS="$(python3 - "$TARGET" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+rows = [("Postcard", "3.00"), ("Cardstock", "2.00"), ("Author copy", "4.00"), ("Prepaid stamp", "1.00"),
+        ("Exchange fee", "0.50"), ("Promotional poster", "1.25"), ("SUBTOTAL", "11.75"),
+        ("TOTAL", "11.75"), ("VISA", "11.75"), ("CHANGE", "0.00")]
+observations = []
+for n, (label, amount) in enumerate(rows):
+    y = 0.9 - n * 0.06
+    for text, x in ((label, 0.05), (amount, 0.75)):
+        observations.append({"candidates": [{"text": text, "confidence": 1.0}],
+                             "topLeft": [x, y + 0.03], "topRight": [x + 0.2, y + 0.03],
+                             "bottomLeft": [x, y], "bottomRight": [x + 0.2, y]})
+raw = {"index": 1, "readable": True, "pixelWidth": 900, "pixelHeight": 900, "barcodes": [],
+       "observations": observations, "observationsWithCorrection": []}
+check = probe.interpret(raw, "a.png", "0")["arithmetic"]["lineItems"]
+kinds = [line["kind"] for line in probe.interpret(raw, "a.png", "0")["lines"]]
+print(check["lineItems"], check["held"], kinds[-2], kinds[-1])
+PY
+)"
+check "item lines whose words only contain a payment word are summed as items" "$WORDS" "6 True payment payment"
+
+# --summarise TAKES A RESULTS .json, and says so rather than guessing a page.
+printf '{}' > "$WORK/results.txt"
+check "a --summarise file that is not .json is refused by name" \
+    "$(./"$TARGET" --summarise "$WORK/results.txt" 2>&1 | grep -c '^REFUSED: --summarise takes a results .json file')" "1"
+cp "$JSON" "$WORK/Results.JSON"
+cp "$HTML" "$WORK/Results.html"
+check "and the page beside a results file is found whatever the case of its extension" \
+    "$(./"$TARGET" --summarise "$WORK/Results.JSON" 2>&1 | grep -cF "open -a \"Google Chrome\" \"$WORK/Results.html\"")" "1"
 
 harness_end

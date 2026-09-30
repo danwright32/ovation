@@ -83,11 +83,17 @@ DATES = [
 KINDS = [
     ("subtotal", re.compile(r"sub\s*-?\s*total")),
     ("tax", re.compile(r"\b(?:tax|vat|gst|hst|pst)\b")),
-    ("tip", re.compile(r"\btip\b|gratuity|service charge")),
-    ("discount", re.compile(r"discount|saving|coupon|promo")),
-    ("total", re.compile(r"\btotal\b|amount due|balance due")),
-    ("payment", re.compile(r"cash|change|visa|master|amex|american express|discover|"
-                           r"card|debit|credit|tender|paid|payment|balance|auth|approv")),
+    ("tip", re.compile(r"\btip\b|\bgratuity\b|\bservice charge\b")),
+    ("discount", re.compile(r"\b(?:discount|savings?|coupon|promo)\b")),
+    ("total", re.compile(r"\btotal\b|\bamount due\b|\bbalance due\b")),
+    # WHOLE WORDS, because an item line is named by whatever the shop sells, and
+    # "Postcard", "Author copy", "Prepaid" and "Exchange fee" each CONTAIN a
+    # payment word. Matched as substrings they were taken for payment lines and
+    # dropped from the line item sum, which then failed for a reason that was
+    # the probe's, not the receipt's (review of ovation#636).
+    ("payment", re.compile(r"\b(?:cash|change|visa|mastercard|master card|amex|american express|"
+                           r"discover|card|debit|credit|tender|paid|payment|balance|"
+                           r"auth|authorization|approved|approval)\b")),
 ]
 
 
@@ -520,7 +526,34 @@ def receipts_in(folder):
                   if not name.startswith(".") and os.path.isfile(os.path.join(folder, name)))
 
 
+def what_the_reader_said(ran):
+    """The reader's exit status, its stderr and, where it is safe, its stdout.
+
+    "Not its JSON" alone named no cause, and on CI it was the only words there
+    were (L11). Stdout is quoted only when it does NOT open as the reader's own
+    JSON, which is what framework chatter looks like; JSON cut short is given by
+    its size alone, because it can carry a receipt's text (docs/PRIVACY-FLOOR.md).
+    Stderr carries positions and system messages, never receipt content."""
+    stdout = ran.stdout.decode("utf-8", "replace")
+    lines = [f"  exit status {ran.returncode}"]
+    stderr = ran.stderr.decode("utf-8", "replace").strip()
+    lines.append("  stderr: " + (stderr[:1500] if stderr else "(nothing)"))
+    if not stdout.strip():
+        lines.append("  stdout: (nothing)")
+    elif stdout.lstrip().startswith("{"):
+        lines.append(f"  stdout: {len(ran.stdout)} bytes of JSON that do not parse (not quoted, it can hold receipt text)")
+    else:
+        lines.append("  stdout began: " + stdout.lstrip().splitlines()[0][:300])
+    return "\n".join(lines)
+
+
 def read_with_vision(paths):
+    # A STAND IN READER, for the suite alone, so it can drive the refusals below
+    # on purpose, the UNMEASURED one included (L411). Empty is the real reader.
+    stand_in = os.environ.get("OVATION_RECEIPT_READER", "")
+    if stand_in:
+        ran = subprocess.run([stand_in] + paths, capture_output=True)
+        return parse_reader_output(ran)
     if platform.system() != "Darwin" or shutil.which("swiftc") is None:
         raise Refusal("CANNOT MEASURE: the probe reads receipts with Apple's Vision framework, which needs "
                       "a Mac with the Swift compiler (swiftc). Nothing was read.", 2)
@@ -532,15 +565,25 @@ def read_with_vision(paths):
             raise Refusal("REFUSED: the Vision reader did not compile, so nothing was read.\n"
                           + "\n".join(built.stderr.splitlines()[:10]))
         ran = subprocess.run([reader] + paths, capture_output=True)
-        if ran.returncode != 0:
-            # The reader writes only positions and generic errors to stderr, never
-            # receipt content, so what it said is safe to pass on.
-            raise Refusal("REFUSED: the Vision reader failed, so nothing was measured.\n"
-                          + ran.stderr.decode("utf-8", "replace")[:2000])
-        try:
-            return json.loads(ran.stdout)
-        except ValueError:
-            raise Refusal("REFUSED: the Vision reader wrote something that is not its JSON, so nothing was measured.")
+        return parse_reader_output(ran)
+
+
+def parse_reader_output(ran):
+    if ran.returncode != 0:
+        raise Refusal("REFUSED: the Vision reader failed, so nothing was measured.\n" + what_the_reader_said(ran))
+    try:
+        raw = json.loads(ran.stdout)
+    except ValueError:
+        raise Refusal("REFUSED: the Vision reader wrote something that is not its JSON, so nothing was measured.\n"
+                      + what_the_reader_said(ran))
+    # VISION REFUSING TO RUN is a fact about this machine, not about a receipt,
+    # so it is CANNOT MEASURE by name rather than "could not be read as an
+    # image", which would send somebody to look at a file that is fine (L11).
+    refused = [r for r in raw.get("receipts", []) if r.get("visionRefused")]
+    if refused:
+        raise Refusal("CANNOT MEASURE: Vision text recognition refused on this machine: "
+                      + refused[0].get("error", "no reason given") + ". Nothing was measured.", 2)
+    return raw
 
 
 def write_private(folder, stem, suffix, text):
@@ -615,9 +658,12 @@ def main(argv):
         options[flag] = args.pop(0)
     try:
         if options["--summarise"]:
+            stem, extension = os.path.splitext(options["--summarise"])
+            if extension.lower() != ".json":
+                raise Refusal("REFUSED: --summarise takes a results .json file, the one a run wrote beside its page.")
             with open(options["--summarise"], encoding="utf-8") as handle:
                 results = json.load(handle)
-            html_path = options["--summarise"][:-5] + ".html"
+            html_path = stem + ".html"
             html_path = html_path if os.path.exists(html_path) else None
         else:
             results, html_path = measure(options["--folder"], options["--results"])

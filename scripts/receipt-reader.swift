@@ -66,6 +66,10 @@ struct Receipt: Encodable {
     let observationsWithCorrection: [Observation]
     let barcodes: [Barcode]
     let error: String?
+    // True when Vision itself refused, which is a fact about the machine rather
+    // than the image, so the probe answers CANNOT MEASURE instead of blaming the
+    // receipt (ovation#636 CI).
+    var visionRefused: Bool = false
 }
 
 struct Output: Encodable {
@@ -134,7 +138,8 @@ func read(_ path: String, index: Int) -> Receipt {
         // Vision refusing is recorded as a refusal, never as a receipt with no
         // text on it, which would read as a real result of zero (L215).
         return Receipt(index: index, readable: false, pixelWidth: image.width, pixelHeight: image.height,
-                       observations: [], observationsWithCorrection: [], barcodes: [], error: "Vision refused: \(error.localizedDescription)")
+                       observations: [], observationsWithCorrection: [], barcodes: [],
+                       error: "Vision refused: \(error.localizedDescription)", visionRefused: true)
     }
 }
 
