@@ -1,0 +1,10 @@
+# Elements of a design file's app screen known to change with the record page's theme, each
+# left out of scripts/check-design-window-theme.sh's comparison until the issue it names
+# fixes it.
+#
+# Four tab separated columns: the design file, the element as tag.class.class (an element
+# with no class is named inside its nearest classed ancestor), the issue, and the reason. A
+# line naming no issue or no reason is refused, and one that covers nothing is refused as
+# stale, so the line goes in the same change as the fix.
+review-send.html	div.backbar span	ovation#547	The title bar's words set no colour and inherit the page's ink, so they go light on the light bar when the page is dark. Being fixed in review-send.html on the ovation#547 branch; delete this line when that merges.
+review-send.html	textarea.rs-msgedit	ovation#547	The message editor is painted from --page-panel, so it goes dark behind dark words when the page is dark. Being fixed in review-send.html on the ovation#547 branch; delete this line when that merges.

@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design control inset tests" 33
+harness_begin "design control inset tests" 36
 
 TARGET="scripts/check-design-control-inset.sh"
 require_target "$TARGET"
@@ -172,6 +172,20 @@ printf 'differ.html\tdiv.panel\tbutton.bordered.push\t\tA known difference.\n' >
 judge "$C" "$WORK/noissue.tsv"
 check_rendered_status "an exemption naming no issue is refused" "$C" "1"
 says "and it says the issue is missing" "no issue"
+
+# 15b. A CONTROL SQUEEZED TO ITS EDGE ONLY AT HALF SCREEN IS REFUSED. The panel
+#      loses its padding only in a narrow page, which is where the app's minimum
+#      window is drawn, so a check measuring the declared width alone passes it.
+Q="$WORK/narrow"; screen "$Q/narrow.html" '.panel { padding: 12px; } @media (max-width: 1100px) { .panel { padding-left: 0; } }' \
+    '<div class="win"><div class="panel"><button class="bordered">Choose a type</button><button class="bordered push">Keep</button></div></div>'
+judge "$Q"
+check_rendered_status "a control that meets its edge only in the minimum window is refused" "$Q" "1"
+says "and it says it was the minimum window" "minimum window"
+
+# 15c. WITH NO MINIMUM TO READ IT IS USED WRONGLY, never a pass at some default.
+rendered_run "$WORK/nominimum" env OVATION_DESIGN_ROOT="$B" OVATION_INSET_EXEMPTIONS="$WORK/no-exemptions.tsv" \
+    OVATION_WINDOW_SOURCE="$WORK/no-minimum.swift" "./$TARGET"
+check_rendered_status "a window source that says no minimum is refused as used wrongly" "$WORK/nominimum" "2"
 
 # 16. A RECORD WITH NOTHING TO MEASURE CANNOT BE MEASURED.
 K="$WORK/empty"; mkdir -p "$K"

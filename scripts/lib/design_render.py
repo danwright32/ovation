@@ -786,3 +786,43 @@ def open_browser():
                     "those places were looked in." % narrowed)
         raise CannotMeasure(why)
     return Browser(found)
+
+
+# THE APP'S MINIMUM WINDOW WIDTH (ovation#110), read from the app's own constant
+# rather than written into each check, so every check that draws a window at
+# the minimum draws it at the SAME minimum (L41). It lived in
+# check-design-draws.sh until check-design-control-inset.sh needed it too
+# (ovation#625), and a second copy of a reader is a second definition (L370).
+# OVATION_WINDOW_SOURCE names another file, read when asked rather than at
+# import, so a suite can point it at one that says nothing (L394).
+def window_source():
+    return os.environ.get("OVATION_WINDOW_SOURCE") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "Ovation", "App", "OvationWindow.swift")
+
+
+class NoMinimumWindow(Exception):
+    """The app's minimum window width could not be read."""
+
+
+def minimum_window():
+    """The app's minimum window width, or a NoMinimumWindow naming the file.
+
+    ITS OWN REFUSAL, NEVER "CANNOT MEASURE". Exit 3 is what every caller reads
+    as there being no browser, and on 2026-09-26 a scratch tree that lacked
+    this file made the check answer 3: the draws suite then reported no
+    headless browser, skipped every case, and a planted fault went unjudged
+    (ovation#110, L11). A source that does not say the minimum is a check
+    pointed at the wrong tree, which is being used wrongly."""
+    source = window_source()
+    try:
+        with open(source, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError as err:
+        raise NoMinimumWindow("the minimum window width could not be read from %s: %s"
+                              % (source, err))
+    found = re.search(r"static let minimumWidth: CGFloat = (\d+)\b", text)
+    if not found:
+        raise NoMinimumWindow("%s does not declare `static let minimumWidth: CGFloat`, "
+                              "so there is no minimum window to draw at" % source)
+    return int(found.group(1))

@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 144
+harness_begin "output privacy tests" 146
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -945,7 +945,7 @@ if [ -n "$STAGED_BROWSER" ]; then
     RENDER_PATH="read the page"
 else
     RENDER_PATH="no browser"
-    echo "NOTE: there is no headless browser here, so the eight rendering checks below"
+    echo "NOTE: there is no headless browser here, so the nine rendering checks below"
     echo "      were driven into their CANNOT MEASURE path. Their output was clean,"
     echo "      and the branch that quotes a page was not reached on this machine."
 fi
@@ -989,6 +989,19 @@ printf '# Record\n\n### A decision about %s, settled 2026-09-10\n\nDrawn: `stage
 OUT="$(OVATION_DESIGN_ROOT="$CLAIMED" ./scripts/check-design-decisions-drawn.sh 2>&1)"
 check "the decisions check prints no identity" "$(leaks_in "$OUT")" "clean"
 check "and the decisions check took the path this machine can reach" "$(verdict_of "$OUT")" "$RENDER_PATH"
+
+# AND THE THEME CHECK, whose screen here inherits the page's ink, so the element
+# carrying the fabricated name is the one it refuses.
+THEMED="$WORK/design-theme"; mkdir -p "$THEMED"
+cat > "$THEMED/staged.html" <<HTML
+<!doctype html>
+<style>:root { --page-ink: #111; } :root[data-theme="dark"] { --page-ink: #EEE; } body { color: var(--page-ink); }</style>
+<div class="screen"><div class="win"><span class="who">$CLIENT at $VENUE</span></div></div>
+HTML
+OUT="$(OVATION_DESIGN_ROOT="$THEMED" OVATION_THEME_EXEMPTIONS="$WORK/no-such-exemptions.tsv" \
+    ./scripts/check-design-window-theme.sh 2>&1)"
+check "the window theme check prints no identity" "$(leaks_in "$OUT")" "clean"
+check "and the theme check took the path this machine can reach" "$(verdict_of "$OUT")" "$RENDER_PATH"
 
 # These two take the file as an argument rather than a root, and they print the
 # path they rendered, which is a path and not an identity. The fixture is named

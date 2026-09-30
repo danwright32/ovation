@@ -53,6 +53,12 @@ WHAT IS REFUSED:
      row of controls of different heights the vertical inset is set by the
      alignment, and comparing it would refuse every baseline aligned foot.
 
+AT BOTH WIDTHS THE APP IS USED AT: in a 1440px page, where the window is drawn
+at its declared width, and again with the window at the app's own minimum, read
+from Ovation/App/OvationWindow.swift through lib/design_render.py exactly as
+check-design-draws.sh reads it, because that is the half screen Dan works at and
+a control squeezed to its edge only there would pass the first.
+
 IN EVERY STATE ONE PRESS REACHES, since the fault lived in a row that exists
 only after `Add a line`: the page at rest, and then each control pressed from
 rest in a page of its own, as scripts/check-design-draws.sh presses them and
@@ -82,7 +88,8 @@ Exit codes, one per outcome (L11):
 
     0  every control measured keeps its container's inset
     1  one does not, or an exemption is wrong
-    2  nothing could be measured, which is not a pass
+    2  nothing could be measured, which is not a pass, or no minimum window
+       could be read
     3  no browser, so nothing could be rendered at all
 
 Seams, shared with the other design checks where they exist:
@@ -90,6 +97,7 @@ Seams, shared with the other design checks where they exist:
     OVATION_DESIGN_ROOT       the design record to read
     OVATION_HEADLESS_BROWSER  the browser to render in
     OVATION_INSET_EXEMPTIONS  the exemptions file
+    OVATION_WINDOW_SOURCE     the Swift file the minimum window width is read from
 """
 import json
 import os
@@ -98,7 +106,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
 from design_inline import html_files  # noqa: E402
-from design_render import CannotMeasure, open_browser  # noqa: E402
+from design_render import CannotMeasure, NoMinimumWindow, minimum_window, open_browser  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs", "design")
@@ -255,6 +263,7 @@ window.addEventListener("load", function () {
   }
   function measure() {
     var scope = document.querySelector(".screen");
+    result.windowed = !!document.querySelector(".win");
     if (!scope) { result.noscreen = true; return; }
     var all = [].slice.call(scope.querySelectorAll(MEASURED));
     all.forEach(function (c, place) {
@@ -402,43 +411,70 @@ def main():
             print("CANNOT MEASURE: no design record at %s: %s" % (ROOT, why.strerror or why))
             return 2
 
+    try:
+        minimum = minimum_window()
+    except NoMinimumWindow as err:
+        print("USED WRONGLY: %s. Every window is measured again at the app's own minimum, "
+              "read from that file, so there is nothing to draw it at." % err)
+        return 2
+
     faults, found = [], {}
     exemptions = read_exemptions(EXEMPTIONS, faults)
     measured_files, screenless = [], []
-    measurements = states = controls = 0
-    for path in paths:
-        name = os.path.basename(path)
-        try:
-            rest = session.render(path, PROBE, window=WINDOW)
-        except CannotMeasure as why:
-            print("CANNOT MEASURE: %s could not be rendered: %s" % (name, why))
-            return 3
-        if rest.get("noscreen"):
-            screenless.append(name)
-            continue
-        measured_files.append(name)
+    tally = {"measurements": 0, "states": 0}
+    controls = 0
+
+    def every_state(path, name, window, preamble, where):
+        """Render the page at rest and after each press, judge each, and return
+        how many controls the busiest state held, or None when it could not render."""
         per_state = []
-        for which in range(-1, rest.get("there") or 0):
-            if which < 0:
-                report, state = rest, "at rest"
-            else:
-                try:
-                    report = session.render(path, PROBE, window=WINDOW,
-                                            preamble="<script>window.__ovationPressOnly = %d;</script>"
-                                            % which)
-                except CannotMeasure as why:
-                    print("CANNOT MEASURE: %s after pressing control %d could not be rendered: %s"
-                          % (name, which + 1, why))
-                    return 3
-                state = "after pressing control %d" % (which + 1)
+        rest = None
+        which = -1
+        while rest is None or which < (rest.get("there") or 0):
+            press = "" if which < 0 else "<script>window.__ovationPressOnly = %d;</script>" % which
+            state = where + ("at rest" if which < 0 else "after pressing control %d" % (which + 1))
+            try:
+                report = session.render(path, PROBE, window=window, preamble=preamble + press)
+            except CannotMeasure as why:
+                print("CANNOT MEASURE: %s %s could not be rendered: %s" % (name, state, why))
+                return None
+            if rest is None:
+                rest = report
+            which += 1
             if report.get("threw"):
                 faults.append("%s %s: the probe threw: %s" % (name, state, report["threw"]))
                 continue
-            states += 1
-            measurements += len(report.get("controls") or [])
+            tally["states"] += 1
+            tally["measurements"] += len(report.get("controls") or [])
             per_state.append(len(report.get("controls") or []))
             judge_state(name, state, report, exemptions, found)
-        controls += max(per_state) if per_state else 0
+        return rest, (max(per_state) if per_state else 0)
+
+    for path in paths:
+        name = os.path.basename(path)
+        try:
+            first = session.render(path, PROBE, window=WINDOW)
+        except CannotMeasure as why:
+            print("CANNOT MEASURE: %s could not be rendered: %s" % (name, why))
+            return 3
+        if first.get("noscreen"):
+            screenless.append(name)
+            continue
+        measured_files.append(name)
+        done = every_state(path, name, WINDOW, "", "")
+        if done is None:
+            return 3
+        controls += done[1]
+        # AND AGAIN IN THE APP'S MINIMUM WINDOW, the half screen Dan works at,
+        # the way check-design-draws.sh draws it: the page is given room for the
+        # window, and the window its minimum width. A control squeezed to its
+        # edge only there passes every rendering at the declared width.
+        if first.get("windowed"):
+            done = every_state(path, name, "%d,1200" % (minimum + 200),
+                               "<style>.win { --win-width: %dpx !important; }</style>" % minimum,
+                               "in the %d point minimum window, " % minimum)
+            if done is None:
+                return 3
 
     for row in exemptions:
         if row["file"] in measured_files and not row["used"]:
@@ -456,6 +492,7 @@ def main():
             print("  FAIL %s." % fault)
         return 1
 
+    measurements, states = tally["measurements"], tally["states"]
     if not measurements:
         print("CANNOT MEASURE: no control inside a container was measured in %d design "
               "file(s), so nothing was judged, and that reads exactly like everything passing "
@@ -463,7 +500,7 @@ def main():
         return 2
 
     print("OK: %d control(s) keep their container's inset: %d measurement(s) across %d "
-          "state(s), rest and every press, in %d design file(s)."
+          "state(s), rest and every press at both widths, in %d design file(s)."
           % (controls, measurements, states, len(measured_files)))
     for row in exemptions:
         if row["used"]:

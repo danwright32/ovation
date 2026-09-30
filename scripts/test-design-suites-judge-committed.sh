@@ -2,7 +2,7 @@
 # Each rendering check's suite runs it against the COMMITTED design files, and
 # this proves it by damaging them (ovation#220).
 #
-# The eight rendering checks are not in the push gate, and the reason recorded for
+# The nine rendering checks are not in the push gate, and the reason recorded for
 # that in scripts/lib/script-roles.tsv is that every push already runs each of
 # them against the committed files through its sibling suite. That was checked
 # by hand on 2026-09-11 and asserted by nothing. If a suite were narrowed to
@@ -11,7 +11,7 @@
 # able to say so. A constraint recorded only as a comment is enforced by nothing
 # (L407).
 #
-# IT IS ASSERTED BY BEHAVIOUR, NEVER BY READING THE SUITES. Five of the eight
+# IT IS ASSERTED BY BEHAVIOUR, NEVER BY READING THE SUITES. Six of the nine
 # reach the committed record by letting OVATION_DESIGN_ROOT default, so they
 # never mention docs/design at all and a search of their text would report them
 # as not covering it. So each case copies the tree, damages ONE committed design
@@ -26,7 +26,7 @@
 #
 # AND THE JUDGEMENT IS SEEN TO FAIL. A stand in suite that passes whatever the
 # design files hold is run through the same judgement and must be told apart
-# from the eight (L1).
+# from the nine (L1).
 #
 # IT COSTS WHAT THE SUITES COST AND A LITTLE MORE, 38 seconds of wall clock
 # and 47 of CPU in one run on 2026-09-14 at a load average of 3.5, because the
@@ -34,12 +34,12 @@
 # any point in its run, so nothing shorter than running it proves it.
 #
 # IT NEEDS A BROWSER, like the suites it runs. With none it says CANNOT MEASURE
-# and exits 2 rather than reading eight suites that could not measure as eight that
+# and exits 2 rather than reading nine suites that could not measure as nine that
 # judged nothing (L98, L411).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "rendering suites judge the committed design record" 19
+harness_begin "rendering suites judge the committed design record" 21
 
 require_target "docs/design"
 harness_temp_dir WORK
@@ -98,7 +98,7 @@ check "the clients suite's damage is in its copy" \
 check "the clients suite goes red on the committed file when its repaint stops redrawing rows" \
     "$(judged "$T" test-clients-screen-draws.sh)" "1:yes"
 
-# The five below reach the record only by letting OVATION_DESIGN_ROOT default.
+# The six below reach the record only by letting OVATION_DESIGN_ROOT default.
 T="$WORK/tokens"; copy_tree "$T"
 check "the token suite's damage is in its copy" \
     "$(damage "$T" invoice-list.html 's|</style>|body { outline-color: var(--defined-nowhere-in-a-copy); }\n</style>|' 'defined-nowhere-in-a-copy')" "1"
@@ -132,6 +132,14 @@ check "the decisions suite's damage is in its copy" \
     "$(damage "$T" invoice-list.html 's|"Waiting on you to place money"|"Waiting on you"|' '"Waiting on you"')" "1"
 check "the decisions suite goes red on the committed record when a decision stops drawing" \
     "$(judged "$T" test-design-decisions-drawn.sh)" "1:yes"
+
+# invoice-list.html's screen sets its own ink, so taking the rule that sets it
+# away lets the page's theme through to every word in the window.
+T="$WORK/theme"; copy_tree "$T"
+check "the window theme suite's damage is in its copy" \
+    "$(damage "$T" invoice-list.html 's|</style>|.win, .win * { color: var(--page-ink) !important; }\n</style>|' 'color: var(--page-ink) !important')" "1"
+check "the window theme suite goes red on the committed record when the page's ink reaches the window" \
+    "$(judged "$T" test-design-window-theme.sh)" "1:yes"
 
 # ---------------------------------------------------------------------------
 # The copy is complete: made the same way and left undamaged, suites pass on it.

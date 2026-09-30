@@ -443,7 +443,7 @@ screen below.
 
 **`scripts/check-design-control-inset.sh` measures it in a rendering**, at rest and after each
 control on the page is pressed, because the fault lived in a row that exists only after `Add a
-line`. The edge is one anybody can see: a background unlike what is behind it, a shadow, or a
+line`, and at both the declared window and the app's minimum one, the half screen Dan works at. The edge is one anybody can see: a background unlike what is behind it, a shadow, or a
 border on that side, so an unpainted column edge is not an edge and a field drawing only a rule
 beneath it has no left edge. A borderless word is measured by its words, since its padding is
 invisible. It refuses a control at its edge on any side, and controls pushed against one
@@ -459,6 +459,21 @@ leaves, so it sits far closer to the right edge than the left (ovation#634); and
 sheet's `Cancel` starts further in than `Send` ends (ovation#635). Each is exempted in
 `scripts/design-inset-exemptions.tsv` under its issue, and the check refuses the line as stale the
 day its difference is gone.
+
+## The page's theme stops at the screen, and something measures it
+
+**Each design file is a record page drawn around an app screen, and only the page follows the
+reader's light or dark setting.** The app is pinned to light (ovation#479), so nothing inside
+`.screen` may change with the page's `--page-*` tokens. Twice on 2026-09-29 it did, both in
+`review-send.html`: the message editor was painted from `--page-panel`, and the title bar's words
+set no colour of their own and inherited the page's ink, so in a dark page the screen drew dark on
+dark. The second named no token at all, which is why this is measured rather than searched for.
+
+**`scripts/check-design-window-theme.sh` renders every file with the page forced light and again
+forced dark**, at rest and after each control is pressed, and refuses a screen that paints any
+background, drawn border, shadow or words differently between the two. The review sheet's two are
+exempted in `scripts/design-theme-exemptions.tsv` under ovation#547, whose branch is fixing that
+file, and the lines go when it merges, since the check refuses them as stale from then on.
 
 ## Every decision says where it is drawn, and something draws it
 
