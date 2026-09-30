@@ -30,33 +30,57 @@ struct SwiftDataBehaviourTests {
         var description: String { self == .inMemory ? "in memory" : "on disk" }
     }
 
-    /// Builds a container for the given models, and hands back a cleanup the
-    /// caller runs on every exit path.
+    /// Runs `body` over a container for the given models, and for an on disk
+    /// store deletes the store's directory only once the container is gone.
     ///
     /// The temporary directory is made per call rather than shared, so two tests
     /// running at once cannot see each other's rows.
-    private static func container(
+    ///
+    /// THE DIRECTORY GOES AFTER THE CONTAINER, NOT BESIDE IT (ovation#632). This
+    /// used to hand back the container with a cleanup the caller ran in a
+    /// `defer`, and a `defer` runs while the caller's own container is still in
+    /// scope, so every on disk case deleted a store SQLite still held: 27 lines of
+    /// "vnode unlinked while in use" per run of this suite. Here the container
+    /// lives only inside this call, and if anything still holds the store once it
+    /// has returned, that is recorded against the case that did it rather than
+    /// deleted from under it.
+    private static func withContainer(
         kind: StoreKind,
-        for models: any PersistentModel.Type...
-    ) throws -> (container: ModelContainer, cleanUp: () -> Void) {
+        for models: any PersistentModel.Type...,
+        body: (ModelContainer) throws -> Void
+    ) throws {
         let schema = Schema(models.map { $0 })
         switch kind {
         case .inMemory:
             let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-            return (try ModelContainer(for: schema, configurations: configuration), {})
+            try body(try ModelContainer(for: schema, configurations: configuration))
         case .onDisk:
             let directory = URL.temporaryDirectory
                 .appending(path: "ovation-probe-\(UUID().uuidString)", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let configuration = ModelConfiguration(
-                schema: schema,
-                url: directory.appending(path: "Probe.store")
-            )
-            return (
-                try ModelContainer(for: schema, configurations: configuration),
-                { try? FileManager.default.removeItem(at: directory) }
-            )
+            defer { try? FileManager.default.removeItem(at: directory) }
+            do {
+                let configuration = ModelConfiguration(
+                    schema: schema,
+                    url: directory.appending(path: "Probe.store")
+                )
+                try body(try ModelContainer(for: schema, configurations: configuration))
+            }
+            let held = Self.descriptors(inside: directory)
+            #expect(held.isEmpty, "the store is still open after its container was released: \(held)")
         }
+    }
+
+    /// Every descriptor this process holds on a file inside `directory`.
+    private static func descriptors(inside directory: URL) -> [String] {
+        var held: [String] = []
+        for descriptor in 0..<Int32(getdtablesize()) {
+            var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+            guard fcntl(descriptor, F_GETPATH, &path) == 0 else { continue }
+            let text = String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            if text.contains("/\(directory.lastPathComponent)/") { held.append(text) }
+        }
+        return held
     }
 
     // MARK: Q1, an enum with associated values
@@ -87,22 +111,22 @@ struct SwiftDataBehaviourTests {
     @Test("an enum with associated values round trips, so a discount can be one value",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func associatedValueEnumRoundTrips(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeDiscounted.self)
-        defer { cleanUp() }
-        let context = ModelContext(container)
+        try Self.withContainer(kind: kind, for: ProbeDiscounted.self) { container in
+            let context = ModelContext(container)
 
-        context.insert(ProbeDiscounted(label: "flat", discount: .dollars(5_000)))
-        context.insert(ProbeDiscounted(label: "share", discount: .percentageBasisPoints(1_000)))
-        context.insert(ProbeDiscounted(label: "none", discount: nil))
-        try context.save()
+            context.insert(ProbeDiscounted(label: "flat", discount: .dollars(5_000)))
+            context.insert(ProbeDiscounted(label: "share", discount: .percentageBasisPoints(1_000)))
+            context.insert(ProbeDiscounted(label: "none", discount: nil))
+            try context.save()
 
-        let read = try ModelContext(container)
-            .fetch(FetchDescriptor<ProbeDiscounted>(sortBy: [SortDescriptor(\.label)]))
-        #expect(read.count == 3, "three rows were saved")
-        #expect(read[0].discount == .dollars(5_000), "the dollars case keeps its amount")
-        #expect(read[1].discount == nil, "absent stays absent, never a zero")
-        #expect(read[2].discount == .percentageBasisPoints(1_000),
-                "the percentage case stays distinguishable from the dollars one")
+            let read = try ModelContext(container)
+                .fetch(FetchDescriptor<ProbeDiscounted>(sortBy: [SortDescriptor(\.label)]))
+            #expect(read.count == 3, "three rows were saved")
+            #expect(read[0].discount == .dollars(5_000), "the dollars case keeps its amount")
+            #expect(read[1].discount == nil, "absent stays absent, never a zero")
+            #expect(read[2].discount == .percentageBasisPoints(1_000),
+                    "the percentage case stays distinguishable from the dollars one")
+        }
     }
 
     // MARK: Q2, a colliding surrogate id
@@ -127,20 +151,20 @@ struct SwiftDataBehaviourTests {
     @Test("a colliding unique id replaces the row rather than refusing, as PRD 42a measured",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func collidingUniqueIdReplacesSilently(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeIdentified.self)
-        defer { cleanUp() }
-        let context = ModelContext(container)
+        try Self.withContainer(kind: kind, for: ProbeIdentified.self) { container in
+            let context = ModelContext(container)
 
-        let shared = UUID()
-        context.insert(ProbeIdentified(id: shared, label: "the original"))
-        try context.save()
-        context.insert(ProbeIdentified(id: shared, label: "the replacement"))
-        try context.save()
+            let shared = UUID()
+            context.insert(ProbeIdentified(id: shared, label: "the original"))
+            try context.save()
+            context.insert(ProbeIdentified(id: shared, label: "the replacement"))
+            try context.save()
 
-        let read = try ModelContext(container).fetch(FetchDescriptor<ProbeIdentified>())
-        #expect(read.count == 1, "one row survives a collision, not two")
-        #expect(read.first?.label == "the replacement",
-                "the survivor holds the SECOND value, so the first is gone with no error")
+            let read = try ModelContext(container).fetch(FetchDescriptor<ProbeIdentified>())
+            #expect(read.count == 1, "one row survives a collision, not two")
+            #expect(read.first?.label == "the replacement",
+                    "the survivor holds the SECOND value, so the first is gone with no error")
+        }
     }
 
     /// THE CONTRAST, kept as a standing assertion rather than as something seen
@@ -166,20 +190,20 @@ struct SwiftDataBehaviourTests {
     @Test("without the unique attribute the same collision leaves TWO rows, not a replacement",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func collisionWithoutUniqueLeavesADuplicate(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeUnconstrained.self)
-        defer { cleanUp() }
-        let context = ModelContext(container)
+        try Self.withContainer(kind: kind, for: ProbeUnconstrained.self) { container in
+            let context = ModelContext(container)
 
-        let shared = UUID()
-        context.insert(ProbeUnconstrained(id: shared, label: "the original"))
-        try context.save()
-        context.insert(ProbeUnconstrained(id: shared, label: "the second"))
-        try context.save()
+            let shared = UUID()
+            context.insert(ProbeUnconstrained(id: shared, label: "the original"))
+            try context.save()
+            context.insert(ProbeUnconstrained(id: shared, label: "the second"))
+            try context.save()
 
-        let read = try ModelContext(container).fetch(FetchDescriptor<ProbeUnconstrained>())
-        #expect(read.count == 2, "both rows survive, so the collision is visible rather than silent")
-        #expect(read.contains { $0.label == "the original" },
-                "and the row that was there first is still there")
+            let read = try ModelContext(container).fetch(FetchDescriptor<ProbeUnconstrained>())
+            #expect(read.count == 2, "both rows survive, so the collision is visible rather than silent")
+            #expect(read.contains { $0.label == "the original" },
+                    "and the row that was there first is still there")
+        }
     }
 
 
@@ -241,89 +265,89 @@ struct SwiftDataBehaviourTests {
     @Test("a composite value round trips whole, both halves intact",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func compositeValuesRoundTrip(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
-        defer { cleanUp() }
-        try Self.queryableRows(in: ModelContext(container))
+        try Self.withContainer(kind: kind, for: ProbeQueryable.self) { container in
+            try Self.queryableRows(in: ModelContext(container))
 
-        let read = try ModelContext(container).fetch(
-            FetchDescriptor<ProbeQueryable>(sortBy: [SortDescriptor(\.label)]))
-        let boundary = try #require(read.first { $0.label == "boundary" })
-        #expect(boundary.stampedDate.dayKey == boundary.flatDayKey,
-                "the stamped key survives inside the composite value")
-        #expect(boundary.stampedDate.agreesWithItsInstant,
-                "and so does the instant it was stamped from")
-        #expect(boundary.amount == Money(dollars: 250))
-        #expect(boundary.kind == .printSale)
+            let read = try ModelContext(container).fetch(
+                FetchDescriptor<ProbeQueryable>(sortBy: [SortDescriptor(\.label)]))
+            let boundary = try #require(read.first { $0.label == "boundary" })
+            #expect(boundary.stampedDate.dayKey == boundary.flatDayKey,
+                    "the stamped key survives inside the composite value")
+            #expect(boundary.stampedDate.agreesWithItsInstant,
+                    "and so does the instant it was stamped from")
+            #expect(boundary.amount == Money(dollars: 250))
+            #expect(boundary.kind == .printSale)
+        }
     }
 
     @Test("a plain string column can be filtered in the fetch itself",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func aFlatColumnIsFilterable(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
-        defer { cleanUp() }
-        try Self.queryableRows(in: ModelContext(container))
+        try Self.withContainer(kind: kind, for: ProbeQueryable.self) { container in
+            try Self.queryableRows(in: ModelContext(container))
 
-        let lowerBound = "2026-01-01"
-        let upperBound = "2026-12-31"
-        var descriptor = FetchDescriptor<ProbeQueryable>(
-            predicate: #Predicate { $0.flatDayKey >= lowerBound && $0.flatDayKey <= upperBound }
-        )
-        descriptor.sortBy = [SortDescriptor(\.flatDayKey)]
-        let inRange = try ModelContext(container).fetch(descriptor)
-        #expect(inRange.map(\.label) == ["before", "boundary"],
-                "the range takes the boundary row and leaves the next day out")
+            let lowerBound = "2026-01-01"
+            let upperBound = "2026-12-31"
+            var descriptor = FetchDescriptor<ProbeQueryable>(
+                predicate: #Predicate { $0.flatDayKey >= lowerBound && $0.flatDayKey <= upperBound }
+            )
+            descriptor.sortBy = [SortDescriptor(\.flatDayKey)]
+            let inRange = try ModelContext(container).fetch(descriptor)
+            #expect(inRange.map(\.label) == ["before", "boundary"],
+                    "the range takes the boundary row and leaves the next day out")
+        }
     }
 
     @Test("a predicate CAN reach inside a composite value, so a date and its key stay one field",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func aCompositeValueIsReachableFromAPredicate(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
-        defer { cleanUp() }
-        try Self.queryableRows(in: ModelContext(container))
+        try Self.withContainer(kind: kind, for: ProbeQueryable.self) { container in
+            try Self.queryableRows(in: ModelContext(container))
 
-        let lowerBound = "2026-12-31"
-        var reachingIn = FetchDescriptor<ProbeQueryable>(
-            predicate: #Predicate { $0.stampedDate.dayKey >= lowerBound }
-        )
-        reachingIn.sortBy = [SortDescriptor(\.flatDayKey)]
-        var flat = FetchDescriptor<ProbeQueryable>(
-            predicate: #Predicate { $0.flatDayKey >= lowerBound }
-        )
-        flat.sortBy = [SortDescriptor(\.flatDayKey)]
+            let lowerBound = "2026-12-31"
+            var reachingIn = FetchDescriptor<ProbeQueryable>(
+                predicate: #Predicate { $0.stampedDate.dayKey >= lowerBound }
+            )
+            reachingIn.sortBy = [SortDescriptor(\.flatDayKey)]
+            var flat = FetchDescriptor<ProbeQueryable>(
+                predicate: #Predicate { $0.flatDayKey >= lowerBound }
+            )
+            flat.sortBy = [SortDescriptor(\.flatDayKey)]
 
-        let context = ModelContext(container)
-        let throughTheComposite = try context.fetch(reachingIn).map(\.label)
-        let throughTheColumn = try context.fetch(flat).map(\.label)
-        #expect(throughTheColumn == ["boundary", "after"], "the plain column filters correctly")
-        #expect(throughTheComposite == throughTheColumn,
-                "and reaching into the composite value gives the same answer")
+            let context = ModelContext(container)
+            let throughTheComposite = try context.fetch(reachingIn).map(\.label)
+            let throughTheColumn = try context.fetch(flat).map(\.label)
+            #expect(throughTheColumn == ["boundary", "after"], "the plain column filters correctly")
+            #expect(throughTheComposite == throughTheColumn,
+                    "and reaching into the composite value gives the same answer")
+        }
     }
 
     @Test("a predicate CANNOT compare against a captured enum value either",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func anEnumConstantIsNotUsableInAPredicate(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
-        defer { cleanUp() }
-        try Self.queryableRows(in: ModelContext(container))
+        try Self.withContainer(kind: kind, for: ProbeQueryable.self) { container in
+            try Self.queryableRows(in: ModelContext(container))
 
-        let wanted = InvoiceKind.photography
-        let descriptor = FetchDescriptor<ProbeQueryable>(predicate: #Predicate { $0.kind == wanted })
-        #expect(throws: SwiftDataError.self) {
-            _ = try ModelContext(container).fetch(descriptor)
+            let wanted = InvoiceKind.photography
+            let descriptor = FetchDescriptor<ProbeQueryable>(predicate: #Predicate { $0.kind == wanted })
+            #expect(throws: SwiftDataError.self) {
+                _ = try ModelContext(container).fetch(descriptor)
+            }
         }
     }
 
     @Test("what a stored enum CAN still do is sort, round trip, and be filtered in memory",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func aStoredEnumIsStillUsableWithoutAPredicate(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
-        defer { cleanUp() }
-        try Self.queryableRows(in: ModelContext(container))
+        try Self.withContainer(kind: kind, for: ProbeQueryable.self) { container in
+            try Self.queryableRows(in: ModelContext(container))
 
-        let all = try ModelContext(container).fetch(
-            FetchDescriptor<ProbeQueryable>(sortBy: [SortDescriptor(\.flatDayKey)]))
-        #expect(all.filter { $0.kind == .photography }.map(\.label) == ["before", "after"],
-                "which is why a kind is filtered over a range the query already narrowed")
+            let all = try ModelContext(container).fetch(
+                FetchDescriptor<ProbeQueryable>(sortBy: [SortDescriptor(\.flatDayKey)]))
+            #expect(all.filter { $0.kind == .photography }.map(\.label) == ["before", "after"],
+                    "which is why a kind is filtered over a range the query already narrowed")
+        }
     }
 
     // MARK: Q3, the two delete rules the model needs to be different
@@ -362,33 +386,33 @@ struct SwiftDataBehaviourTests {
     @Test("cascade takes the children and nullify leaves them standing",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func deleteRulesDifferAsTheModelNeeds(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(
+        try Self.withContainer(
             kind: kind, for: ProbeOwner.self, ProbeOwned.self, ProbeReleasable.self
-        )
-        defer { cleanUp() }
-        let context = ModelContext(container)
+        ) { container in
+            let context = ModelContext(container)
 
-        let owner = ProbeOwner(label: "the invoice")
-        let owned = ProbeOwned(label: "a line item")
-        let released = ProbeReleasable(label: "an allocation")
-        context.insert(owner)
-        context.insert(owned)
-        context.insert(released)
-        owner.owned = [owned]
-        owner.released = [released]
-        try context.save()
+            let owner = ProbeOwner(label: "the invoice")
+            let owned = ProbeOwned(label: "a line item")
+            let released = ProbeReleasable(label: "an allocation")
+            context.insert(owner)
+            context.insert(owned)
+            context.insert(released)
+            owner.owned = [owned]
+            owner.released = [released]
+            try context.save()
 
-        context.delete(owner)
-        try context.save()
+            context.delete(owner)
+            try context.save()
 
-        let reader = ModelContext(container)
-        let survivingOwned = try reader.fetch(FetchDescriptor<ProbeOwned>())
-        let survivingReleased = try reader.fetch(FetchDescriptor<ProbeReleasable>())
-        #expect(survivingOwned.isEmpty, "cascade removed what the owner owned")
-        #expect(survivingReleased.count == 1,
-                "nullify left the allocation standing, which is what releasing means")
-        #expect(survivingReleased.first?.owner == nil,
-                "and it no longer points at the row that was deleted")
+            let reader = ModelContext(container)
+            let survivingOwned = try reader.fetch(FetchDescriptor<ProbeOwned>())
+            let survivingReleased = try reader.fetch(FetchDescriptor<ProbeReleasable>())
+            #expect(survivingOwned.isEmpty, "cascade removed what the owner owned")
+            #expect(survivingReleased.count == 1,
+                    "nullify left the allocation standing, which is what releasing means")
+            #expect(survivingReleased.first?.owner == nil,
+                    "and it no longer points at the row that was deleted")
+        }
     }
 
     // MARK: does the store file alone carry a saved row (ovation#88)
