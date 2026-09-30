@@ -55,6 +55,8 @@ browser start in the CI step ovation#183 already counts:
  14. A quantity of nothing is not drawn, on the clients screen or the rail: no
      box for a balance a client does not hold, and on a settled day no count, no
      held line and no figure on any row.
+ 15. The shared address notice names each other client on the address, and
+     pressing each name opens that client (ovation#616, L80, L109).
 
 THE DAY SWITCH IS PRESSED, NEVER SET. It names the day it moves to in
 `data-day`, so reaching a day is pressing the real control, and a switch that
@@ -309,6 +311,37 @@ window.addEventListener("load", function () {
             ", selected " + (sel && sel.dataset.client === heldOnly.c ? "kept" : "changed") +
             ", pane " + (head && head.textContent.trim() === heldOnly.c ? "kept" : "changed"));
     }
+
+    /* ---- ovation#616: the shared address notice names each other client, and
+       each name opens that client. PRESSED, never read: a name whose press
+       finds no row does nothing and still reads as a control (L109). ---- */
+    var sharer = pick(function (k) { return k.shared; });
+    var opened = [];
+    var named = [];
+    if (sharer) {
+      pressClient(sharer.c);
+      named = Array.prototype.map.call(document.querySelectorAll(".detail .warn .wtext .act"),
+                                       function (n) { return n.textContent.trim(); });
+      named.forEach(function (name) {
+        pressClient(sharer.c);
+        var word = Array.prototype.filter.call(document.querySelectorAll(".detail .warn .wtext .act"),
+                                               function (n) { return n.textContent.trim() === name; })[0];
+        if (word) word.click();
+        var now = document.querySelector(".names .nrow.sel");
+        var pane = document.querySelector(".detail h5");
+        opened.push(name + (now && now.dataset.client === name && pane &&
+                            pane.textContent.trim() === name ? " opened" : " did nothing"));
+      });
+    }
+    var others = sharer ? CLIENTS.filter(function (k) {
+      return k !== sharer && k.shared && k.m === sharer.m;
+    }).map(function (k) { return k.c; }) : [];
+    claim("each name on the shared address notice opens that client",
+          !!sharer && named.length > 0 && named.join("|") === others.join("|") &&
+          opened.every(function (o) { return / opened$/.test(o); }),
+          (sharer ? "on " + sharer.c + ", named " + (named.join(", ") || "nobody") +
+                    " of " + others.join(", ") + ": " + (opened.join("; ") || "nothing pressed")
+                  : "no client in the page's data shares an address"));
 
     /* ---- the roster pass, on the day with work, then with the addresses fixed ---- */
     var toRoster = railItem("Settle the roster");

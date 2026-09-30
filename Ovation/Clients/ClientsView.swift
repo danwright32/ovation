@@ -530,10 +530,6 @@ struct ClientsView: View {
     }
 }
 
-/// Round D's treatment for a value that is a control: the value itself, in a
-/// quiet ruled box, drawn the same for the Sales tax and the Payment terms so the
-/// two read as one kind of thing (docs/design/clients.html `.termbtn, .taxval`).
-/// With nothing to press it is drawn as the value alone.
 /// The shared address notice (PRD 38c): who else is on the address, and the
 /// answer. Its own view so a test can draw it at the width the page gives it.
 ///
@@ -606,6 +602,10 @@ struct SharedAddressNotice<Answer: View>: View {
     }
 }
 
+/// Round D's treatment for a value that is a control: the value itself, in a
+/// quiet ruled box, drawn the same for the Sales tax and the Payment terms so the
+/// two read as one kind of thing (docs/design/clients.html `.termbtn, .taxval`).
+/// With nothing to press it is drawn as the value alone.
 private struct ValueButton: View {
     let says: String
     let isAbsent: Bool
