@@ -175,7 +175,8 @@ extension ProblemKind {
     ///
     /// NO COUNTS AND NO DATES IN A NAME. A name is read for as long as the problem
     /// stays open, so "3 days behind" would go on saying 3 on the fifth day. The
-    /// sentence behind Read carries the dates.
+    /// sentence behind Read carries the dates. The one exception, a broken backup's
+    /// own day (ovation#609), is a fixed fact about the archive and never goes stale.
     static let shortNames: [ProblemKind: String] = [
         .foreignStore: "Wrong database",
         .unreadableStore: "Can't read database",
@@ -238,6 +239,36 @@ extension ProblemKind {
             return yearly(year)
         }
         return Self.shortNames[self]
+    }
+
+    /// ovation#609. The name a problem of this kind has when another open problem
+    /// shares its kind, so the lines are told apart. Only a broken backup has one
+    /// (Dan, 2026-09-29: "Bad backup, 30 May"); every other kind keeps its plain
+    /// name, as does a backup whose archive name carries no day to show.
+    func shortName(subject: String?, sharingKind: Bool) -> String? {
+        if sharingKind, let dated = Self.datedShortNames[self],
+           let subject, let instant = BackupService.instant(fromArchiveNamed: subject) {
+            return dated(Self.footDay(instant))
+        }
+        return shortName(subject: subject)
+    }
+
+    /// The kinds named for their archive's day when several are open at once.
+    /// Measured by `RailFootTests` on every day of a leap year: the widest is 126.5
+    /// of the 127.3 points a name has beside Read.
+    static let datedShortNames: [ProblemKind: @Sendable (String) -> String] = [
+        .archiveNoLongerVerifies: { "Bad backup, \($0)" },
+    ]
+
+    /// "30 May", in the business calendar the archive name was written in, so an
+    /// evening backup is not named for the next day wherever the Mac's clock is set.
+    private static func footDay(_ instant: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = BusinessCalendar.timeZone
+        formatter.dateFormat = "d MMM"
+        return formatter.string(from: instant)
     }
 
     /// The year in a year end export's subject, `year-end-export-2026`, or nil.
@@ -330,6 +361,15 @@ struct Problem: Identifiable, Equatable, Codable, Sendable {
     /// from ever being drawn by failing on the missing name (L113).
     var shortName: String {
         kind.shortName(subject: subject) ?? "Something to read"
+    }
+
+    /// What the foot calls it among everything open (ovation#609). Three open
+    /// broken backups all read "Old backup broken" on the installed build, so when
+    /// another open problem shares this one's kind, the name carries what tells
+    /// them apart where the kind has it.
+    func shortName(among open: [Problem]) -> String {
+        let sharing = open.contains { $0.kind == kind && $0.id != id }
+        return kind.shortName(subject: subject, sharingKind: sharing) ?? shortName
     }
 
     static func identity(kind: ProblemKind, subject: String?) -> String {

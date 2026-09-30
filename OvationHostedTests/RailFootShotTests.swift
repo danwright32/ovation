@@ -78,4 +78,31 @@ struct RailFootShotTests {
         #expect(RailFoot.lines(for: problems.open).more == 1)
         print("RAIL FOOT SHOTS: wrote five pictures into \(directory.path)")
     }
+
+    /// ovation#609. Two broken backups open at once, each named for its archive's day,
+    /// in both appearances, so the lines can be judged by looking as well as measured.
+    @Test("the foot is captured with two broken backups told apart by their days")
+    func captureTwoBrokenBackups() throws {
+        guard let directory = Self.outputDirectory else {
+            print("RAIL FOOT SHOTS: no TEST_RUNNER_OVATION_SHOT_DIR, so nothing was captured.")
+            return
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let problems = ProblemsStore(journal: InMemoryProblemsJournal())
+        _ = problems.raise(kind: .archiveNoLongerVerifies,
+                           subject: "Ovation-backup-2026-05-30-210000",
+                           sentence: "The backup from 30 May 2026 no longer checks out.",
+                           now: Self.at(1))
+        _ = problems.raise(kind: .archiveNoLongerVerifies,
+                           subject: "Ovation-backup-2026-09-28-210000",
+                           sentence: "The backup from 28 Sep 2026 no longer checks out.",
+                           now: Self.at(2))
+        for scheme in [ColorScheme.light, .dark] {
+            try OffscreenShot.capture(Self.shell(problems), size: Self.size, scheme: scheme,
+                                      to: directory.appending(
+                                        path: "foot-two-backups-\(scheme == .light ? "light" : "dark").png"))
+        }
+        print("RAIL FOOT SHOTS: wrote two broken backup pictures into \(directory.path)")
+    }
 }

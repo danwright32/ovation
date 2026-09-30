@@ -75,8 +75,29 @@ struct RailFootTests {
                     names.append(named)
                 }
             }
+            // A broken backup named for its archive's day, on every day of a leap year,
+            // so the widest date is measured rather than guessed (ovation#609).
+            for day in Self.everyArchiveDay() {
+                if let dated = kind.shortName(subject: day, sharingKind: true),
+                   dated != kind.shortName(subject: nil) {
+                    names.append(dated)
+                }
+            }
         }
         return names
+    }
+
+    /// An archive name for every day of 2028, a leap year, at the hour backups run.
+    static func everyArchiveDay() -> [String] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = BusinessCalendar.timeZone
+        let start = calendar.date(from: DateComponents(year: 2028, month: 1, day: 1, hour: 21))!
+        return (0..<366).map { offset in
+            let day = calendar.date(byAdding: .day, value: offset, to: start)!
+            let parts = calendar.dateComponents([.year, .month, .day], from: day)
+            return String(format: "Ovation-backup-%04d-%02d-%02d-210000",
+                          parts.year!, parts.month!, parts.day!)
+        }
     }
 
     private static func width(_ text: String, _ weight: NSFont.Weight) -> CGFloat {
@@ -124,6 +145,94 @@ struct RailFootTests {
         let raised = store.raise(kind: .exportWritten, subject: "year-end-export-2026",
                                  sentence: "The 2026 export is written.", now: at(1))
         #expect(raised.shortName == "2026 export written")
+    }
+
+    // MARK: several of one kind open at once (ovation#609)
+
+    /// Dan, 2026-09-29: when several old backups are broken, each line reads
+    /// "Bad backup, 30 May", the day read from the archive's own name. On the
+    /// installed build three such problems all read "Old backup broken".
+    @Test("two broken backups open at once are each named for their archive's day")
+    func severalBrokenBackupsAreNamedForTheirDays() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let may = store.raise(kind: .archiveNoLongerVerifies,
+                              subject: "Ovation-backup-2026-05-30-210000",
+                              sentence: "may", now: at(1))
+        let september = store.raise(kind: .archiveNoLongerVerifies,
+                                    subject: "Ovation-backup-2026-09-17-210000",
+                                    sentence: "september", now: at(2))
+
+        #expect(may.shortName(among: store.open) == "Bad backup, 30 May")
+        #expect(september.shortName(among: store.open) == "Bad backup, 17 Sep")
+    }
+
+    @Test("one broken backup alone keeps its plain name")
+    func oneBrokenBackupKeepsItsName() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let only = store.raise(kind: .archiveNoLongerVerifies,
+                               subject: "Ovation-backup-2026-05-30-210000",
+                               sentence: "only", now: at(1))
+        // Another open problem of a DIFFERENT kind is not a second broken backup.
+        _ = store.raise(kind: .backupsAreStale, subject: "store", sentence: "stale", now: at(2))
+
+        #expect(only.shortName(among: store.open) == "Old backup broken")
+    }
+
+    @Test("a broken backup settled since stops counting as a second one")
+    func aResolvedBackupDoesNotCount() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let settled = store.raise(kind: .archiveNoLongerVerifies,
+                                  subject: "Ovation-backup-2026-05-30-210000",
+                                  sentence: "settled", now: at(1))
+        let standing = store.raise(kind: .archiveNoLongerVerifies,
+                                   subject: "Ovation-backup-2026-09-17-210000",
+                                   sentence: "standing", now: at(2))
+        _ = store.resolve(settled.id, because: "the backup was checked again and verifies",
+                          now: at(3))
+
+        #expect(standing.shortName(among: store.open) == "Old backup broken")
+    }
+
+    /// The day is the business calendar's, the one the archive name was written in,
+    /// so a backup taken late in the evening is not named for the next day wherever
+    /// the Mac's own clock is set.
+    @Test("the day is read in the calendar the archive name was written in")
+    func theDayIsTheArchiveNamesDay() {
+        #expect(ProblemKind.archiveNoLongerVerifies.shortName(
+            subject: "Ovation-backup-2026-05-30-235900", sharingKind: true)
+                    == "Bad backup, 30 May")
+        #expect(ProblemKind.archiveNoLongerVerifies.shortName(
+            subject: "Ovation-backup-2026-06-01-000100", sharingKind: true)
+                    == "Bad backup, 1 Jun")
+    }
+
+    /// A name with no day in it, from a folder renamed by hand or a sync, has no day
+    /// to show, so the line says what it knows rather than inventing one.
+    @Test("a broken backup whose name carries no day keeps the plain name")
+    func noDayKeepsThePlainName() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        let renamed = store.raise(kind: .archiveNoLongerVerifies, subject: "My old backup",
+                                  sentence: "renamed", now: at(1))
+        let dated = store.raise(kind: .archiveNoLongerVerifies,
+                                subject: "Ovation-backup-2026-09-17-210000",
+                                sentence: "dated", now: at(2))
+
+        #expect(renamed.shortName(among: store.open) == "Old backup broken")
+        #expect(dated.shortName(among: store.open) == "Bad backup, 17 Sep")
+    }
+
+    @Test("a kind with no dated name is unchanged when several of it are open")
+    func otherKindsAreUnchanged() {
+        #expect(ProblemKind.backupsAreStale.shortName(
+            subject: "Ovation-backup-2026-05-30-210000", sharingKind: true) == "Backups are behind")
+        #expect(ProblemKind.exportFailed.shortName(
+            subject: "year-end-export-2026", sharingKind: true) == "2026 export failed")
+    }
+
+    @Test("a dated name for every day of the year was measured")
+    func everyDayWasMeasured() throws {
+        let names = try Self.everyDrawableName().filter { $0.hasPrefix("Bad backup, ") }
+        #expect(Set(names).count == 366)
     }
 
     // MARK: which lines the foot draws
