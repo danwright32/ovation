@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design rendering checks" 93
+harness_begin "design rendering checks" 99
 
 TARGET="scripts/check-design-draws.sh"
 require_target "$TARGET"
@@ -450,7 +450,8 @@ check "and it says the browser did not answer, and for how long it was given" \
 # picture (L2).
 NOWHERE="$WORK/no-browser-here/*"
 for tool in check-design-draws check-invoice-screen-draws check-clients-screen-draws \
-        check-design-tokens-resolve check-design-sidebar-card check-design-window-top; do
+        check-design-tokens-resolve check-design-sidebar-card check-design-window-top \
+        check-design-control-inset check-design-decisions-drawn; do
     OVATION_BROWSER_GLOBS="$NOWHERE" OVATION_HEADLESS_BROWSER= OVATION_DESIGN_ROOT= \
         python3 "scripts/$tool.sh" > "$WORK/no-browser-$tool.txt" 2>&1
     check "$tool answers cannot measure when no browser can be found" \
@@ -561,6 +562,10 @@ check "the sidebar card check renders every rail in one browser" \
     "$(starts_for scripts/check-design-sidebar-card.sh)" "0:1"
 check "the window ceiling check renders every file in one browser" \
     "$(starts_for scripts/check-design-window-top.sh)" "0:1"
+check "the control inset check renders every file and every press in one browser" \
+    "$(starts_for scripts/check-design-control-inset.sh docs/design/invoice-list.html)" "0:1"
+check "the decisions check renders every claim in one browser" \
+    "$(starts_for scripts/check-design-decisions-drawn.sh)" "0:1"
 
 # ---------------------------------------------------------------------------
 # AND THE LINUX JOB ACTUALLY RUNS THEM (ovation#160). A workflow that installs a

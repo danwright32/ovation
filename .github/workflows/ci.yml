@@ -138,6 +138,8 @@ jobs:
           python3 scripts/check-design-tokens-resolve.sh
           python3 scripts/check-design-sidebar-card.sh
           python3 scripts/check-design-window-top.sh
+          python3 scripts/check-design-control-inset.sh
+          python3 scripts/check-design-decisions-drawn.sh
 
       # MUST MEASURE (ovation#161). A suite that cannot measure here is allowed only
       # when it carries `# ovation-runs-on: macos`, because the build job runs
