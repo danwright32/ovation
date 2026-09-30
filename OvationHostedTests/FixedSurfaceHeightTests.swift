@@ -85,6 +85,30 @@ struct FixedSurfaceHeightTests {
         }
     }
 
+    /// PRESSING RESTORE HANDS THE ROW TO THE PRESS, and drawing hands it to nothing.
+    /// What restoring would do is read from the archive's manifest on disk, so it
+    /// belongs to the press rather than the drawing, which runs on every redraw
+    /// (ovation#246, ovation#255). The pane is drawn first and nothing may be asked;
+    /// only the press may ask, and for the row pressed.
+    @Test("drawing the archive list asks nothing, and pressing Restore asks for that row")
+    func restoreIsAskedOnlyByThePress() throws {
+        var asked: [String] = []
+        let rows = [RestorePresenter.Archive(name: "Ovation-backup-1", takenAt: nil, verifies: true),
+                    RestorePresenter.Archive(name: "Ovation-backup-2", takenAt: nil, verifies: true)]
+        let pane = BackupsPaneView(folder: "/Volumes/Backups", retention: BackupSettingsPresenter.retention,
+                                   archives: .rows(rows), outcome: nil,
+                                   restore: { asked.append($0.name) })
+        _ = Self.height(of: pane, width: SettingsView.minimumWidth)
+        #expect(asked.isEmpty, "drawing the pane asked about a backup")
+
+        let second = try pane.inspect().find(ViewType.ViewThatFits.self)
+            .find(ViewType.ScrollView.self).find(text: "Ovation-backup-2")
+            .find(ViewType.HStack.self, relation: .parent)
+        try second.find(button: "Restore").tap()
+
+        #expect(asked == ["Ovation-backup-2"])
+    }
+
     // MARK: the review sheet, at its own size
 
     /// ITS TALLEST STATES, and there are two, because the warnings it carries exclude
