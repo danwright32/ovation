@@ -137,7 +137,7 @@ seen from a still, which is why the file behaves rather than only draws.
 
 | | |
 | --- | --- |
-| Where it lives | A sheet dropping from under the window's title bar, over the invoice screen, which stays behind it. Nothing to navigate back from. Rejected: the document as a full screen with the recipients in a rail, and a third place in the invoice screen's own language. |
+| Where it lives | A sheet floating centred over the invoice screen, every corner rounded, which stays behind it (PRD 48a; it hung from the title bar until ovation#547). Nothing to navigate back from. Rejected: the document as a full screen with the recipients in a rail, and a third place in the invoice screen's own language. |
 | The document | The settled invoice page at 47% of actual size, 380px of 816, in an 800px sheet, opening to 81% when pressed. |
 | The recipients | The address and nothing else, unless it is not the person who booked the shoot, and then it names who was passed over. Silent on 30 of 31. |
 | The sending states | The sheet becomes the outcome. The document and the recipients are replaced by one statement and one way onward. Working carries the elapsed seconds. |

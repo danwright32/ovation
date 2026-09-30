@@ -57,14 +57,10 @@ struct PaymentSheet: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.18)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: closeIncidentally)
-                .accessibilityHidden(true)
+        // THE SHAPE IS `FloatingSheet`'s, the one every sheet shares (ovation#547).
+        FloatingSheet(below: 0, outside: closeIncidentally, escape: closeIncidentally) {
             card
         }
-        .onExitCommand(perform: closeIncidentally)
         .onChange(of: form) { edited() }
         .onReceive(inspection.notice) { inspection.visit(self, $0) }
     }
@@ -95,9 +91,6 @@ struct PaymentSheet: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .frame(width: 360, alignment: .leading)
-        .background(OvationPalette.background)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .shadow(color: .black.opacity(0.28), radius: 17, y: 14)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Record a payment on invoice \(number)")
     }

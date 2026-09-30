@@ -98,6 +98,82 @@ struct AddingALineTests {
         try view.find(AddingLineRow.self).find(ViewType.TextField.self).input()
     }
 
+    // MARK: the panels float (PRD 48a, ovation#547)
+
+    /// Whether a floating sheet of this content is on the screen now.
+    private static func floats<Content: View>(_ content: Content.Type,
+                                              on screen: InvoiceScreenView) async throws -> Bool {
+        final class Seen { var it = false }
+        let seen = Seen()
+        try await step(screen) { view in
+            seen.it = (try? view.find(FloatingSheet<Content>.self)) != nil
+        }
+        return seen.it
+    }
+
+    /// NEW TYPE FLOATS OVER THE SCREEN, never a system sheet hanging from the title
+    /// bar, and Escape closes it as it did.
+    @Test("New type floats its panel over the screen, and Escape closes it")
+    func newTypeFloats() async throws {
+        let screen = screen(Written())
+        ViewHosting.host(view: screen)
+        defer { ViewHosting.expel() }
+        try await Self.step(screen) { view in
+            try view.find(button: "Add a line").tap()
+        }
+        try await Self.step(screen) { view in
+            let ask = try #require(try view.find(AddingLineRow.self).actualView().askNewType)
+            ask()
+        }
+        // Its title is on the screen itself, which a system sheet's never was, and
+        // the sheet round it is the floating one, whose Escape closes it.
+        final class Seen { var title = false }
+        let seen = Seen()
+        try await Self.step(screen) { view in
+            let title = try view.find(text: "A new service type")
+            seen.title = true
+            try title.find(ViewType.ZStack.self, relation: .parent).callOnExitCommand()
+        }
+        #expect(seen.title)
+        try await Self.step(screen) { view in
+            seen.title = (try? view.find(text: "A new service type")) != nil
+        }
+        #expect(!seen.title, "Escape did not close the panel")
+    }
+
+    /// ANOTHER DATE FLOATS TOO, drawn by the screen because the control that asks
+    /// for it is a word in the foot, and a sheet covers the window.
+    @Test("Another date floats its panel over the screen, and Cancel closes it")
+    func anotherDateFloats() async throws {
+        let screen = InvoiceScreenView(presenter: presenter, close: {}, setDueDate: { _ in })
+        ViewHosting.host(view: screen)
+        defer { ViewHosting.expel() }
+        try await Self.step(screen) { view in
+            let ask = try #require(try view.find(DueDateControl.self).actualView().askAnotherDate,
+                                   "the screen offers no Another date")
+            ask()
+        }
+        #expect(try await Self.floats(AnotherDatePanel.self, on: screen))
+
+        try await Self.step(screen) { view in
+            try view.find(FloatingSheet<AnotherDatePanel>.self).find(button: "Cancel").tap()
+        }
+        #expect(!(try await Self.floats(AnotherDatePanel.self, on: screen)))
+    }
+
+    /// With no writer for the date, nothing asks for a panel that could save nothing.
+    @Test("a screen that cannot save a date offers no Another date")
+    func noWriterNoAnotherDate() async throws {
+        let screen = InvoiceScreenView(presenter: presenter, close: {})
+        ViewHosting.host(view: screen)
+        defer { ViewHosting.expel() }
+        try await Self.step(screen) { view in
+            // The control is built with an ask, but the panel needs somewhere to save.
+            if let ask = try view.find(DueDateControl.self).actualView().askAnotherDate { ask() }
+        }
+        #expect(!(try await Self.floats(AnotherDatePanel.self, on: screen)))
+    }
+
     // MARK: Cancel (PRD 51p)
 
     /// CANCEL TAKES ADD A LINE'S PLACE while a line is being added, and Add a line

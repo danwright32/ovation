@@ -94,6 +94,40 @@ struct ReviewSheetShotTests {
         print("REVIEW SHOTS: wrote \(written.count) file(s) to \(directory.path)")
     }
 
+    // MARK: floating over the window (ovation#547)
+
+    /// THE SHEET AS IT SITS IN THE WINDOW, floating centred below the title bar with
+    /// every corner rounded (PRD 48a), at the smallest window, where it gives up height,
+    /// and a roomy one, in both appearances as the issue asked; the sheet is pinned to
+    /// light, so the two are expected to match.
+    @Test("the sheet floating in the window is captured, or it says it captured nothing")
+    func captureTheSheetFloating() throws {
+        guard let directory = Self.outputDirectory else {
+            print("REVIEW FLOATING SHOTS: no TEST_RUNNER_OVATION_SHOT_DIR, so nothing was captured.")
+            return
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var written = 0
+        for size in [CGSize(width: OvationWindow.minimumWidth, height: 620),
+                     CGSize(width: 1064, height: 900)] {
+            for scheme in [ColorScheme.light, .dark] {
+                let presenter = try ReviewSampleWorld.presenter(for: .ordinary)
+                let page = InvoicePage()
+                try presenter.show(on: page)
+                let floating = FloatingSheet(below: ShellView.titleBarHeight, dim: 0.26) {
+                    ReviewSheet(presenter: presenter, page: page, close: {})
+                }
+                let name = "20-floating-\(Int(size.width))x\(Int(size.height))-"
+                    + (scheme == .light ? "light" : "dark") + ".png"
+                try OffscreenShot.capture(floating, size: size, scheme: scheme,
+                                          to: directory.appending(path: name))
+                written += 1
+            }
+        }
+        #expect(written == 4)
+        print("REVIEW FLOATING SHOTS: wrote \(written) file(s) to \(directory.path)")
+    }
+
     // MARK: the send (ovation#42)
 
     /// THE SHEET OVER A REAL REVIEW, in every state the send can put it in, so the

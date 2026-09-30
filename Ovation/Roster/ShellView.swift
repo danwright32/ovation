@@ -200,14 +200,22 @@ struct ShellView: View {
         // chosen rather than measured and wider than the half screen he uses.
         .frame(minWidth: OvationWindow.minimumWidth, minHeight: 620, alignment: .topLeading)
         .ovationAppearance()
-        // THE SHEET BELONGS TO THE WINDOW (PRD 52a). Every way it closes, Close, Done
-        // or the Escape key, goes through the reviewer, which gives back a number the
-        // review took and nothing was sent under (Dan, 2026-09-14). Escape clears only
-        // the binding, so the dismissal settles the review too, once (ReviewOnScreen).
-        .sheet(item: $openReview, onDismiss: settleDismissedReview) { review in
-            ReviewSheet(presenter: review.presenter, review: review,
-                        close: { finishReview(review) })
-                .interactiveDismissDisabled(review.state.holdsTheSheetOpen)
+        // THE SHEET BELONGS TO THE WINDOW (PRD 52a) AND FLOATS OVER IT (PRD 48a,
+        // ovation#547), centred below the title bar with every corner rounded, which a
+        // system sheet cannot be: it hangs from the title bar with its top flat. Every
+        // way it closes, Close, Done or the Escape key, goes through the reviewer,
+        // which gives back a number the review took and nothing was sent under (Dan,
+        // 2026-09-14). A send in flight holds it open, so Escape does nothing then.
+        .overlay {
+            if let review = openReview {
+                FloatingSheet(below: Self.titleBarHeight, dim: 0.26,
+                              escape: review.state.holdsTheSheetOpen
+                                  ? nil : { finishReview(review) }) {
+                    ReviewSheet(presenter: review.presenter, review: review,
+                                close: { finishReview(review) })
+                }
+                .ignoresSafeArea(.container, edges: .top)
+            }
         }
         // THE OPEN INVOICE FOLLOWS EVERY WRITE, not only this screen's own
         // (ovation#185). The list is read again after every committed write, and
@@ -290,13 +298,11 @@ struct ShellView: View {
         Task { refusedOnTheList = await reviewer?.markNotSent(invoiceID) }
     }
 
-    /// The sheet went away by a route no control saw, the Escape key.
-    private func settleDismissedReview() {
-        if let review = reviewOnScreen.settle() { finishReview(review) }
-    }
-
+    /// Closes the review ONCE, however many routes arrive: a second press of Close,
+    /// or Escape landing with it, finds nothing left to settle and hands nothing
+    /// back twice.
     private func finishReview(_ review: InvoiceReview) {
-        _ = reviewOnScreen.settle()
+        guard reviewOnScreen.settle() === review else { return }
         openReview = nil
         Task {
             await reviewer?.close(review)
@@ -443,7 +449,8 @@ struct ShellView: View {
 
     /// One open thing, with what its Read opens anchored to that Read.
     private func footLine(_ problem: Problem) -> some View {
-        RailFootLine(name: problem.shortName, read: { shell.read(problem.id) },
+        RailFootLine(name: problem.shortName(among: problems.open),
+                     read: { shell.read(problem.id) },
                      isReading: readingBinding(problem.id),
                      reading: reading(for: problem))
     }
@@ -947,10 +954,11 @@ struct FootReadingList: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(open.enumerated()), id: \.element.id) { index, problem in
                     if index > 0 { Divider().overlay(OvationPalette.rule) }
+                    let name = problem.shortName(among: open)
                     VStack(alignment: .leading, spacing: 6) {
                         // Headed by the name the foot calls it, as the design record
                         // draws the list (rules/rail-foot.js, PRD 44f).
-                        Text(problem.shortName)
+                        Text(name)
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(OvationPalette.ink)
                         Text(problem.sentence)
@@ -960,7 +968,7 @@ struct FootReadingList: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                         ActionWord(word: RailFoot.readIt, size: 13, press: { read(problem) },
-                                   spoken: "\(RailFoot.readIt): \(problem.shortName)")
+                                   spoken: "\(RailFoot.readIt): \(name)")
                     }
                     .padding(.vertical, 10)
                 }

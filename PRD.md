@@ -311,7 +311,7 @@ window owns, never in a view, so redrawing, zooming or reopening the sheet canno
 
 48. **A control says what it does.** "Mark cleared" and "Mark sent", never "Cleared" or "It was sent", which read as statements rather than commands. Actions are drawn as a word rather than a filled button: Downbeat's `DBPlainButtonStyle` is the existing control for this and is already used in 18 places, so nothing new is invented.
 
-48a. **A sheet floats, centred in the window, with every corner rounded, and never hangs from the title bar** (Dan, 2026-09-25, rounds 1 and 1b of ovation#510). His objection to a sheet dropping from the title bar: "I don't want it to hang down because that makes the top flat and it's ugly." Centred was chosen over floating just under the title bar. **It is a rule for every sheet in the product**, by his choice rather than for the one it was raised on, which makes 52a's hanging Review sheet a sheet that breaks it; ovation#547 moves it.
+48a. **A sheet floats, centred in the window, with every corner rounded, and never hangs from the title bar** (Dan, 2026-09-25, rounds 1 and 1b of ovation#510). His objection to a sheet dropping from the title bar: "I don't want it to hang down because that makes the top flat and it's ugly." Centred was chosen over floating just under the title bar. **It is a rule for every sheet in the product**, by his choice rather than for the one it was raised on, which made 52a's hanging Review sheet a sheet that broke it; ovation#547 moved it. Every sheet the app floats is drawn by one component, `FloatingSheet`.
 
 48b. **Entry boxes in one form are ONE WIDTH and one height, and share ONE alignment** (Dan, 2026-09-25, rounds 1 and 1c of ovation#510). Raised on the payment sheet, where the amount and the date differed in width, then in height when the amount was empty, then in alignment, the amount right and the date left: "I don't like that money is aligned right and date is left." Both are right aligned there. **Both halves are rules for every form**, again by his choice: a box holds its size whatever it holds, empty included, and the boxes of one form line up on one side.
 
@@ -392,8 +392,10 @@ is refused, because none of those states can be seen from a still.
 
 52a. **Review is a SHEET over the invoice** (Dan, 2026-09-09). **It was drawn dropping from
 under the window's title bar, and that part is overturned by 48a** (Dan, 2026-09-25): every sheet
-floats centred with every corner rounded, and ovation#547 moves this one. The rest of this
-requirement stands. The invoice screen stays behind it and there is nothing to navigate back from. Kept
+floats centred with every corner rounded, and ovation#547 moved this one, in the design record
+and in the app, where it is drawn over the window rather than presented as a system sheet. At the
+smallest window it keeps 18 points clear of the title bar and of the window's foot by giving up
+height, and its page scrolls. The rest of this requirement stands. The invoice screen stays behind it and there is nothing to navigate back from. Kept
 against the document as a full screen with the recipients in a rail, and against a third place in
 the invoice screen's own language. **Two consequences are requirements rather than drawing.** The
 sheet belongs to the WINDOW, not to the desktop: positioned against the screen it starts above the

@@ -139,4 +139,55 @@ struct DueDateControlTests {
             #expect(found.first?.day.dayKey == term.day.dayKey)
         }
     }
+
+    // MARK: another date (ovation#547 moved it into a floating sheet)
+
+    final class Pressed {
+        var saved: [String] = []
+        var closed = 0
+    }
+
+    private static func panel(_ pressed: Pressed) -> AnotherDatePanel {
+        AnotherDatePanel(due: "26 Nov 2026", example: BusinessCalendar.day(forKey: "2026-11-12")!,
+                         refused: nil, save: { pressed.saved.append($0.dayKey) },
+                         close: { pressed.closed += 1 })
+    }
+
+    @Test("a date typed that cannot be read is refused by name, and the panel stays open")
+    func anUnreadableDateIsRefused() async throws {
+        let pressed = Pressed()
+        let panel = Self.panel(pressed)
+        ViewHosting.host(view: panel)
+        defer { ViewHosting.expel() }
+        try await panel.inspection.inspect { view in
+            try view.find(ViewType.TextField.self).setInput("next Tuesday")
+        }
+        try await panel.inspection.inspect { view in
+            try view.find(button: "Save").tap()
+        }
+        final class Seen { var words: [String] = [] }
+        let seen = Seen()
+        try await panel.inspection.inspect { view in
+            seen.words = view.findAll(ViewType.Text.self).compactMap { try? $0.string() }
+        }
+        #expect(seen.words.contains("Not a date Ovation can read. Write it like 12 Nov 2026."))
+        #expect(pressed.saved.isEmpty)
+        #expect(pressed.closed == 0)
+    }
+
+    @Test("a date typed that can be read is saved, and the panel closes")
+    func aReadableDateIsSaved() async throws {
+        let pressed = Pressed()
+        let panel = Self.panel(pressed)
+        ViewHosting.host(view: panel)
+        defer { ViewHosting.expel() }
+        try await panel.inspection.inspect { view in
+            try view.find(ViewType.TextField.self).setInput("3 Dec 2026")
+        }
+        try await panel.inspection.inspect { view in
+            try view.find(button: "Save").tap()
+        }
+        #expect(pressed.saved == ["2026-12-03"])
+        #expect(pressed.closed == 1)
+    }
 }

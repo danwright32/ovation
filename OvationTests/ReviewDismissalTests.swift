@@ -4,10 +4,9 @@ import Testing
 /// ovation#42. Every way the review sheet closes settles the review exactly once, and
 /// a send in flight cannot be closed away.
 ///
-/// WHY A TRACKER. The sheet closes by its own Close and Done, which settle the review
-/// directly, and by the Escape key, which only clears the binding. The one thing both
-/// reach is the sheet's dismissal, so the review is settled there too, and this makes
-/// the second arrival a no-op rather than a second hand back of a number.
+/// WHY A TRACKER. The sheet closes by its own Close and Done and by the Escape key,
+/// and since it floats (ovation#547) all three call one close, which settles here
+/// first, so a second arrival is a no-op rather than a second hand back of a number.
 struct ReviewDismissalTests {
 
     final class Review {}

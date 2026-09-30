@@ -455,6 +455,56 @@ struct WritersReachTheScreenTests {
         #expect(screen.history != nil, "the shell holds the history pane")
     }
 
+    /// ovation#547, PRD 48a. Review opens the sheet FLOATING over the window, never
+    /// as a system sheet hanging from the title bar, and Escape closes it through the
+    /// reviewer, as Close does, so the number the review took is handed back.
+    @Test("Review floats the sheet over the window, and Escape closes it")
+    func reviewFloatsTheSheet() async throws {
+        let draft = try Self.draft()
+        let container = draft.context.container
+        let noon = Self.noon
+        let reviewer = InvoiceReviewer(container: container, footer: { .fixed }, settingsFile: nil,
+                                       makeSender: { _ in .failure(SenderUnavailable(sentence: "no")) },
+                                       clock: { noon })
+        let shell = try Self.shell(of: Self.window(draft, heard: Heard(), edits: InvoiceEditCommand(),
+                                                   spying: false, reviewer: reviewer))
+        ViewHosting.host(view: shell)
+        defer { ViewHosting.expel() }
+        let screen = try await Self.open(draft, in: shell)
+        try #require(screen.review)()
+
+        let floating = Floating()
+        for _ in 0..<300 {
+            try await shell.inspection.inspect { view in
+                floating.found = (try? view.find(FloatingSheet<ReviewSheet>.self)) != nil
+            }
+            if floating.found { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(floating.found, "Review did not float the sheet over the window")
+
+        try await shell.inspection.inspect { view in
+            try view.find(FloatingSheet<ReviewSheet>.self).zStack().callOnExitCommand()
+        }
+        for _ in 0..<300 {
+            try await shell.inspection.inspect { view in
+                floating.found = (try? view.find(FloatingSheet<ReviewSheet>.self)) != nil
+            }
+            if !floating.found { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(!floating.found, "Escape did not close the review")
+        // Closed through the reviewer: the number the review took is given back.
+        for _ in 0..<300 where draft.invoice.number != nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(draft.invoice.number == nil, "the number the review took was not handed back")
+    }
+
+    final class Floating {
+        var found = false
+    }
+
     /// ovation#556, PRD 51o. ONCE RECORD IS PRESSED THE HISTORY OPENS WITH THE NEW
     /// PAYMENT MARKED, and the mark clears when the history is closed. The writer here
     /// writes a real payment into the store the screen is read from, so what is

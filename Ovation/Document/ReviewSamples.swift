@@ -90,8 +90,15 @@ private struct ReviewSamplesPresentation: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $command.showing) { sample in
-                sheet(for: sample)
+            // FLOATING, as every sheet does (PRD 48a, ovation#547).
+            .overlay {
+                if let sample = command.showing {
+                    FloatingSheet(below: ShellView.titleBarHeight, dim: 0.26,
+                                  escape: { command.close() }) {
+                        sheet(for: sample)
+                    }
+                    .ignoresSafeArea(.container, edges: .top)
+                }
             }
             .alert("Review is not offered for this one",
                    isPresented: Binding(get: { command.refused != nil },

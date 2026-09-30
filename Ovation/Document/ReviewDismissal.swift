@@ -1,10 +1,10 @@
 // ovation#42. Every way the review sheet closes settles the review exactly once.
 //
-// The sheet closes by its own Close and Done, which settle the review directly, and by
-// the Escape key, which only clears the binding the sheet is presented from. Both reach
-// the sheet's dismissal, so the review is settled there as well, and whichever arrives
-// second finds nothing to settle. Without this, Escape closed the sheet and never handed
-// back a number the review had taken.
+// The sheet closes by its own Close and Done and by the Escape key, and all three reach
+// the one close in ShellView, which settles here first, so whichever arrives second
+// finds nothing to settle. Escape once cleared only the binding a system sheet was
+// presented from and never handed back a number the review had taken; since the sheet
+// floats (ovation#547) Escape calls the same close as Close does.
 import Foundation
 
 struct ReviewOnScreen<Review: AnyObject> {
