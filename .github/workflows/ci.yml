@@ -84,7 +84,14 @@ jobs:
   shell-suites-linux:
     name: Shell suites on Linux
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30 SINCE ovation#625, #197 AND THE WINDOW THEME CHECK. On main this job ran 17
+    # to 19 minutes of its 20 on 2026-09-29 and 30, and those three rendering checks
+    # add about 8 on the runner (each renders every state a press reaches, the
+    # inset check at two window sizes and the theme check in two themes, in its
+    # CI step, in its suite and again in the committed record judgement), so the
+    # first run of them was cancelled at 20 with every suite passing. A Linux
+    # minute bills at one times, so the ceiling costs nothing until a run hangs.
+    timeout-minutes: 30
     # WHERE A BROWSER RESTART IS WRITTEN DOWN (ovation#332). This is the only job
     # with a browser to restart, and a runner is destroyed when it finishes, so
     # the record is named into the workspace and kept as an artifact rather than
@@ -138,6 +145,9 @@ jobs:
           python3 scripts/check-design-tokens-resolve.sh
           python3 scripts/check-design-sidebar-card.sh
           python3 scripts/check-design-window-top.sh
+          python3 scripts/check-design-control-inset.sh
+          python3 scripts/check-design-decisions-drawn.sh
+          python3 scripts/check-design-window-theme.sh
 
       # MUST MEASURE (ovation#161). A suite that cannot measure here is allowed only
       # when it carries `# ovation-runs-on: macos`, because the build job runs
