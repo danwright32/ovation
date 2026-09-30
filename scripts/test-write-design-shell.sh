@@ -112,8 +112,8 @@ damage "$ADDED" shell/window.css \
     ".dot { width: 11px; height: 11px; border-radius: 50%; }" \
     ".dot { width: 11px; height: 11px; border-radius: 50%; }
 .dot.focused { outline: 1px solid var(--accent); }"
-check "a rule added to the shell leaves four copies drifted" \
-    "$(OVATION_DESIGN_ROOT="$ADDED" python3 "$CHECKER" 2>&1 | grep -c DRIFTED)" "4"
+check "a rule added to the shell leaves five copies drifted" \
+    "$(OVATION_DESIGN_ROOT="$ADDED" python3 "$CHECKER" 2>&1 | grep -c DRIFTED)" "5"
 check_exit "the writer puts it into all of them" 0 write_status "$ADDED"
 check_exit "and the checker then passes" 0 check_status "$ADDED"
 check "and it landed beside the rule it follows in the part" \
