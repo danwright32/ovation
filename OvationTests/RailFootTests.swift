@@ -268,6 +268,26 @@ struct RailFootTests {
         #expect(names == ["Bad backup, 31 May", "Bad backup, 30 May"])
     }
 
+    /// The foot names every line from one pass (RailFoot.Grouping) rather than asking
+    /// each problem what it is called among the rest; the two must agree.
+    @Test("the one pass names every problem as it would be named alone among the rest")
+    func theGroupingAgreesWithEachName() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        store.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-090000",
+                    sentence: "a", now: at(1))
+        store.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-210000",
+                    sentence: "b", now: at(2))
+        store.raise(kind: .archiveNoLongerVerifies, subject: "renamed by hand", sentence: "c", now: at(3))
+        store.raise(kind: .backupsAreStale, subject: "store", sentence: "d", now: at(4))
+        store.raise(kind: .exportWritten, subject: "year-end-export-2026", sentence: "e", now: at(5))
+
+        let grouping = RailFoot.Grouping(store.open)
+        for problem in store.open {
+            #expect(grouping.name(of: problem) == problem.shortName(among: store.open))
+        }
+        #expect(grouping.lines.count == 4)
+    }
+
     @Test("a kind that does not share a line keeps one line per problem")
     func otherKindsDoNotShare() {
         let store = ProblemsStore(journal: InMemoryProblemsJournal())

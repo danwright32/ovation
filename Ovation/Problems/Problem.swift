@@ -269,12 +269,22 @@ extension ProblemKind {
         guard let subject, let instant = BackupService.instant(fromArchiveNamed: subject) else {
             return nil
         }
+        return timeFormatter.string(from: instant)
+    }
+
+    /// BUILT ONCE, as BusinessCalendar's own are, because the foot names every open
+    /// problem on every render. The zone is set here rather than taken from the Mac,
+    /// which is what keeps an evening backup on its own day (L504).
+    private static let timeFormatter = businessFormatter("HH:mm")
+    private static let dayFormatter = businessFormatter("d MMM")
+
+    private static func businessFormatter(_ format: String) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.timeZone = BusinessCalendar.timeZone
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: instant)
+        formatter.dateFormat = format
+        return formatter
     }
 
     /// The kinds named for their archive's day when several are open at once.
@@ -287,12 +297,7 @@ extension ProblemKind {
     /// "30 May", in the business calendar the archive name was written in, so an
     /// evening backup is not named for the next day wherever the Mac's clock is set.
     private static func footDay(_ instant: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = BusinessCalendar.timeZone
-        formatter.dateFormat = "d MMM"
-        return formatter.string(from: instant)
+        dayFormatter.string(from: instant)
     }
 
     /// The year in a year end export's subject, `year-end-export-2026`, or nil.
@@ -392,8 +397,13 @@ struct Problem: Identifiable, Equatable, Codable, Sendable {
     /// another open problem shares this one's kind, the name carries what tells
     /// them apart where the kind has it.
     func shortName(among open: [Problem]) -> String {
-        let sharing = open.contains { $0.kind == kind && $0.id != id }
-        return kind.shortName(subject: subject, sharingKind: sharing) ?? shortName
+        shortName(sharingKind: open.contains { $0.kind == kind && $0.id != id })
+    }
+
+    /// The name when it is already known whether another open problem shares this
+    /// kind, which is how the foot names every line from one pass (RailFoot.Grouping).
+    func shortName(sharingKind: Bool) -> String {
+        kind.shortName(subject: subject, sharingKind: sharingKind) ?? shortName
     }
 
     static func identity(kind: ProblemKind, subject: String?) -> String {

@@ -27,8 +27,6 @@ struct DueDateControl: View {
     let choices: [InvoiceScreenPresenter.DueChoice]
     /// What saving a date does, or nil where this invoice may not be edited.
     var save: ((BusinessDate) -> Void)?
-    /// Why the last save did not happen, said rather than swallowed.
-    var refused: String?
     /// What "Another date..." does: asks the screen to float `AnotherDatePanel`
     /// over itself (ovation#547). The panel is the screen's to draw, because a
     /// sheet floats over the window and this is a word in the foot. Nil offers no

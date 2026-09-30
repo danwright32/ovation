@@ -422,7 +422,7 @@ struct ShellView: View {
                     RunningExportView(command: command, onRail: true)
                 }
                 ForEach(lines.shown) { problem in
-                    footLine(problem)
+                    footLine(problem, named: lines.grouping.name(of: problem), in: lines.grouping)
                 }
                 if let more = RailFoot.moreSentence(lines.more) {
                     // A CONTROL LIKE READ (Dan, 2026-09-26): what it opens lists every
@@ -448,11 +448,12 @@ struct ShellView: View {
     }
 
     /// One open thing, with what its Read opens anchored to that Read.
-    private func footLine(_ problem: Problem) -> some View {
-        RailFootLine(name: problem.shortName(among: problems.open),
+    private func footLine(_ problem: Problem, named name: String,
+                          in grouping: RailFoot.Grouping) -> some View {
+        RailFootLine(name: name,
                      read: { shell.read(problem.id) },
                      isReading: readingBinding(problem.id),
-                     reading: reading(for: problem))
+                     reading: reading(for: problem, in: grouping))
     }
 
     /// Whether this line's popover is open. Clicking away closes it, which is not
@@ -481,8 +482,8 @@ struct ShellView: View {
     ///
     /// A LINE SHARED BY SEVERAL (ovation#609) reads every one of them and is read
     /// as a whole: "I have read this" marks each member read.
-    func reading(for problem: Problem) -> FootReading {
-        let members = RailFoot.members(of: problem, among: problems.open)
+    func reading(for problem: Problem, in grouping: RailFoot.Grouping? = nil) -> FootReading {
+        let members = (grouping ?? RailFoot.Grouping(problems.open)).members(of: problem)
         return FootReading(sentence: RailFoot.sentence(for: members), done: {
             for member in members { problems.acknowledge(member.id, now: now()) }
             shell.stopReading()
@@ -864,6 +865,9 @@ enum RailFoot {
     struct Lines: Equatable {
         let shown: [Problem]
         let more: Int
+        /// The grouping the lines were cut from, so a view names each line from the
+        /// one pass rather than working it out again per line.
+        let grouping: Grouping
     }
 
     /// Newest first, by when each was last raised, so a standing condition found
@@ -871,30 +875,64 @@ enum RailFoot {
     /// later. Problems that share one line (ovation#609) stand as their newest, and
     /// "and N more" counts lines, not problems.
     static func lines(for open: [Problem]) -> Lines {
-        let newest = everyLine(for: open)
-        return Lines(shown: Array(newest.prefix(most)), more: max(newest.count - most, 0))
+        let grouping = Grouping(open)
+        let newest = grouping.lines
+        return Lines(shown: Array(newest.prefix(most)), more: max(newest.count - most, 0),
+                     grouping: grouping)
     }
 
     /// Every line, newest first, each standing as its newest member: the foot's
     /// order and the list behind "and N more", which groups exactly as the foot does
     /// so two backups of one day are one entry there too.
-    static func everyLine(for open: [Problem]) -> [Problem] {
-        var seen: Set<String> = []
-        return newestFirst(open).filter { seen.insert(lineKey($0, among: open)).inserted }
-    }
-
-    /// Which line a problem stands on: its own, or for a kind that shares one line
-    /// per name (ovation#609), the kind and that name.
-    static func lineKey(_ problem: Problem, among open: [Problem]) -> String {
-        guard ProblemKind.sharingOneLine.contains(problem.kind) else { return "problem:\(problem.id)" }
-        return "line:\(problem.kind.rawValue):\(problem.shortName(among: open))"
-    }
+    static func everyLine(for open: [Problem]) -> [Problem] { Grouping(open).lines }
 
     /// Every open problem on the same line as this one, newest first: itself alone
     /// unless its kind shares a line (ovation#609).
     static func members(of problem: Problem, among open: [Problem]) -> [Problem] {
-        let key = lineKey(problem, among: open)
-        return newestFirst(open).filter { lineKey($0, among: open) == key }
+        Grouping(open).members(of: problem)
+    }
+
+    /// What the open problems come to in the foot, worked out ONCE per render: each
+    /// problem's name, which line it stands on, and each line's members (ovation#609).
+    /// Names depend on what else is open, so asking per problem rescanned the whole
+    /// list for every line drawn (L383, L471).
+    struct Grouping: Equatable {
+        /// One problem per line, newest first.
+        let lines: [Problem]
+        private let names: [Problem.ID: String]
+        private let keys: [Problem.ID: String]
+        private let membersByKey: [String: [Problem]]
+
+        init(_ open: [Problem]) {
+            var perKind: [ProblemKind: Int] = [:]
+            for problem in open { perKind[problem.kind, default: 0] += 1 }
+            var names: [Problem.ID: String] = [:]
+            var keys: [Problem.ID: String] = [:]
+            var members: [String: [Problem]] = [:]
+            var lines: [Problem] = []
+            for problem in RailFoot.newestFirst(open) {
+                let name = problem.shortName(sharingKind: (perKind[problem.kind] ?? 0) > 1)
+                // A kind that shares one line per name (ovation#609) is keyed by that
+                // name; every other problem has a line of its own.
+                let key = ProblemKind.sharingOneLine.contains(problem.kind)
+                    ? "line:\(problem.kind.rawValue):\(name)" : "problem:\(problem.id)"
+                names[problem.id] = name
+                keys[problem.id] = key
+                if members[key] == nil { lines.append(problem) }
+                members[key, default: []].append(problem)
+            }
+            self.lines = lines
+            self.names = names
+            self.keys = keys
+            self.membersByKey = members
+        }
+
+        /// What the foot calls this problem, the same as `Problem.shortName(among:)`.
+        func name(of problem: Problem) -> String { names[problem.id] ?? problem.shortName }
+
+        func members(of problem: Problem) -> [Problem] {
+            keys[problem.id].flatMap { membersByKey[$0] } ?? [problem]
+        }
     }
 
     /// What Read opens for a line: its one sentence, or each member's in turn, a
@@ -987,16 +1025,15 @@ struct FootReadingList: View {
     let read: (Problem) -> Void
 
     var body: some View {
-        let open = problems.open
-        let lines = RailFoot.everyLine(for: open)
+        let grouping = RailFoot.Grouping(problems.open)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.element.id) { index, problem in
+                ForEach(Array(grouping.lines.enumerated()), id: \.element.id) { index, problem in
                     if index > 0 { Divider().overlay(OvationPalette.rule) }
-                    let name = problem.shortName(among: open)
+                    let name = grouping.name(of: problem)
                     // ONE ENTRY PER FOOT LINE (ovation#609): a line shared by several
                     // reads each of them, and is read as a whole.
-                    let members = RailFoot.members(of: problem, among: open)
+                    let members = grouping.members(of: problem)
                     VStack(alignment: .leading, spacing: 6) {
                         // Headed by the name the foot calls it, as the design record
                         // draws the list (rules/rail-foot.js, PRD 44f).

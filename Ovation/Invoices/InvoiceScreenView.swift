@@ -1203,7 +1203,6 @@ struct InvoiceScreenView: View {
             DueDateControl(issued: presenter.issued, due: presenter.due,
                            choices: presenter.dueChoices,
                            save: presenter.mayEdit ? setDueDate : nil,
-                           refused: refusedDate,
                            // ONLY WHERE THE PANEL CAN BE DRAWN, the overlay's own
                            // conditions, or the flag would stand with nothing on
                            // screen and the panel would open later, unasked.

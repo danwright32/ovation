@@ -190,4 +190,14 @@ struct DueDateControlTests {
         #expect(pressed.saved == ["2026-12-03"])
         #expect(pressed.closed == 1)
     }
+
+    /// Why the last save did not happen is said in the panel, where the date is typed,
+    /// rather than swallowed (L109).
+    @Test("a refused save is said in the panel")
+    func aRefusalIsSaid() throws {
+        let panel = AnotherDatePanel(due: "26 Nov 2026", example: BusinessCalendar.day(forKey: "2026-11-12")!,
+                                     refused: "This invoice has been sent, so its date stays.",
+                                     save: { _ in }, close: {})
+        #expect(try Self.text(in: panel).contains("This invoice has been sent, so its date stays."))
+    }
 }
