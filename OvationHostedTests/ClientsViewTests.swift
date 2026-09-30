@@ -246,7 +246,8 @@ struct ClientsViewTests {
         let drawn = try Self.text(in: view)
         #expect(!drawn.contains("Another client uses this address too."),
                 "the notice still says another client without saying which")
-        #expect(drawn.contains(" uses this address too."))
+        // Each word is its own view so the sentence can wrap (review of ovation#616).
+        #expect(drawn.joined(separator: " ").contains("uses this address too."))
 
         // THE NOTICE'S NAME, not the list's row, which carries the same name and
         // selects the same client, and so would pass this for the wrong reason.
@@ -257,6 +258,67 @@ struct ClientsViewTests {
         #expect(named.count == 1)
         try #require(named.first).tap()
         #expect(chosen.value == (try Self.id(of: "Eastvale Opera Workshop", in: clients)))
+    }
+}
+
+/// Review of ovation#616, L606. The shared address notice drawn at the width the
+/// page gives it in the 860 point window, with three long real-length names.
+@MainActor
+struct SharedAddressNoticeLayoutTests {
+
+    /// The notice's width at the smallest window: the window, less the rail, the
+    /// names column and its rule, and the page's 24 point sides.
+    static let halfScreenWidth = OvationWindow.minimumWidth - OvationWindow.railWidth
+        - ClientsView.namesWidth - 1 - 2 * 24
+
+    static let longNames = ["Brackenridge Youth Orchestra", "Nettlefield Baroque Consort",
+                            "Vesper Lane Chamber Society"]
+
+    /// Drayton's page, with the three long names on its address.
+    static func page() throws -> ClientsPresenter.Page {
+        let context = ModelContext(try OvationSchema.container(inMemory: true))
+        for name in ["Drayton Wind Ensemble"] + longNames {
+            let client = Client(name: name, taxStatus: .exempt)
+            client.email = "office@draytonarts.example"
+            context.insert(client)
+        }
+        let clients = try context.fetch(FetchDescriptor<Client>())
+        let presenter = ClientsPresenter(clients: clients)
+        return try #require(presenter.pages[try ClientsViewTests.id(of: "Drayton Wind Ensemble", in: clients)])
+    }
+
+    static func notice(_ page: ClientsPresenter.Page,
+                       placed: ((String, CGRect) -> Void)? = nil) -> some View {
+        SharedAddressNotice(said: page.sharedSaid, open: { _ in }, answer: {
+            ActionWord(word: "That is correct", size: 12.5, press: {})
+        }, placed: placed)
+    }
+
+    @Test("three long names at the 860 point window wrap: none is cut short, and the answer stays on the notice")
+    func threeLongNamesWrap() throws {
+        let page = try Self.page()
+        #expect(page.sharesAddressWith.map(\.name) == Self.longNames)
+        let placed = WholeRowTests.Box<[String: CGRect]>([:])
+        let width = Self.halfScreenWidth
+        let window = RealClick.host(Self.notice(page) { placed.value[$0] = $1 },
+                                    size: CGSize(width: width, height: 240))
+        defer { window.close() }
+
+        for name in Self.longNames {
+            let frame = try #require(placed.value[name], "\(name) was not drawn")
+            let whole = NSHostingView(rootView: ActionWord(word: name, size: 13, press: {}))
+                .fittingSize.width
+            #expect(frame.width >= whole - 0.5, "\(name) was cut to \(frame.width) of \(whole)")
+            #expect(frame.minX >= 0 && frame.maxX <= width + 0.5, "\(name) ran off the notice")
+        }
+        let answer = try #require(placed.value[SharedAddressNotice<ActionWord>.answerKey],
+                                  "the answer was not drawn")
+        #expect(answer.minX >= 0 && answer.maxX <= width - 12 + 0.5,
+                "the answer was pushed to \(answer.maxX) of a \(width) point notice")
+        // IT WAS WRAPPING THAT MADE THE ROOM, which is the claim: three names this
+        // long cannot share one line at this width.
+        let lines = Set(Self.longNames.compactMap { placed.value[$0].map { Int($0.minY) } })
+        #expect(lines.count > 1, "the names are all on one line, so nothing wrapped")
     }
 }
 
@@ -324,6 +386,12 @@ struct ClientsShotTests {
                                   acknowledgeShared: { _ in nil })
         try OffscreenShot.capture(drayton, size: Self.full, scheme: .light,
                                   to: directory.appending(path: "clients-shared-address.png"))
-        print("CLIENTS SHOTS: wrote five pictures into \(directory.path)")
+        // The notice at the smallest window with three long names (review of
+        // ovation#616), so the wrapping is seen and not only measured (L606).
+        try OffscreenShot.capture(SharedAddressNoticeLayoutTests.notice(try SharedAddressNoticeLayoutTests.page()),
+                                  size: CGSize(width: SharedAddressNoticeLayoutTests.halfScreenWidth, height: 120),
+                                  scheme: .light,
+                                  to: directory.appending(path: "clients-shared-address-three-half.png"))
+        print("CLIENTS SHOTS: wrote six pictures into \(directory.path)")
     }
 }
