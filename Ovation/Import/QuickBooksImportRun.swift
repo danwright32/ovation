@@ -23,17 +23,26 @@ struct QuickBooksImportRun: Sendable {
     let invoiceList: QuickBooksFileRead<QuickBooksInvoiceRow>
     let payments: QuickBooksFileRead<QuickBooksPaymentRow>
     let salesLines: QuickBooksFileRead<QuickBooksLineRow>
+    let invoicesAndPayments: QuickBooksFileRead<QuickBooksLedgerRow>
     /// Nil when either file it compares was refused as a whole, because
     /// reconciling against a file that cannot be believed produces findings
     /// about the wrong thing.
     let reconciliation: QuickBooksReconciliation?
+    /// Payments tied to invoices, nil on the same rule: either file refused.
+    let paymentReconciliation: QuickBooksPaymentReconciliation?
 
     init(invoiceList: QuickBooksFileRead<QuickBooksInvoiceRow>,
          payments: QuickBooksFileRead<QuickBooksPaymentRow>,
-         salesLines: QuickBooksFileRead<QuickBooksLineRow>) {
+         salesLines: QuickBooksFileRead<QuickBooksLineRow>,
+         invoicesAndPayments: QuickBooksFileRead<QuickBooksLedgerRow>) {
         self.invoiceList = invoiceList
         self.payments = payments
         self.salesLines = salesLines
+        self.invoicesAndPayments = invoicesAndPayments
+        self.paymentReconciliation = invoiceList.isAccepted && invoicesAndPayments.isAccepted
+            ? QuickBooksPaymentReconciliation.reconcile(invoices: invoiceList.accepted,
+                                                        ledger: invoicesAndPayments.accepted)
+            : nil
         self.reconciliation = invoiceList.isAccepted && salesLines.isAccepted
             ? QuickBooksReconciliation.reconcile(invoices: invoiceList.accepted, lines: salesLines.accepted)
             : nil
@@ -45,7 +54,9 @@ struct QuickBooksImportRun: Sendable {
         out += Self.fileReport(QuickBooksCustodyFile.invoiceList.fileName, invoiceList)
         out += Self.fileReport(QuickBooksCustodyFile.payments.fileName, payments)
         out += Self.fileReport(QuickBooksCustodyFile.salesLines.fileName, salesLines)
+        out += Self.fileReport(QuickBooksCustodyFile.invoicesAndPayments.fileName, invoicesAndPayments)
         out += reconciliationReport
+        out += paymentReconciliationReport
         if payments.isAccepted {
             let unnumbered = payments.accepted.filter { $0.number == nil }.count
             out.append("payments not matched to invoices: \(unnumbered) of \(payments.accepted.count) "
@@ -84,6 +95,45 @@ struct QuickBooksImportRun: Sendable {
         return out
     }
 
+    private var paymentReconciliationReport: [String] {
+        guard let result = paymentReconciliation else {
+            let refused = [invoiceList.isAccepted ? nil : "the invoice list",
+                           invoicesAndPayments.isAccepted ? nil : "the invoices and payments file"].compactMap { $0 }
+            let verb = refused.count == 1 ? "was" : "were"
+            return ["payments by invoice: not run, \(refused.joined(separator: " and ")) \(verb) refused"]
+        }
+        var out = ["payments by invoice: \(result.tied.count) invoices tied, \(result.refusals.count) refused"]
+        for refusal in result.refusals {
+            var places: [String] = []
+            if !refusal.invoiceListRows.isEmpty {
+                places.append(Self.rows("invoice list", refusal.invoiceListRows))
+            }
+            if !refusal.ledgerRows.isEmpty {
+                places.append(Self.rows("invoices and payments", refusal.ledgerRows))
+            }
+            if let group = refusal.groupRow { places.append("client heading row \(group)") }
+            let why: String
+            switch refusal.reason {
+            case .invoiceNotInPaymentsReport: why = "the invoice is not in the invoices and payments file"
+            case .onlyInPaymentsReport: why = "the invoice is not in the invoice list"
+            case .amountDiffersFromInvoiceList: why = "the invoice's amount differs from the invoice list"
+            case .paymentsDoNotMatchAmountPaid: why = "the payments do not add up to what the invoice was paid"
+            case .paymentsNotTiedToOneInvoice(let invoices, let payments, let agrees):
+                why = "the client holds \(invoices) invoices and \(payments) payments, and the file does not say "
+                    + "which paid which; together they \(agrees ? "do" : "do not") add up to what was paid"
+            case .paymentsWithNoInvoice: why = "payments under a client with no invoice in scope"
+            case .groupHoldsAnInvoiceThatDoesNotReconcile:
+                why = "payments under a client one of whose invoices is refused above"
+            }
+            out.append("  \(places.joined(separator: ", ")): \(why)")
+        }
+        return out
+    }
+
+    private static func rows(_ file: String, _ rows: [Int]) -> String {
+        "\(file) \(rows.count == 1 ? "row" : "rows") \(rows.map(String.init).joined(separator: ", "))"
+    }
+
     private static func fileReport<Row>(_ name: String, _ read: QuickBooksFileRead<Row>) -> [String] {
         var out = read.fileRefusals.map { "\(name): REFUSED, \(sentence(for: $0))" }
         out.append("\(name): \(read.rowsRead) read, \(read.accepted.count) accepted, \(read.refused.count) refused")
@@ -93,6 +143,8 @@ struct QuickBooksImportRun: Sendable {
         case .notComparable(let rows):
             out.append("  REFUSED, the TOTAL could not be compared, \(rows) rows have no readable amount")
         case .unreadableTotal: out.append("  REFUSED, the TOTAL row's amount cannot be read")
+        case .noneExported:
+            out.append("  this report exports no TOTAL, so completeness rests on its timestamp line and the reconciliations")
         case .noTotal:
             // Said once: a file refused before its rows were read, or refused
             // for having no TOTAL, already says why there is nothing here (L11).
@@ -141,6 +193,7 @@ struct QuickBooksImportRun: Sendable {
         case .amountIsNotQuantityTimesPrice: return "Amount is not Quantity times Sales price"
         case .duplicateInvoiceNumber(let rows):
             return "Num is shared by rows \(rows.map(String.init).joined(separator: ", "))"
+        case .outsideAnyGroup: return "the row sits above the first client heading, so it belongs to nobody"
         }
     }
 
@@ -157,6 +210,7 @@ struct QuickBooksImportRun: Sendable {
         case .unexpectedValue: return "unexpected value"
         case .amountIsNotQuantityTimesPrice: return "amount is not quantity times price"
         case .duplicateInvoiceNumber: return "shared invoice number"
+        case .outsideAnyGroup: return "outside any group"
         }
     }
 }

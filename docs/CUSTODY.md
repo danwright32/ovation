@@ -213,6 +213,11 @@ file answers.
 
 ## quickbooks-sales-lines-2026-09-29.csv
 
+> **SUPERSEDED 2026-09-30** by `quickbooks-sales-lines-accrual-2026-09-30.csv` below, and not
+> imported. Kept, hash and all, because it is the only real evidence that the importer refuses a
+> cash basis report: run through it, this file is refused as a whole by name (`cashBasis`), with
+> 57 rows read, 38 accepted and 19 refused as "amount is not quantity times price".
+
 The QuickBooks Sales by Product/Service Detail report, 1 January to 29 September 2026, taken
 because the invoice list carries no lines and no tax (ovation#66).
 
@@ -231,9 +236,54 @@ fractions of one whole line (a half and a half, a quarter and three quarters), w
 cash basis report splits a line across the payments that covered it. It also carries two invoice numbers
 the invoice list lacks, which an accrual export will either keep or explain. Ovation keeps its figures on accrual (PRD 5.24), so the
 importer refuses a cash basis sales lines report as a whole (ovation#67) and this file needs
-exporting again on accrual basis before any line is imported.
+exporting again on accrual basis before any line is imported. Dan did, on 2026-09-30.
 
-**How all three must be read.** The same rule as every file above: the SHA-256 is verified at read
+## quickbooks-sales-lines-accrual-2026-09-30.csv
+
+The same Sales by Product/Service Detail report, 1 January to 30 September 2026, run on ACCRUAL
+basis (Dan, 2026-09-30). This is the sales lines file the import reads.
+
+| Field | Value |
+| --- | --- |
+| Path | `~/Library/Application Support/Ovation/custody/quickbooks-sales-lines-accrual-2026-09-30.csv` |
+| SHA-256 | `d866fde4bc2adca23d492984e1bf5477e096f133ff8cd6ec356b9d94dfad292b` |
+| Captured | 2026-09-30 |
+| Mode | 0600 |
+| Contents | 45 line rows across 31 invoice numbers, the invoice list's 31, grouped by product |
+
+Same header and structure as the cash basis file. Run through the importer on 2026-09-30: 45 read,
+45 accepted, 0 refused, TOTAL agrees, and every row's amount is its quantity times its price.
+Reconciled against the invoice list, 10 invoices' lines sum to their total and 21 differ, which is
+where tax shows, since no tax column exports.
+
+## quickbooks-invoices-and-payments-2026-09-30.csv
+
+The QuickBooks Invoices and Received Payments report, 1 January to 30 September 2026 (Dan,
+2026-09-30), taken because the payments export carries no invoice number.
+
+| Field | Value |
+| --- | --- |
+| Path | `~/Library/Application Support/Ovation/custody/quickbooks-invoices-and-payments-2026-09-30.csv` |
+| SHA-256 | `e1a8283fa097bf6acce4af61317c2db4fa712462c2306a9c1d0ea8263a22cbb8` |
+| Captured | 2026-09-30 |
+| Mode | 0600 |
+| Contents | 32 invoice rows and 33 payment rows under 21 client headings |
+
+**Measured shape, and it is not the one the name suggests.** Four preamble lines and the header on
+line 5 (`(empty)`, Date, Transaction type, Memo/Description, Transaction number, Amount). Rows are
+grouped by CLIENT, under a heading row carrying only the client's name, not by invoice. A payment
+carries NO transaction number. There is no TOTAL row and no "Total for" row, so the body runs
+straight into three empty lines and the report timestamp.
+
+So a payment is tied to an invoice only where its client heading holds exactly one invoice. Run
+through the importer on 2026-09-30: 65 rows read, 63 accepted, 2 refused as dated before 2026 (two
+2025 invoices, which is why this file has 32 invoices to the invoice list's 31 less one). Payments
+by invoice: 16 invoices tied, 6 refused: one invoice list invoice this file does not carry, one
+single invoice client whose payments do not add up to what the invoice was paid, and four clients
+holding several invoices, where the file does not say which payment paid which (the payments of
+three of them add up to what their invoices were paid, and one does not).
+
+**How all of these must be read.** The same rule as every file above: the SHA-256 is verified at read
 time, by the importer itself (`QuickBooksExport` in `Ovation/Import`), and absent, unreadable or
 changed are three named outcomes that read nothing. The format they share is recorded on
 ovation#66 and in `OvationTests/QuickBooksFixtures.swift`, whose fixtures carry the measured

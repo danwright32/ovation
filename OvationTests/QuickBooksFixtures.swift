@@ -28,13 +28,13 @@ enum QuickBooksFixture {
     static let salesLinesHeader =
         ",Transaction date,Transaction type,Num,Client full name,Description,Quantity,Sales price,Amount,Balance"
 
-    /// A whole export: preamble, header, the body lines as given, TOTAL, three
-    /// empty lines and the timestamp line.
+    /// A whole export: preamble, header, the body lines as given, TOTAL where
+    /// the report has one, three empty lines and the timestamp line.
     ///
     /// The body lines are written RAW, already quoted the way QuickBooks quotes,
     /// so a test can plant exactly the malformation it is about.
     static func export(title: String, width: Int, header: String, body: [String],
-                       total: String, basis: String = "") -> String {
+                       total: String?, basis: String = "") -> String {
         let pad = String(repeating: ",", count: width - 1)
         var lines = [
             "Fictional Photography Co" + pad,
@@ -44,7 +44,7 @@ enum QuickBooksFixture {
             header,
         ]
         lines += body
-        lines.append(total)
+        if let total { lines.append(total) }
         lines += ["", "", ""]
         lines.append("\"\(basis) Tuesday, September 29, 2026 09:30 PM GMT-04:00\"" + pad)
         return lines.joined(separator: "\r\n") + "\r\n"
@@ -64,6 +64,33 @@ enum QuickBooksFixture {
     static func salesLines(_ body: [String], total: String, basis: String = "Accrual Basis") -> String {
         export(title: "Sales by Product/Service Detail", width: 10, header: salesLinesHeader,
                body: body, total: "TOTAL,,,,,,,,\(total),", basis: basis)
+    }
+
+    static let invoicesAndPaymentsHeader = ",Date,Transaction type,Memo/Description,Transaction number,Amount"
+
+    /// The Invoices and Received Payments report (2026-09-30). MEASURED: it
+    /// groups by CLIENT under a heading row carrying only the client's name,
+    /// its payments carry no transaction number, and it exports NO TOTAL row and
+    /// no "Total for" rows, so the body runs straight into the three empty
+    /// lines and the timestamp.
+    static func invoicesAndPayments(_ body: [String], timestamp: Bool = true) -> String {
+        var text = export(title: "Invoices and Received Payments", width: 6, header: invoicesAndPaymentsHeader,
+                          body: body, total: nil)
+        if !timestamp, let stamp = text.range(of: "\" Tuesday") {
+            text = String(text[..<stamp.lowerBound])
+        }
+        return text
+    }
+
+    static func client(_ name: String) -> String { name + ",,,,," }
+
+    static func ledgerInvoice(_ date: String = "1/19/2026", number: String = "1001", memo: String = "",
+                              amount: String = "100.00") -> String {
+        ",\(date),Invoice,\(memo),\(number),\(amount)"
+    }
+
+    static func ledgerPayment(_ date: String = "1/25/2026", amount: String = "100.00") -> String {
+        ",\(date),Payment,,,\(amount)"
     }
 
     /// An invoice list row. The name is written as given, so a caller wanting a

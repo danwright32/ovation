@@ -34,6 +34,7 @@ enum QuickBooksReport: String, CaseIterable, Sendable {
     case invoiceList
     case payments
     case salesLines
+    case invoicesAndPayments
 
     /// The header on line 5, exactly as measured. Anything else is a different
     /// report or a different export setting, and is refused as a whole.
@@ -47,8 +48,15 @@ enum QuickBooksReport: String, CaseIterable, Sendable {
         case .salesLines:
             return ["", "Transaction date", "Transaction type", "Num", "Client full name", "Description",
                     "Quantity", "Sales price", "Amount", "Balance"]
+        case .invoicesAndPayments:
+            return ["", "Date", "Transaction type", "Memo/Description", "Transaction number", "Amount"]
         }
     }
+
+    /// Whether the report exports a TOTAL row. MEASURED: the Invoices and
+    /// Received Payments report has none, and no "Total for" rows either, so its
+    /// body runs straight into the empty lines and the timestamp.
+    var hasTotalRow: Bool { self != .invoicesAndPayments }
 
     /// The column the TOTAL row sums, which is the one the short read check
     /// compares against the rows.
@@ -73,11 +81,19 @@ struct QuickBooksCustodyFile: Equatable, Sendable {
     static let payments = QuickBooksCustodyFile(
         report: .payments, fileName: "quickbooks-payments-2026-09-29.csv",
         sha256: "d798e8d99a45cc3ba271323bcc8bceb7d81d5464010b4fda92195311771a3c09")
+    /// The ACCRUAL basis re-export of 2026-09-30, which replaces the cash basis
+    /// file of 2026-09-29. That one stays in docs/CUSTODY.md, marked superseded,
+    /// and this parser refuses it by name.
     static let salesLines = QuickBooksCustodyFile(
-        report: .salesLines, fileName: "quickbooks-sales-lines-2026-09-29.csv",
-        sha256: "cf520aad69ff7280dad38fe9cf486c571d5a6bb7a91671542d98797d310e3961")
+        report: .salesLines, fileName: "quickbooks-sales-lines-accrual-2026-09-30.csv",
+        sha256: "d866fde4bc2adca23d492984e1bf5477e096f133ff8cd6ec356b9d94dfad292b")
+    /// The Invoices and Received Payments report of 2026-09-30, the only export
+    /// that places a payment under the client and invoices it belongs to.
+    static let invoicesAndPayments = QuickBooksCustodyFile(
+        report: .invoicesAndPayments, fileName: "quickbooks-invoices-and-payments-2026-09-30.csv",
+        sha256: "e1a8283fa097bf6acce4af61317c2db4fa712462c2306a9c1d0ea8263a22cbb8")
 
-    static let recorded = [invoiceList, payments, salesLines]
+    static let recorded = [invoiceList, payments, salesLines, invoicesAndPayments]
 
     static func sha256(of data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -129,6 +145,9 @@ enum QuickBooksTotalCheck: Equatable, Sendable {
     /// The TOTAL row is there and its amount cannot be read.
     case unreadableTotal
     case noTotal
+    /// The report exports no TOTAL at all, measured, so completeness rests on
+    /// its timestamp line and on the reconciliation against the other files.
+    case noneExported
 }
 
 /// One row refused, by its row number, with the reason.
@@ -151,6 +170,8 @@ struct QuickBooksRowRefusal: Equatable, Sendable {
         case amountIsNotQuantityTimesPrice
         /// Every row carrying one invoice number, when more than one does.
         case duplicateInvoiceNumber(rows: [Int])
+        /// A data row above the first group heading, so it belongs to nobody.
+        case outsideAnyGroup
     }
 }
 
@@ -172,7 +193,7 @@ struct QuickBooksFileRead<Row: Sendable>: Sendable {
     /// unreadable or left uncompared is a read nobody has shown was whole, and
     /// believing it is how a short read becomes a filed return (L211, ovation#72).
     var isAccepted: Bool {
-        fileRefusals.isEmpty && totalCheck == .agrees
+        fileRefusals.isEmpty && (totalCheck == .agrees || totalCheck == .noneExported)
     }
 
     static func refused(_ refusal: QuickBooksFileRefusal) -> QuickBooksFileRead {
@@ -202,6 +223,23 @@ struct QuickBooksPaymentRow: Equatable, Sendable {
     let memo: String
     let account: String
     let split: String
+    let amount: Money
+}
+
+/// One row of the Invoices and Received Payments report.
+struct QuickBooksLedgerRow: Equatable, Sendable {
+    enum Kind: Equatable, Sendable { case invoice, payment }
+
+    let row: Int
+    /// The client heading this row sits under, which is the only thing tying a
+    /// payment to anything: payments carry no transaction number.
+    let groupRow: Int
+    let client: String
+    let date: BusinessDate
+    let kind: Kind
+    /// The invoice number on an invoice row. Nil on every measured payment.
+    let number: Int64?
+    let memo: String
     let amount: Money
 }
 
@@ -322,6 +360,7 @@ enum QuickBooksExport {
         frame.headerAsMeasured = true
 
         let rest = records.dropFirst(QuickBooksReport.headerRow)
+        guard report.hasTotalRow else { return untotalledFrame(frame, rest: rest) }
         guard let totalIndex = rest.firstIndex(where: { $0.fields.first == "TOTAL" }) else {
             frame.body = Array(rest)
             frame.refusals.append(.noTotalRow)
@@ -345,6 +384,28 @@ enum QuickBooksExport {
         return frame
     }
 
+    /// A report with no TOTAL: the body ends at the run of empty lines before the
+    /// timestamp. A group heading has the same shape as the timestamp line, so
+    /// the timestamp is only the last record AFTER an empty one; a file cut off
+    /// mid body has no such line and is refused as having none.
+    private static func untotalledFrame(_ start: Frame, rest: ArraySlice<QuickBooksCSV.Record>) -> Frame {
+        var frame = start
+        let records = Array(rest)
+        guard let last = records.lastIndex(where: { !isBlank($0) }),
+              last > 0, isBlank(records[last - 1]),
+              !(records[last].fields.first ?? "").isEmpty,
+              records[last].fields.dropFirst().allSatisfy(\.isEmpty) else {
+            frame.body = records
+            frame.refusals.append(.noTimestampLine)
+            return frame
+        }
+        frame.timestamp = records[last].fields.first
+        var end = last
+        while end > 0 && isBlank(records[end - 1]) { end -= 1 }
+        frame.body = Array(records[..<end])
+        return frame
+    }
+
     private static func isBlank(_ record: QuickBooksCSV.Record) -> Bool {
         record.fields.allSatisfy(\.isEmpty)
     }
@@ -354,6 +415,7 @@ enum QuickBooksExport {
     /// what Ovation accepted from it.
     private static func totalCheck(_ frame: Frame, report: QuickBooksReport,
                                    amounts: [Money?]) -> QuickBooksTotalCheck {
+        guard report.hasTotalRow else { return .noneExported }
         guard let total = frame.total else { return .noTotal }
         let column = report.amountColumn
         guard column < total.fields.count,
@@ -561,6 +623,77 @@ enum QuickBooksExport {
         }
         return QuickBooksLineRow(row: record.row, date: date, number: number, clientName: client, product: product,
                                  description: f[5], quantityHundredths: quantity, salesPrice: price, amount: total)
+    }
+
+    // MARK: invoices and received payments, grouped by client
+
+    static func invoicesAndPayments(_ file: QuickBooksCustodyFile, in folder: URL)
+        -> QuickBooksFileRead<QuickBooksLedgerRow> {
+        switch verifiedData(file, in: folder) {
+        case .success(let data): return invoicesAndPayments(data)
+        case .failure(let refusal): return .refused(refusal.refusal)
+        }
+    }
+
+    static func invoicesAndPayments(_ data: Data) -> QuickBooksFileRead<QuickBooksLedgerRow> {
+        guard let text = String(data: data, encoding: .utf8) else { return .refused(.notUTF8) }
+        return invoicesAndPayments(text)
+    }
+
+    static func invoicesAndPayments(_ text: String) -> QuickBooksFileRead<QuickBooksLedgerRow> {
+        let report = QuickBooksReport.invoicesAndPayments
+        let frame = frame(text, report: report)
+        guard frame.headerAsMeasured else { return .refused(.headerNotAsMeasured) }
+
+        var accepted: [QuickBooksLedgerRow] = []
+        var refused: [QuickBooksRowRefusal] = []
+        var structure = 0
+        var group: (row: Int, client: String)?
+        for record in frame.body {
+            let f = record.fields
+            if isBlank(record) { structure += 1; continue }
+            let label = f.first ?? ""
+            if !label.isEmpty && f.dropFirst().allSatisfy(\.isEmpty) && f.count == report.header.count {
+                structure += 1
+                group = (record.row, label)
+                continue
+            }
+            do {
+                try checkShape(record, report: report)
+                guard label.isEmpty else { throw RowRefused(reason: .unexpectedValue(field: "the first column")) }
+                guard let group else { throw RowRefused(reason: .outsideAnyGroup) }
+                accepted.append(try ledgerRow(from: record, group: group))
+            } catch let refusal as RowRefused {
+                refused.append(QuickBooksRowRefusal(row: record.row, reason: refusal.reason))
+            } catch {
+                refused.append(QuickBooksRowRefusal(row: record.row, reason: .malformedQuoting))
+            }
+        }
+        return QuickBooksFileRead(fileRefusals: frame.refusals, rowsRead: accepted.count + refused.count,
+                                  accepted: accepted, refused: refused, structureRows: structure,
+                                  totalCheck: totalCheck(frame, report: report, amounts: []))
+    }
+
+    private static func ledgerRow(from record: QuickBooksCSV.Record,
+                                  group: (row: Int, client: String)) throws -> QuickBooksLedgerRow {
+        let f = record.fields
+        let date = try scopedDate(f[1], field: "Date")
+        let kind: QuickBooksLedgerRow.Kind
+        switch f[2] {
+        case "Invoice": kind = .invoice
+        case "Payment": kind = .payment
+        default: throw RowRefused(reason: .unexpectedValue(field: "Transaction type"))
+        }
+        // An invoice must carry its number, since that is what ties it to the
+        // invoice list. A payment carries none on every measured row; one that
+        // does is read, and refused if it is not a number.
+        var number: Int64?
+        if kind == .invoice || !f[4].isEmpty {
+            number = try invoiceNumber(f[4], field: "Transaction number")
+        }
+        let amount = try readAmount(f[5], field: "Amount")
+        return QuickBooksLedgerRow(row: record.row, groupRow: group.row, client: group.client, date: date,
+                                   kind: kind, number: number, memo: f[3], amount: amount)
     }
 
     // MARK: the basis

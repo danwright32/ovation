@@ -32,15 +32,23 @@ struct QuickBooksImportReportTests {
                 F.line(number: "1002", client: "Ensemble \u{00C9}lan Fictif", quantity: "2.00",
                        price: "400.00", amount: "\"1,100.00\""),
                 F.groupTotal("--", amount: "\"$1,200.00\""),
-            ], total: "\"$1,200.00\"", basis: basis)))
+            ], total: "\"$1,200.00\"", basis: basis)),
+            invoicesAndPayments: Self.ledger)
     }
+
+    private static let ledger = QuickBooksExport.invoicesAndPayments(F.invoicesAndPayments([
+        F.client("\"Fictive, Quartet\""),
+        F.ledgerInvoice(number: "1001", amount: "108.88"), F.ledgerPayment(amount: "108.88"),
+        F.client("Ensemble \u{00C9}lan Fictif"),
+        F.ledgerInvoice(number: "1002", amount: "\"1,100.00\""), F.ledgerPayment(amount: "\"1,000.00\""),
+    ]))
 
     @Test("each file reports rows read, accepted and refused, and each refusal its row and reason")
     func eachFileReportsItsCounts() {
         let text = Self.run().report.joined(separator: "\n")
         #expect(text.contains("quickbooks-invoice-list-2026-09-29.csv: 3 read, 2 accepted, 1 refused"))
         #expect(text.contains("row 7: Date is before 2026-01-01, outside Ovation's record"))
-        #expect(text.contains("quickbooks-sales-lines-2026-09-29.csv: 2 read, 1 accepted, 1 refused"))
+        #expect(text.contains("quickbooks-sales-lines-accrual-2026-09-30.csv: 2 read, 1 accepted, 1 refused"))
         #expect(text.contains("row 7: Amount is not Quantity times Sales price"))
         #expect(text.contains("quickbooks-payments-2026-09-29.csv: 1 read, 1 accepted, 0 refused"))
     }
@@ -64,7 +72,7 @@ struct QuickBooksImportReportTests {
     func aRefusedFileIsSaidFirst() {
         let lines = Self.run(basis: "Cash Basis").report
         let text = lines.joined(separator: "\n")
-        #expect(text.contains("quickbooks-sales-lines-2026-09-29.csv: REFUSED, the report is on cash basis"))
+        #expect(text.contains("quickbooks-sales-lines-accrual-2026-09-30.csv: REFUSED, the report is on cash basis"))
         #expect(text.contains("reconciliation by invoice number: not run, the sales lines file was refused"))
     }
 
@@ -78,7 +86,8 @@ struct QuickBooksImportReportTests {
                                                            total: "\"$1,234.56\"")),
             salesLines: QuickBooksExport.salesLines(F.salesLines([
                 F.line(number: "1001", amount: "100.00"), F.groupTotal("--", amount: "$100.00"),
-            ], total: "$100.00")))
+            ], total: "$100.00")),
+            invoicesAndPayments: Self.ledger)
         let text = run.report.joined(separator: "\n")
         #expect(text.contains("REFUSED, the TOTAL could not be compared, 1 rows have no readable amount"))
         #expect(text.contains("reconciliation by invoice number: not run, the invoice list was refused"))
@@ -93,6 +102,16 @@ struct QuickBooksImportReportTests {
         #expect(text.contains("written: nothing, this build reads and reconciles only"))
         #expect(text.contains("already imported: not checked, nothing reads the store yet"))
         #expect(!text.contains("0 written"))
+    }
+
+    @Test("payments are tied to an invoice only where the client holds one, and every other case is named by row")
+    func paymentsAreTiedByRow() {
+        let text = Self.run().report.joined(separator: "\n")
+        #expect(text.contains("quickbooks-invoices-and-payments-2026-09-30.csv: 4 read, 4 accepted, 0 refused"))
+        #expect(text.contains("this report exports no TOTAL"))
+        #expect(text.contains("payments by invoice: 1 invoices tied, 1 refused"))
+        #expect(text.contains("invoice list row 8, invoices and payments rows 10, 11, client heading row 9: "
+                              + "the payments do not add up to what the invoice was paid"))
     }
 
     @Test("payments say why they are not matched to invoices")

@@ -422,7 +422,7 @@ struct QuickBooksExportTests {
         // this is what keeps them one (L41). The note is what
         // scripts/check-custody-files.sh verifies the files against.
         let note = try Self.custodyNote()
-        #expect(QuickBooksCustodyFile.recorded.map(\.report) == [.invoiceList, .payments, .salesLines])
+        #expect(QuickBooksCustodyFile.recorded.map(\.report) == [.invoiceList, .payments, .salesLines, .invoicesAndPayments])
         for file in QuickBooksCustodyFile.recorded {
             let heading = try #require(note.range(of: "## \(file.fileName)\n"))
             let rest = note[heading.upperBound...]
