@@ -54,10 +54,10 @@ file's idea of the mapping against a second one written beside the check (L107).
 PRD 46a states the rule and says in its own words that it is unenforceable
 without the mapping beside it.
 
-AND A LINE WITH NO ROWS IN THIS RECORD IS NEITHER. `Receipts to file` counts the
-other half of the product, which has no screen here at all, and three of the four
-files draw the card without drawing any rows under it. Those are counted and
-printed rather than passed over, because a run that judged four lines and a run
+AND A LINE WITH NO ROWS IN THE FILE IS NEITHER. `Receipts to file` is judged only
+in receipts.html, which draws the receipts it counts, and the files that are not a
+list draw the card without drawing any rows under it. Those are counted and
+printed rather than passed over, because a run that judged five lines and a run
 that judged none otherwise end with the same sentence (L98).
 
 FIVE IS GEOMETRY AND IT IS HERE ON PURPOSE. The held line sits OUTSIDE the card

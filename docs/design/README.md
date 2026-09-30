@@ -392,7 +392,7 @@ rather than the file's idea of the mapping against a second one written beside t
 
 **Five lines can be judged and twenty cannot, and the check says so rather than passing over
 them.** `Receipts to file` is judged in `receipts.html`, which draws the receipts it counts, and in
-no other file; and the files that are not a list draw the card without drawing any rows beneath it. A run that judged four lines and a run that judged none would otherwise end with
+no other file; and the files that are not a list draw the card without drawing any rows beneath it. A run that judged five lines and a run that judged none would otherwise end with
 the same sentence.
 
 **Two drafts belong to no line, deliberately.** The one waiting for a date and the one waiting for
