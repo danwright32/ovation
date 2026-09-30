@@ -542,6 +542,20 @@ def what_the_reader_said(ran):
         lines.append("  stdout: (nothing)")
     elif stdout.lstrip().startswith("{"):
         lines.append(f"  stdout: {len(ran.stdout)} bytes of JSON that do not parse (not quoted, it can hold receipt text)")
+        # The decoder's own complaint names a position and a kind of fault,
+        # never the text, and anything AFTER a complete JSON value is not the
+        # reader's JSON at all, so it is quoted: on CI it was the whole cause.
+        try:
+            json.loads(stdout)
+        except ValueError as error:
+            lines.append(f"  the parser said: {getattr(error, 'msg', 'not JSON')} at character {getattr(error, 'pos', '?')}")
+        try:
+            _, end = json.JSONDecoder().raw_decode(stdout.lstrip())
+            after = stdout.lstrip()[end:].strip()
+            if after:
+                lines.append("  after the JSON came: " + after[:300])
+        except ValueError:
+            pass
     else:
         lines.append("  stdout began: " + stdout.lstrip().splitlines()[0][:300])
     return "\n".join(lines)

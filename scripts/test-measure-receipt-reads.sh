@@ -20,7 +20,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "photographed receipt probe tests" 57
+harness_begin "photographed receipt probe tests" 58
 
 TARGET="scripts/measure-receipt-reads.py"
 require_target "$TARGET"
@@ -264,7 +264,11 @@ check_exit "a Mac without the Swift compiler answers CANNOT MEASURE, not a resul
 # bad output can be produced on purpose.
 printf '#!/bin/bash\necho "objc[1]: a framework warning"\necho "{\\"x\\":"\necho "a note on stderr" >&2\n' > "$WORK/junk-reader"
 printf '#!/bin/bash\nprintf %%s "{\\"receipts\\": [{\\"text\\": \\"QUILLFEATHER"\n' > "$WORK/cut-reader"
-chmod +x "$WORK/junk-reader" "$WORK/cut-reader"
+printf '#!/bin/bash\nprintf %%s "{\\"receipts\\": []}"\necho "a framework line after it"\n' > "$WORK/trailing-reader"
+chmod +x "$WORK/junk-reader" "$WORK/cut-reader" "$WORK/trailing-reader"
+TRAIL="$(OVATION_RECEIPT_READER="$WORK/trailing-reader" ./"$TARGET" --folder "$RECEIPTS" --results "$WORK/r8" 2>&1)"
+check "text after a complete JSON value is quoted, since it is not the reader's JSON" \
+    "$(grep -c '^  after the JSON came: a framework line after it$' <<< "$TRAIL"):$(grep -c 'the parser said: Extra data' <<< "$TRAIL")" "1:1"
 JUNK="$(OVATION_RECEIPT_READER="$WORK/junk-reader" ./"$TARGET" --folder "$RECEIPTS" --results "$WORK/r5" 2>&1)"; JUNK_STATUS=$?
 check "output that is not the reader's JSON is refused" \
     "$JUNK_STATUS:$(grep -c '^REFUSED: the Vision reader wrote something that is not its JSON' <<< "$JUNK")" "1:1"
