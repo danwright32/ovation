@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.." || exit 1
 # The one declaration the cases below use, cleared so a value inherited from the
 # shell that launched this suite cannot answer for a case (L439).
 unset OVATION_SUITE_RECORD_STAGED
-harness_begin "durable record tests" 31
+harness_begin "durable record tests" 39
 
 RULE="scripts/lib/durable-record.sh"
 TARGET="scripts/check-durable-records.sh"
@@ -122,6 +122,86 @@ OUT="$(run_check)"; ST=$?
 check "a second python writer beside a routed one is refused" "$ST" "1"
 check "and it is the second one that is named" "$(says "$OUT" "scripts/lib/writer.py:4")" "yes"
 check "and the routed one is not" "$(says "$OUT" "UNROUTED: scripts/lib/writer.py:2")" "no"
+
+# 3b. ANOTHER LANGUAGE'S OPERATOR is not a shell append (ovation#619). The lift
+#     harness had to write a JavaScript hash without an unsigned shift because
+#     the scan read its brackets, inside a string of a python program, as a shell
+#     append: the check shaping code it has no business judging. Another language
+#     lives in a script here in two places: a whole file that is python behind the
+#     exec line, and a heredoc a shell script feeds to another interpreter.
+reset_tree
+cat > "$TREE/scripts/polyglot.sh" <<'PY'
+#!/usr/bin/env python3
+''''exec python3 "$0" "$@" #'''
+SCRIPT = "function h(x) { return (x >>> 0).toString(16); }"
+bits = 1 >> 1
+PY
+OUT="$(run_check)"; ST=$?
+check "a shift inside a python program started from a .sh file is not an append" "$ST" "0"
+
+reset_tree
+cat > "$TREE/scripts/fed.sh" <<'SH'
+#!/bin/bash
+OUT="$(python3 - "$1" <<'INNER'
+SCRIPT = "function h(x) { return (x >>> 0).toString(16); }"
+bits = 1 >> 1
+INNER
+)"
+node <<-INNER
+	var y = 8 >>> 1;
+	INNER
+echo done
+SH
+OUT="$(run_check)"; ST=$?
+check "a shift inside a heredoc fed to python or node is not an append" "$ST" "0"
+check "and nothing in it is counted as a writer" "$(says "$OUT" "UNROUTED")" "no"
+
+# The same shapes must not become a hiding place for a REAL append: one after the
+# heredoc ends, one in a heredoc fed to a shell, one python writer inside a python
+# heredoc, and a python writer in a python program behind the exec line.
+printf 'printf "a\\n" >> "$HOME/after.tsv"\n' >> "$TREE/scripts/fed.sh"
+OUT="$(run_check)"; ST=$?
+check "a real append after a python heredoc ends is still refused, by its line" \
+    "$ST:$(says "$OUT" "UNROUTED: scripts/fed.sh:11")" "1:yes"
+
+reset_tree
+cat > "$TREE/scripts/shellfed.sh" <<'SH'
+bash <<'INNER'
+printf 'a\n' >> "$HOME/inner.tsv"
+INNER
+SH
+OUT="$(run_check)"; ST=$?
+check "an append in a heredoc fed to a shell is still refused" \
+    "$ST:$(says "$OUT" "UNROUTED: scripts/shellfed.sh:2")" "1:yes"
+
+reset_tree
+cat > "$TREE/scripts/pywriter.sh" <<'SH'
+python3 - <<'INNER'
+with open(other, "a") as handle:
+    handle.write("x")
+INNER
+SH
+OUT="$(run_check)"; ST=$?
+check "a python writer in a heredoc fed to python is still refused" \
+    "$ST:$(says "$OUT" "UNROUTED: scripts/pywriter.sh:2")" "1:yes"
+
+# A heredoc whose end is never found has not been read, so nothing after its
+# start is skipped: the rest of the file is judged as shell (L100).
+reset_tree
+printf 'python3 - <<INNER\nprintf "a\\n" >> "$HOME/open.tsv"\n' > "$TREE/scripts/unended.sh"
+OUT="$(run_check)"; ST=$?
+check "an append after a heredoc that never ends is still refused" \
+    "$ST:$(says "$OUT" "UNROUTED: scripts/unended.sh:2")" "1:yes"
+
+reset_tree
+cat > "$TREE/scripts/polywriter.sh" <<'PY'
+''''exec python3 "$0" "$@" #'''
+with open(other, "a") as handle:
+    handle.write("x")
+PY
+OUT="$(run_check)"; ST=$?
+check "a python writer in a python program behind the exec line is still refused" \
+    "$ST:$(says "$OUT" "UNROUTED: scripts/polywriter.sh:2")" "1:yes"
 
 # 4. A COMMENT ABOUT an append is not one.
 reset_tree

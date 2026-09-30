@@ -917,9 +917,7 @@ function ovationLook(root) {
     }
     if (node.getAttribute("style") === "") { node.removeAttribute("style"); }
   });
-  /* Two FNV-1a hashes with different seeds, 64 bits between them. Written
-     without an unsigned shift, whose three angle brackets the durable record
-     scan reads as a shell append. */
+  /* Two FNV-1a hashes with different seeds, 64 bits between them. */
   function hash(text) {
     var a = 0x811c9dc5, b = 0x01000193 ^ text.length;
     for (var i = 0; i < text.length; i++) {
@@ -927,8 +925,7 @@ function ovationLook(root) {
       a = Math.imul(a ^ c, 16777619);
       b = Math.imul(b ^ c, 2246822519);
     }
-    function unsigned(x) { return (x + 4294967296) % 4294967296; }
-    return unsigned(a).toString(16) + ":" + unsigned(b).toString(16);
+    return (a >>> 0).toString(16) + ":" + (b >>> 0).toString(16);
   }
   function styleOf(node, pseudo) {
     var s = getComputedStyle(node, pseudo), out = [];

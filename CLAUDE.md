@@ -21,6 +21,11 @@ One command, and it is the same one CI runs:
 the ones that caught a real security defect and they must run somewhere other than one Mac.
 `run-tests.sh` runs everything.
 
+To re-verify a branch just before merging it, run it as
+`OVATION_TEST_LOCK_PRIORITY=merge bash scripts/run-tests.sh`, which queues it ahead of routine runs
+for the lock the three apps share (ovation#598). Nothing sets that for you, because nothing local
+runs before `gh pr merge` here.
+
 ## Merging from a worktree
 
 Remove the worktree before merging, then merge (ovation#396). `gh pr merge
