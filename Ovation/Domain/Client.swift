@@ -235,17 +235,37 @@ extension OvationSchemaV8 {
 
         /// Whether the address invoices go to also belongs to somebody else.
         func sharesItsAddress(with others: [String]) -> Bool {
-            guard let mine = Client.normalised(emailForInvoices) else { return false }
-            return others.contains { Client.normalised($0) == mine }
+            !sharers(among: others, address: { $0 }).isEmpty
         }
 
         /// Whether the share is still an open question. False once it has been
         /// acknowledged FOR THIS ADDRESS, and true again the moment the address
         /// changes, because that is a different question.
         func shareNeedsAnswering(against others: [String]) -> Bool {
-            guard sharesItsAddress(with: others) else { return false }
-            guard let answered = Client.normalised(sharedAddressAcknowledgedFor) else { return true }
-            return answered != Client.normalised(emailForInvoices)
+            !sharersStillAsking(among: others, address: { $0 }).isEmpty
+        }
+
+        /// WHICH of `others` share the address, while the share is still an open
+        /// question, and none once it has been answered for this address.
+        ///
+        /// ONE LOOKUP FOR WHETHER THE NOTICE SHOWS AND WHOM IT NAMES (ovation#616,
+        /// L16): the question is open exactly when this is not empty, so a notice
+        /// naming nobody, or a name with no notice, has no state to come from.
+        func sharersStillAsking<Other>(among others: [Other],
+                                       address: (Other) -> String?) -> [Other] {
+            if let answered = Client.normalised(sharedAddressAcknowledgedFor),
+               answered == Client.normalised(emailForInvoices) {
+                return []
+            }
+            return sharers(among: others, address: address)
+        }
+
+        /// Every one of `others` whose invoices go to this client's address, in
+        /// the order given: never only the first (L131).
+        private func sharers<Other>(among others: [Other],
+                                    address: (Other) -> String?) -> [Other] {
+            guard let mine = Client.normalised(emailForInvoices) else { return [] }
+            return others.filter { Client.normalised(address($0)) == mine }
         }
 
         /// Records that the share was looked at and is correct.

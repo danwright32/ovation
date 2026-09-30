@@ -391,7 +391,10 @@ struct ShellView: View {
             .background(isHere ? OvationPalette.railOnBackground : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 5))
         }
-        .buttonStyle(.plain)
+        // THE WHOLE ROW IS THE TARGET, highlighted or not (ovation#615). Only the
+        // current destination paints a background, so a plain button answered
+        // across its width there and only on the title of every other row.
+        .buttonStyle(WholeTarget(RoundedRectangle(cornerRadius: 5)))
         .disabled(!destination.isBuilt)
     }
 

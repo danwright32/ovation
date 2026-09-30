@@ -156,9 +156,8 @@ struct ClientsView: View {
             .overlay(alignment: .bottom) {
                 Rectangle().fill(OvationPalette.ruleSoft).frame(height: 1)
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WholeTarget())
         .accessibilityLabel(held.map { "\(row.name), holding \($0)" } ?? row.name)
         .accessibilityAddTraits(isHere ? [.isButton, .isSelected] : [.isButton])
     }
@@ -352,9 +351,23 @@ struct ClientsView: View {
 
     private func sharedAddress(_ page: ClientsPresenter.Page) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("Another client uses this address too.")
-                .font(.system(size: 13))
-                .foregroundStyle(OvationPalette.soft)
+            // THE OTHER CLIENT IS NAMED, every one of them (ovation#616, L131), so
+            // "That is correct" is said about somebody Dan can see. And each name
+            // is the product's word that is a control, taking him to that client,
+            // because a notice naming a record so he can act on it carries the way
+            // there (L80).
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                ForEach(Array(page.sharedSaid.enumerated()), id: \.element.id) { index, named in
+                    // The space before a second name, drawn as a word of its own
+                    // because each name is a control and cannot carry it.
+                    if index > 0 { Text(" ").font(.system(size: 13)) }
+                    ActionWord(word: named.sharer.name, size: 13,
+                               press: { selected = named.sharer.clientID })
+                    Text(named.after)
+                        .font(.system(size: 13))
+                        .foregroundStyle(OvationPalette.soft)
+                }
+            }
             Spacer(minLength: 0)
             if saving == .shared {
                 savingWord
@@ -562,9 +575,8 @@ private struct ValueButton: View {
                     .background(RoundedRectangle(cornerRadius: 4).fill(OvationPalette.sunk))
                     .overlay(RoundedRectangle(cornerRadius: 4)
                         .stroke(isOpen ? OvationPalette.accent : OvationPalette.rule))
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WholeTarget(RoundedRectangle(cornerRadius: 4)))
             .accessibilityLabel(spoken)
             // WHETHER IT IS OPEN, said (review of ovation#600, L20): the answers or
             // terms appearing beside it are otherwise silent to a screen reader.

@@ -231,8 +231,32 @@ struct ClientsViewTests {
                                acknowledgeShared: { _ in nil })
 
         let drawn = try Self.text(in: view)
-        #expect(drawn.contains("Another client uses this address too."))
         #expect(drawn.contains("That is correct"))
+    }
+
+    /// ovation#616. The notice names the other client, so "That is correct" is said
+    /// about somebody Dan can see, and the name is a way to that client (L80).
+    @Test("the shared address notice names the other client, as a way to that client")
+    func thesharedAddressNamesTheOther() throws {
+        let (clients, _) = try Self.population()
+        let chosen = WholeRowTests.Box<UUID?>(try Self.id(of: "Drayton Wind Ensemble", in: clients))
+        let view = ClientsView(presenter: ClientsPresenter(clients: clients),
+                               selected: chosen.binding, acknowledgeShared: { _ in nil })
+
+        let drawn = try Self.text(in: view)
+        #expect(!drawn.contains("Another client uses this address too."),
+                "the notice still says another client without saying which")
+        #expect(drawn.contains(" uses this address too."))
+
+        // THE NOTICE'S NAME, not the list's row, which carries the same name and
+        // selects the same client, and so would pass this for the wrong reason.
+        // A row's label is its line of name and figure; the notice's is the word.
+        let named = try view.inspect().findAll(ViewType.Button.self).filter {
+            (try? $0.labelView().text().string()) == "Eastvale Opera Workshop"
+        }
+        #expect(named.count == 1)
+        try #require(named.first).tap()
+        #expect(chosen.value == (try Self.id(of: "Eastvale Opera Workshop", in: clients)))
     }
 }
 

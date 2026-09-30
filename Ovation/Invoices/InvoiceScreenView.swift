@@ -507,14 +507,14 @@ struct InvoiceScreenView: View {
             // pull and the View menu, and it says what pressing it will do.
             if let history {
                 Button(history.isOpen ? "Hide history" : "History", action: history.toggle)
-                    .buttonStyle(.plain)
+                    .buttonStyle(WholeTarget())
                     .font(.system(size: 12.5))
                     .foregroundStyle(OvationPalette.quiet)
                     .accessibilityValue(history.isOpen ? "expanded" : "collapsed")
                     .fixedSize()
             }
             Button("Back to the list", action: close)
-                .buttonStyle(.plain)
+                .buttonStyle(WholeTarget())
                 .font(.system(size: 13))
                 .foregroundStyle(OvationPalette.quiet)
                 .fixedSize()
@@ -800,7 +800,7 @@ struct InvoiceScreenView: View {
     /// treatment rather than a copy of it that can drift (L613).
     private func quietWord(_ words: String, _ action: @escaping () -> Void) -> some View {
         Button(words, action: action)
-            .buttonStyle(.plain)
+            .buttonStyle(WholeTarget())
             .font(.system(size: 13.5))
             .foregroundStyle(OvationPalette.quiet)
             .padding(.horizontal, Column.sideMargin)
@@ -946,10 +946,10 @@ struct InvoiceScreenView: View {
             HStack(spacing: 14) {
                 Spacer(minLength: 0)
                 Button("Cancel") { panelIsOpen = false }
-                    .buttonStyle(.plain)
+                    .buttonStyle(WholeTarget())
                     .foregroundStyle(OvationPalette.quiet)
                 Button("Create", action: commitType)
-                    .buttonStyle(.plain)
+                    .buttonStyle(WholeTarget())
                     .fontWeight(Self.canCreate(typedName) ? .semibold : .regular)
                     .foregroundStyle(Self.canCreate(typedName)
                                      ? OvationPalette.accent : OvationPalette.faint)
@@ -1038,7 +1038,7 @@ struct InvoiceScreenView: View {
                                     .stroke(OvationPalette.accent, lineWidth: 1))
                         )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(WholeTarget(RoundedRectangle(cornerRadius: 4)))
             }
         }
         .frame(width: Self.totalsWidth)
@@ -1273,7 +1273,7 @@ struct InvoiceScreenView: View {
     private var secondWord: some View {
         if let kind = presenter.footSecond {
             Button(kind.footWord) { resend?(kind) }
-                .buttonStyle(.plain)
+                .buttonStyle(WholeTarget())
                 .font(.system(size: 13))
                 .foregroundStyle(resend == nil ? OvationPalette.faint : OvationPalette.quiet)
                 .disabled(resend == nil)

@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 150
+harness_begin "output privacy tests" 152
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -1172,6 +1172,24 @@ check "the one tax chip check prints no identity from the file it refuses" \
     "$(leaks_in "$CHIP_OUT")" "clean"
 check "and it really did refuse, so the case reached the lines that name a file" \
     "$(printf '%s' "$CHIP_OUT" | grep -c 'REFUSED')" "1"
+
+# ---------------------------------------------------------------------------
+# THE WHOLE TARGET CHECK (ovation#615). It reads every Swift file under the app
+# and prints the PATHS and LINE NUMBERS of plain style buttons. It must never
+# print a LINE of any of them: a button's label is where a client's name sits in
+# a row, and a preview or a comment beside it is where a real one would be.
+# ---------------------------------------------------------------------------
+TARGET_TREE="$WORK/whole-target-tree"
+mkdir -p "$TARGET_TREE/Ovation/App" "$TARGET_TREE/Ovation/Clients"
+printf 'struct WholeTarget { func b() -> some View { Button {} label: { l.contentShape(area) }.buttonStyle(.plain) } }\n' \
+    > "$TARGET_TREE/Ovation/App/WholeTarget.swift"
+printf '// the row for %s at %s\nButton("%s") {}.buttonStyle(.plain)\n' \
+    "$CLIENT" "$VENUE" "$CLIENT" > "$TARGET_TREE/Ovation/Clients/ClientsView.swift"
+TARGET_OUT="$(OVATION_REPO_ROOT="$TARGET_TREE" ./scripts/check-whole-target.sh 2>&1)"
+check "the whole target check prints no identity from the file it refuses" \
+    "$(leaks_in "$TARGET_OUT")" "clean"
+check "and it really did refuse, so the case reached the lines that name a file" \
+    "$(printf '%s' "$TARGET_OUT" | grep -c 'REFUSED')" "1"
 
 # ---------------------------------------------------------------------------
 # THE WAITING SENTENCE GUARD (ovation#117). Its whole subject is COPY: the
