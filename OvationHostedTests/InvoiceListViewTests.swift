@@ -439,6 +439,49 @@ struct InvoiceListViewTests {
         #expect(saysSo)
     }
 
+    // MARK: searching (ovation#449)
+
+    @Test("the list carries the platform's search field, and the healthy empty day does not")
+    func thelistCarriesASearchField() throws {
+        let context = try Self.store()
+        let (view, _) = Self.view(context)
+        #expect(try view.inspect().findAll(InvoiceSearchField.self).count == 1)
+
+        let none = InvoiceListPresenter(invoices: [], heldMoney: [:], today: Self.today)
+        let empty = InvoiceListView(presenter: none, heldMoney: nil, selected: .constant(nil))
+        #expect(try empty.inspect().findAll(InvoiceSearchField.self).isEmpty)
+    }
+
+    @Test("a search draws only its matches, and the held money band stays over its own")
+    func asearchDrawsOnlyItsMatches() throws {
+        let context = try Self.store()
+        let (view, presenter) = Self.view(context)
+        presenter.query = "Cedar Hill"
+
+        let drawn = try view.inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+        // CEDAR HILL'S THREE, and every other shoot in the eleven gone.
+        for shoot in ["Family concert", "Autumn Gala", "Side by Side concert"] {
+            #expect(drawn.contains(shoot), "a match is missing: \(shoot)")
+        }
+        for shoot in ["Tosca, opening night", "Autumn Evensong", "Advent Vespers",
+                      "La Boheme, act three", "Quartet in E minor"] {
+            #expect(!drawn.contains(shoot), "a row that does not match is still drawn: \(shoot)")
+        }
+        #expect(drawn.filter { $0 == "Cedar Hill Youth Orchestra" }.count == 3)
+        #expect(drawn.contains("Money is waiting on a decision"))
+    }
+
+    @Test("a search that finds nothing says so, and never the healthy empty sentence")
+    func asearchFindingNothingSaysSo() throws {
+        let context = try Self.store()
+        let (view, presenter) = Self.view(context)
+        presenter.query = "  Linden Park "
+
+        let drawn = try view.inspect().findAll(ViewType.Text.self).map { try $0.string() }
+        #expect(drawn.contains("No invoice matches \u{201C}Linden Park\u{201D}."))
+        #expect(!drawn.contains { $0.contains("Nothing is waiting") })
+    }
+
     // MARK: what a screen reader hears
 
     @Test("a row is read as one line, in the order the line reads")

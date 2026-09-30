@@ -78,6 +78,59 @@ struct InvoiceListSourceTests {
         source.list?.bands.first?.band
     }
 
+    // MARK: a search survives the list being read again (ovation#449)
+
+    /// THE LIST IS BUILT AGAIN ON EVERY WRITE, so a search held on the list alone
+    /// would be wiped by the first payment recorded while Dan was searching, and
+    /// the whole list would come back under a field still showing his words.
+    @Test("a search survives the list being read again after a write")
+    func asearchSurvivesARereading() throws {
+        let context = ModelContext(try OvationSchema.container(inMemory: true))
+        let client = Self.client(context)
+        Self.invoice(context, for: client, sent: true)
+        let source = InvoiceListSource(
+            read: { (invoices: try context.fetch(FetchDescriptor<Invoice>()),
+                     clients: try context.fetch(FetchDescriptor<Client>())) },
+            problems: Self.problems(), now: { Self.noon })
+
+        let before = try #require(source.list)
+        before.query = "Cedar"
+        source.reread()
+
+        let after = try #require(source.list)
+        #expect(after !== before, "the list was not built again, so this proves nothing")
+        #expect(after.query == "Cedar")
+    }
+
+    /// A READ THAT FAILS TAKES THE LIST AWAY, and the list was the only thing
+    /// holding the search. The field keeps showing Dan's words through the
+    /// failure, so the next good read must narrow by them rather than bring the
+    /// whole list back under them (L14).
+    @Test("a search survives a read that failed, and narrows the next one that works")
+    func asearchSurvivesAFailedRead() throws {
+        struct Unreadable: Error {}
+        let context = ModelContext(try OvationSchema.container(inMemory: true))
+        let client = Self.client(context)
+        Self.invoice(context, for: client, sent: true)
+        var failing = false
+        let source = InvoiceListSource(
+            read: {
+                if failing { throw Unreadable() }
+                return (invoices: try context.fetch(FetchDescriptor<Invoice>()),
+                        clients: try context.fetch(FetchDescriptor<Client>()))
+            },
+            problems: Self.problems(), now: { Self.noon })
+
+        try #require(source.list).query = "Cedar"
+        failing = true
+        source.reread()
+        #expect(source.list == nil, "the read did not fail, so this proves nothing")
+        failing = false
+        source.reread()
+
+        #expect(try #require(source.list).query == "Cedar")
+    }
+
     // MARK: the defect itself
 
     /// THE ACCEPTANCE TEST FOR ovation#451, and it is written over a real

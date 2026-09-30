@@ -56,6 +56,10 @@ final class InvoiceListPresenter {
         let action: String?
         /// How long it has been overdue, and nil where it is not.
         let age: String?
+        /// ovation#449. Every shoot on the invoice, the named one included, which a
+        /// search matches against: a combined invoice names only its last shoot,
+        /// and a search for its first must still find it.
+        var shootNames: [String] = []
 
         /// Whether the card counts this row, which is decided by the ACTION and
         /// therefore cannot disagree with what the row offers.
@@ -78,6 +82,84 @@ final class InvoiceListPresenter {
 
     private(set) var bands: [BandRows] = []
     private(set) var card: [CardLine] = []
+
+    /// ovation#449. What Dan has typed into the list's search field, and empty
+    /// where he is not searching.
+    ///
+    /// IT LIVES ON THE PRESENTER rather than on the view, because the view is
+    /// taken down whenever an invoice is opened and built again when it closes.
+    /// The presenter is not the longest lived holder either: a write builds a
+    /// new one and a failed read leaves none, so every change is also reported
+    /// through `queryChanged` to `InvoiceListSource`, which outlives both and
+    /// hands the search to the next list it builds (L14).
+    var query: String = "" {
+        didSet {
+            guard query != oldValue else { return }
+            shown = Self.narrow(bands, to: query)
+            queryChanged?(query)
+        }
+    }
+
+    /// Told of every change to `query`, by whatever keeps the search beyond this
+    /// presenter's life.
+    @ObservationIgnored var queryChanged: ((String) -> Void)?
+
+    /// Whether a search is narrowing the list. Spaces alone are not a search.
+    var isSearching: Bool { !Self.trimmed(query).isEmpty }
+
+    /// The bands as drawn: every band while nothing is being searched, and each
+    /// narrowed to its matches while something is (ovation#449).
+    ///
+    /// A SEARCH NARROWS THE BANDS IN PLACE (Dan, 2026-09-29, from a rendered round
+    /// of two, one variable). A band with matches stays, holding only them; a band
+    /// with none is not drawn. EACH MATCH KEEPS THE BAND IT CAME FROM, because the
+    /// narrowed list is `bands` with rows taken out rather than a second reading
+    /// of where an invoice belongs: the partition `InvoiceBand.claims` proves is
+    /// the one a search shows, so no separate state filter is needed to reach any
+    /// state (L45). Rejected: replacing the bands with one flat list, which dropped
+    /// the bands' own facts, the held money among them, while searching.
+    ///
+    /// THE CARD IS NOT NARROWED. It counts what needs Dan, and typing a client's
+    /// name changes nothing about that; the round held it identical in both
+    /// options.
+    ///
+    /// STORED, AND NARROWED ONCE PER CHANGE of the query or the list, never on
+    /// read. The body reads it several times per pass and passes run on events
+    /// that change no data, so a computed filter asked every row of every band
+    /// again each time (L383, L471). `bands` is fixed for this presenter's life,
+    /// so the query is the only input that moves.
+    private(set) var shown: [BandRows] = []
+
+    private nonisolated static func narrow(_ bands: [BandRows], to query: String) -> [BandRows] {
+        let words = trimmed(query)
+        guard !words.isEmpty else { return bands }
+        return bands.compactMap { band in
+            let matches = band.rows.filter { row($0, matches: words) }
+            return matches.isEmpty ? nil : BandRows(band: band.band, rows: matches)
+        }
+    }
+
+    /// Whether a row answers a search.
+    ///
+    /// EACH FIELD IS ASKED ON ITS OWN, never one string joined from them, so a
+    /// search cannot match across the gap between a client and a shoot and find
+    /// text that is in no record (L555). Case and accents are ignored, the way
+    /// the Finder's own search ignores them.
+    ///
+    /// THE CLIENT, EVERY SHOOT AND THE NUMBER, and nothing else. `draft` in the
+    /// number column says there is no number, and matching it would turn the
+    /// search into the state filter the round decided it does not need; the
+    /// dates and amounts are formatted words, whose spelling a search would have
+    /// to guess.
+    nonisolated static func row(_ row: Row, matches words: String) -> Bool {
+        var fields = [row.client, row.shoot] + row.shootNames
+        if row.number != "draft" { fields.append(row.number) }
+        return fields.contains { $0.localizedStandardContains(words) }
+    }
+
+    private nonisolated static func trimmed(_ query: String) -> String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// - Parameters:
     ///   - invoices: every invoice in the store, in whatever order it came back.
@@ -127,7 +209,15 @@ final class InvoiceListPresenter {
             // SORTED ON THE SAME NUMBER THE BAND WAS DECIDED FROM, so a row cannot
             // sit in a band on one reading of its date and be ordered by another
             // (L545). A dateless draft is banded as long ago and sorts that way.
-            byBand[band, default: []].append((row, standing.shootDay ?? Int.min))
+            //
+            // EXCEPT THE LATE CHECK, which is ordered by the day its check was
+            // recorded (PRD 46h, ovation#546): the check waiting longest is what
+            // makes an invoice late, so it leads, whatever its shoot date says.
+            // An unreadable recorded day is already `Int.min` and leads too.
+            let sortKey = band == .checkNotClearedAfterSevenDays
+                ? (standing.checkRecordedDay ?? Int.min)
+                : (standing.shootDay ?? Int.min)
+            byBand[band, default: []].append((row, sortKey))
         }
 
         // OLDEST FIRST WITHIN EACH BAND (PRD section 6), with the invoice's own id
@@ -143,6 +233,7 @@ final class InvoiceListPresenter {
         }
 
         card = Self.card(over: bands)
+        shown = bands
     }
 
     // MARK: the card
@@ -326,7 +417,8 @@ final class InvoiceListPresenter {
                 : "draft",
             amount: amount(invoice),
             action: action(for: invoice, band: band),
-            age: age(of: standing))
+            age: age(of: standing, in: band),
+            shootNames: shoots.map(\.name))
     }
 
     /// The dates a combined invoice covers, as one span, and nil where there is
@@ -387,7 +479,9 @@ final class InvoiceListPresenter {
         switch band {
         case .toPlace: return Action.useItHere
         case .overdue: return Action.remind
-        case .checkNotCleared: return Action.markCleared
+        // THE SAME WORD AS ANY OTHER CHECK, so the card still counts it under To
+        // confirm and nothing on the row marks it (ovation#546).
+        case .checkNotCleared, .checkNotClearedAfterSevenDays: return Action.markCleared
         case .sayWhetherItWasSent: return Action.markUnsent
         case .draftShootToday, .draftNeedsSending:
             return blocker(of: invoice) ?? Action.send
@@ -445,8 +539,15 @@ final class InvoiceListPresenter {
     ///
     /// NO RED ANYWHERE (Dan, 2026-09-06: red "feels like something is wrong"). An
     /// overdue invoice is not an error: nothing failed, the money has not arrived.
-    private static func age(of standing: InvoiceStanding) -> String? {
-        guard let dueDay = standing.dueDay, dueDay < InvoiceBand.today else { return nil }
+    ///
+    /// ONLY THE OVERDUE BAND IS OVERDUE. This read the due date alone, so an
+    /// invoice PAID by a check that had not cleared carried the age of a debt it
+    /// no longer owed, and a late check at the top of the list would have worn a
+    /// mark Dan chose it should not have (ovation#546: position is the whole
+    /// callout).
+    private static func age(of standing: InvoiceStanding, in band: InvoiceBand) -> String? {
+        guard band == .overdue,
+              let dueDay = standing.dueDay, dueDay < InvoiceBand.today else { return nil }
         return "\(InvoiceBand.today - dueDay)d"
     }
 }

@@ -15,13 +15,15 @@
 // dark capture goes to a throwaway and is compared byte for byte, which makes the
 // claim real in a way two identical filed pictures never could (L1).
 //
-// AT THE REAL POPULATION, eleven rows rather than two: drafts waiting on their
+// AT THE REAL POPULATION, thirteen rows rather than two: drafts waiting on their
 // times, drafts priced and ready to send, an invoice whose send could not be
-// settled, and sent invoices still open. It does NOT carry every one of the eight
+// settled, sent invoices still open, and two checks waiting to clear, one of
+// them late (ovation#546), with Cedar Hill holding 500.00 against several open
+// invoices so the held money band leads. It does NOT carry every one of the eight
 // action words, and that is stated rather than implied: `Remind` needs an overdue
-// invoice and `Use it here` needs held money that could settle one, and neither
-// is in this fixture. What it does carry is one word of each KIND, a live one and
-// two with nowhere to go, which is what this picture is for (L11).
+// invoice and none is in this fixture. What it does carry is one word of each
+// KIND, a live one and two with nowhere to go, which is what this picture is for
+// (L11).
 //
 // OPT IN, AND IT SAYS WHEN IT DID NOTHING (L98).
 import AppKit
@@ -49,10 +51,13 @@ struct InvoiceListShotTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let context = ModelContext(try OvationSchema.container(inMemory: true))
+        // BUILT ONCE. It was built twice, once for the invoices and once for the
+        // held money, so the money was held by a SECOND Cedar Hill that owned
+        // none of the invoices drawn, and the held money band this picture claims
+        // to show was never in it (L1).
+        let population = Self.population(context)
         let presenter = InvoiceListPresenter(
-            invoices: Self.population(context).invoices,
-            heldMoney: Self.population(context).held,
-            today: Self.today)
+            invoices: population.invoices, heldMoney: population.held, today: Self.today)
         let view = InvoiceListView(presenter: presenter, heldMoney: "500.00",
                                    selected: .constant(nil), open: { _ in }, settle: { _ in }, review: { _ in })
 
@@ -75,8 +80,37 @@ struct InvoiceListShotTests {
         #expect(FileManager.default.fileExists(atPath: half.path))
 
         let rows = presenter.bands.flatMap { $0.rows }
-        #expect(rows.count == 11, "the population is \(rows.count) rows, not the real eleven")
+        #expect(rows.count == 13, "the population is \(rows.count) rows, not the real thirteen")
+        // ovation#546: the late check LEADS the invoices that need Dan, under the
+        // held money band, and the recent one keeps its place among the checks.
+        #expect(Array(presenter.bands.map(\.band).prefix(2))
+                == [.toPlace, .checkNotClearedAfterSevenDays])
+        #expect(presenter.bands.contains { $0.band == .checkNotCleared })
+
+        // ovation#449: A SEARCH, and a search that finds nothing, each in both
+        // appearances, dark asserted to draw the same as light.
+        presenter.query = "Cedar Hill"
+        #expect(presenter.shown.flatMap(\.rows).count == 6,
+                "the search found \(presenter.shown.flatMap(\.rows).count) rows, not Cedar Hill's six")
+        try Self.captureBoth(view, named: "invoice-list-search", in: directory)
+        presenter.query = "Westfield"
+        #expect(presenter.shown.isEmpty)
+        try Self.captureBoth(view, named: "invoice-list-search-no-match", in: directory)
+        presenter.query = ""
         print("INVOICE LIST SHOTS: wrote \(file.lastPathComponent) into \(directory.path)")
+    }
+
+    /// Captures one picture in light, and a throwaway in dark that must match it.
+    private static func captureBoth(_ view: InvoiceListView, named name: String,
+                                    in directory: URL) throws {
+        let file = directory.appending(path: "\(name).png")
+        try OffscreenShot.capture(view, size: windowSize, scheme: .light, to: file)
+        let darkFile = directory.appending(path: "dark-check-\(name).png")
+        try OffscreenShot.capture(view, size: windowSize, scheme: .dark, to: darkFile)
+        let light = try Data(contentsOf: file)
+        let dark = try Data(contentsOf: darkFile)
+        try FileManager.default.removeItem(at: darkFile)
+        #expect(light == dark, "\(name) draws differently in dark")
     }
 
     /// 2026-11-12, pinned so a picture taken today and one taken next week are the
@@ -158,6 +192,26 @@ struct InvoiceListShotTests {
             open.recordSendState(.sent(route: .ovationSentIt,
                                     at: noon.addingTimeInterval(Double(-20 - index) * 86_400)))
             all.append(open)
+        }
+
+        // ovation#546. Two checks waiting to clear: one recorded 9 days ago, which
+        // leads the list, and one recorded 3 days ago, which keeps its place.
+        let saints = client("Saint Anne's Chamber Series")
+        let linden = client("Linden Park Brass")
+        for (owner, name, recorded, number) in [(saints, "Advent Vespers", -9, Int64(1_028)),
+                                                (linden, "Summer serenade", -3, Int64(1_036))] {
+            let paid = invoice(owner, name, on: day(-30), hours: Hours(whole: 4), number: number)
+            paid.recordSendState(.sent(route: .ovationSentIt, at: noon.addingTimeInterval(-30 * 86_400)))
+            let payment = Payment(client: owner, amount: paid.total, method: .check,
+                                  receivedOn: day(recorded))
+            context.insert(payment)
+            let allocation = PaymentAllocation(payment: payment, invoice: paid, amount: paid.total,
+                                               allocatedOn: day(recorded),
+                                               source: .recordedWithThePayment)
+            context.insert(allocation)
+            paid.allocations.append(allocation)
+            payment.allocations.append(allocation)
+            all.append(paid)
         }
 
         return (all, [cedar: Money(dollars: 500)])
