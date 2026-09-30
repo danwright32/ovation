@@ -588,6 +588,9 @@ def custody_csv_state(count):
     """The coverage line's state for the custody CSV population."""
     recorded = CSV_COVERAGE.get("recorded", 0)
     present = CSV_COVERAGE.get("present", 0)
+    if not recorded:
+        return ("NONE RECORDED, the custody note records no CSV, so no custody CSV name "
+                "was searched for")
     if recorded and not present:
         return ("UNAVAILABLE, none of the %d recorded custody CSV(s) is on this machine, "
                 "so their names were not searched for" % recorded)

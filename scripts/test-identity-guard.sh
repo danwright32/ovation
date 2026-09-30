@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 80
+harness_begin "identity guard tests" 82
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -572,6 +572,14 @@ OUTC5="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE_ABSENT")"
 check "a recorded custody CSV absent from this machine is reported UNAVAILABLE by name" \
     "$(says "$OUTC5" "custody-csv: UNAVAILABLE, none of the 1 recorded custody CSV(s) is on this machine")" "yes"
 check "and is not reported as consulted" "$(says "$OUTC5" "custody-csv: consulted")" "no"
+# A NOTE THAT RECORDS NO CSV AT ALL is its own outcome, never "consulted 0 of 0",
+# which is a pass that searched for nothing (L98).
+NOTE_NONE="$WORK/custody-note-no-csv.md"
+printf '## only.json\n\n| Path | `%s` |\n' "$WORK/only.json" > "$NOTE_NONE"
+OUTC7="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE_NONE")"
+check "a custody note recording no CSV says so by name" \
+    "$(says "$OUTC7" "custody-csv: NONE RECORDED, the custody note records no CSV")" "yes"
+check "and does not say it consulted anything" "$(says "$OUTC7" "custody-csv: consulted")" "no"
 printf ',Date,Transaction type,Memo/Description,Transaction number,Amount\r\n' > "$CSVDIR/nameless.csv"
 NOTE_EMPTY="$WORK/custody-note-nameless.md"
 printf '## nameless.csv\n\n| Path | `%s` |\n' "$CSVDIR/nameless.csv" > "$NOTE_EMPTY"
