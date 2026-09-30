@@ -114,7 +114,7 @@ struct ReviewSheetShotTests {
                 let presenter = try ReviewSampleWorld.presenter(for: .ordinary)
                 let page = InvoicePage()
                 try presenter.show(on: page)
-                let floating = FloatingSheet(below: ShellView.titleBarHeight, dim: 0.26) {
+                let floating = FloatingSheet(below: ShellView.titleBarHeight, dim: .deep) {
                     ReviewSheet(presenter: presenter, page: page, close: {})
                 }
                 let name = "20-floating-\(Int(size.width))x\(Int(size.height))-"

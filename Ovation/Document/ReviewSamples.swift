@@ -93,7 +93,7 @@ private struct ReviewSamplesPresentation: ViewModifier {
             // FLOATING, as every sheet does (PRD 48a, ovation#547).
             .overlay {
                 if let sample = command.showing {
-                    FloatingSheet(below: ShellView.titleBarHeight, dim: 0.26,
+                    FloatingSheet(below: ShellView.titleBarHeight, dim: .deep,
                                   escape: { command.close() }) {
                         sheet(for: sample)
                     }

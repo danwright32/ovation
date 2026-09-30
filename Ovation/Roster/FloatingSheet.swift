@@ -34,13 +34,25 @@ struct FloatingSheet<Content: View>: View {
     let below: CGFloat
     /// How dark the window behind goes. The design records draw the payment sheet's
     /// dim at .18 and the review sheet's at .26, the larger sheet over more of the
-    /// window, both in the ink's warm brown.
-    var dim: Double
+    /// window, both in the ink's warm brown. Two named depths rather than a number,
+    /// so a sheet picks one the records drew.
+    enum Dim {
+        case light, deep
+
+        var colour: Color {
+            switch self {
+            case .light: OvationPalette.ink.opacity(0.18)
+            case .deep: OvationPalette.ink.opacity(0.26)
+            }
+        }
+    }
+
+    var dim: Dim
     var outside: (() -> Void)?
     var escape: (() -> Void)?
     let content: () -> Content
 
-    init(below: CGFloat, dim: Double = 0.18, outside: (() -> Void)? = nil,
+    init(below: CGFloat, dim: Dim = .light, outside: (() -> Void)? = nil,
          escape: (() -> Void)? = nil, @ViewBuilder content: @escaping () -> Content) {
         self.below = below
         self.dim = dim
@@ -51,7 +63,7 @@ struct FloatingSheet<Content: View>: View {
 
     var body: some View {
         ZStack {
-            OvationPalette.ink.opacity(dim)
+            dim.colour
                 .contentShape(Rectangle())
                 .onTapGesture { outside?() }
                 .accessibilityHidden(true)

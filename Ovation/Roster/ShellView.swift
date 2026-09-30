@@ -208,7 +208,7 @@ struct ShellView: View {
         // 2026-09-14). A send in flight holds it open, so Escape does nothing then.
         .overlay {
             if let review = openReview {
-                FloatingSheet(below: Self.titleBarHeight, dim: 0.26,
+                FloatingSheet(below: Self.titleBarHeight, dim: .deep,
                               escape: review.state.holdsTheSheetOpen
                                   ? nil : { finishReview(review) }) {
                     ReviewSheet(presenter: review.presenter, review: review,
