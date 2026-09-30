@@ -91,7 +91,12 @@ jobs:
     # CI step, in its suite and again in the committed record judgement), so the
     # first run of them was cancelled at 20 with every suite passing. A Linux
     # minute bills at one times, so the ceiling costs nothing until a run hangs.
-    timeout-minutes: 30
+    #
+    # 45 SINCE 2026-09-30: the receipts design file (ovation#639) is one more file
+    # every rendering check draws, and its first run was cancelled at 30 after 83
+    # of 97 suites, every one passing. The ceiling is not a speed target; the job
+    # growing with each design file is ovation#649's to fix by splitting it.
+    timeout-minutes: 45
     # WHERE A BROWSER RESTART IS WRITTEN DOWN (ovation#332). This is the only job
     # with a browser to restart, and a runner is destroyed when it finishes, so
     # the record is named into the workspace and kept as an artifact rather than
