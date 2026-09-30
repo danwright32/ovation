@@ -647,6 +647,33 @@ def write_pair(folder, stem, json_text, html_text):
         return paths[0], paths[1]
 
 
+def refuse_unless_one_reading_each(raw, count):
+    """Refuses unless the reader returned exactly one reading for each receipt
+    it was given, positions 1 to count, each once.
+
+    Everything after this pairs a reading with a file by its position, so a
+    reader that dropped a receipt or repeated one gave a pilot over the wrong
+    set while n and the summary read as complete, and a position past the end
+    was an IndexError rather than a refusal (L211, L47, review of ovation#636).
+    Named by position and count, never by filename, which can carry a vendor."""
+    seen = {}
+    faults = []
+    for entry in raw.get("receipts", []):
+        index = entry.get("index") if isinstance(entry, dict) else None
+        if not isinstance(index, int) or isinstance(index, bool) or not 1 <= index <= count:
+            faults.append(f"  a reading for receipt {index}, which is not one of the {count}")
+            continue
+        seen[index] = seen.get(index, 0) + 1
+    for index in range(1, count + 1):
+        if index not in seen:
+            faults.append(f"  receipt {index} of {count} has no reading")
+        elif seen[index] > 1:
+            faults.append(f"  receipt {index} of {count} has {seen[index]} readings")
+    if faults:
+        raise Refusal(f"REFUSED: the reader returned readings that do not match the {count} receipts it was "
+                      "given, so nothing was measured.\n" + "\n".join(faults))
+
+
 def measure(folder, results_folder):
     if not os.path.isdir(folder):
         raise Refusal(f"REFUSED: the receipt folder does not exist: {folder}")
@@ -669,6 +696,7 @@ def measure(folder, results_folder):
 
     paths = [os.path.join(folder, name) for name in names]
     raw = read_with_vision(paths)
+    refuse_unless_one_reading_each(raw, len(paths))
     unreadable = [r["index"] for r in raw["receipts"] if not r.get("readable")]
     if unreadable:
         # Refused rather than measured over fewer, because a pilot claiming n

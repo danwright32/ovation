@@ -20,7 +20,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "photographed receipt probe tests" 63
+harness_begin "photographed receipt probe tests" 66
 
 TARGET="scripts/measure-receipt-reads.py"
 require_target "$TARGET"
@@ -319,6 +319,45 @@ if [ -z "${OVATION_TEST_RECEIPT_READER:-}" ]; then
 else
     check "the nested run does not nest again" "nested" "nested"
 fi
+
+# ONE READING PER RECEIPT, EXACTLY (L211, L47). A reader that dropped a receipt,
+# repeated one or answered for a position it was never given produced a pilot
+# over the wrong set while n and the summary read as complete, or an IndexError
+# in place of a refusal (review of ovation#636). Refused by position and count,
+# before anything is interpreted or written.
+mkdir -p "$WORK/two"
+cp "$WORK/good.png" "$WORK/two/a.png"
+cp "$WORK/badsum.png" "$WORK/two/b.png"
+readings_with() {
+    python3 -c '
+import json, sys
+print(json.dumps({"osVersion": "x", "textRecognitionRevision": 3, "barcodeRevision": 4,
+    "receipts": [{"index": int(i), "readable": True, "pixelWidth": 900, "pixelHeight": 900,
+                  "observations": [], "observationsWithCorrection": [], "barcodes": []}
+                 for i in sys.argv[1:]]}))' "$@"
+}
+for shape in "drop 1" "repeat 1 1" "overrun 1 3"; do
+    set -- $shape
+    name="$1"; shift
+    printf '#!/bin/bash\nprintf %%s %q > "$2"\n' "$(readings_with "$@")" > "$WORK/$name-reader"
+    chmod +x "$WORK/$name-reader"
+done
+set --
+mismatch() { OVATION_RECEIPT_READER="$WORK/$1-reader" ./"$TARGET" --folder "$WORK/two" --results "$WORK/m-$1" 2>&1; }
+refused_for() {
+    local said status
+    said="$(mismatch "$1")"; status=$?
+    printf '%s:%s:%s:%s' "$status" \
+        "$(grep -c '^REFUSED: the reader returned readings that do not match the 2 receipts it was given' <<< "$said")" \
+        "$(grep -c "$2" <<< "$said")" \
+        "$(ls "$WORK/m-$1" 2>/dev/null | grep -c results-)$(grep -c Traceback <<< "$said")"
+}
+check "a reader that drops a receipt is refused, naming the position it left out" \
+    "$(refused_for drop '  receipt 2 of 2 has no reading')" "1:1:1:00"
+check "a reader that reads one receipt twice is refused, naming it and the count" \
+    "$(refused_for repeat '  receipt 1 of 2 has 2 readings')" "1:1:1:00"
+check "a reader that answers for a position it was never given is refused, not crashed on" \
+    "$(refused_for overrun '  a reading for receipt 3, which is not one of the 2')" "1:1:1:00"
 
 # A REPLACED READER IS SAID OUT LOUD, and kept out of Dan's custody folder. The
 # seam is honoured whenever it is set, so a value left exported from a test
