@@ -15,6 +15,9 @@ enum OvationWindow {
 
     /// The narrowest the window may be made: half of Dan's screen.
     static let minimumWidth: CGFloat = 860
+    /// The smallest height the main window may be, which the floating review sheet is
+    /// held to at its smallest (ovation#393).
+    static let minimumHeight: CGFloat = 620
 
     /// Below this window width the invoice list puts the shoot on a line of its
     /// own under the client (Dan, 2026-09-26, ovation#110, PRD 47c).

@@ -24,9 +24,11 @@ struct SettingsView: View {
     /// THE WINDOW'S OWN SIZE, named so a test can hold it to the pane it has to
     /// show (ovation#391). Dan: "no real reason for me to have to scroll."
     static let minimumWidth: CGFloat = 520
-    /// Held to the PANE, by `SettingsWindowSizeTests`, which asks the invoices pane
+    /// Held to the PANES, by `SettingsWindowSizeTests`, which asks the invoices pane
     /// how tall it wants to be at its tallest and refuses a window shorter than that
-    /// plus the allowance below. The pane measured 527 on 2026-09-17.
+    /// plus the allowance below, and by `FixedSurfaceHeightTests`, which asks the same
+    /// of the backups pane's fixed part (ovation#393). The invoices pane measured 527
+    /// on 2026-09-17.
     ///
     /// GENEROUSLY ABOVE THAT SUM RATHER THAN ON IT, for two reasons. An ordinary
     /// edit to the pane should not immediately bring the scrolling back, and the
@@ -109,112 +111,23 @@ struct SettingsView: View {
         .ovationAppearance()
     }
 
+    /// DRAWN BY `BackupsPaneView` FROM VALUES (ovation#393), so the pane can be held to
+    /// the window at its tallest without going through the tabs. It is no longer a
+    /// ScrollView: its fixed part fits the window, and the archive list scrolls in its
+    /// own box (Dan, 2026-09-30).
     private var backupsPane: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                folderSection
-                Divider()
-                restoreSection
-                if let lastOutcome {
-                    Text(lastOutcome).font(.callout).foregroundStyle(.secondary)
-                }
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var folderSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Where backups go").font(.headline)
-            Text(folderDescription)
-            // THE SENTENCE IS COMPOSED FROM THE RULE, not typed beside it (L679).
-            Text(backups.retentionSentence).font(.callout).foregroundStyle(.secondary)
-            Button("Choose a folder") {
-                switch backups.choose() {
-                case .chosen(let folder):
-                    lastOutcome = "Backups will go to \(folder.path)."
-                    // THE REST OF THE PANE FOLLOWS THE CHOICE. Without this the
-                    // restore half goes on asking for a folder he just gave (L14).
-                    Task { await loadArchives() }
-                case .cancelled:
-                    break
-                case .refusedInsideTheDataDirectory(let detail), .refused(let detail):
-                    lastOutcome = detail
-                }
-            }
-        }
-    }
-
-    /// What the pane says about the folder, one sentence per outcome, because
-    /// each needs a different thing from Dan (L11).
-    /// Reads the archives once, off the main actor.
-    private func loadArchives() async {
-        loadingArchives = true
-        // REBUILT EACH TIME, because the folder it reads may have just changed.
-        restore = makeRestore()
-        guard let restore else {
-            rows = nil
-            loadingArchives = false
-            return
-        }
-        rows = await restore.archivesOffTheMainActor()
-        loadingArchives = false
-    }
-
-    private var folderDescription: String {
-        switch backups.resolution {
-        case .chosen(let folder): return folder.path
-        case .notChosen: return "No folder chosen yet, so Ovation is not backing up."
-        case .unresolvable(let detail): return "The folder cannot be reached: \(detail)"
-        case .onADifferentVolume(let detail): return detail
-        case .refusedUnderADisposableLaunch: return "Not available in this run."
-        }
-    }
-
-    @ViewBuilder
-    private var restoreSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Put a backup back").font(.headline)
-            if loadingArchives {
-                // STARTED, rather than an empty list that reads as "no backups"
-                // while it is still looking (L10).
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Looking at your backups")
-                }
-            } else if let rows, !rows.isEmpty {
-                ForEach(rows) { row in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(row.takenAt.map(BusinessCalendar.dayKey(for:)) ?? row.name)
-                            // WHETHER IT VERIFIES NOW, said plainly, because an
-                            // archive that has rotted must not be offered as
-                            // though it were sound (L336).
-                            if !row.verifies {
-                                Text("This backup no longer checks out")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        Button("Restore") {
-                            confirmingConsequence =
-                                (try? restore?.consequence(of: row.name))
-                                ?? "Ovation could not read what is in this backup."
-                            confirming = row
-                        }
-                        .disabled(!row.verifies)
-                    }
-                }
-            } else {
-                // AN EMPTY STATE AND AN ERROR STATE ARE DIFFERENT SCREENS (L10).
-                Text(restore == nil
-                     ? "Choose a folder first, and Ovation will start backing up."
-                     : "There are no backups in that folder yet.")
-                    .foregroundStyle(.secondary)
-            }
-        }
+        BackupsPaneView(
+            folder: BackupsPaneView.folderSentence(for: backups.resolution),
+            retention: backups.retentionSentence,
+            archives: archives,
+            outcome: lastOutcome,
+            choose: chooseAFolder,
+            restore: { row in
+                confirmingConsequence =
+                    (try? restore?.consequence(of: row.name))
+                    ?? "Ovation could not read what is in this backup."
+                confirming = row
+            })
         .task { await loadArchives() }
         .confirmationDialog(
             "Put this backup back?",
@@ -238,5 +151,42 @@ struct SettingsView: View {
             // Read when the button was pressed, not here.
             Text(confirmingConsequence)
         }
+    }
+
+    /// What the restore half is showing, from what has been loaded.
+    private var archives: BackupsPaneView.Archives {
+        if loadingArchives { return .loading }
+        if let rows, !rows.isEmpty { return .rows(rows) }
+        return .sentence(restore == nil
+                         ? "Choose a folder first, and Ovation will start backing up."
+                         : "There are no backups in that folder yet.")
+    }
+
+    private func chooseAFolder() {
+        switch backups.choose() {
+        case .chosen(let folder):
+            lastOutcome = "Backups will go to \(folder.path)."
+            // THE REST OF THE PANE FOLLOWS THE CHOICE. Without this the
+            // restore half goes on asking for a folder he just gave (L14).
+            Task { await loadArchives() }
+        case .cancelled:
+            break
+        case .refusedInsideTheDataDirectory(let detail), .refused(let detail):
+            lastOutcome = detail
+        }
+    }
+
+    /// Reads the archives once, off the main actor.
+    private func loadArchives() async {
+        loadingArchives = true
+        // REBUILT EACH TIME, because the folder it reads may have just changed.
+        restore = makeRestore()
+        guard let restore else {
+            rows = nil
+            loadingArchives = false
+            return
+        }
+        rows = await restore.archivesOffTheMainActor()
+        loadingArchives = false
     }
 }
