@@ -184,6 +184,24 @@ struct QuickBooksInvoicesAndPaymentsTests {
         #expect(result.refusals.first?.ledgerRows == [7, 10])
     }
 
+    @Test("a number the invoice list lacks, carried under two clients, is refused as ambiguous and taints both")
+    func anUnlistedNumberUnderTwoClientsIsAmbiguous() {
+        let result = QuickBooksPaymentReconciliation.reconcile(
+            invoices: [],
+            ledger: Self.ledger([
+                F.client("Fictive Quartet"), F.ledgerInvoice(number: "1009", amount: "100.00"),
+                F.ledgerPayment(amount: "100.00"),
+                F.client("Imaginary Opera"), F.ledgerInvoice(number: "1009", amount: "100.00"),
+                F.ledgerPayment(amount: "100.00"),
+            ]))
+        #expect(result.refusals.map(\.reason) == [
+            .numberUnderSeveralRows,
+            .groupHoldsAnInvoiceThatDoesNotReconcile,
+            .groupHoldsAnInvoiceThatDoesNotReconcile,
+        ])
+        #expect(result.refusals.first?.ledgerRows == [7, 10])
+    }
+
     @Test("payments under a client with no invoice in scope are refused, not dropped")
     func paymentsWithNoInvoiceAreRefused() {
         let result = QuickBooksPaymentReconciliation.reconcile(

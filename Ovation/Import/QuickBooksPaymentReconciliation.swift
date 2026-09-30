@@ -71,14 +71,13 @@ struct QuickBooksPaymentReconciliation: Equatable, Sendable {
         for number in Set(listByNumber.keys).union(ledgerNumbers).sorted() {
             let listed = listByNumber[number]
             let carried = ledgerInvoices.filter { $0.number == number }
+            // THE MANY ROWS CASES COME FIRST. A pattern matching one row would
+            // otherwise take a number carried under several clients and report
+            // it, and mark it, as if it sat under one.
             switch (listed, carried.first) {
             case (let listed?, nil):
                 refusals.append((number, Refusal(groupRow: nil, invoiceListRows: [listed.row], ledgerRows: [],
                                                  reason: .invoiceNotInPaymentsReport)))
-            case (nil, let row?):
-                unsound.insert(row.groupRow)
-                refusals.append((number, Refusal(groupRow: row.groupRow, invoiceListRows: [],
-                                                 ledgerRows: carried.map(\.row), reason: .onlyInPaymentsReport)))
             case (let listed?, _) where carried.count > 1:
                 // EVERY group it touches, not the first: a number under two
                 // clients leaves both unable to tie anything.
@@ -89,6 +88,10 @@ struct QuickBooksPaymentReconciliation: Equatable, Sendable {
                 unsound.formUnion(carried.map(\.groupRow))
                 refusals.append((number, Refusal(groupRow: nil, invoiceListRows: [],
                                                  ledgerRows: carried.map(\.row), reason: .numberUnderSeveralRows)))
+            case (nil, let row?):
+                unsound.insert(row.groupRow)
+                refusals.append((number, Refusal(groupRow: row.groupRow, invoiceListRows: [],
+                                                 ledgerRows: carried.map(\.row), reason: .onlyInPaymentsReport)))
             case (let listed?, let row?):
                 let difference = listed.amount - row.amount
                 if difference != .zero {
