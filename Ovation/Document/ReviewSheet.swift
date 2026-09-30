@@ -45,7 +45,7 @@ struct ReviewSheet: View {
     /// floating sheet's margin (ovation#547), so at the minimum window it gives up
     /// height rather than touch either edge.
     static var smallestHeight: CGFloat {
-        min(size.height, OvationWindow.minimumHeight - ShellView.titleBarHeight - 2 * FloatingSheet.margin)
+        min(size.height, OvationWindow.minimumHeight - ShellView.titleBarHeight - 2 * FloatingSheet<EmptyView>.margin)
     }
 
     var body: some View {
