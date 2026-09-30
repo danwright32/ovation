@@ -78,7 +78,12 @@ struct ReviewSheet: View {
                 }
             }
         }
-        .frame(width: 800, height: 560)
+        // 560 TALL WHERE THE WINDOW HAS ROOM, AND LESS WHERE IT HAS NOT (ovation#547).
+        // It floats with room above and below it, and at the smallest window that
+        // room is 582 points less the margins, so it gives up height rather than
+        // touch the title bar; the page above scrolls, so nothing is lost.
+        .frame(width: 800)
+        .frame(maxHeight: 560)
         .ovationAppearance()
         .onAppear(perform: showPage)
     }

@@ -27,13 +27,13 @@ struct DueDateControl: View {
     let choices: [InvoiceScreenPresenter.DueChoice]
     /// What saving a date does, or nil where this invoice may not be edited.
     var save: ((BusinessDate) -> Void)?
-    /// Why the last save did not happen, said rather than swallowed.
-    var refused: String?
+    /// What "Another date..." does: asks the screen to float `AnotherDatePanel`
+    /// over itself (ovation#547). The panel is the screen's to draw, because a
+    /// sheet floats over the window and this is a word in the foot. Nil offers no
+    /// such entry, rather than one that opens nothing (L109).
+    var askAnotherDate: (() -> Void)?
 
     @State private var listIsOpen = false
-    @State private var panelIsOpen = false
-    @State private var typed = ""
-    @State private var badlyTyped = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
@@ -49,7 +49,6 @@ struct DueDateControl: View {
                        notYet: whyNot)
         }
         .popover(isPresented: $listIsOpen, arrowEdge: .top) { termList }
-        .sheet(isPresented: $panelIsOpen) { anotherDate }
     }
 
     /// Whether the date can be changed at all.
@@ -83,12 +82,12 @@ struct DueDateControl: View {
     /// being the single site (L370, L613). This was that second copy.
     private var termList: some View {
         PopupList(choices: Self.rows(for: choices),
-                  asks: "Another date...",
-                  ask: {
-                      listIsOpen = false
-                      typed = due
-                      badlyTyped = false
-                      panelIsOpen = true
+                  asks: askAnotherDate == nil ? nil : "Another date...",
+                  ask: askAnotherDate.map { ask in
+                      {
+                          listIsOpen = false
+                          ask()
+                      }
                   },
                   choose: { choice in
                       listIsOpen = false
@@ -121,11 +120,41 @@ struct DueDateControl: View {
     }
 
     // MARK: another date
+}
 
-    /// A DATE TYPED IS READ OR REFUSED BY NAME, never quietly rounded to
-    /// something near it. The refusal shows the shape rather than describing a
-    /// format, in the vocabulary of what is already on screen (L399, L50).
-    private var anotherDate: some View {
+/// "Another date...": a date typed, read or refused by name (ovation#473). It floats
+/// over the invoice screen as every sheet does (PRD 48a, ovation#547), which is why
+/// it is its own view rather than a part of the word in the foot that opens it.
+///
+/// A DATE TYPED IS READ OR REFUSED BY NAME, never quietly rounded to something near
+/// it. The refusal shows the shape rather than describing a format, in the
+/// vocabulary of what is already on screen (L399, L50).
+struct AnotherDatePanel: View {
+    /// The due date as it stands, which the field starts with.
+    let due: String
+    /// This invoice's own date, the example a refusal shows.
+    let example: BusinessDate
+    /// Why the last save did not happen, said rather than swallowed.
+    let refused: String?
+    let save: (BusinessDate) -> Void
+    let close: () -> Void
+
+    @State private var typed: String
+    @State private var badlyTyped = false
+    /// ViewInspector's way into the hosted panel, so a test can type into it (L442).
+    let inspection = Inspection<Self>()
+
+    init(due: String, example: BusinessDate, refused: String?,
+         save: @escaping (BusinessDate) -> Void, close: @escaping () -> Void) {
+        self.due = due
+        self.example = example
+        self.refused = refused
+        self.save = save
+        self.close = close
+        _typed = State(initialValue: due)
+    }
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("When this invoice is due")
                 .font(.system(size: 15, weight: .semibold))
@@ -142,7 +171,7 @@ struct DueDateControl: View {
             if badlyTyped {
                 // THE EXAMPLE IS THIS INVOICE'S OWN DATE, which is already on
                 // screen beside the field, rather than a date from nowhere.
-                Text(PaymentTerms.refusalSentence(showing: choices[0].day))
+                Text(PaymentTerms.refusalSentence(showing: example))
                     .font(.system(size: 12))
                     .foregroundStyle(OvationPalette.quiet)
                     .fixedSize(horizontal: false, vertical: true)
@@ -157,7 +186,7 @@ struct DueDateControl: View {
             }
             HStack(spacing: 10) {
                 Spacer(minLength: 0)
-                Button("Cancel") { panelIsOpen = false }
+                Button("Cancel", action: close)
                 Button("Save", action: commit)
                     .keyboardShortcut(.defaultAction)
             }
@@ -165,22 +194,20 @@ struct DueDateControl: View {
         }
         .padding(20)
         .frame(minWidth: 300, alignment: .leading)
-        .background(OvationPalette.background)
-        // A sheet is its own window too. Same reason as the list above.
-        .ovationAppearance()
+        .onReceive(inspection.notice) { inspection.visit(self, $0) }
     }
 
     /// Reads what was typed, or says it could not.
     ///
     /// THE PANEL STAYS OPEN ON A REFUSAL, because closing it would throw away
     /// what was typed and leave nothing saying why (L628).
-    private func commit() {
+    func commit() {
         guard let read = PaymentTerms.read(typed) else {
             badlyTyped = true
             return
         }
         badlyTyped = false
-        panelIsOpen = false
-        save?(read)
+        close()
+        save(read)
     }
 }

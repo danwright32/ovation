@@ -175,7 +175,8 @@ extension ProblemKind {
     ///
     /// NO COUNTS AND NO DATES IN A NAME. A name is read for as long as the problem
     /// stays open, so "3 days behind" would go on saying 3 on the fifth day. The
-    /// sentence behind Read carries the dates.
+    /// sentence behind Read carries the dates. The one exception, a broken backup's
+    /// own day (ovation#609), is a fixed fact about the archive and never goes stale.
     static let shortNames: [ProblemKind: String] = [
         .foreignStore: "Wrong database",
         .unreadableStore: "Can't read database",
@@ -238,6 +239,63 @@ extension ProblemKind {
             return yearly(year)
         }
         return Self.shortNames[self]
+    }
+
+    /// ovation#609. The name a problem of this kind has when another open problem
+    /// shares its kind, so the lines are told apart. Only a broken backup has one
+    /// (Dan, 2026-09-29: "Bad backup, 30 May"); every other kind keeps its plain
+    /// name, as does a backup whose archive name carries no day to show.
+    func shortName(subject: String?, sharingKind: Bool) -> String? {
+        if sharingKind, let dated = Self.datedShortNames[self],
+           let subject, let instant = BackupService.instant(fromArchiveNamed: subject) {
+            return dated(Self.footDay(instant))
+        }
+        return shortName(subject: subject)
+    }
+
+    /// Kinds whose open problems stand in the foot as ONE line per name (Dan,
+    /// 2026-09-30, ovation#609): two backups broken on one day are "Bad backup, 30
+    /// May" once, and what Read opens lists each of them with its time. Every
+    /// unreadable booking file is one "Booking unreadable" line, however many there
+    /// are, and Read lists each file. Dan kept the singular because the plural,
+    /// "Bookings unreadable", is 131.5 points against the 127.3 beside Read.
+    static let sharingOneLine: Set<ProblemKind> = [.archiveNoLongerVerifies, .bookingRecordUnreadable]
+
+    /// "21:00", the time in a broken backup's archive name, which is what tells two
+    /// backups of one day apart where Read lists them (Dan, 2026-09-30), or nil.
+    static func archiveTime(_ subject: String?) -> String? {
+        guard let subject, let instant = BackupService.instant(fromArchiveNamed: subject) else {
+            return nil
+        }
+        return timeFormatter.string(from: instant)
+    }
+
+    /// BUILT ONCE, as BusinessCalendar's own are, because the foot names every open
+    /// problem on every render. The zone is set here rather than taken from the Mac,
+    /// which is what keeps an evening backup on its own day (L504).
+    private static let timeFormatter = businessFormatter("HH:mm")
+    private static let dayFormatter = businessFormatter("d MMM")
+
+    private static func businessFormatter(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = BusinessCalendar.timeZone
+        formatter.dateFormat = format
+        return formatter
+    }
+
+    /// The kinds named for their archive's day when several are open at once.
+    /// Measured by `RailFootTests` on every day of a leap year: the widest is 126.5
+    /// of the 127.3 points a name has beside Read.
+    static let datedShortNames: [ProblemKind: @Sendable (String) -> String] = [
+        .archiveNoLongerVerifies: { "Bad backup, \($0)" },
+    ]
+
+    /// "30 May", in the business calendar the archive name was written in, so an
+    /// evening backup is not named for the next day wherever the Mac's clock is set.
+    private static func footDay(_ instant: Date) -> String {
+        dayFormatter.string(from: instant)
     }
 
     /// The year in a year end export's subject, `year-end-export-2026`, or nil.
@@ -330,6 +388,20 @@ struct Problem: Identifiable, Equatable, Codable, Sendable {
     /// from ever being drawn by failing on the missing name (L113).
     var shortName: String {
         kind.shortName(subject: subject) ?? "Something to read"
+    }
+
+    /// What the foot calls it among everything open (ovation#609). Three open
+    /// broken backups all read "Old backup broken" on the installed build, so when
+    /// another open problem shares this one's kind, the name carries what tells
+    /// them apart where the kind has it.
+    func shortName(among open: [Problem]) -> String {
+        shortName(sharingKind: open.contains { $0.kind == kind && $0.id != id })
+    }
+
+    /// The name when it is already known whether another open problem shares this
+    /// kind, which is how the foot names every line from one pass (RailFoot.Grouping).
+    func shortName(sharingKind: Bool) -> String {
+        kind.shortName(subject: subject, sharingKind: sharingKind) ?? shortName
     }
 
     static func identity(kind: ProblemKind, subject: String?) -> String {

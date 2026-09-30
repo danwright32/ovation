@@ -116,6 +116,10 @@ struct InvoiceScreenView: View {
     /// because a picture cannot press Add a line (L606).
     @State var lineBeingAdded: LineBeingAdded? = nil
     @State private var panelIsOpen = false
+    /// Whether the due date's "Another date..." panel is open. Held here, not in
+    /// `DueDateControl`, because the panel floats over this whole screen and the
+    /// control is a word in its foot (ovation#547).
+    @State private var anotherDateIsOpen = false
     @State private var typedName = ""
     @State private var typedUsual = ""
     /// The name of a type just asked for, until it appears in the list. The
@@ -252,12 +256,26 @@ struct InvoiceScreenView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
             // FLOATING OVER THE SCREEN, never a system sheet, which would hang
-            // from the title bar (PRD 48a).
+            // from the title bar (PRD 48a). The two panels float the same way
+            // (ovation#547).
             if let payment, payment.isOpen, let starts = presenter.paymentStarts {
                 PaymentSheet(number: starts.number, starts: starts, refused: payment.refused,
                              isRecording: payment.isRecording, record: payment.record,
                              close: payment.close, edited: payment.edited)
+            } else if panelIsOpen {
+                FloatingSheet(below: 0, escape: { panelIsOpen = false }) { newTypePanel }
+            } else if anotherDateIsOpen, presenter.mayEdit, let save = setDueDate,
+                      let first = presenter.dueChoices.first {
+                FloatingSheet(below: 0, escape: { anotherDateIsOpen = false }) {
+                    AnotherDatePanel(due: presenter.due, example: first.day, refused: refusedDate,
+                                     save: save, close: { anotherDateIsOpen = false })
+                }
             }
+        }
+        // A panel that can no longer be drawn is closed, not left pending to open
+        // on its own when the invoice can be edited again.
+        .onChange(of: canAskAnotherDate) { _, can in
+            if !can { anotherDateIsOpen = false }
         }
         .ovationAppearance()
         .onReceive(inspection.notice) { inspection.visit(self, $0) }
@@ -828,7 +846,6 @@ struct InvoiceScreenView: View {
             },
             columns: (Column.hours, Column.rate, Column.amount,
                       Column.gap, Column.sideMargin))
-        .sheet(isPresented: $panelIsOpen) { newTypePanel }
         // A TYPE MADE FROM THE PANEL BECOMES THIS ROW'S TYPE, which the design
         // record settles. It is picked up when the list it was written to comes
         // back, because the write is an actor's and the screen is rebuilt from
@@ -942,10 +959,6 @@ struct InvoiceScreenView: View {
         }
         .padding(20)
         .frame(minWidth: 344, alignment: .leading)
-        .background(OvationPalette.background)
-        // A sheet is its own window, so it sets its own appearance (PRD 43,
-        // ovation#474).
-        .ovationAppearance()
     }
 
     /// Makes the type, or leaves the panel where it is.
@@ -1172,6 +1185,12 @@ struct InvoiceScreenView: View {
 
     // MARK: the foot
 
+    /// Whether "Another date..." can open its panel: the invoice may be edited, a
+    /// date has somewhere to be saved, and there is a date to count from.
+    private var canAskAnotherDate: Bool {
+        presenter.mayEdit && setDueDate != nil && !presenter.dueChoices.isEmpty
+    }
+
     /// WHAT THE FOOT CARRIES CHANGES WITH THE INVOICE'S STATE (round 9), and the
     /// refusal sits beside the action rather than replacing it: a greyed control
     /// with no reason is a dead control (L109).
@@ -1184,7 +1203,10 @@ struct InvoiceScreenView: View {
             DueDateControl(issued: presenter.issued, due: presenter.due,
                            choices: presenter.dueChoices,
                            save: presenter.mayEdit ? setDueDate : nil,
-                           refused: refusedDate)
+                           // ONLY WHERE THE PANEL CAN BE DRAWN, the overlay's own
+                           // conditions, or the flag would stand with nothing on
+                           // screen and the panel would open later, unasked.
+                           askAnotherDate: canAskAnotherDate ? { anotherDateIsOpen = true } : nil)
             Spacer(minLength: 0)
             // THE FOOT DOES NOT REPEAT WHAT THE BODY IS ALREADY ANSWERING, which
             // the presenter decides, because a view deciding it could only be

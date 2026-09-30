@@ -273,6 +273,22 @@ struct ShellViewTests {
         for yearly in ProblemKind.yearlyShortNames.values {
             names += (2000...2099).map(yearly)
         }
+        // A broken backup named for its archive's day, every day of a leap year
+        // (ovation#609), so the widest month and day are laid out, not guessed.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = BusinessCalendar.timeZone
+        let start = calendar.date(from: DateComponents(year: 2028, month: 1, day: 1, hour: 21))!
+        for offset in 0..<366 {
+            let day = calendar.date(byAdding: .day, value: offset, to: start)!
+            let parts = calendar.dateComponents([.year, .month, .day], from: day)
+            let subject = String(format: "Ovation-backup-%04d-%02d-%02d-210000",
+                                 parts.year!, parts.month!, parts.day!)
+            if let dated = ProblemKind.archiveNoLongerVerifies.shortName(subject: subject,
+                                                                          sharingKind: true) {
+                names.append(dated)
+            }
+        }
+        #expect(names.filter { $0.hasPrefix("Bad backup, ") }.count == 366)
         #expect(names.count > 400)
         let reading = FootReading(sentence: "", done: {})
         let tooWide = names.filter { name in
@@ -281,6 +297,71 @@ struct ShellViewTests {
             return NSHostingView(rootView: line.fixedSize()).fittingSize.width > RailFoot.column
         }
         #expect(tooWide.isEmpty, "wider than the \(Int(RailFoot.column)) point column: \(tooWide.sorted())")
+    }
+
+    /// ovation#609, Dan 2026-09-29. Two broken backups open at once are told apart in
+    /// the foot by their archive's day, and the list behind "and N more" heads each
+    /// with the same name the foot gives it.
+    @Test("two broken backups are drawn in the foot, and behind and N more, by their days")
+    func twoBrokenBackupsAreDrawnByTheirDays() throws {
+        let problems = Self.noProblems()
+        _ = problems.raise(kind: .archiveNoLongerVerifies,
+                           subject: "Ovation-backup-2026-05-30-210000",
+                           sentence: "the May backup", now: Self.at(1))
+        _ = problems.raise(kind: .archiveNoLongerVerifies,
+                           subject: "Ovation-backup-2026-09-17-210000",
+                           sentence: "the September backup", now: Self.at(2))
+
+        let words = try Self.texts(in: Self.shell(problems))
+        #expect(words.contains("Bad backup, 30 May"))
+        #expect(words.contains("Bad backup, 17 Sep"))
+        #expect(!words.contains("Old backup broken"))
+
+        let list = FootReadingList(problems: problems, read: { _ in })
+        let listed = try list.inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+        #expect(listed.contains("Bad backup, 30 May"))
+        #expect(listed.contains("Bad backup, 17 Sep"))
+    }
+
+    /// ovation#609, Dan 2026-09-30. Two backups broken on one day are one line, Read
+    /// on it lists each with its time, and "I have read this" marks each read.
+    @Test("reading a shared line lists every backup on it and marks each read")
+    func readingASharedLineReadsEveryMember() throws {
+        let problems = Self.noProblems()
+        _ = problems.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-090000",
+                           sentence: "The morning one.", now: Self.at(1))
+        _ = problems.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-210000",
+                           sentence: "The evening one.", now: Self.at(2))
+        let words = try Self.texts(in: Self.shell(problems))
+        #expect(words.filter { $0 == "Bad backup, 30 May" }.count == 1)
+
+        let line = try #require(RailFoot.lines(for: problems.open).shown.first)
+        let reading = Self.shell(problems).reading(for: line)
+        #expect(reading.sentence.contains("Taken at 09:00. The morning one."))
+        #expect(reading.sentence.contains("Taken at 21:00. The evening one."))
+        reading.done()
+        #expect(problems.all.allSatisfy { $0.acknowledgedAt != nil })
+    }
+
+    /// ovation#609. The list behind "and N more" groups as the foot does: two backups
+    /// broken on one day are one entry, reading each with its time, and its "I have
+    /// read this" marks both read.
+    @Test("the list behind and N more shows two same day backups as one entry with both times")
+    func theMoreListGroupsLikeTheFoot() throws {
+        let problems = Self.noProblems()
+        _ = problems.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-090000",
+                           sentence: "The morning one.", now: Self.at(1))
+        _ = problems.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-210000",
+                           sentence: "The evening one.", now: Self.at(2))
+        final class Read { var ids: [Problem.ID] = [] }
+        let read = Read()
+        let list = FootReadingList(problems: problems, read: { read.ids.append($0.id) })
+        let texts = try list.inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+
+        #expect(texts.filter { $0 == "Bad backup, 30 May" }.count == 1)
+        #expect(texts.contains { $0.contains("Taken at 09:00.") && $0.contains("Taken at 21:00.") })
+        try list.inspect().find(button: RailFoot.readIt).tap()
+        #expect(Set(read.ids) == Set(problems.open.map(\.id)))
     }
 
     /// ovation#566, Dan 2026-09-26. "and N more" is a control like Read, and what it

@@ -228,7 +228,13 @@ color: var(--faint); }
    is the collision ovation#132 exists for. */
 
 /* ---- the sheet, over the invoice ---- */
-.rs-b .win { position: relative; }
+/* THE WINDOW'S TEXT IS THE WINDOW'S INK, never the record page's. Everything inside
+   the window that sets no colour of its own inherited the page's --page-ink, so in
+   the page's dark theme the title bar's "Invoices" and the rest went near white on
+   the light pinned window (ovation#547). Measured by rendering both themes and
+   comparing every element's computed colours inside the window: 44 differed, and
+   none does with this. */
+.rs-b .win { position: relative; color: var(--ink); }
 .rs-behind { display: flex; flex-direction: column; height: 100%; }
 .rs-behind .rs-inv { flex: 1 1 auto; min-height: 0; height: auto; }
 
@@ -236,12 +242,18 @@ color: var(--faint); }
    a sheet does. */
 .rs-scrim { position: absolute; inset: 38px 0 0; background: rgba(31,24,18,.26);
             z-index: 1; }
-.rs-sheet { position: absolute; top: 38px; left: 50%; transform: translateX(-50%);
-            width: 800px; max-width: calc(100% - 48px);
-            max-height: calc(100% - 38px);
+/* THE SHEET FLOATS, centred in what the scrim dims, every corner rounded, and
+   never hangs from the title bar (PRD 48a, Dan 2026-09-25: a hanging sheet "makes
+   the top flat and it's ugly"; ovation#547). It keeps 18px clear of the title bar
+   and of the window's foot at the smallest window, 620 high, where it gives up
+   height rather than touch either, and its middle scrolls. */
+.rs-sheet { position: absolute; top: calc(50% + 19px); left: 50%;
+            transform: translate(-50%, -50%);
+            width: 800px; max-width: calc(100% - 36px);
+            max-height: calc(100% - 38px - 36px);
             display: flex; flex-direction: column; z-index: 2;
-            background: var(--bg); border: 1px solid var(--rule); border-top: 0;
-            border-radius: 0 0 10px 10px;
+            background: var(--bg); border: 1px solid var(--rule);
+            border-radius: 10px;
             box-shadow: 0 18px 44px rgba(0,0,0,.34); overflow: hidden; }
 .rs-sheetin { display: grid; grid-template-columns: 402px minmax(0,1fr);
               flex: 1 1 auto; min-height: 0; overflow: auto; }
@@ -293,10 +305,13 @@ color: var(--faint); }
 .rs-add { font-size: 12.5px; color: var(--soft); border: 0; background: none;
           padding: 0; font-family: "Archivo", sans-serif; cursor: pointer; }
 .rs-subject { font-size: 13.5px; color: var(--ink); }
-/* An editing surface of the product's own, never the browser's (L607). */
+/* An editing surface of the product's own, never the browser's (L607). Its ground
+   is the window's --bg, as the built sheet's editor is: --page-panel belongs to the
+   record page around the window and went near black in the page's dark theme, under
+   the window's dark text. */
 .rs-msgedit { width: 100%; font-family: "Archivo", ui-sans-serif, sans-serif;
               font-size: 13px; line-height: 1.55; color: var(--soft);
-              background: var(--page-panel, #fff); border: 1px solid var(--rule);
+              background: var(--bg); border: 1px solid var(--rule);
               border-radius: 5px; padding: 9px 11px; resize: none; }
 .rs-msgedit:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
@@ -412,8 +427,9 @@ be seen from a still. Press the page to read it at full size, and press <b>That 
 shared address to answer it.</p>
 
 <div class="record">
-<div><h3>Where it lives</h3><p>A sheet dropping from under the window's title bar, over the invoice
-screen, which stays behind it. Nothing to navigate back from. Rejected: the document as a full
+<div><h3>Where it lives</h3><p>A sheet floating centred over the invoice screen, every corner
+rounded, which stays behind it. It was drawn dropping from under the title bar until 48a
+(ovation#547). Nothing to navigate back from. Rejected: the document as a full
 screen with the recipients in a rail, and a third place in the same language as the invoice
 screen.</p></div>
 <div><h3>The document</h3><p>The settled invoice page at 47% of actual size, 380px of 816, in an

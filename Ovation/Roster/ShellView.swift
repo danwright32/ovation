@@ -200,14 +200,22 @@ struct ShellView: View {
         // chosen rather than measured and wider than the half screen he uses.
         .frame(minWidth: OvationWindow.minimumWidth, minHeight: 620, alignment: .topLeading)
         .ovationAppearance()
-        // THE SHEET BELONGS TO THE WINDOW (PRD 52a). Every way it closes, Close, Done
-        // or the Escape key, goes through the reviewer, which gives back a number the
-        // review took and nothing was sent under (Dan, 2026-09-14). Escape clears only
-        // the binding, so the dismissal settles the review too, once (ReviewOnScreen).
-        .sheet(item: $openReview, onDismiss: settleDismissedReview) { review in
-            ReviewSheet(presenter: review.presenter, review: review,
-                        close: { finishReview(review) })
-                .interactiveDismissDisabled(review.state.holdsTheSheetOpen)
+        // THE SHEET BELONGS TO THE WINDOW (PRD 52a) AND FLOATS OVER IT (PRD 48a,
+        // ovation#547), centred below the title bar with every corner rounded, which a
+        // system sheet cannot be: it hangs from the title bar with its top flat. Every
+        // way it closes, Close, Done or the Escape key, goes through the reviewer,
+        // which gives back a number the review took and nothing was sent under (Dan,
+        // 2026-09-14). A send in flight holds it open, so Escape does nothing then.
+        .overlay {
+            if let review = openReview {
+                FloatingSheet(below: Self.titleBarHeight, dim: .deep,
+                              escape: review.state.holdsTheSheetOpen
+                                  ? nil : { finishReview(review) }) {
+                    ReviewSheet(presenter: review.presenter, review: review,
+                                close: { finishReview(review) })
+                }
+                .ignoresSafeArea(.container, edges: .top)
+            }
         }
         // THE OPEN INVOICE FOLLOWS EVERY WRITE, not only this screen's own
         // (ovation#185). The list is read again after every committed write, and
@@ -290,13 +298,11 @@ struct ShellView: View {
         Task { refusedOnTheList = await reviewer?.markNotSent(invoiceID) }
     }
 
-    /// The sheet went away by a route no control saw, the Escape key.
-    private func settleDismissedReview() {
-        if let review = reviewOnScreen.settle() { finishReview(review) }
-    }
-
+    /// Closes the review ONCE, however many routes arrive: a second press of Close,
+    /// or Escape landing with it, finds nothing left to settle and hands nothing
+    /// back twice.
     private func finishReview(_ review: InvoiceReview) {
-        _ = reviewOnScreen.settle()
+        guard reviewOnScreen.settle() === review else { return }
         openReview = nil
         Task {
             await reviewer?.close(review)
@@ -416,7 +422,7 @@ struct ShellView: View {
                     RunningExportView(command: command, onRail: true)
                 }
                 ForEach(lines.shown) { problem in
-                    footLine(problem)
+                    footLine(problem, named: lines.grouping.name(of: problem), in: lines.grouping)
                 }
                 if let more = RailFoot.moreSentence(lines.more) {
                     // A CONTROL LIKE READ (Dan, 2026-09-26): what it opens lists every
@@ -442,10 +448,12 @@ struct ShellView: View {
     }
 
     /// One open thing, with what its Read opens anchored to that Read.
-    private func footLine(_ problem: Problem) -> some View {
-        RailFootLine(name: problem.shortName, read: { shell.read(problem.id) },
+    private func footLine(_ problem: Problem, named name: String,
+                          in grouping: RailFoot.Grouping) -> some View {
+        RailFootLine(name: name,
+                     read: { shell.read(problem.id) },
                      isReading: readingBinding(problem.id),
-                     reading: reading(for: problem))
+                     reading: reading(for: problem, in: grouping))
     }
 
     /// Whether this line's popover is open. Clicking away closes it, which is not
@@ -471,9 +479,13 @@ struct ShellView: View {
     /// What Read opens for one problem, and what "I have read this" does. Named so a
     /// test can take the popover's content from the same place the popover does,
     /// since a popover is its own window and no view tree test reaches it.
-    func reading(for problem: Problem) -> FootReading {
-        FootReading(sentence: problem.sentence, done: {
-            problems.acknowledge(problem.id, now: now())
+    ///
+    /// A LINE SHARED BY SEVERAL (ovation#609) reads every one of them and is read
+    /// as a whole: "I have read this" marks each member read.
+    func reading(for problem: Problem, in grouping: RailFoot.Grouping? = nil) -> FootReading {
+        let members = (grouping ?? RailFoot.Grouping(problems.open)).members(of: problem)
+        return FootReading(sentence: RailFoot.sentence(for: members), done: {
+            for member in members { problems.acknowledge(member.id, now: now()) }
             shell.stopReading()
         })
     }
@@ -853,14 +865,85 @@ enum RailFoot {
     struct Lines: Equatable {
         let shown: [Problem]
         let more: Int
+        /// The grouping the lines were cut from, so a view names each line from the
+        /// one pass rather than working it out again per line.
+        let grouping: Grouping
     }
 
     /// Newest first, by when each was last raised, so a standing condition found
     /// again at this launch comes back to the top. A tie goes to the one recorded
-    /// later.
+    /// later. Problems that share one line (ovation#609) stand as their newest, and
+    /// "and N more" counts lines, not problems.
     static func lines(for open: [Problem]) -> Lines {
-        let newest = newestFirst(open)
-        return Lines(shown: Array(newest.prefix(most)), more: max(newest.count - most, 0))
+        let grouping = Grouping(open)
+        let newest = grouping.lines
+        return Lines(shown: Array(newest.prefix(most)), more: max(newest.count - most, 0),
+                     grouping: grouping)
+    }
+
+    /// Every line, newest first, each standing as its newest member: the foot's
+    /// order and the list behind "and N more", which groups exactly as the foot does
+    /// so two backups of one day are one entry there too.
+    static func everyLine(for open: [Problem]) -> [Problem] { Grouping(open).lines }
+
+    /// Every open problem on the same line as this one, newest first: itself alone
+    /// unless its kind shares a line (ovation#609).
+    static func members(of problem: Problem, among open: [Problem]) -> [Problem] {
+        Grouping(open).members(of: problem)
+    }
+
+    /// What the open problems come to in the foot, worked out ONCE per render: each
+    /// problem's name, which line it stands on, and each line's members (ovation#609).
+    /// Names depend on what else is open, so asking per problem rescanned the whole
+    /// list for every line drawn (L383, L471).
+    struct Grouping: Equatable {
+        /// One problem per line, newest first.
+        let lines: [Problem]
+        private let names: [Problem.ID: String]
+        private let keys: [Problem.ID: String]
+        private let membersByKey: [String: [Problem]]
+
+        init(_ open: [Problem]) {
+            var perKind: [ProblemKind: Int] = [:]
+            for problem in open { perKind[problem.kind, default: 0] += 1 }
+            var names: [Problem.ID: String] = [:]
+            var keys: [Problem.ID: String] = [:]
+            var members: [String: [Problem]] = [:]
+            var lines: [Problem] = []
+            for problem in RailFoot.newestFirst(open) {
+                let name = problem.shortName(sharingKind: (perKind[problem.kind] ?? 0) > 1)
+                // A kind that shares one line per name (ovation#609) is keyed by that
+                // name; every other problem has a line of its own.
+                let key = ProblemKind.sharingOneLine.contains(problem.kind)
+                    ? "line:\(problem.kind.rawValue):\(name)" : "problem:\(problem.id)"
+                names[problem.id] = name
+                keys[problem.id] = key
+                if members[key] == nil { lines.append(problem) }
+                members[key, default: []].append(problem)
+            }
+            self.lines = lines
+            self.names = names
+            self.keys = keys
+            self.membersByKey = members
+        }
+
+        /// What the foot calls this problem, the same as `Problem.shortName(among:)`.
+        func name(of problem: Problem) -> String { names[problem.id] ?? problem.shortName }
+
+        func members(of problem: Problem) -> [Problem] {
+            keys[problem.id].flatMap { membersByKey[$0] } ?? [problem]
+        }
+    }
+
+    /// What Read opens for a line: its one sentence, or each member's in turn, a
+    /// broken backup's led by its time so two of one day are told apart (Dan,
+    /// 2026-09-30).
+    static func sentence(for members: [Problem]) -> String {
+        guard members.count > 1 else { return members.first?.sentence ?? "" }
+        return members.map { member in
+            ProblemKind.archiveTime(member.subject).map { "Taken at \($0). \(member.sentence)" }
+                ?? member.sentence
+        }.joined(separator: "\n\n")
     }
 
     /// The one order the foot and the list behind "and N more" share.
@@ -942,25 +1025,30 @@ struct FootReadingList: View {
     let read: (Problem) -> Void
 
     var body: some View {
-        let open = RailFoot.newestFirst(problems.open)
+        let grouping = RailFoot.Grouping(problems.open)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(open.enumerated()), id: \.element.id) { index, problem in
+                ForEach(Array(grouping.lines.enumerated()), id: \.element.id) { index, problem in
                     if index > 0 { Divider().overlay(OvationPalette.rule) }
+                    let name = grouping.name(of: problem)
+                    // ONE ENTRY PER FOOT LINE (ovation#609): a line shared by several
+                    // reads each of them, and is read as a whole.
+                    let members = grouping.members(of: problem)
                     VStack(alignment: .leading, spacing: 6) {
                         // Headed by the name the foot calls it, as the design record
                         // draws the list (rules/rail-foot.js, PRD 44f).
-                        Text(problem.shortName)
+                        Text(name)
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(OvationPalette.ink)
-                        Text(problem.sentence)
+                        Text(RailFoot.sentence(for: members))
                             .font(.system(size: 13))
                             .foregroundStyle(OvationPalette.ink)
                             .lineSpacing(2)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
-                        ActionWord(word: RailFoot.readIt, size: 13, press: { read(problem) },
-                                   spoken: "\(RailFoot.readIt): \(problem.shortName)")
+                        ActionWord(word: RailFoot.readIt, size: 13,
+                                   press: { members.forEach(read) },
+                                   spoken: "\(RailFoot.readIt): \(name)")
                     }
                     .padding(.vertical, 10)
                 }
