@@ -29,6 +29,7 @@ from real business names WILL over match, and an over match reads exactly like
 the feature working (L104). A multi word name is matched as a phrase, because
 half a name is not the name.
 """
+import csv
 import hashlib
 import json
 import os
@@ -47,6 +48,12 @@ STORE = os.environ.get("OVATION_GUARD_STORE",
                        os.path.expanduser("~/Library/Application Support/Ovation/Ovation.store"))
 QUEUE = os.environ.get("OVATION_GUARD_QUEUE_DIR",
                        os.path.expanduser("~/Library/Application Support/Ovation/booking-queue"))
+# THE CUSTODY NOTE, which records every custody file wherever it lives, CSV files
+# included (ovation#67). Read for its CSV entries: the JSON snapshots are found by
+# listing the custody folder, and a CSV may live outside it (the Freshbooks file).
+CUSTODY_NOTE = os.environ.get("OVATION_GUARD_CUSTODY_NOTE",
+                              os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                           "docs", "CUSTODY.md"))
 SCAN_ROOT = os.environ.get("OVATION_GUARD_SCAN_ROOT",
                            os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -465,6 +472,133 @@ def build_matcher(needles):
     return matchers
 
 
+# The CSV columns that hold a person or a business, by the header each export
+# writes. NAMED rather than every column, for the reason STORE_COLUMNS is named:
+# a memo, a description or an item name is ordinary prose, and taking it would
+# turn common words into needles that fire for ever (L104). QuickBooks writes
+# "Name" on its invoice list and payments and "Client full name" on its sales
+# lines; Freshbooks writes "Client Name". A recorded CSV carrying NONE of them is
+# a refusal, never zero needles, because a changed export would otherwise stop
+# being searched for while reading as clean (L217).
+CSV_IDENTITY_COLUMNS = ("Name", "Client full name", "Client Name")
+
+# A report that names its client only in GROUP HEADINGS, rows whose first cell
+# is filled and every other empty, under a header whose first cell is empty.
+# MEASURED on the Invoices and Received Payments export (2026-09-30): it has no
+# name column at all, so without this its clients are in custody and searched
+# for by nothing. Named by its whole header, because the sales lines report
+# groups the same way by PRODUCT, and product names are ordinary words (L104).
+CSV_CLIENT_HEADED_HEADERS = (
+    ("", "Date", "Transaction type", "Memo/Description", "Transaction number", "Amount"),
+)
+
+
+def recorded_csv_paths(note, problems=None):
+    """Every `.csv` path docs/CUSTODY.md records, home expanded.
+
+    DERIVED FROM THE NOTE, the same record scripts/check-custody-files.sh
+    verifies the files against, so recording a custody CSV there is what makes
+    it a needle source and there is no second list to forget (L41, ovation#67).
+    """
+    try:
+        with open(note, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        # A note that is THERE and cannot be read is a problem, never an empty
+        # list: an empty list reads exactly like a note recording no CSV (L11).
+        if problems is not None:
+            problems.append("the custody note could not be read (%s)" % type(exc).__name__)
+        return []
+    paths = []
+    for match in re.finditer(r"^\|\s*Path\s*\|\s*`([^`]+)`\s*\|", text, re.MULTILINE):
+        path = match.group(1)
+        if path.lower().endswith(".csv"):
+            paths.append(os.path.expanduser(path))
+    return paths
+
+
+def needles_from_csv(path, source_name, problems):
+    """The identity columns of one custody CSV.
+
+    The header is found as the first row carrying an identity column, because
+    QuickBooks writes three preamble lines and an empty one above its header.
+    """
+    out = set()
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as fh:
+            rows = list(csv.reader(fh))
+    except Exception as exc:
+        problems.append("%s: a recorded CSV could not be read (%s)" % (source_name, type(exc).__name__))
+        return out
+    columns = None
+    client_headed = False
+    for row in rows:
+        if columns is None:
+            if tuple(cell.strip() for cell in row) in CSV_CLIENT_HEADED_HEADERS:
+                columns, client_headed = [], True
+                continue
+            found = [i for i, cell in enumerate(row) if cell.strip() in CSV_IDENTITY_COLUMNS]
+            if found:
+                columns = found
+            continue
+        if client_headed:
+            # The body ends at its first empty row; what follows is the report
+            # timestamp, which has a heading's shape and names nobody.
+            if not any(cell.strip() for cell in row):
+                break
+            if row and row[0].strip() and not any(cell.strip() for cell in row[1:]):
+                out.add(row[0].strip())
+            continue
+        for i in columns:
+            if i < len(row):
+                value = row[i].strip()
+                if value:
+                    out.add(value)
+    if columns is None:
+        problems.append("%s: a recorded CSV has none of the identity columns this reads (%s)"
+                        % (source_name, ", ".join(CSV_IDENTITY_COLUMNS)))
+    return out
+
+
+def read_custody_csvs(note, source_name, problems):
+    """Every recorded custody CSV that is on this machine.
+
+    One that is recorded and absent is NOT a problem here: its absence is
+    scripts/check-custody-files.sh's finding, and a second refusal for one fact
+    would be two alarms about one event (L36).
+    """
+    out = set()
+    recorded = recorded_csv_paths(note, problems)
+    present = [path for path in recorded if os.path.exists(path)]
+    for path in present:
+        out |= needles_from_csv(path, source_name, problems)
+    # WHICH OF THREE STATES, kept for the coverage line: none of them here (a CI
+    # runner, a fresh clone), some here, or here and naming nobody. Each reads
+    # differently, because "consulted, 0 new needles" said of files that are not
+    # on this machine is a pass that searched for nothing (L98, L11).
+    CSV_COVERAGE.update(recorded=len(recorded), present=len(present), names=len(out))
+    return out
+
+
+# Filled by read_custody_csvs, read by the coverage report in main().
+CSV_COVERAGE = {}
+
+
+def custody_csv_state(count):
+    """The coverage line's state for the custody CSV population."""
+    recorded = CSV_COVERAGE.get("recorded", 0)
+    present = CSV_COVERAGE.get("present", 0)
+    if not recorded:
+        return ("NONE RECORDED, the custody note records no CSV, so no custody CSV name "
+                "was searched for")
+    if recorded and not present:
+        return ("UNAVAILABLE, none of the %d recorded custody CSV(s) is on this machine, "
+                "so their names were not searched for" % recorded)
+    if present and not CSV_COVERAGE.get("names", 0):
+        return "consulted %d of %d recorded CSV(s), which name nobody" % (present, recorded)
+    return "consulted %d of %d recorded CSV(s), %d new needle(s)" % (present, recorded, count)
+
+
 def read_custody(path, source_name, problems):
     out = set()
     for name in sorted(os.listdir(path)):
@@ -505,6 +639,12 @@ POPULATIONS = [
      "path": lambda: CUSTODY,
      "present": lambda p: os.path.isdir(p),
      "read": read_custody},
+    {"key": "custody-csv",
+     "what": "the CSV files docs/CUSTODY.md records: QuickBooks and Freshbooks client names",
+     "arrives": None,
+     "path": lambda: CUSTODY_NOTE,
+     "present": lambda p: os.path.exists(p),
+     "read": read_custody_csvs},
     {"key": "ovation-store",
      "what": "Ovation's own store: client names, contract emails, vendor names",
      "arrives": "ovation#68 imports the clients, ovation#82 the vendors",
@@ -612,7 +752,9 @@ def main():
     # keep their own sentences (L11, L260).
     print("Populations:")
     for key, state, count in coverage:
-        if state == "consulted":
+        if state == "consulted" and key == "custody-csv":
+            print("    %s: %s" % (key, custody_csv_state(count)))
+        elif state == "consulted":
             print("    %s: consulted, %d new needle(s)" % (key, count))
         else:
             # NAMING WHAT WILL FILL IT is what makes the gap visible rather than

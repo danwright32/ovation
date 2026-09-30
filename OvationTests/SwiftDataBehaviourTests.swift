@@ -30,32 +30,33 @@ struct SwiftDataBehaviourTests {
         var description: String { self == .inMemory ? "in memory" : "on disk" }
     }
 
-    /// Builds a container for the given models, and hands back a cleanup the
-    /// caller runs on every exit path.
+    /// Runs `body` over a container for the given models, and for an on disk
+    /// store deletes the store's directory only once the container is gone.
     ///
     /// The temporary directory is made per call rather than shared, so two tests
     /// running at once cannot see each other's rows.
-    private static func container(
+    ///
+    /// THE DIRECTORY GOES AFTER THE CONTAINER, NOT BESIDE IT (ovation#632). This
+    /// used to hand back the container with a cleanup the caller ran in a
+    /// `defer`, which runs while the caller's own container is still in scope, so
+    /// every on disk case deleted a store SQLite still held: 27 lines of "vnode
+    /// unlinked while in use" per run of this suite. `ScratchStore` owns the
+    /// directory now, and checks it once the container is gone.
+    private static func withContainer(
         kind: StoreKind,
-        for models: any PersistentModel.Type...
-    ) throws -> (container: ModelContainer, cleanUp: () -> Void) {
+        for models: any PersistentModel.Type...,
+        body: (ModelContainer) throws -> Void
+    ) throws {
         let schema = Schema(models.map { $0 })
         switch kind {
         case .inMemory:
             let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-            return (try ModelContainer(for: schema, configurations: configuration), {})
+            try body(try ModelContainer(for: schema, configurations: configuration))
         case .onDisk:
-            let directory = URL.temporaryDirectory
-                .appending(path: "ovation-probe-\(UUID().uuidString)", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let configuration = ModelConfiguration(
-                schema: schema,
-                url: directory.appending(path: "Probe.store")
-            )
-            return (
-                try ModelContainer(for: schema, configurations: configuration),
-                { try? FileManager.default.removeItem(at: directory) }
-            )
+            try ScratchStore.with("probe", file: "Probe.store") { url in
+                try body(try ModelContainer(
+                    for: schema, configurations: ModelConfiguration(schema: schema, url: url)))
+            }
         }
     }
 
@@ -87,22 +88,22 @@ struct SwiftDataBehaviourTests {
     @Test("an enum with associated values round trips, so a discount can be one value",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func associatedValueEnumRoundTrips(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeDiscounted.self)
-        defer { cleanUp() }
-        let context = ModelContext(container)
+        try Self.withContainer(kind: kind, for: ProbeDiscounted.self) { container in
+            let context = ModelContext(container)
 
-        context.insert(ProbeDiscounted(label: "flat", discount: .dollars(5_000)))
-        context.insert(ProbeDiscounted(label: "share", discount: .percentageBasisPoints(1_000)))
-        context.insert(ProbeDiscounted(label: "none", discount: nil))
-        try context.save()
+            context.insert(ProbeDiscounted(label: "flat", discount: .dollars(5_000)))
+            context.insert(ProbeDiscounted(label: "share", discount: .percentageBasisPoints(1_000)))
+            context.insert(ProbeDiscounted(label: "none", discount: nil))
+            try context.save()
 
-        let read = try ModelContext(container)
-            .fetch(FetchDescriptor<ProbeDiscounted>(sortBy: [SortDescriptor(\.label)]))
-        #expect(read.count == 3, "three rows were saved")
-        #expect(read[0].discount == .dollars(5_000), "the dollars case keeps its amount")
-        #expect(read[1].discount == nil, "absent stays absent, never a zero")
-        #expect(read[2].discount == .percentageBasisPoints(1_000),
-                "the percentage case stays distinguishable from the dollars one")
+            let read = try ModelContext(container)
+                .fetch(FetchDescriptor<ProbeDiscounted>(sortBy: [SortDescriptor(\.label)]))
+            #expect(read.count == 3, "three rows were saved")
+            #expect(read[0].discount == .dollars(5_000), "the dollars case keeps its amount")
+            #expect(read[1].discount == nil, "absent stays absent, never a zero")
+            #expect(read[2].discount == .percentageBasisPoints(1_000),
+                    "the percentage case stays distinguishable from the dollars one")
+        }
     }
 
     // MARK: Q2, a colliding surrogate id
@@ -127,20 +128,20 @@ struct SwiftDataBehaviourTests {
     @Test("a colliding unique id replaces the row rather than refusing, as PRD 42a measured",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func collidingUniqueIdReplacesSilently(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeIdentified.self)
-        defer { cleanUp() }
-        let context = ModelContext(container)
+        try Self.withContainer(kind: kind, for: ProbeIdentified.self) { container in
+            let context = ModelContext(container)
 
-        let shared = UUID()
-        context.insert(ProbeIdentified(id: shared, label: "the original"))
-        try context.save()
-        context.insert(ProbeIdentified(id: shared, label: "the replacement"))
-        try context.save()
+            let shared = UUID()
+            context.insert(ProbeIdentified(id: shared, label: "the original"))
+            try context.save()
+            context.insert(ProbeIdentified(id: shared, label: "the replacement"))
+            try context.save()
 
-        let read = try ModelContext(container).fetch(FetchDescriptor<ProbeIdentified>())
-        #expect(read.count == 1, "one row survives a collision, not two")
-        #expect(read.first?.label == "the replacement",
-                "the survivor holds the SECOND value, so the first is gone with no error")
+            let read = try ModelContext(container).fetch(FetchDescriptor<ProbeIdentified>())
+            #expect(read.count == 1, "one row survives a collision, not two")
+            #expect(read.first?.label == "the replacement",
+                    "the survivor holds the SECOND value, so the first is gone with no error")
+        }
     }
 
     /// THE CONTRAST, kept as a standing assertion rather than as something seen
@@ -166,20 +167,20 @@ struct SwiftDataBehaviourTests {
     @Test("without the unique attribute the same collision leaves TWO rows, not a replacement",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func collisionWithoutUniqueLeavesADuplicate(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeUnconstrained.self)
-        defer { cleanUp() }
-        let context = ModelContext(container)
+        try Self.withContainer(kind: kind, for: ProbeUnconstrained.self) { container in
+            let context = ModelContext(container)
 
-        let shared = UUID()
-        context.insert(ProbeUnconstrained(id: shared, label: "the original"))
-        try context.save()
-        context.insert(ProbeUnconstrained(id: shared, label: "the second"))
-        try context.save()
+            let shared = UUID()
+            context.insert(ProbeUnconstrained(id: shared, label: "the original"))
+            try context.save()
+            context.insert(ProbeUnconstrained(id: shared, label: "the second"))
+            try context.save()
 
-        let read = try ModelContext(container).fetch(FetchDescriptor<ProbeUnconstrained>())
-        #expect(read.count == 2, "both rows survive, so the collision is visible rather than silent")
-        #expect(read.contains { $0.label == "the original" },
-                "and the row that was there first is still there")
+            let read = try ModelContext(container).fetch(FetchDescriptor<ProbeUnconstrained>())
+            #expect(read.count == 2, "both rows survive, so the collision is visible rather than silent")
+            #expect(read.contains { $0.label == "the original" },
+                    "and the row that was there first is still there")
+        }
     }
 
 
@@ -241,89 +242,89 @@ struct SwiftDataBehaviourTests {
     @Test("a composite value round trips whole, both halves intact",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func compositeValuesRoundTrip(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
-        defer { cleanUp() }
-        try Self.queryableRows(in: ModelContext(container))
+        try Self.withContainer(kind: kind, for: ProbeQueryable.self) { container in
+            try Self.queryableRows(in: ModelContext(container))
 
-        let read = try ModelContext(container).fetch(
-            FetchDescriptor<ProbeQueryable>(sortBy: [SortDescriptor(\.label)]))
-        let boundary = try #require(read.first { $0.label == "boundary" })
-        #expect(boundary.stampedDate.dayKey == boundary.flatDayKey,
-                "the stamped key survives inside the composite value")
-        #expect(boundary.stampedDate.agreesWithItsInstant,
-                "and so does the instant it was stamped from")
-        #expect(boundary.amount == Money(dollars: 250))
-        #expect(boundary.kind == .printSale)
+            let read = try ModelContext(container).fetch(
+                FetchDescriptor<ProbeQueryable>(sortBy: [SortDescriptor(\.label)]))
+            let boundary = try #require(read.first { $0.label == "boundary" })
+            #expect(boundary.stampedDate.dayKey == boundary.flatDayKey,
+                    "the stamped key survives inside the composite value")
+            #expect(boundary.stampedDate.agreesWithItsInstant,
+                    "and so does the instant it was stamped from")
+            #expect(boundary.amount == Money(dollars: 250))
+            #expect(boundary.kind == .printSale)
+        }
     }
 
     @Test("a plain string column can be filtered in the fetch itself",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func aFlatColumnIsFilterable(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
-        defer { cleanUp() }
-        try Self.queryableRows(in: ModelContext(container))
+        try Self.withContainer(kind: kind, for: ProbeQueryable.self) { container in
+            try Self.queryableRows(in: ModelContext(container))
 
-        let lowerBound = "2026-01-01"
-        let upperBound = "2026-12-31"
-        var descriptor = FetchDescriptor<ProbeQueryable>(
-            predicate: #Predicate { $0.flatDayKey >= lowerBound && $0.flatDayKey <= upperBound }
-        )
-        descriptor.sortBy = [SortDescriptor(\.flatDayKey)]
-        let inRange = try ModelContext(container).fetch(descriptor)
-        #expect(inRange.map(\.label) == ["before", "boundary"],
-                "the range takes the boundary row and leaves the next day out")
+            let lowerBound = "2026-01-01"
+            let upperBound = "2026-12-31"
+            var descriptor = FetchDescriptor<ProbeQueryable>(
+                predicate: #Predicate { $0.flatDayKey >= lowerBound && $0.flatDayKey <= upperBound }
+            )
+            descriptor.sortBy = [SortDescriptor(\.flatDayKey)]
+            let inRange = try ModelContext(container).fetch(descriptor)
+            #expect(inRange.map(\.label) == ["before", "boundary"],
+                    "the range takes the boundary row and leaves the next day out")
+        }
     }
 
     @Test("a predicate CAN reach inside a composite value, so a date and its key stay one field",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func aCompositeValueIsReachableFromAPredicate(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
-        defer { cleanUp() }
-        try Self.queryableRows(in: ModelContext(container))
+        try Self.withContainer(kind: kind, for: ProbeQueryable.self) { container in
+            try Self.queryableRows(in: ModelContext(container))
 
-        let lowerBound = "2026-12-31"
-        var reachingIn = FetchDescriptor<ProbeQueryable>(
-            predicate: #Predicate { $0.stampedDate.dayKey >= lowerBound }
-        )
-        reachingIn.sortBy = [SortDescriptor(\.flatDayKey)]
-        var flat = FetchDescriptor<ProbeQueryable>(
-            predicate: #Predicate { $0.flatDayKey >= lowerBound }
-        )
-        flat.sortBy = [SortDescriptor(\.flatDayKey)]
+            let lowerBound = "2026-12-31"
+            var reachingIn = FetchDescriptor<ProbeQueryable>(
+                predicate: #Predicate { $0.stampedDate.dayKey >= lowerBound }
+            )
+            reachingIn.sortBy = [SortDescriptor(\.flatDayKey)]
+            var flat = FetchDescriptor<ProbeQueryable>(
+                predicate: #Predicate { $0.flatDayKey >= lowerBound }
+            )
+            flat.sortBy = [SortDescriptor(\.flatDayKey)]
 
-        let context = ModelContext(container)
-        let throughTheComposite = try context.fetch(reachingIn).map(\.label)
-        let throughTheColumn = try context.fetch(flat).map(\.label)
-        #expect(throughTheColumn == ["boundary", "after"], "the plain column filters correctly")
-        #expect(throughTheComposite == throughTheColumn,
-                "and reaching into the composite value gives the same answer")
+            let context = ModelContext(container)
+            let throughTheComposite = try context.fetch(reachingIn).map(\.label)
+            let throughTheColumn = try context.fetch(flat).map(\.label)
+            #expect(throughTheColumn == ["boundary", "after"], "the plain column filters correctly")
+            #expect(throughTheComposite == throughTheColumn,
+                    "and reaching into the composite value gives the same answer")
+        }
     }
 
     @Test("a predicate CANNOT compare against a captured enum value either",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func anEnumConstantIsNotUsableInAPredicate(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
-        defer { cleanUp() }
-        try Self.queryableRows(in: ModelContext(container))
+        try Self.withContainer(kind: kind, for: ProbeQueryable.self) { container in
+            try Self.queryableRows(in: ModelContext(container))
 
-        let wanted = InvoiceKind.photography
-        let descriptor = FetchDescriptor<ProbeQueryable>(predicate: #Predicate { $0.kind == wanted })
-        #expect(throws: SwiftDataError.self) {
-            _ = try ModelContext(container).fetch(descriptor)
+            let wanted = InvoiceKind.photography
+            let descriptor = FetchDescriptor<ProbeQueryable>(predicate: #Predicate { $0.kind == wanted })
+            #expect(throws: SwiftDataError.self) {
+                _ = try ModelContext(container).fetch(descriptor)
+            }
         }
     }
 
     @Test("what a stored enum CAN still do is sort, round trip, and be filtered in memory",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func aStoredEnumIsStillUsableWithoutAPredicate(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(kind: kind, for: ProbeQueryable.self)
-        defer { cleanUp() }
-        try Self.queryableRows(in: ModelContext(container))
+        try Self.withContainer(kind: kind, for: ProbeQueryable.self) { container in
+            try Self.queryableRows(in: ModelContext(container))
 
-        let all = try ModelContext(container).fetch(
-            FetchDescriptor<ProbeQueryable>(sortBy: [SortDescriptor(\.flatDayKey)]))
-        #expect(all.filter { $0.kind == .photography }.map(\.label) == ["before", "after"],
-                "which is why a kind is filtered over a range the query already narrowed")
+            let all = try ModelContext(container).fetch(
+                FetchDescriptor<ProbeQueryable>(sortBy: [SortDescriptor(\.flatDayKey)]))
+            #expect(all.filter { $0.kind == .photography }.map(\.label) == ["before", "after"],
+                    "which is why a kind is filtered over a range the query already narrowed")
+        }
     }
 
     // MARK: Q3, the two delete rules the model needs to be different
@@ -362,33 +363,33 @@ struct SwiftDataBehaviourTests {
     @Test("cascade takes the children and nullify leaves them standing",
           arguments: [StoreKind.inMemory, StoreKind.onDisk])
     func deleteRulesDifferAsTheModelNeeds(kind: StoreKind) throws {
-        let (container, cleanUp) = try Self.container(
+        try Self.withContainer(
             kind: kind, for: ProbeOwner.self, ProbeOwned.self, ProbeReleasable.self
-        )
-        defer { cleanUp() }
-        let context = ModelContext(container)
+        ) { container in
+            let context = ModelContext(container)
 
-        let owner = ProbeOwner(label: "the invoice")
-        let owned = ProbeOwned(label: "a line item")
-        let released = ProbeReleasable(label: "an allocation")
-        context.insert(owner)
-        context.insert(owned)
-        context.insert(released)
-        owner.owned = [owned]
-        owner.released = [released]
-        try context.save()
+            let owner = ProbeOwner(label: "the invoice")
+            let owned = ProbeOwned(label: "a line item")
+            let released = ProbeReleasable(label: "an allocation")
+            context.insert(owner)
+            context.insert(owned)
+            context.insert(released)
+            owner.owned = [owned]
+            owner.released = [released]
+            try context.save()
 
-        context.delete(owner)
-        try context.save()
+            context.delete(owner)
+            try context.save()
 
-        let reader = ModelContext(container)
-        let survivingOwned = try reader.fetch(FetchDescriptor<ProbeOwned>())
-        let survivingReleased = try reader.fetch(FetchDescriptor<ProbeReleasable>())
-        #expect(survivingOwned.isEmpty, "cascade removed what the owner owned")
-        #expect(survivingReleased.count == 1,
-                "nullify left the allocation standing, which is what releasing means")
-        #expect(survivingReleased.first?.owner == nil,
-                "and it no longer points at the row that was deleted")
+            let reader = ModelContext(container)
+            let survivingOwned = try reader.fetch(FetchDescriptor<ProbeOwned>())
+            let survivingReleased = try reader.fetch(FetchDescriptor<ProbeReleasable>())
+            #expect(survivingOwned.isEmpty, "cascade removed what the owner owned")
+            #expect(survivingReleased.count == 1,
+                    "nullify left the allocation standing, which is what releasing means")
+            #expect(survivingReleased.first?.owner == nil,
+                    "and it no longer points at the row that was deleted")
+        }
     }
 
     // MARK: does the store file alone carry a saved row (ovation#88)
@@ -408,59 +409,56 @@ struct SwiftDataBehaviourTests {
     /// this OS does, and names what changes if that flips.
     @Test("a saved row, and whether the store file alone carries it")
     func theStoreFileAloneAfterASave() throws {
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-wal-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        try ScratchStore.with("wal") { storeURL in
+            let directory = storeURL.deletingLastPathComponent()
+            let schema = Schema([Client.self])
+            let container = try ModelContainer(
+                for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
+            let context = ModelContext(container)
+            context.insert(Client(name: "Ashgrove Chamber Players", taxStatus: .neverRecorded))
+            try context.save()
 
-        let storeURL = directory.appending(path: "Ovation.store")
-        let schema = Schema([Client.self])
-        let container = try ModelContainer(
-            for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
-        let context = ModelContext(container)
-        context.insert(Client(name: "Ashgrove Chamber Players", taxStatus: .neverRecorded))
-        try context.save()
+            // Copy the store file ALONE, exactly as a backup would if the log were
+            // absent, and read it with a container that has never seen the original.
+            let alone = directory.appending(path: "alone.store")
+            try FileManager.default.copyItem(at: storeURL, to: alone)
 
-        // Copy the store file ALONE, exactly as a backup would if the log were
-        // absent, and read it with a container that has never seen the original.
-        let alone = directory.appending(path: "alone.store")
-        try FileManager.default.copyItem(at: storeURL, to: alone)
+            let log = directory.appending(path: "Ovation.store-wal")
+            let logExists = FileManager.default.fileExists(atPath: log.path)
+            let logBytes = (try? Data(contentsOf: log).count) ?? 0
 
-        let log = directory.appending(path: "Ovation.store-wal")
-        let logExists = FileManager.default.fileExists(atPath: log.path)
-        let logBytes = (try? Data(contentsOf: log).count) ?? 0
+            let copiedSchema = Schema([Client.self])
+            let copied = try ModelContainer(
+                for: copiedSchema,
+                configurations: ModelConfiguration(schema: copiedSchema, url: alone))
+            let rows = try ModelContext(copied).fetch(FetchDescriptor<Client>())
 
-        let copiedSchema = Schema([Client.self])
-        let copied = try ModelContainer(
-            for: copiedSchema,
-            configurations: ModelConfiguration(schema: copiedSchema, url: alone))
-        let rows = try ModelContext(copied).fetch(FetchDescriptor<Client>())
+            // The row is in the original either way. That is the control: without it
+            // a fetch of zero from the copy could mean the save never happened.
+            #expect(try ModelContext(container).fetch(FetchDescriptor<Client>()).count == 1)
 
-        // The row is in the original either way. That is the control: without it
-        // a fetch of zero from the copy could mean the save never happened.
-        #expect(try ModelContext(container).fetch(FetchDescriptor<Client>()).count == 1)
-
-        // What this OS actually does, recorded rather than asserted one way.
-        // A log holding the pages is what makes the checkpoint load bearing; a
-        // store file that already carries them means the checkpoint protects
-        // only against a crash, and ovation#88's reasoning must say so.
-        // MEASURED 2026-09-07, macOS 15.5 (Darwin 25.5.0). The log is 57,712
-        // bytes and the store file alone holds NOTHING. So on this OS a saved
-        // row lives entirely in the write ahead log until something checkpoints.
-        //
-        // What this decides, which is the reason the test exists: the launch
-        // checkpoint in ovation#88 is LOAD BEARING, not an optimisation. A
-        // backup that copied Ovation.store without its log would restore an
-        // empty database, and BackupPlan cannot require the log, because a
-        // checkpointed store legitimately has none. Checkpointing first is what
-        // makes the store file self sufficient before it is read.
-        //
-        // If this ever flips, so that the store file alone carries the row, the
-        // checkpoint stops protecting against a missing log and protects only
-        // against a crash. Say so in ovation#88 rather than deleting it.
-        #expect(logExists, "no write ahead log beside the store at all")
-        #expect(logBytes > 0, "the log exists but is empty, which is a different world")
-        #expect(rows.isEmpty, "the store file alone now carries the row, which reverses the reasoning above")
+            // What this OS actually does, recorded rather than asserted one way.
+            // A log holding the pages is what makes the checkpoint load bearing; a
+            // store file that already carries them means the checkpoint protects
+            // only against a crash, and ovation#88's reasoning must say so.
+            // MEASURED 2026-09-07, macOS 15.5 (Darwin 25.5.0). The log is 57,712
+            // bytes and the store file alone holds NOTHING. So on this OS a saved
+            // row lives entirely in the write ahead log until something checkpoints.
+            //
+            // What this decides, which is the reason the test exists: the launch
+            // checkpoint in ovation#88 is LOAD BEARING, not an optimisation. A
+            // backup that copied Ovation.store without its log would restore an
+            // empty database, and BackupPlan cannot require the log, because a
+            // checkpointed store legitimately has none. Checkpointing first is what
+            // makes the store file self sufficient before it is read.
+            //
+            // If this ever flips, so that the store file alone carries the row, the
+            // checkpoint stops protecting against a missing log and protects only
+            // against a crash. Say so in ovation#88 rather than deleting it.
+            #expect(logExists, "no write ahead log beside the store at all")
+            #expect(logBytes > 0, "the log exists but is empty, which is a different world")
+            #expect(rows.isEmpty, "the store file alone now carries the row, which reverses the reasoning above")
+        }
     }
 
     @Test("a second context that has not seen a write CLOBBERS it on its next save")
@@ -673,44 +671,40 @@ struct SwiftDataBehaviourTests {
 
     @Test("a Codable enum is flattened into columns a reader outside SwiftData can select")
     func aCodableEnumIsReadableWithoutSwiftData() throws {
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-column-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        try ScratchStore.with("column", file: "Probe.store") { storeURL in
+            let schema = Schema([ProbeReceipted.self])
+            let container = try ModelContainer(
+                for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
+            let context = ModelContext(container)
+            context.insert(ProbeReceipted(label: "with a receipt",
+                                          receipt: .file(sha256: "abc123",
+                                                         relativePath: "ab/abc123.pdf")))
+            context.insert(ProbeReceipted(label: "without one", receipt: .noneRecorded))
+            try context.save()
 
-        let storeURL = directory.appending(path: "Probe.store")
-        let schema = Schema([ProbeReceipted.self])
-        let container = try ModelContainer(
-            for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
-        let context = ModelContext(container)
-        context.insert(ProbeReceipted(label: "with a receipt",
-                                      receipt: .file(sha256: "abc123",
-                                                     relativePath: "ab/abc123.pdf")))
-        context.insert(ProbeReceipted(label: "without one", receipt: .noneRecorded))
-        try context.save()
+            // The rows live in the write ahead log until something checkpoints, which
+            // the test above this one measures. The launch sequence checkpoints
+            // before the backup for exactly this reason, so the reader under design
+            // will always meet a checkpointed file; this does the same.
+            var attempts = 0
+            while attempts < 200, StoreCheckpoint.run(storeURL: storeURL) != .checkpointed {
+                attempts += 1
+            }
 
-        // The rows live in the write ahead log until something checkpoints, which
-        // the test above this one measures. The launch sequence checkpoints
-        // before the backup for exactly this reason, so the reader under design
-        // will always meet a checkpointed file; this does the same.
-        var attempts = 0
-        while attempts < 200, StoreCheckpoint.run(storeURL: storeURL) != .checkpointed {
-            attempts += 1
+            let columns = try Self.columnNames(of: "ZPROBERECEIPTED", in: storeURL)
+            // NAMED EXACTLY, not merely "contains something". A test satisfied by any
+            // column would pass against an opaque blob column too, which is the
+            // answer that would rule out the whole route (L140).
+            #expect(columns.contains("ZSHA256"))
+            #expect(columns.contains("ZRELATIVEPATH"))
+            #expect(columns.contains("ZNONERECORDED"))
+            #expect(!columns.contains("ZRECEIPT"),
+                    "the enum is stored under one column after all, so it may be an opaque value")
+
+            let references = try Self.textColumn("ZRELATIVEPATH",
+                                                 of: "ZPROBERECEIPTED", in: storeURL)
+            #expect(references == ["ab/abc123.pdf"])
         }
-
-        let columns = try Self.columnNames(of: "ZPROBERECEIPTED", in: storeURL)
-        // NAMED EXACTLY, not merely "contains something". A test satisfied by any
-        // column would pass against an opaque blob column too, which is the
-        // answer that would rule out the whole route (L140).
-        #expect(columns.contains("ZSHA256"))
-        #expect(columns.contains("ZRELATIVEPATH"))
-        #expect(columns.contains("ZNONERECORDED"))
-        #expect(!columns.contains("ZRECEIPT"),
-                "the enum is stored under one column after all, so it may be an opaque value")
-
-        let references = try Self.textColumn("ZRELATIVEPATH",
-                                             of: "ZPROBERECEIPTED", in: storeURL)
-        #expect(references == ["ab/abc123.pdf"])
     }
 
     // MARK: reading the store file the way something outside SwiftData must

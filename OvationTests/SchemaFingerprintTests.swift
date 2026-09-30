@@ -36,6 +36,7 @@ import Testing
 ///   today's declaration produces, recorded here so that the NEXT edit to either
 ///   shape fails this suite and has to become a new version instead of silently
 ///   orphaning every store written under the old one (ovation#502's cause).
+@MainActor
 struct SchemaFingerprintTests {
 
     /// Read off `~/Library/Application Support/Ovation/Ovation.store` and its
@@ -116,23 +117,20 @@ struct SchemaFingerprintTests {
     /// fingerprint is a property of what LANDS ON DISK and the question here is
     /// what a store written by this version would carry (L3).
     static func fingerprint(of version: any VersionedSchema.Type) throws -> String {
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-fingerprint-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appending(path: "Ovation.store")
+        return try ScratchStore.with("fingerprint") { url in
+            // NO MIGRATION PLAN, which `EarlierVersionStore` never passes. The question
+            // is what THIS version writes, and a plan would let an older store be
+            // carried forward into it, which is a different question and would make
+            // the answer depend on what was there. Through `EarlierVersionStore`
+            // because an earlier version's container open beside a current one
+            // crashes whichever was opened first (ovation#632).
+            try EarlierVersionStore.open(version, at: url) { _ in }
 
-        let schema = Schema(versionedSchema: version)
-        // NO MIGRATION PLAN. The question is what THIS version writes, and a plan
-        // would let an older store be carried forward into it, which is a
-        // different question and would make the answer depend on what was there.
-        _ = try ModelContainer(for: schema, migrationPlan: nil,
-                               configurations: ModelConfiguration(schema: schema, url: url))
-
-        let metadata = try NSPersistentStoreCoordinator
-            .metadataForPersistentStore(type: .sqlite, at: url)
-        return try #require(metadata[Self.checksumKey] as? String,
-                            "a store with no recorded fingerprint cannot be migrated from")
+            let metadata = try NSPersistentStoreCoordinator
+                .metadataForPersistentStore(type: .sqlite, at: url)
+            return try #require(metadata[Self.checksumKey] as? String,
+                                "a store with no recorded fingerprint cannot be migrated from")
+        }
     }
 
     // MARK: the one anchored outside the declaration
