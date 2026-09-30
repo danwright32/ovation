@@ -826,3 +826,38 @@ def minimum_window():
         raise NoMinimumWindow("%s does not declare `static let minimumWidth: CGFloat`, "
                               "so there is no minimum window to draw at" % source)
     return int(found.group(1))
+
+
+# PRESSING ONE CONTROL FROM REST, shared by every check that measures each state
+# one press reaches (ovation#625), so each presses the same list in the same way
+# and reports the same (L370). PRESSED is the list check-design-draws.sh presses
+# too. A render asks for control N with press_only(N) in its preamble; the probe
+# carries PRESS_THEN_REPORT and calls `ovationPressThenReport(result, measure)`,
+# which presses control N if asked, waits a moment for the page to redraw, runs
+# `measure`, and writes `result` as the report. With no N it measures at rest.
+PRESSED = 'button, [role="button"], summary, input[type="checkbox"], input[type="radio"]'
+
+PRESS_THEN_REPORT = r"""
+function ovationPressThenReport(result, measure) {
+  function report() {
+    try { measure(); } catch (e) { result.threw = String(e).slice(0, 160); }
+    var out = document.createElement("pre");
+    out.id = "ovation-probe";
+    out.textContent = JSON.stringify(result);
+    document.body.appendChild(out);
+  }
+  var which = window.__ovationPressOnly, presses = document.querySelectorAll('__PRESSED__');
+  result.there = presses.length;
+  if (typeof which !== "number") { report(); return; }
+  if (which < presses.length) {
+    try { presses[which].click(); result.pressed = which + 1; }
+    catch (e) { result.threw = "pressing control " + (which + 1) + " threw: " + String(e).slice(0, 120); }
+  }
+  setTimeout(report, 30);
+}
+""".replace("__PRESSED__", PRESSED)
+
+
+def press_only(which):
+    """The preamble asking a probe to press control `which` first, or nothing for rest."""
+    return "" if which is None or which < 0 else "<script>window.__ovationPressOnly = %d;</script>" % which

@@ -56,7 +56,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
 from design_inline import html_files  # noqa: E402
-from design_render import CannotMeasure, open_browser  # noqa: E402
+from design_render import CannotMeasure, PRESS_THEN_REPORT, open_browser, press_only  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs", "design")
@@ -65,13 +65,11 @@ EXEMPTIONS = (os.environ.get("OVATION_THEME_EXEMPTIONS")
 
 WINDOW = "1440,1200"
 THEMES = ("light", "dark")
-# The same list check-design-draws.sh presses, in the same order (L16).
-PRESSED = 'button, [role="button"], summary, input[type="checkbox"], input[type="radio"]'
 
 PROBE = r"""
 <script>
+__PRESS_THEN_REPORT__
 window.addEventListener("load", function () {
-  var PRESSED = '__PRESSED__';
   var result = { painted: [], pressed: null };
   function visible(colour) {
     var m = String(colour).match(/[\d.]+/g);
@@ -110,25 +108,10 @@ window.addEventListener("load", function () {
       result.painted.push({ element: describe(e), paint: paint });
     });
   }
-  function report() {
-    try { measure(); } catch (e) { result.threw = String(e).slice(0, 160); }
-    var out = document.createElement("pre");
-    out.id = "ovation-probe";
-    out.textContent = JSON.stringify(result);
-    document.body.appendChild(out);
-  }
-  var which = window.__ovationPressOnly, presses = document.querySelectorAll(PRESSED);
-  result.there = presses.length;
-  if (typeof which === "number" && which < presses.length) {
-    try { presses[which].click(); result.pressed = which + 1; }
-    catch (e) { result.threw = "pressing control " + (which + 1) + " threw: " + String(e).slice(0, 120); }
-    setTimeout(report, 30);
-  } else {
-    report();
-  }
+  ovationPressThenReport(result, measure);
 });
 </script>
-""".replace("__PRESSED__", PRESSED)
+""".replace("__PRESS_THEN_REPORT__", PRESS_THEN_REPORT)
 
 
 def read_exemptions(path, faults):
@@ -187,7 +170,7 @@ def main():
         name = os.path.basename(path)
         which, there = -1, None
         while there is None or which < there:
-            press = "" if which < 0 else "<script>window.__ovationPressOnly = %d;</script>" % which
+            press = press_only(which)
             state = "at rest" if which < 0 else "after pressing control %d" % (which + 1)
             reports = {}
             for theme in THEMES:

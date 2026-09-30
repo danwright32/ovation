@@ -106,7 +106,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
 from design_inline import html_files  # noqa: E402
-from design_render import CannotMeasure, NoMinimumWindow, minimum_window, open_browser  # noqa: E402
+from design_render import (CannotMeasure, NoMinimumWindow, PRESS_THEN_REPORT,  # noqa: E402
+                           minimum_window, open_browser, press_only)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs", "design")
@@ -122,17 +123,15 @@ TOLERANCE = 1.0
 # At or below this a control is at the edge.
 AT_EDGE = 0.5
 
-# WHAT IS PRESSED, the same list check-design-draws.sh presses in the same order,
-# so the states measured here are the states that check judges (L16).
-PRESSED = 'button, [role="button"], summary, input[type="checkbox"], input[type="radio"]'
 # What is MEASURED: every control, text fields included, since a field can sit
 # against an edge as much as a button can.
 MEASURED = 'button, [role="button"], summary, input, select, textarea'
 
 PROBE = r"""
 <script>
+__PRESS_THEN_REPORT__
 window.addEventListener("load", function () {
-  var PRESSED = '__PRESSED__', MEASURED = '__MEASURED__';
+  var MEASURED = '__MEASURED__';
   var SIDES = ["Left", "Right", "Top", "Bottom"];
   var result = { controls: [], holders: {}, pressed: null };
   function rgba(s) {
@@ -293,29 +292,10 @@ window.addEventListener("load", function () {
       result.controls.push({ control: describe(c), place: place + 1, row: row, sides: sides });
     });
   }
-  var which = window.__ovationPressOnly;
-  function report() {
-    try { measure(); } catch (e) { result.threw = String(e).slice(0, 160); }
-    var out = document.createElement("pre");
-    out.id = "ovation-probe";
-    out.textContent = JSON.stringify(result);
-    document.body.appendChild(out);
-  }
-  if (typeof which === "number") {
-    var presses = document.querySelectorAll(PRESSED);
-    result.there = presses.length;
-    if (which < presses.length) {
-      try { presses[which].click(); result.pressed = which + 1; }
-      catch (e) { result.threw = "pressing control " + (which + 1) + " threw: " + String(e).slice(0, 120); }
-    }
-    setTimeout(report, 30);
-  } else {
-    result.there = document.querySelectorAll(PRESSED).length;
-    report();
-  }
+  ovationPressThenReport(result, measure);
 });
 </script>
-""".replace("__PRESSED__", PRESSED).replace("__MEASURED__", MEASURED)
+""".replace("__MEASURED__", MEASURED).replace("__PRESS_THEN_REPORT__", PRESS_THEN_REPORT)
 
 
 def read_exemptions(path, faults):
@@ -431,7 +411,7 @@ def main():
         rest = None
         which = -1
         while rest is None or which < (rest.get("there") or 0):
-            press = "" if which < 0 else "<script>window.__ovationPressOnly = %d;</script>" % which
+            press = press_only(which)
             state = where + ("at rest" if which < 0 else "after pressing control %d" % (which + 1))
             try:
                 report = session.render(path, PROBE, window=window, preamble=preamble + press)

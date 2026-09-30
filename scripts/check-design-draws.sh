@@ -90,7 +90,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
-from design_render import CannotMeasure, NoMinimumWindow, minimum_window, open_browser  # noqa: E402
+from design_render import (CannotMeasure, NoMinimumWindow, PRESSED,  # noqa: E402
+                           minimum_window, open_browser)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs/design")
@@ -186,7 +187,9 @@ window.addEventListener("unhandledrejection", function (e) {
 # What counts as a control, in one place, because the render that COUNTS them
 # and the renders that PRESS them must select the same list in the same order or
 # control N in one is not control N in the other (L16).
-CONTROLS = 'button, [role="button"], summary, input[type="checkbox"], input[type="radio"]'
+# It is lib/design_render.py's PRESSED, which the inset and theme checks press
+# too, so the states every one of them judges are the same states (ovation#625).
+CONTROLS = PRESSED
 
 # The claim made from the pressing renders, named once so the report reads it
 # from the same place the pressing loop writes it.
