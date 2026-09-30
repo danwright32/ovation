@@ -568,10 +568,32 @@ def read_custody_csvs(note, source_name, problems):
     would be two alarms about one event (L36).
     """
     out = set()
-    for path in recorded_csv_paths(note, problems):
-        if os.path.exists(path):
-            out |= needles_from_csv(path, source_name, problems)
+    recorded = recorded_csv_paths(note, problems)
+    present = [path for path in recorded if os.path.exists(path)]
+    for path in present:
+        out |= needles_from_csv(path, source_name, problems)
+    # WHICH OF THREE STATES, kept for the coverage line: none of them here (a CI
+    # runner, a fresh clone), some here, or here and naming nobody. Each reads
+    # differently, because "consulted, 0 new needles" said of files that are not
+    # on this machine is a pass that searched for nothing (L98, L11).
+    CSV_COVERAGE.update(recorded=len(recorded), present=len(present), names=len(out))
     return out
+
+
+# Filled by read_custody_csvs, read by the coverage report in main().
+CSV_COVERAGE = {}
+
+
+def custody_csv_state(count):
+    """The coverage line's state for the custody CSV population."""
+    recorded = CSV_COVERAGE.get("recorded", 0)
+    present = CSV_COVERAGE.get("present", 0)
+    if recorded and not present:
+        return ("UNAVAILABLE, none of the %d recorded custody CSV(s) is on this machine, "
+                "so their names were not searched for" % recorded)
+    if present and not CSV_COVERAGE.get("names", 0):
+        return "consulted %d of %d recorded CSV(s), which name nobody" % (present, recorded)
+    return "consulted %d of %d recorded CSV(s), %d new needle(s)" % (present, recorded, count)
 
 
 def read_custody(path, source_name, problems):
@@ -727,7 +749,9 @@ def main():
     # keep their own sentences (L11, L260).
     print("Populations:")
     for key, state, count in coverage:
-        if state == "consulted":
+        if state == "consulted" and key == "custody-csv":
+            print("    %s: %s" % (key, custody_csv_state(count)))
+        elif state == "consulted":
             print("    %s: consulted, %d new needle(s)" % (key, count))
         else:
             # NAMING WHAT WILL FILL IT is what makes the gap visible rather than

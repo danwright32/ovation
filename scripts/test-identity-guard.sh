@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 77
+harness_begin "identity guard tests" 80
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -562,6 +562,22 @@ OUTC2="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE")"; STC2=$?
 check "a memo, description or item name is not a needle, so ordinary prose passes" "$STC2" "0"
 check "and the coverage says the recorded CSV files were consulted" \
     "$(says "$OUTC2" "custody-csv: consulted")" "yes"
+
+# RECORDED BUT ABSENT, which is every CI runner and fresh clone, is UNAVAILABLE by
+# name, never "consulted" with nothing derived; and PRESENT WITH NO NAMES is a
+# third state, said as itself (L98, L11).
+NOTE_ABSENT="$WORK/custody-note-absent.md"
+printf '## gone.csv\n\n| Path | `%s` |\n' "$CSVDIR/not-on-this-machine.csv" > "$NOTE_ABSENT"
+OUTC5="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE_ABSENT")"
+check "a recorded custody CSV absent from this machine is reported UNAVAILABLE by name" \
+    "$(says "$OUTC5" "custody-csv: UNAVAILABLE, none of the 1 recorded custody CSV(s) is on this machine")" "yes"
+check "and is not reported as consulted" "$(says "$OUTC5" "custody-csv: consulted")" "no"
+printf ',Date,Transaction type,Memo/Description,Transaction number,Amount\r\n' > "$CSVDIR/nameless.csv"
+NOTE_EMPTY="$WORK/custody-note-nameless.md"
+printf '## nameless.csv\n\n| Path | `%s` |\n' "$CSVDIR/nameless.csv" > "$NOTE_EMPTY"
+OUTC6="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE_EMPTY")"
+check "a recorded custody CSV that is present and names nobody says so, distinct from absent" \
+    "$(says "$OUTC6" "custody-csv: consulted 1 of 1 recorded CSV(s), which name nobody")" "yes"
 
 printf 'Date,Memo,Amount\r\n1/19/2026,Wwfixture memo,1.00\r\n' > "$CSVDIR/shapeless.csv"
 NOTE2="$WORK/custody-note-shapeless.md"
