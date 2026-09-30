@@ -31,10 +31,13 @@ struct FloatingSheetTests {
     }
 
     private static func isCard(_ bitmap: NSBitmapImageRep, _ x: Int, _ y: Int) -> Bool {
+        // BY ITS HUE, NOT ITS EXACT VALUES, because the picture is written in the
+        // window's colour space and a saturated green moves by more than a rounding
+        // in the conversion back. Nothing else in the picture is green at all: the
+        // dim is brown and the backdrop grey.
         guard let colour = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }
-        return abs(colour.redComponent - card.redComponent) < 0.04
-            && abs(colour.greenComponent - card.greenComponent) < 0.04
-            && abs(colour.blueComponent - card.blueComponent) < 0.04
+        return colour.greenComponent - colour.redComponent > 0.35
+            && colour.greenComponent - colour.blueComponent > 0.25
     }
 
     /// Draws a card that would be 800 by 560 if the window let it, the review
@@ -43,9 +46,17 @@ struct FloatingSheetTests {
         let sheet = FloatingSheet(below: ShellView.titleBarHeight) {
             Color(nsColor: Self.card).frame(width: 800).frame(maxHeight: 560)
         }
-        let url = FileManager.default.temporaryDirectory
-            .appending(path: "floating-sheet-\(UUID().uuidString).png")
-        defer { try? FileManager.default.removeItem(at: url) }
+        // Kept beside the other pictures where a folder is named, so a failure here
+        // can be looked at rather than guessed about.
+        let environment = ProcessInfo.processInfo.environment
+        let kept = environment["OVATION_SHOT_DIR"] ?? environment["TEST_RUNNER_OVATION_SHOT_DIR"]
+        let folder = kept.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+        if let folder {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let url = (folder ?? FileManager.default.temporaryDirectory)
+            .appending(path: "floating-sheet-\(Int(size.width))x\(Int(size.height)).png")
+        defer { if folder == nil { try? FileManager.default.removeItem(at: url) } }
         try OffscreenShot.capture(sheet, size: size, scheme: .light, to: url)
         let bitmap = try #require(NSBitmapImageRep(data: try Data(contentsOf: url)))
         let scale = CGFloat(bitmap.pixelsWide) / size.width
@@ -54,7 +65,9 @@ struct FloatingSheetTests {
         let midX = bitmap.pixelsWide / 2, midY = bitmap.pixelsHigh / 2
         let column = (0..<bitmap.pixelsHigh).filter { isCard(bitmap, midX, $0) }
         let row = (0..<bitmap.pixelsWide).filter { isCard(bitmap, $0, midY) }
-        let top = try #require(column.first), bottom = try #require(column.last)
+        let middle = bitmap.colorAt(x: midX, y: midY)?.usingColorSpace(.sRGB)
+        let top = try #require(column.first, "no card found; the middle pixel is \(String(describing: middle))")
+        let bottom = try #require(column.last)
         let left = try #require(row.first), right = try #require(row.last)
         let box = CGRect(x: CGFloat(left) / scale, y: CGFloat(top) / scale,
                          width: CGFloat(right - left + 1) / scale,
