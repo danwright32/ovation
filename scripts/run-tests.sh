@@ -103,6 +103,17 @@
 #         target leaves out, OvationApp.swift above all, differs from main
 #         (ovation#515, beside the project check below).
 #
+#     OVATION_TEST_LOCK_PRIORITY=merge scripts/run-tests.sh
+#         The same run, queued as a merge verification (ovation#598): ahead of
+#         routine runs waiting for Downbeat's lock, still behind whoever holds it.
+#         NOTHING SETS IT AUTOMATICALLY, because nothing local runs before a merge
+#         here: a pull request is merged with `gh pr merge` once CI is green, and
+#         CI runs on GitHub's machines, outside this Mac's lock. So it is a manual
+#         lever, for the run that re-verifies a branch after rebasing it onto main
+#         just before merging it, and it reaches the push gate the same way
+#         (`OVATION_TEST_LOCK_PRIORITY=merge git push`). Only `merge` means
+#         anything; any other value is refused before anything runs.
+#
 # WHY THE NARROWED RUN EXISTS AT ALL. Without it a test first cycle called
 # xcodebuild by hand, which is outside the lock protocol the three apps on this
 # Mac share and outside the project checks: on 2026-09-14 a hand written wait loop
@@ -230,6 +241,27 @@ else
   # fraction of the suite (L169, L439).
   unset OVATION_ONLY_TESTING
 fi
+
+# THE QUEUE CLASS, READ BEFORE ANYTHING RUNS (ovation#598, from Overture #4244).
+# `merge` joins Downbeat's lock queue as a priority waiter; empty is a routine run.
+# Anything else is refused here rather than at the join, because a misspelt marker
+# would otherwise wait as a routine run while its caller believed it had asked for
+# priority, and the shell suites would already have run by then (L320).
+#
+# UNSET ONCE READ. The class belongs to this run's own ticket. Every suite this run
+# starts inherits its environment, and a suite that runs a runner of its own against
+# a throwaway lock would join that queue as a merge verification too (L169, L439).
+LOCK_QUEUE_CLASS_WANTED=""
+case "${OVATION_TEST_LOCK_PRIORITY:-}" in
+  "") ;;
+  merge) LOCK_QUEUE_CLASS_WANTED="priority" ;;
+  *)
+    echo "Error: OVATION_TEST_LOCK_PRIORITY is '${OVATION_TEST_LOCK_PRIORITY}', and only 'merge' means anything." >&2
+    echo "       Refusing rather than guessing which queue this run belongs in. Nothing ran." >&2
+    exit 2
+    ;;
+esac
+unset OVATION_TEST_LOCK_PRIORITY
 
 # STATUS IS THE RUN'S VERDICT AND IT EXISTS FROM THE TOP. The locked phase used to
 # be the only thing that set it, so the skip path above reached the exit with it
@@ -1421,6 +1453,17 @@ else
         last_file_holder="${f}"
         last_file_id="${f_id}"
       }
+      # Who this run is queued behind, in words true of both kinds of arrival
+      # (ovation#598): a merge verification that arrived later is not an
+      # "earlier run".
+      queued_behind_phrase() {
+        if [ "${LOCK_QUEUE_AHEAD_LATER:-0}" -eq 0 ]; then
+          printf 'queued behind %s earlier run(s)' "${LOCK_QUEUE_AHEAD}"
+        else
+          printf 'queued behind %s run(s), %s of them a merge verification that arrived later' \
+            "${LOCK_QUEUE_AHEAD}" "${LOCK_QUEUE_AHEAD_LATER}"
+        fi
+      }
       holders_sentence() {
         case "${holders_seen}" in
           0) printf 'no holder this run could see' ;;
@@ -1466,18 +1509,27 @@ else
       # lock through this same queue; a ticket held by this run by then would be a
       # live earlier waiter the regeneration refuses behind, and this run would
       # wait on its own child until its deadline (test-run-tests.sh case 524c).
-      if ! lock_queue_join "${DIR_LOCK}" "$$"; then
+      #
+      # A MERGE VERIFICATION JOINS AS A PRIORITY WAITER (ovation#598): ahead of
+      # routine runs, behind the holder and behind any routine run that has
+      # already waited the queue's bound. See LOCK_QUEUE_CLASS_WANTED above.
+      if [ -n "${LOCK_QUEUE_CLASS_WANTED}" ]; then
+        echo "    this run verifies a merge, so it queues ahead of routine runs, still behind the run holding ${DIR_LOCK}"
+      fi
+      if ! lock_queue_join "${DIR_LOCK}" "$$" "${LOCK_QUEUE_CLASS_WANTED}"; then
         echo "    could not join the queue at ${DIR_LOCK}.queue, so this run waits unordered, as every run did before downbeat#524"
       fi
       queue_said=""
       while :; do
         lock_queue_ahead
         if [ "${LOCK_QUEUE_AHEAD}" -gt 0 ]; then
-          # Somebody earlier is still queued. Their turn comes first whether or not
-          # the lock is free this moment, so mkdir is not even tried.
-          if [ "${queue_said}" != "${LOCK_QUEUE_AHEAD}" ]; then
-            echo "    queued behind ${LOCK_QUEUE_AHEAD} earlier run(s) waiting for ${DIR_LOCK}, which are served first"
-            queue_said="${LOCK_QUEUE_AHEAD}"
+          # Somebody ahead is still queued. Their turn comes first whether or not
+          # the lock is free this moment, so mkdir is not even tried. Ahead is not
+          # always EARLIER: a merge verification that arrived later goes first, and
+          # the sentence says so rather than calling it an earlier run.
+          if [ "${queue_said}" != "${LOCK_QUEUE_AHEAD}.${LOCK_QUEUE_AHEAD_LATER}" ]; then
+            echo "    $(queued_behind_phrase), waiting for ${DIR_LOCK}; they are served first"
+            queue_said="${LOCK_QUEUE_AHEAD}.${LOCK_QUEUE_AHEAD_LATER}"
           fi
         elif dir_lock_take "${DIR_LOCK}" "$(basename "${REPO_ROOT}")" "$$"; then
           # RECORDED AS HELD FIRST, before anything else runs. release_locks frees
@@ -1506,7 +1558,7 @@ else
           # build, through Ovation, which is the coupling the release above exists
           # to prevent. The protocol says a waiter leaves once it holds the lock,
           # and it did; this is a new arrival.
-          if ! lock_queue_join "${DIR_LOCK}" "$$"; then
+          if ! lock_queue_join "${DIR_LOCK}" "$$" "${LOCK_QUEUE_CLASS_WANTED}"; then
             echo "    could not rejoin the queue at ${DIR_LOCK}.queue, so this run waits unordered"
           fi
           queue_said=""
@@ -1535,8 +1587,8 @@ else
           echo "       file frees nothing, and the fix is to stop the pid named above once you" >&2
           echo "       have checked its run has ended." >&2
           if [ "${LOCK_QUEUE_AHEAD}" -gt 0 ]; then
-            echo "       It was still queued behind ${LOCK_QUEUE_AHEAD} earlier run(s) for Downbeat's lock," >&2
-            echo "       served in the order they arrived; the queue is ${DIR_LOCK}.queue." >&2
+            echo "       It was still $(queued_behind_phrase) for Downbeat's lock," >&2
+            echo "       served merge verifications first, then in arrival order; the queue is ${DIR_LOCK}.queue." >&2
           fi
           STATUS=3
           WAIT_OUTCOME=gave-up

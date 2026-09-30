@@ -43,7 +43,7 @@ unset OVATION_TEST_FLOOR OVATION_TEST_COMMAND OVATION_HOSTED_TEST_COMMAND \
       OVATION_REGENERATE_WAIT \
       OVATION_SHELL_SUITES OVATION_SHOT_DIR TEST_RUNNER_OVATION_SHOT_DIR \
       OVATION_APP_CHANGES_ROOT OVATION_APP_CHANGES_BASE OVATION_APP_BUILD_COMMAND \
-      OVATION_PURE_TESTS_ROOT \
+      OVATION_PURE_TESTS_ROOT OVATION_TEST_LOCK_PRIORITY \
       OVATION_SYMBOL_ARCHIVE_LOG OVATION_SYMBOL_ARCHIVE_RECORD_STAGED
 
 # THE TOOL THIS WHOLE SUITE NEEDS, ASKED FOR ONCE (L41), AND ITS ABSENCE IS NOT A
@@ -81,7 +81,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 332
+harness_begin "test runner lock tests" 344
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -2693,6 +2693,57 @@ wait "$STOPPED524"; ST524D=$?
 check "a waiter stopped with TERM ends with 143 rather than waiting on" "$ST524D" "143"
 check "and it leaves the queue empty, and the holder's lock untouched" \
     "$(queue_tickets):$(head -1 "$DIR_LOCK/owner" 2>/dev/null)" "0:downbeat:524d"
+rm -rf "$DIR_LOCK" "$DIR_LOCK.queue"
+
+# 598a. A MERGE VERIFICATION GOES AHEAD OF A ROUTINE RUN THAT ARRIVED BEFORE IT,
+#       and still waits for the holder (ovation#598, ported from Overture #4244).
+#       The routine run arrives first and polls eight times as often, so every
+#       advantage but the class is the routine run's: without the class it goes
+#       first, which is case 524b.
+: > "$WORK/order598"
+mkdir -p "$DIR_LOCK"; printf 'downbeat:598\n' > "$DIR_LOCK/owner"
+( TIMEOUT_OVERRIDE=30 POLL_OVERRIDE=0.1 \
+    run_runner "echo routine >> '$WORK/order598'; $HOSTED_PASSES" > "$WORK/routine598.out" 2>&1 ) &
+ROUTINE598=$!
+harness_wait_for "the routine run to join the queue (598a)" 200 0.05 queue_has_tickets 1
+( OVATION_TEST_LOCK_PRIORITY=merge TIMEOUT_OVERRIDE=30 POLL_OVERRIDE=0.8 \
+    run_runner "echo merge >> '$WORK/order598'; $HOSTED_PASSES" > "$WORK/merge598.out" 2>&1 ) &
+MERGE598=$!
+harness_wait_for "the merge verification to join the queue (598a)" 200 0.05 queue_has_tickets 2
+check "the merge verification's ticket carries its class" \
+    "$(ls "$DIR_LOCK.queue" 2>/dev/null | grep -c '\.priority\.')" "1"
+# Until the routine run has SEEN the later arrival ahead of it, which is the
+# moment this case is about, rather than a fixed pause (L290).
+harness_wait_for "the routine run to see the merge verification ahead of it (598a)" 200 0.05 \
+    file_mentions "$WORK/routine598.out" "a merge verification that arrived later"
+rm -rf "$DIR_LOCK"
+wait "$ROUTINE598" "$MERGE598"
+check "a merge verification takes a released lock before a routine run that arrived first" \
+    "$(tr '\n' ' ' < "$WORK/order598")" "merge routine "
+check "and it said it verifies a merge and that the holder still comes first" \
+    "$(count_of "$(cat "$WORK/merge598.out")" 'this run verifies a merge, so it queues ahead of routine runs, still behind the run holding')" "1"
+check "and the routine run said it waited for a LATER merge verification, not an earlier run" \
+    "$(count_of "$(cat "$WORK/routine598.out")" 'queued behind 1 run\(s\), 1 of them a merge verification that arrived later, waiting for'):$(count_of "$(cat "$WORK/routine598.out")" '1 earlier run')" "1:0"
+check "and the queue is empty once both have run" "$(queue_tickets)" "0"
+rm -rf "$DIR_LOCK" "$DIR_LOCK.queue"
+
+# 598b. ONLY `merge` MEANS ANYTHING, and anything else is refused before anything
+#       runs, so a misspelt marker neither jumps the queue nor quietly waits as a
+#       routine run while its caller believes it asked for priority.
+OUT598B="$(OVATION_TEST_LOCK_PRIORITY=urgent run_runner "echo HOSTED-598B-RAN" "echo UNLOCKED-598B-RAN")"; ST598B=$?
+check "an unknown priority marker is refused, naming the value and the one that means anything" \
+    "$ST598B:$(count_of "$OUT598B" "OVATION_TEST_LOCK_PRIORITY is 'urgent', and only 'merge' means anything")" "2:1"
+check "and nothing ran, no ticket was written and the lock was never taken" \
+    "$(count_of "$OUT598B" '598B-RAN'):$(queue_tickets):$([ -e "$DIR_LOCK" ] && echo held || echo free)" "0:0:free"
+
+# 598c. THE CLASS IS THIS RUN'S OWN TICKET, NOT ITS CHILDREN'S. A suite this run
+#       starts that runs a runner of its own against a throwaway lock would
+#       otherwise join that queue as a merge verification too (L169, L439).
+OUT598C="$(OVATION_TEST_LOCK_PRIORITY=merge run_runner "$HOSTED_PASSES" 'echo "SEEN-598C:${OVATION_TEST_LOCK_PRIORITY:-none}"')"; ST598C=$?
+check "a merge verification passes, and the suites it starts do not inherit the marker" \
+    "$ST598C:$(count_of "$OUT598C" 'SEEN-598C:none')" "0:1"
+OUT598D="$(run_runner)"
+check "a routine run says nothing about verifying a merge" "$(count_of "$OUT598D" 'verifies a merge')" "0"
 rm -rf "$DIR_LOCK" "$DIR_LOCK.queue"
 
 # 524c. A NARROWED RUN'S OWN REGENERATION IS NEVER QUEUED BEHIND THE RUN ITSELF.

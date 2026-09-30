@@ -17,7 +17,9 @@ accumulates across runs and is read back as a count. That is `>>` and `tee -a` i
 shell, and `open(..., "a")` in Python, in any script under scripts/ other than a
 suite (test-*.sh), which writes only into its own throwaway directory. A file that
 is overwritten whole is state rather than a record of occurrences, and is not
-this check's subject.
+this check's subject. The shell forms count only where shell is read: not in a
+python program (a .py, or a .sh started under python3 by its exec line), and not
+in a heredoc fed to another interpreter (ovation#619).
 
 ROUTED MEANS PER WRITE, not per file. Each append's target must be a variable the
 same file assigns from `durable_record_path`. A file level match would pass a
@@ -88,17 +90,73 @@ def routed_names(text):
     return routed
 
 
+# ovation#619. `>>` is a shell append only where shell is being read. A python
+# program has it as a shift and a JavaScript string inside one has `>>>`, and
+# reading either as an append made the lift harness write its hash without the
+# natural operator to get past this check. No python script here hands a command
+# line to a shell (none uses shell=True), so a python program's appends are its
+# open(..., "a") calls and nothing else.
+PYTHON_PROGRAM = re.compile(r"^(?:#!.*\bpython[0-9.]*\s*$|''''exec python[0-9.]* )")
+# A heredoc and the command it is fed to. Only the interpreters named here have
+# their heredoc bodies left out of the shell reading: an interpreter missing from
+# the list is read as shell, which refuses loudly rather than hiding a writer, and
+# a heredoc fed to bash, sh or a `cat > hook` is shell or may become shell, so its
+# body is judged as before.
+HEREDOC = re.compile(r"(?<!<)<<(-?)\s*(['\"]?)\\?([A-Za-z_][A-Za-z0-9_]*)\2")
+OTHER_INTERPRETER = re.compile(r"^(?:python[0-9.]*|node|ruby|perl|osascript|swift)$")
+
+
+def fed_to_other_interpreter(before):
+    """Whether the simple command a heredoc belongs to runs another language.
+    `before` is the line up to the heredoc; the command is its last segment after
+    any separator or command substitution, less leading assignments and the
+    words that only launch the next one."""
+    segment = re.split(r"\$\(|[;|&(`]", before)[-1].split()
+    while segment and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", segment[0])
+                       or segment[0] in ("exec", "command", "env", "/usr/bin/env", "xcrun")):
+        segment = segment[1:]
+    return bool(segment) and bool(OTHER_INTERPRETER.match(os.path.basename(segment[0])))
+
+
+def shell_lines(lines):
+    """The line numbers read as shell: every line, less the bodies and closing
+    lines of heredocs fed to another interpreter. A heredoc whose closing line is
+    never found has not been understood, so nothing is left out for it and the
+    rest of the file is judged as shell (L100)."""
+    skipped = set()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        index += 1
+        if line.lstrip().startswith("#"):
+            continue
+        for match in HEREDOC.finditer(line):
+            strip_tabs, marker = match.group(1) == "-", match.group(3)
+            end = index
+            while end < len(lines) and (lines[end].lstrip("\t") if strip_tabs else lines[end]) != marker:
+                end += 1
+            if end == len(lines):
+                break
+            if fed_to_other_interpreter(line[:match.start()]):
+                skipped.update(range(index + 1, end + 2))
+            index = end + 1
+    return set(range(1, len(lines) + 1)) - skipped
+
+
 def writers(path):
     """(line number, target) for every append in the file, comments skipped. A
     comment describing an append is not one, and a header explaining a record is
-    exactly where one is described."""
+    exactly where one is described. A python program, whether it is named .py or
+    started from a .sh by its exec line, is read for python appends only."""
     with open(path, encoding="utf-8", errors="replace") as handle:
         lines = handle.read().splitlines()
+    is_python = path.endswith(".py") or any(PYTHON_PROGRAM.match(line) for line in lines[:3])
+    shell = set() if is_python else shell_lines(lines)
     found = []
     for number, line in enumerate(lines, 1):
         if line.lstrip().startswith("#"):
             continue
-        for match in SHELL_APPEND.finditer(line):
+        for match in (SHELL_APPEND.finditer(line) if number in shell else ()):
             if line[max(0, match.start() - 1):match.start()] == "<":
                 continue
             target = match.group(2)
