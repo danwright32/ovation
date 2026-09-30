@@ -276,9 +276,15 @@ carries NO transaction number. There is no TOTAL row and no "Total for" row, so 
 straight into three empty lines and the report timestamp.
 
 So a payment is tied to an invoice only where its client heading holds exactly one invoice. Run
-through the importer on 2026-09-30: 65 rows read, 63 accepted, 2 refused as dated before 2026 (two
-2025 invoices, which is why this file has 32 invoices to the invoice list's 31 less one). Payments
-by invoice: 16 invoices tied, 6 refused: one invoice list invoice this file does not carry, one
+through the importer on 2026-09-30: 65 rows read, 63 accepted, 2 refused as dated before 2026.
+
+**How its 32 invoice rows reconcile to the invoice list's 31**, measured 2026-09-30 by number,
+counts only: the 32 rows carry 32 distinct invoice numbers. 30 of them are also on the invoice
+list, at the same amount. The other 2 are not on the invoice list, and both are dated 2025, so they
+are refused as before 2026 (the invoice list is 2026 only). The invoice list's 31st invoice is not
+in this file at all. So 32 = 30 shared + 2 from 2025, and 31 = 30 shared + 1 this file lacks.
+
+Payments by invoice: 16 invoices tied, 6 refused: one invoice list invoice this file does not carry, one
 single invoice client whose payments do not add up to what the invoice was paid, and four clients
 holding several invoices, where the file does not say which payment paid which (the payments of
 three of them add up to what their invoices were paid, and one does not).
@@ -290,10 +296,12 @@ ovation#66 and in `OvationTests/QuickBooksFixtures.swift`, whose fixtures carry 
 shape with invented values. They carry real client names and amounts, so they must never be
 committed, and anything derived from them reports counts, row numbers and field names only.
 
-**They are needle sources for the identity guard**, by their name columns only (`Name` on the
-invoice list and payments, `Client full name` on the sales lines): `check-identity-leaks.sh` reads
-every `.csv` this note records, so recording a custody CSV here is what makes the guard search for
-its clients.
+**They are needle sources for the identity guard**: `check-identity-leaks.sh` reads every `.csv`
+this note records, so recording a custody CSV here is what makes the guard search for its clients.
+It reads the name COLUMNS where a report has one (`Name` on the invoice list and payments,
+`Client full name` on the sales lines). The invoices and payments report has no name column at
+all, so its clients are read from its group HEADING rows instead, the rows carrying only a client's
+name, recognised by that report's whole header (`CSV_CLIENT_HEADED_HEADERS` in the guard).
 
 ## The LIVE export, which is not a custody file at all
 
