@@ -126,6 +126,8 @@ enum QuickBooksTotalCheck: Equatable, Sendable {
     case disagrees(difference: Money)
     /// Some rows' amounts could not be read, so there is nothing to compare.
     case notComparable(rowsWithoutAmount: Int)
+    /// The TOTAL row is there and its amount cannot be read.
+    case unreadableTotal
     case noTotal
 }
 
@@ -165,10 +167,12 @@ struct QuickBooksFileRead<Row: Sendable>: Sendable {
 
     /// Whether the file as a whole can be believed. A refused file still lists
     /// its rows, so the report can say everything that is wrong at once.
+    ///
+    /// ONLY AN AGREEING TOTAL IS A COMPLETE READ. A TOTAL that is missing,
+    /// unreadable or left uncompared is a read nobody has shown was whole, and
+    /// believing it is how a short read becomes a filed return (L211, ovation#72).
     var isAccepted: Bool {
-        guard fileRefusals.isEmpty else { return false }
-        if case .disagrees = totalCheck { return false }
-        return true
+        fileRefusals.isEmpty && totalCheck == .agrees
     }
 
     static func refused(_ refusal: QuickBooksFileRefusal) -> QuickBooksFileRead {
@@ -354,7 +358,7 @@ enum QuickBooksExport {
         let column = report.amountColumn
         guard column < total.fields.count,
               let stated = amount(total.fields[column], allowingCurrencySymbol: true) else {
-            return .noTotal
+            return .unreadableTotal
         }
         let missing = amounts.filter { $0 == nil }.count
         guard missing == 0 else { return .notComparable(rowsWithoutAmount: missing) }

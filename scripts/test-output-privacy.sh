@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 146
+harness_begin "output privacy tests" 147
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -1554,9 +1554,16 @@ printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    
     "$GUARD_CALL" > "$SEAMSCAN/test-offender.sh"
 printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_CUSTODY_DIR=x \\\n    OVATION_GUARD_STORE=x \\\n    OVATION_GUARD_QUEUE_DIR=x \\\n    OVATION_GUARD_FINGERPRINTS=x \\\n    OVATION_GUARD_CUSTODY_NOTE=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    %s 2>&1)"\n' \
     "$GUARD_CALL" > "$SEAMSCAN/test-clean.sh"
+# The custody note arrived with ovation#67. The seam list is DERIVED from the
+# guard's own lookups, so it is covered without being named here; this staged run
+# sets every source but the note, and proves that derivation reached it (L41).
+printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_CUSTODY_DIR=x \\\n    OVATION_GUARD_STORE=x \\\n    OVATION_GUARD_QUEUE_DIR=x \\\n    OVATION_GUARD_FINGERPRINTS=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    %s 2>&1)"\n' \
+    "$GUARD_CALL" > "$SEAMSCAN/test-note-unset.sh"
 SEAMS_SCANNED="$(unfixtured_guard_runs "$SEAMSCAN")"
 check "a guard run that leaves a source unset is reported" \
     "$(printf '%s' "$SEAMS_SCANNED" | grep -c 'test-offender.sh')" "1"
+check "a guard run that leaves only the custody note unset is reported, naming it" \
+    "$(printf '%s' "$SEAMS_SCANNED" | grep -o 'test-note-unset.sh:[0-9]* CUSTODY_NOTE' | wc -l | tr -d ' ')" "1"
 check "and a guard run that sets every source is not" \
     "$(printf '%s' "$SEAMS_SCANNED" | grep -c 'test-clean.sh')" "0"
 check "every suite that runs the identity guard points every source at a fixture" \

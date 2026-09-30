@@ -68,6 +68,22 @@ struct QuickBooksImportReportTests {
         #expect(text.contains("reconciliation by invoice number: not run, the sales lines file was refused"))
     }
 
+    @Test("an unchecked TOTAL is said as a refusal, never as a note beside accepted rows")
+    func anUncheckedTotalIsARefusal() {
+        let run = QuickBooksImportRun(
+            invoiceList: QuickBooksExport.invoiceList(F.invoiceList([
+                F.invoice(number: "1001", amount: "twelve"),
+            ], total: "\"$1,234.56\"")),
+            payments: QuickBooksExport.payments(F.payments([F.payment(amount: "\"1,234.56\"")],
+                                                           total: "\"$1,234.56\"")),
+            salesLines: QuickBooksExport.salesLines(F.salesLines([
+                F.line(number: "1001", amount: "100.00"), F.groupTotal("--", amount: "$100.00"),
+            ], total: "$100.00")))
+        let text = run.report.joined(separator: "\n")
+        #expect(text.contains("REFUSED, the TOTAL could not be compared, 1 rows have no readable amount"))
+        #expect(text.contains("reconciliation by invoice number: not run, the invoice list was refused"))
+    }
+
     @Test("nothing written is said as nothing written, never as a zero that reads like success")
     func nothingWrittenIsSaid() {
         // L98. This build parses and reconciles; the store write is ovation#68 to

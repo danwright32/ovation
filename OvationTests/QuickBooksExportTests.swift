@@ -217,6 +217,32 @@ struct QuickBooksExportTests {
         #expect(!read.isAccepted)
     }
 
+    @Test("a file whose rows cannot all be totalled is not believed, and says why")
+    func aTotalNotComparableRefusesTheFile() {
+        // L211. A row whose amount could not be read leaves the TOTAL unchecked,
+        // and an unchecked TOTAL is a read nobody has shown was complete.
+        let read = QuickBooksExport.invoiceList(F.invoiceList([
+            F.invoice(number: "1001", amount: "1234.56"),
+            F.invoice(number: "1002", amount: "twelve"),
+        ], total: "\"$1,234.56\""))
+        #expect(!read.isAccepted)
+    }
+
+    @Test("a TOTAL row whose amount cannot be read is its own outcome, and refuses the file")
+    func anUnreadableTotalRefusesTheFile() {
+        let text = F.invoiceList([F.invoice(amount: "1234.56")], total: "about twelve hundred")
+        let read = QuickBooksExport.invoiceList(text)
+        #expect(read.totalCheck == .unreadableTotal)
+        #expect(!read.isAccepted)
+    }
+
+    @Test("a file with no TOTAL row is not believed")
+    func noTotalRefusesTheFile() {
+        let text = F.invoiceList([F.invoice(amount: "1234.56")])
+            .replacingOccurrences(of: "TOTAL,", with: "Summary,")
+        #expect(!QuickBooksExport.invoiceList(text).isAccepted)
+    }
+
     @Test("a quote still open at the end of the file names the row the read stopped at")
     func anUnterminatedQuoteNamesWhereTheReadStopped() {
         let text = F.invoiceList([F.invoice(number: "1001", amount: "1234.56")], total: "\"$1,234.56\"")

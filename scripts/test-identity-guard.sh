@@ -568,10 +568,24 @@ check "and says which columns it looked for" \
 
 # A NOTE THAT IS THERE AND UNREADABLE REFUSES, rather than reading as a note that
 # records no CSV (L11).
+#
+# MEASURED, NOT ASSUMED (L411): mode 000 makes a file unreadable only for an
+# ordinary user on a filesystem that honours modes. Root, or a filesystem that
+# ignores them, still reads it, and then this case would go red for a reason that
+# has nothing to do with the guard. So the premise is checked first, and where it
+# does not hold the case says UNMEASURED by name rather than passing or failing.
 NOTE3="$WORK/custody-note-unreadable.md"; cp "$NOTE" "$NOTE3"; chmod 000 "$NOTE3"
-OUTC4="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE3")"; STC4=$?
-chmod 600 "$NOTE3"
-check "an unreadable custody note refuses rather than deriving nothing" "$STC4" "4"
-check "and says the note is what could not be read" "$(says "$OUTC4" "custody note could not be read")" "yes"
+if cat "$NOTE3" >/dev/null 2>&1; then
+    chmod 600 "$NOTE3"
+    echo "UNMEASURED: the unreadable custody note case. A mode 000 file is still readable here"
+    echo "            (running as root, or a filesystem that ignores modes), so the case cannot be set up."
+    check "an unreadable custody note refuses (UNMEASURED here, see above)" "unmeasured" "unmeasured"
+    check "and says the note is what could not be read (UNMEASURED here, see above)" "unmeasured" "unmeasured"
+else
+    OUTC4="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE3")"; STC4=$?
+    chmod 600 "$NOTE3"
+    check "an unreadable custody note refuses rather than deriving nothing" "$STC4" "4"
+    check "and says the note is what could not be read" "$(says "$OUTC4" "custody note could not be read")" "yes"
+fi
 
 harness_end

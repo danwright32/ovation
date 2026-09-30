@@ -90,8 +90,15 @@ struct QuickBooksImportRun: Sendable {
         switch read.totalCheck {
         case .agrees: out.append("  TOTAL agrees with the rows read")
         case .disagrees: out.append("  REFUSED, the TOTAL disagrees with the rows read, so the read was not the whole file")
-        case .notComparable(let rows): out.append("  TOTAL not compared, \(rows) rows have no readable amount")
-        case .noTotal: out.append("  TOTAL not compared, there is no readable TOTAL row")
+        case .notComparable(let rows):
+            out.append("  REFUSED, the TOTAL could not be compared, \(rows) rows have no readable amount")
+        case .unreadableTotal: out.append("  REFUSED, the TOTAL row's amount cannot be read")
+        case .noTotal:
+            // Said once: a file refused before its rows were read, or refused
+            // for having no TOTAL, already says why there is nothing here (L11).
+            if read.fileRefusals.isEmpty {
+                out.append("  REFUSED, there is no TOTAL row to compare the rows against")
+            }
         }
         for refusal in read.refused {
             out.append("  row \(refusal.row): \(sentence(for: refusal.reason))")
