@@ -235,6 +235,47 @@ struct RailFootTests {
         #expect(Set(names).count == 366)
     }
 
+    // MARK: one line for several (Dan, 2026-09-30, ovation#609)
+
+    @Test("two backups broken on the same day stand as one line, and Read lists each with its time")
+    func sameDayBackupsShareALine() throws {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        store.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-090000",
+                    sentence: "The morning one.", now: at(1))
+        store.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-210000",
+                    sentence: "The evening one.", now: at(2))
+
+        let lines = RailFoot.lines(for: store.open)
+        #expect(lines.shown.count == 1)
+        #expect(lines.more == 0)
+        let line = try #require(lines.shown.first)
+        #expect(line.shortName(among: store.open) == "Bad backup, 30 May")
+        let members = RailFoot.members(of: line, among: store.open)
+        #expect(members.count == 2)
+        #expect(RailFoot.sentence(for: members)
+                    == "Taken at 21:00. The evening one.\n\nTaken at 09:00. The morning one.")
+    }
+
+    @Test("backups broken on different days keep a line each")
+    func differentDaysKeepTheirLines() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        store.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-210000",
+                    sentence: "may", now: at(1))
+        store.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-31-210000",
+                    sentence: "may again", now: at(2))
+
+        let names = RailFoot.lines(for: store.open).shown.map { $0.shortName(among: store.open) }
+        #expect(names == ["Bad backup, 31 May", "Bad backup, 30 May"])
+    }
+
+    @Test("a kind that does not share a line keeps one line per problem")
+    func otherKindsDoNotShare() {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        store.raise(kind: .backupsAreStale, subject: "a", sentence: "a", now: at(1))
+        store.raise(kind: .backupsAreStale, subject: "b", sentence: "b", now: at(2))
+        #expect(RailFoot.lines(for: store.open).shown.count == 2)
+    }
+
     // MARK: which lines the foot draws
 
     @Test("nothing open draws no foot at all")

@@ -272,6 +272,11 @@ struct InvoiceScreenView: View {
                 }
             }
         }
+        // A panel that can no longer be drawn is closed, not left pending to open
+        // on its own when the invoice can be edited again.
+        .onChange(of: canAskAnotherDate) { _, can in
+            if !can { anotherDateIsOpen = false }
+        }
         .ovationAppearance()
         .onReceive(inspection.notice) { inspection.visit(self, $0) }
     }
@@ -1180,6 +1185,12 @@ struct InvoiceScreenView: View {
 
     // MARK: the foot
 
+    /// Whether "Another date..." can open its panel: the invoice may be edited, a
+    /// date has somewhere to be saved, and there is a date to count from.
+    private var canAskAnotherDate: Bool {
+        presenter.mayEdit && setDueDate != nil && !presenter.dueChoices.isEmpty
+    }
+
     /// WHAT THE FOOT CARRIES CHANGES WITH THE INVOICE'S STATE (round 9), and the
     /// refusal sits beside the action rather than replacing it: a greyed control
     /// with no reason is a dead control (L109).
@@ -1193,7 +1204,10 @@ struct InvoiceScreenView: View {
                            choices: presenter.dueChoices,
                            save: presenter.mayEdit ? setDueDate : nil,
                            refused: refusedDate,
-                           askAnotherDate: { anotherDateIsOpen = true })
+                           // ONLY WHERE THE PANEL CAN BE DRAWN, the overlay's own
+                           // conditions, or the flag would stand with nothing on
+                           // screen and the panel would open later, unasked.
+                           askAnotherDate: canAskAnotherDate ? { anotherDateIsOpen = true } : nil)
             Spacer(minLength: 0)
             // THE FOOT DOES NOT REPEAT WHAT THE BODY IS ALREADY ANSWERING, which
             // the presenter decides, because a view deciding it could only be

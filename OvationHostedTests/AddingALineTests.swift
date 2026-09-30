@@ -163,16 +163,34 @@ struct AddingALineTests {
     }
 
     /// With no writer for the date, nothing asks for a panel that could save nothing.
+    /// An ask that only set a flag would leave the panel pending with nothing on
+    /// screen, and it would pop up later, unasked, once a writer arrived.
     @Test("a screen that cannot save a date offers no Another date")
     func noWriterNoAnotherDate() async throws {
         let screen = InvoiceScreenView(presenter: presenter, close: {})
         ViewHosting.host(view: screen)
         defer { ViewHosting.expel() }
+        final class Asked { var it: Bool? }
+        let asked = Asked()
         try await Self.step(screen) { view in
-            // The control is built with an ask, but the panel needs somewhere to save.
-            if let ask = try view.find(DueDateControl.self).actualView().askAnotherDate { ask() }
+            asked.it = try view.find(DueDateControl.self).actualView().askAnotherDate != nil
         }
-        #expect(!(try await Self.floats(AnotherDatePanel.self, on: screen)))
+        #expect(asked.it == false, "Another date is offered where no panel can be drawn")
+    }
+
+    /// And where every condition holds, it is offered, so the test above is not
+    /// passing on a control that never offers it (L159).
+    @Test("a screen that can save a date offers Another date")
+    func aWriterOffersAnotherDate() async throws {
+        let screen = InvoiceScreenView(presenter: presenter, close: {}, setDueDate: { _ in })
+        ViewHosting.host(view: screen)
+        defer { ViewHosting.expel() }
+        final class Asked { var it: Bool? }
+        let asked = Asked()
+        try await Self.step(screen) { view in
+            asked.it = try view.find(DueDateControl.self).actualView().askAnotherDate != nil
+        }
+        #expect(asked.it == true)
     }
 
     // MARK: Cancel (PRD 51p)

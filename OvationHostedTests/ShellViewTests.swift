@@ -323,6 +323,26 @@ struct ShellViewTests {
         #expect(listed.contains("Bad backup, 17 Sep"))
     }
 
+    /// ovation#609, Dan 2026-09-30. Two backups broken on one day are one line, Read
+    /// on it lists each with its time, and "I have read this" marks each read.
+    @Test("reading a shared line lists every backup on it and marks each read")
+    func readingASharedLineReadsEveryMember() throws {
+        let problems = Self.noProblems()
+        _ = problems.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-090000",
+                           sentence: "The morning one.", now: Self.at(1))
+        _ = problems.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-210000",
+                           sentence: "The evening one.", now: Self.at(2))
+        let words = try Self.texts(in: Self.shell(problems))
+        #expect(words.filter { $0 == "Bad backup, 30 May" }.count == 1)
+
+        let line = try #require(RailFoot.lines(for: problems.open).shown.first)
+        let reading = Self.shell(problems).reading(for: line)
+        #expect(reading.sentence.contains("Taken at 09:00. The morning one."))
+        #expect(reading.sentence.contains("Taken at 21:00. The evening one."))
+        reading.done()
+        #expect(problems.all.allSatisfy { $0.acknowledgedAt != nil })
+    }
+
     /// ovation#566, Dan 2026-09-26. "and N more" is a control like Read, and what it
     /// opens lists EVERY open thing with its sentence and its own "I have read this",
     /// so nothing open is out of reach from the shell. Before, the third thing's

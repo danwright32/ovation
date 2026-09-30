@@ -478,9 +478,13 @@ struct ShellView: View {
     /// What Read opens for one problem, and what "I have read this" does. Named so a
     /// test can take the popover's content from the same place the popover does,
     /// since a popover is its own window and no view tree test reaches it.
+    ///
+    /// A LINE SHARED BY SEVERAL (ovation#609) reads every one of them and is read
+    /// as a whole: "I have read this" marks each member read.
     func reading(for problem: Problem) -> FootReading {
-        FootReading(sentence: problem.sentence, done: {
-            problems.acknowledge(problem.id, now: now())
+        let members = RailFoot.members(of: problem, among: problems.open)
+        return FootReading(sentence: RailFoot.sentence(for: members), done: {
+            for member in members { problems.acknowledge(member.id, now: now()) }
             shell.stopReading()
         })
     }
@@ -864,10 +868,37 @@ enum RailFoot {
 
     /// Newest first, by when each was last raised, so a standing condition found
     /// again at this launch comes back to the top. A tie goes to the one recorded
-    /// later.
+    /// later. Problems that share one line (ovation#609) stand as their newest, and
+    /// "and N more" counts lines, not problems.
     static func lines(for open: [Problem]) -> Lines {
-        let newest = newestFirst(open)
+        var seen: Set<String> = []
+        let newest = newestFirst(open).filter { seen.insert(lineKey($0, among: open)).inserted }
         return Lines(shown: Array(newest.prefix(most)), more: max(newest.count - most, 0))
+    }
+
+    /// Which line a problem stands on: its own, or for a kind that shares one line
+    /// per name (ovation#609), the kind and that name.
+    static func lineKey(_ problem: Problem, among open: [Problem]) -> String {
+        guard ProblemKind.sharingOneLine.contains(problem.kind) else { return "problem:\(problem.id)" }
+        return "line:\(problem.kind.rawValue):\(problem.shortName(among: open))"
+    }
+
+    /// Every open problem on the same line as this one, newest first: itself alone
+    /// unless its kind shares a line (ovation#609).
+    static func members(of problem: Problem, among open: [Problem]) -> [Problem] {
+        let key = lineKey(problem, among: open)
+        return newestFirst(open).filter { lineKey($0, among: open) == key }
+    }
+
+    /// What Read opens for a line: its one sentence, or each member's in turn, a
+    /// broken backup's led by its time so two of one day are told apart (Dan,
+    /// 2026-09-30).
+    static func sentence(for members: [Problem]) -> String {
+        guard members.count > 1 else { return members.first?.sentence ?? "" }
+        return members.map { member in
+            ProblemKind.archiveTime(member.subject).map { "Taken at \($0). \(member.sentence)" }
+                ?? member.sentence
+        }.joined(separator: "\n\n")
     }
 
     /// The one order the foot and the list behind "and N more" share.

@@ -253,6 +253,30 @@ extension ProblemKind {
         return shortName(subject: subject)
     }
 
+    /// Kinds whose open problems stand in the foot as ONE line per name (Dan,
+    /// 2026-09-30, ovation#609): two backups broken on one day are "Bad backup, 30
+    /// May" once, and what Read opens lists each of them with its time.
+    ///
+    /// UNREADABLE BOOKING FILES ARE NOT HERE YET. Dan chose one line for all of them
+    /// reading "Bookings unreadable", on condition that it fits the foot, and it does
+    /// not: 131.5 points in bold against the 127.3 beside Read. The wording is his to
+    /// choose again (ovation#609).
+    static let sharingOneLine: Set<ProblemKind> = [.archiveNoLongerVerifies]
+
+    /// "21:00", the time in a broken backup's archive name, which is what tells two
+    /// backups of one day apart where Read lists them (Dan, 2026-09-30), or nil.
+    static func archiveTime(_ subject: String?) -> String? {
+        guard let subject, let instant = BackupService.instant(fromArchiveNamed: subject) else {
+            return nil
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = BusinessCalendar.timeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: instant)
+    }
+
     /// The kinds named for their archive's day when several are open at once.
     /// Measured by `RailFootTests` on every day of a leap year: the widest is 126.5
     /// of the 127.3 points a name has beside Read.

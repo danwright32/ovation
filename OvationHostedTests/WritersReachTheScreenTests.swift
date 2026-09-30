@@ -483,6 +483,14 @@ struct WritersReachTheScreenTests {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         #expect(floating.found, "Review did not float the sheet over the window")
+        // The control: the review took a number, read from the store the allocator
+        // writes, since the draft's own object is not refreshed by another context.
+        let draftID = draft.invoice.persistentModelID
+        func storedNumber() throws -> Int64? {
+            let fresh = ModelContext(container)
+            return (fresh.model(for: draftID) as? Invoice)?.number
+        }
+        #expect(try storedNumber() != nil, "the review took no number, so its hand back proves nothing")
 
         try await shell.inspection.inspect { view in
             try view.find(FloatingSheet<ReviewSheet>.self).zStack().callOnExitCommand()
@@ -496,10 +504,10 @@ struct WritersReachTheScreenTests {
         }
         #expect(!floating.found, "Escape did not close the review")
         // Closed through the reviewer: the number the review took is given back.
-        for _ in 0..<300 where draft.invoice.number != nil {
+        for _ in 0..<300 where try storedNumber() != nil {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        #expect(draft.invoice.number == nil, "the number the review took was not handed back")
+        #expect(try storedNumber() == nil, "the number the review took was not handed back")
     }
 
     final class Floating {
