@@ -255,13 +255,11 @@ extension ProblemKind {
 
     /// Kinds whose open problems stand in the foot as ONE line per name (Dan,
     /// 2026-09-30, ovation#609): two backups broken on one day are "Bad backup, 30
-    /// May" once, and what Read opens lists each of them with its time.
-    ///
-    /// UNREADABLE BOOKING FILES ARE NOT HERE YET. Dan chose one line for all of them
-    /// reading "Bookings unreadable", on condition that it fits the foot, and it does
-    /// not: 131.5 points in bold against the 127.3 beside Read. The wording is his to
-    /// choose again (ovation#609).
-    static let sharingOneLine: Set<ProblemKind> = [.archiveNoLongerVerifies]
+    /// May" once, and what Read opens lists each of them with its time. Every
+    /// unreadable booking file is one "Booking unreadable" line, however many there
+    /// are, and Read lists each file. Dan kept the singular because the plural,
+    /// "Bookings unreadable", is 131.5 points against the 127.3 beside Read.
+    static let sharingOneLine: Set<ProblemKind> = [.archiveNoLongerVerifies, .bookingRecordUnreadable]
 
     /// "21:00", the time in a broken backup's archive name, which is what tells two
     /// backups of one day apart where Read lists them (Dan, 2026-09-30), or nil.

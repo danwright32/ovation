@@ -288,6 +288,26 @@ struct RailFootTests {
         #expect(grouping.lines.count == 4)
     }
 
+    /// Dan, 2026-09-30 (ovation#609): every unreadable booking file stands as ONE
+    /// line, "Booking unreadable", and Read lists each file.
+    @Test("three unreadable booking files stand as one Booking unreadable line, and Read lists every file")
+    func unreadableBookingsShareALine() throws {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        for (index, file) in ["a.json", "b.json", "c.json"].enumerated() {
+            store.raise(kind: .bookingRecordUnreadable, subject: file,
+                        sentence: "\(file) cannot be read.", now: at(index + 1))
+        }
+        store.raise(kind: .backupsAreStale, subject: "store", sentence: "stale", now: at(0))
+
+        let lines = RailFoot.lines(for: store.open)
+        #expect(lines.shown.map { lines.grouping.name(of: $0) }
+                    == ["Booking unreadable", "Backups are behind"])
+        #expect(lines.more == 0)
+        let members = RailFoot.members(of: try #require(lines.shown.first), among: store.open)
+        #expect(RailFoot.sentence(for: members)
+                    == "c.json cannot be read.\n\nb.json cannot be read.\n\na.json cannot be read.")
+    }
+
     @Test("a kind that does not share a line keeps one line per problem")
     func otherKindsDoNotShare() {
         let store = ProblemsStore(journal: InMemoryProblemsJournal())
