@@ -25,7 +25,7 @@ struct FloatingSheetTests {
         let scale: CGFloat
         let box: CGRect
 
-        func isCard(_ x: CGFloat, _ y: CGFloat) -> Bool {
+        @MainActor func isCard(_ x: CGFloat, _ y: CGFloat) -> Bool {
             FloatingSheetTests.isCard(bitmap, Int(x * scale), Int(y * scale))
         }
     }
@@ -63,7 +63,7 @@ struct FloatingSheetTests {
     }
 
     /// The smallest window the app allows, where the room is least, and a roomy one.
-    private static let windows = [CGSize(width: OvationWindow.minimumWidth, height: 620),
+    nonisolated private static let windows = [CGSize(width: OvationWindow.minimumWidth, height: 620),
                                   CGSize(width: 1064, height: 900)]
 
     @Test("the sheet is centred below the title bar, with room left above and below it",
@@ -77,8 +77,8 @@ struct FloatingSheetTests {
         #expect(abs(above - below) <= 1, "above \(above), below \(below)")
         #expect(abs(beside.0 - beside.1) <= 1, "left \(beside.0), right \(beside.1)")
         // FLOATING, NOT HANGING: never touching the title bar or the window's foot.
-        #expect(above >= FloatingSheet.margin - 1, "only \(above) points below the title bar")
-        #expect(below >= FloatingSheet.margin - 1, "only \(below) points above the window's foot")
+        #expect(above >= FloatingSheet<EmptyView>.margin - 1, "only \(above) points below the title bar")
+        #expect(below >= FloatingSheet<EmptyView>.margin - 1, "only \(below) points above the window's foot")
     }
 
     @Test("every corner of the sheet is rounded, the top two as well as the bottom",
@@ -97,7 +97,7 @@ struct FloatingSheetTests {
         }
         // The control (L1): the edges beside each corner are the card's, so a corner
         // reading as not card is the rounding and not a box found in the wrong place.
-        let along = FloatingSheet.cornerRadius + 2
+        let along = FloatingSheet<EmptyView>.cornerRadius + 2
         #expect(drawn.isCard(box.minX + along, box.minY + inset))
         #expect(drawn.isCard(box.minX + inset, box.minY + along))
         #expect(drawn.isCard(box.maxX - along, box.maxY - inset - 1 / drawn.scale))
@@ -110,9 +110,9 @@ struct FloatingSheetTests {
     func theReviewSheetGivesWay() throws {
         let presenter = try ReviewSampleWorld.presenter(mainAddress: "booker@example.com",
                                                         overrideAddress: nil)
-        let host = NSHostingView(rootView: ReviewSheet(presenter: presenter, close: {}))
-        let roomy = host.sizeThatFits(ProposedViewSize(width: 800, height: 900))
-        let short = host.sizeThatFits(ProposedViewSize(width: 800, height: 520))
+        let host = NSHostingController(rootView: ReviewSheet(presenter: presenter, close: {}))
+        let roomy = host.sizeThatFits(in: CGSize(width: 800, height: 900))
+        let short = host.sizeThatFits(in: CGSize(width: 800, height: 520))
 
         #expect(roomy.height == 560)
         #expect(roomy.width == 800)

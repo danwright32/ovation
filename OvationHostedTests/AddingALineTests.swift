@@ -100,11 +100,12 @@ struct AddingALineTests {
 
     // MARK: the panels float (PRD 48a, ovation#547)
 
+    final class Floats { var it = false }
+
     /// Whether a floating sheet of this content is on the screen now.
     private static func floats<Content: View>(_ content: Content.Type,
                                               on screen: InvoiceScreenView) async throws -> Bool {
-        final class Seen { var it = false }
-        let seen = Seen()
+        let seen = Floats()
         try await step(screen) { view in
             seen.it = (try? view.find(FloatingSheet<Content>.self)) != nil
         }
