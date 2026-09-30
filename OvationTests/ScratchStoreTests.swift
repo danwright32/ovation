@@ -55,28 +55,37 @@ struct ScratchStoreTests {
     @Test("a store still open when the call returns is recorded against it")
     func aleakedStoreIsRecorded() throws {
         var kept: ModelContainer?
-        withKnownIssue("the case kept its container, so the store is still open") {
+        var seen: URL?
+        try withKnownIssue("the case kept its container, so the store is still open") {
             try ScratchStore.with("scratch-leaked") { url in
+                seen = url
                 kept = try Self.write(url)
             }
         } matching: { issue in
             String(describing: issue).contains("still open after the case released it")
         }
         #expect(kept != nil, "the fixture really did keep it, so the issue is about that")
+        let directory = try #require(seen).deletingLastPathComponent()
+        #expect(FileManager.default.fileExists(atPath: directory.path),
+                "and the directory was left, not deleted from under the open store")
         kept = nil
+        try? FileManager.default.removeItem(at: directory)
     }
 
     @Test("an awaiting case gets the same check")
     func theAsyncFormChecksToo() async throws {
         var kept: ModelContainer?
-        await withKnownIssue("the case kept its container") {
+        var seen: URL?
+        try await withKnownIssue("the case kept its container") {
             try await ScratchStore.with("scratch-leaked-async") { url in
                 await Task.yield()
+                seen = url
                 kept = try Self.write(url)
             }
         } matching: { issue in
             String(describing: issue).contains("still open after the case released it")
         }
         kept = nil
+        if let seen { try? FileManager.default.removeItem(at: seen.deletingLastPathComponent()) }
     }
 }

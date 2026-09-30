@@ -57,9 +57,14 @@ enum ScratchStore {
         return directory
     }
 
+    /// A directory still held is recorded and LEFT, because deleting it would be
+    /// the very fault being reported, and SQLite would say so all over again.
     private static func finish(_ directory: URL) {
         let held = descriptors(inside: directory)
-        #expect(held.isEmpty, "the store is still open after the case released it: \(held)")
+        guard held.isEmpty else {
+            Issue.record("the store is still open after the case released it, so \(directory.path) is left in place: \(held)")
+            return
+        }
         try? FileManager.default.removeItem(at: directory)
     }
 }
