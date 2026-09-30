@@ -614,21 +614,37 @@ def run_reader(reader, paths):
     return raw
 
 
-def write_private(folder, stem, suffix, text):
-    """Written readable by Dan alone, and never over an earlier run's file."""
+def write_pair(folder, stem, json_text, html_text):
+    """The results JSON and its page, readable by Dan alone, never over an
+    earlier run's files, and ALWAYS under one stem.
+
+    The stem is chosen free for BOTH files before either is written. Choosing a
+    free name for each file separately split the pair whenever a leftover of one
+    kind sat under this run's stem, and --summarise, which finds the page from
+    the JSON's name, then pointed at the leftover (review of ovation#636)."""
     attempt = 0
     while True:
-        name = f"{stem}{'' if attempt == 0 else '-' + str(attempt)}{suffix}"
-        path = os.path.join(folder, name)
-        try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
+        candidate = stem if attempt == 0 else f"{stem}-{attempt}"
+        paths = [os.path.join(folder, candidate + suffix) for suffix in (".json", ".html")]
+        if any(os.path.lexists(path) for path in paths):
             attempt += 1
             continue
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        os.chmod(path, 0o600)
-        return path
+        written = []
+        try:
+            for path, text in zip(paths, (json_text, html_text)):
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                written.append(path)
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                os.chmod(path, 0o600)
+        except FileExistsError:
+            # Another run took this stem between the check and the write. Only
+            # what THIS call created is removed, and the next stem is tried.
+            for path in written:
+                os.remove(path)
+            attempt += 1
+            continue
+        return paths[0], paths[1]
 
 
 def measure(folder, results_folder):
@@ -638,7 +654,11 @@ def measure(folder, results_folder):
     if not names:
         raise Refusal(f"REFUSED: the receipt folder holds no receipts, so there is nothing to measure: {folder}")
     stand_in = os.environ.get("OVATION_RECEIPT_READER", "")
-    if stand_in and os.path.realpath(results_folder).startswith(os.path.realpath(CUSTODY) + os.sep):
+    custody = os.path.realpath(CUSTODY)
+    target = os.path.realpath(results_folder)
+    # The custody folder ITSELF as well as anything inside it: a prefix test on
+    # "custody/" alone let --results name the folder itself (review of ovation#636).
+    if stand_in and (target == custody or target.startswith(custody + os.sep)):
         # A value left exported by a test must never put a stand in's results
         # where Dan keeps the real ones (L169).
         raise Refusal("REFUSED: OVATION_RECEIPT_READER is set, so a stand in would replace Vision, and its "
@@ -677,8 +697,8 @@ def measure(folder, results_folder):
     os.makedirs(results_folder, mode=0o700, exist_ok=True)
     os.chmod(results_folder, 0o700)
     stem = "results-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    json_path = write_private(results_folder, stem, ".json", json.dumps(results, indent=2, sort_keys=True))
-    html_path = write_private(results_folder, os.path.basename(json_path)[:-5], ".html", page(results))
+    json_path, html_path = write_pair(results_folder, stem, json.dumps(results, indent=2, sort_keys=True),
+                                      page(results))
     return results, html_path
 
 

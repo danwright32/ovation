@@ -20,7 +20,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "photographed receipt probe tests" 61
+harness_begin "photographed receipt probe tests" 63
 
 TARGET="scripts/measure-receipt-reads.py"
 require_target "$TARGET"
@@ -336,6 +336,27 @@ check "and in its results file" \
 CUSTODY_RESULTS="$HOME/Library/Application Support/Ovation/custody/receipt-probe"
 check "and a stand in reader is refused the real custody folder" \
     "$(OVATION_RECEIPT_READER="$WORK/fine-reader" ./"$TARGET" --folder "$WORK/one" --results "$CUSTODY_RESULTS" 2>&1 | grep -c '^REFUSED: OVATION_RECEIPT_READER is set'):$(ls "$CUSTODY_RESULTS" 2>/dev/null | grep -c results-)" "1:0"
+CUSTODY_ITSELF="$HOME/Library/Application Support/Ovation/custody"
+check "and the custody folder itself, not only the folders inside it" \
+    "$(OVATION_RECEIPT_READER="$WORK/fine-reader" ./"$TARGET" --folder "$WORK/one" --results "$CUSTODY_ITSELF" 2>&1 | grep -c '^REFUSED: OVATION_RECEIPT_READER is set'):$(ls "$CUSTODY_ITSELF" 2>/dev/null | grep -c results-)" "1:0"
+
+# THE JSON AND ITS PAGE ARE ONE PAIR, named from one stem free for BOTH. Each
+# file used to pick its own free name, so a leftover page under this run's stem
+# sent the JSON to the stem and the page to "-1", and --summarise then pointed
+# at the leftover (review of ovation#636).
+mkdir -p "$WORK/pair"
+printf 'an older page' > "$WORK/pair/results-X.html"
+PAIR="$(python3 - "$TARGET" "$WORK/pair" <<'PY'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+json_path, html_path = probe.write_pair(sys.argv[2], "results-X", "{}", "<p>new</p>")
+print(os.path.basename(json_path), os.path.basename(html_path), open(os.path.join(sys.argv[2], "results-X.html")).read())
+PY
+)"
+check "a leftover page moves BOTH new files to the next free stem, and is left alone" \
+    "$PAIR" "results-X-1.json results-X-1.html an older page"
 
 # A LINE ITEM IS NOT A PAYMENT because a word inside it looks like one. The
 # payment words matched bare substrings, so Postcard, Cardstock, Author copy,
