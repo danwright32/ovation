@@ -85,13 +85,13 @@ OVATION_DESIGN_WIDTHS, a comma separated list of page widths, and
 OVATION_WINDOW_SOURCE, the Swift file the minimum window width is read from.
 """
 import glob
-import re
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
-from design_render import CannotMeasure, open_browser  # noqa: E402
+from design_render import (CannotMeasure, NoMinimumWindow, PRESSED,  # noqa: E402
+                           minimum_window, open_browser)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_ROOT = os.environ.get("OVATION_DESIGN_ROOT") or os.path.join(REPO, "docs/design")
@@ -105,37 +105,9 @@ DEFAULT_WIDTHS = "1440,1280"
 # AND EVERY APP WINDOW AGAIN AT THE APP'S MINIMUM WIDTH (ovation#110). The widths
 # above are the PAGE the rendering sits in; the window drawn inside it was 1064
 # at both, so no screen had ever been judged at the half screen width Dan works
-# at. The minimum is read from the app's own constant rather than written here,
-# so the check and the window cannot come to mean two numbers (L41), and a
-# source that does not declare it is a refusal rather than a pass at a default.
-WINDOW_SOURCE = os.environ.get("OVATION_WINDOW_SOURCE") or os.path.join(
-    REPO, "Ovation/App/OvationWindow.swift")
-
-
-class NoMinimumWindow(Exception):
-    """The app's minimum window width could not be read."""
-
-
-def minimum_window():
-    """The app's minimum window width, or a NoMinimumWindow naming the file.
-
-    ITS OWN REFUSAL, NEVER "CANNOT MEASURE". Exit 3 is what every caller reads
-    as there being no browser, and on 2026-09-26 a scratch tree that lacked
-    this file made the check answer 3: the draws suite then reported no
-    headless browser, skipped every case, and a planted fault went unjudged
-    (ovation#110, L11). A source that does not say the minimum is a check
-    pointed at the wrong tree, which is being used wrongly."""
-    try:
-        with open(WINDOW_SOURCE, encoding="utf-8") as handle:
-            text = handle.read()
-    except OSError as err:
-        raise NoMinimumWindow("the minimum window width could not be read from %s: %s"
-                              % (WINDOW_SOURCE, err))
-    found = re.search(r"static let minimumWidth: CGFloat = (\d+)\b", text)
-    if not found:
-        raise NoMinimumWindow("%s does not declare `static let minimumWidth: CGFloat`, "
-                              "so there is no minimum window to draw at" % WINDOW_SOURCE)
-    return int(found.group(1))
+# at. The minimum is read from the app's own constant by lib/design_render.py's
+# minimum_window, which check-design-control-inset.sh reads it through too, so
+# two checks cannot come to mean two numbers (L41, L370).
 
 
 # THREE CLAIMS, AND THE FIRST IS THE CONTROL. A window that ignores the width it
@@ -215,7 +187,9 @@ window.addEventListener("unhandledrejection", function (e) {
 # What counts as a control, in one place, because the render that COUNTS them
 # and the renders that PRESS them must select the same list in the same order or
 # control N in one is not control N in the other (L16).
-CONTROLS = 'button, [role="button"], summary, input[type="checkbox"], input[type="radio"]'
+# It is lib/design_render.py's PRESSED, which the inset and theme checks press
+# too, so the states every one of them judges are the same states (ovation#625).
+CONTROLS = PRESSED
 
 # The claim made from the pressing renders, named once so the report reads it
 # from the same place the pressing loop writes it.

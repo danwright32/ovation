@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 140
+harness_begin "output privacy tests" 146
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -913,7 +913,7 @@ check "and it really did judge the record against the contract and the live expo
 # repository that is public on purpose, which is a more public place than a
 # terminal, not a less public one.
 #
-# ONE PLANTED PAGE TRIPS ALL SIX, and it carries a fabricated client and venue in
+# ONE PLANTED PAGE TRIPS THE FIRST SIX, and it carries a fabricated client and venue in
 # its visible text, which is where a rendered reading would pick them up: it
 # names a token nothing defines, throws on load, draws almost nothing, carries no
 # sidebar card, and declares no app window.
@@ -945,7 +945,7 @@ if [ -n "$STAGED_BROWSER" ]; then
     RENDER_PATH="read the page"
 else
     RENDER_PATH="no browser"
-    echo "NOTE: there is no headless browser here, so the six rendering checks below"
+    echo "NOTE: there is no headless browser here, so the nine rendering checks below"
     echo "      were driven into their CANNOT MEASURE path. Their output was clean,"
     echo "      and the branch that quotes a page was not reached on this machine."
 fi
@@ -965,6 +965,43 @@ check "and the card check took the path this machine can reach" "$(verdict_of "$
 OUT="$(OVATION_DESIGN_ROOT="$DESIGN" ./scripts/check-design-window-top.sh 2>&1)"
 check "the window ceiling check prints no identity" "$(leaks_in "$OUT")" "clean"
 check "and the ceiling check took the path this machine can reach" "$(verdict_of "$OUT")" "$RENDER_PATH"
+
+# THE INSET CHECK MEASURES ONLY AN APP SCREEN, which the staged page above does not
+# draw, so it gets a screen of its own: one panel whose one control, carrying the
+# fabricated client's name, sits against its edge (ovation#625).
+INSET="$WORK/design-inset"; mkdir -p "$INSET"
+cat > "$INSET/staged.html" <<HTML
+<!doctype html>
+<style>.panel { background: #DDD6CC; padding: 12px 12px 12px 0; } .panel button { border: 1px solid #555; }</style>
+<div class="screen"><div class="panel"><button>$CLIENT at $VENUE</button></div></div>
+HTML
+OUT="$(OVATION_DESIGN_ROOT="$INSET" OVATION_INSET_EXEMPTIONS="$WORK/no-such-exemptions.tsv" \
+    ./scripts/check-design-control-inset.sh 2>&1)"
+check "the control inset check prints no identity" "$(leaks_in "$OUT")" "clean"
+check "and the inset check took the path this machine can reach" "$(verdict_of "$OUT")" "$RENDER_PATH"
+
+# AND THE DECISIONS CHECK READS THE RECORD'S PROSE, where a press is a fixture's
+# words, so its claim presses the fabricated client by name (ovation#197).
+CLAIMED="$WORK/design-claims"; mkdir -p "$CLAIMED"
+cp "$INSET/staged.html" "$CLAIMED/staged.html"
+printf '# Record\n\n### A decision about %s, settled 2026-09-10\n\nDrawn: `staged.html` pressing `%s at %s` shows `.nowhere` reading `%s`.\n' \
+    "$CLIENT" "$CLIENT" "$VENUE" "$VENUE" > "$CLAIMED/README.md"
+OUT="$(OVATION_DESIGN_ROOT="$CLAIMED" ./scripts/check-design-decisions-drawn.sh 2>&1)"
+check "the decisions check prints no identity" "$(leaks_in "$OUT")" "clean"
+check "and the decisions check took the path this machine can reach" "$(verdict_of "$OUT")" "$RENDER_PATH"
+
+# AND THE THEME CHECK, whose screen here inherits the page's ink, so the element
+# carrying the fabricated name is the one it refuses.
+THEMED="$WORK/design-theme"; mkdir -p "$THEMED"
+cat > "$THEMED/staged.html" <<HTML
+<!doctype html>
+<style>:root { --page-ink: #111; } :root[data-theme="dark"] { --page-ink: #EEE; } body { color: var(--page-ink); }</style>
+<div class="screen"><div class="win"><span class="who">$CLIENT at $VENUE</span></div></div>
+HTML
+OUT="$(OVATION_DESIGN_ROOT="$THEMED" OVATION_THEME_EXEMPTIONS="$WORK/no-such-exemptions.tsv" \
+    ./scripts/check-design-window-theme.sh 2>&1)"
+check "the window theme check prints no identity" "$(leaks_in "$OUT")" "clean"
+check "and the theme check took the path this machine can reach" "$(verdict_of "$OUT")" "$RENDER_PATH"
 
 # These two take the file as an argument rather than a root, and they print the
 # path they rendered, which is a path and not an identity. The fixture is named

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run a rendered design check ONCE and read its status and its words from that
-# one run. Sourced by the suites of the six rendering checks.
+# one run. Sourced by the suites of the nine rendering checks.
 #
 # ovation#282. The invoice screen suite ran the check twice per damaged file,
 # once for the exit status and once for the names of the claims that fired, and

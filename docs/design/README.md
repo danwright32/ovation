@@ -121,6 +121,10 @@ this round did not decide it. Frequency in front of him: 6 of 171 invoices acros
 they were issued, median 11 days early, a floor rather than a total because the export carries no
 payment amounts at all.
 
+Drawn: `invoice-list.html` shows `.disc.open .lead` reading `Waiting on you to place money`.
+
+Drawn: `invoice-list.html` shows `nav.side .card .ln` reading `To place`.
+
 ## The review and send screen
 
 `review-send.html` is the agreed design for what Dan sees before an invoice leaves under his name,
@@ -426,6 +430,74 @@ row of switches would have stopped a build in the middle of something else. Only
 screen and its switches now sit above the window; where the record came from, and the verdict of the
 rules the page carries, sit below it. With the shared page (ovation#165) and no panel around the
 stage, the window starts at 285px (`measured 2026-09-29`), under the 380px that decision accepted.
+
+## A control keeps its container's inset, and something measures it
+
+**A control inside a table cell or panel keeps the same inset from the container's edge as the
+other controls there** (Dan, 2026-09-29, ovation#625, PRD 48c). He made it a standing rule on the
+ovation#489 round, where the chosen type's chooser sat against the left edge of its cell with its
+rounded border touching the column's edge. A control touching its container reads as spilling out
+of it, and one held further in than its neighbours reads as a slip rather than a layout. The
+chooser's own fix, the adding row's tint reaching past the columns, is recorded under the invoice
+screen below.
+
+**`scripts/check-design-control-inset.sh` measures it in a rendering**, at rest and after each
+control on the page is pressed, because the fault lived in a row that exists only after `Add a
+line`, and at both the declared window and the app's minimum one, the half screen Dan works at. The edge is one anybody can see: a background unlike what is behind it, a shadow, or a
+border on that side, so an unpainted column edge is not an edge and a field drawing only a rule
+beneath it has no left edge. A borderless word is measured by its words, since its padding is
+invisible. It refuses a control at its edge on any side, and controls pushed against one
+container's left and right edges at insets that differ by more than a pixel. Run against
+`invoice.html` as it stood before the ovation#489 fix, it refuses the chooser and the amount field
+at 0px, which is the fault Dan saw.
+
+**It found three more on its first run, and each is filed rather than fixed here**, because each
+is a look rather than a slip: the rail foot's first `Read` runs past the inset the other foot
+controls keep because its short name does not give way (ovation#633, shell chrome, so all three
+files that draw the rail); the review sheet's page preview is wider than its column's padding
+leaves, so it sits far closer to the right edge than the left (ovation#634); and the review
+sheet's `Cancel` starts further in than `Send` ends (ovation#635). Each is exempted in
+`scripts/design-inset-exemptions.tsv` under its issue, and the check refuses the line as stale the
+day its difference is gone.
+
+## The page's theme stops at the screen, and something measures it
+
+**Each design file is a record page drawn around an app screen, and only the page follows the
+reader's light or dark setting.** The app is pinned to light (ovation#479), so nothing inside
+`.screen` may change with the page's `--page-*` tokens. Twice on 2026-09-29 it did, both in
+`review-send.html`: the message editor was painted from `--page-panel`, and the title bar's words
+set no colour of their own and inherited the page's ink, so in a dark page the screen drew dark on
+dark. The second named no token at all, which is why this is measured rather than searched for.
+
+**`scripts/check-design-window-theme.sh` renders every file with the page forced light and again
+forced dark**, at rest and after each control is pressed, and refuses a screen that paints any
+background, drawn border, shadow or words differently between the two. The review sheet's two are
+exempted in `scripts/design-theme-exemptions.tsv` under ovation#547, whose branch is fixing that
+file, and the lines go when it merges, since the check refuses them as stale from then on.
+
+## Every decision says where it is drawn, and something draws it
+
+**A settled decision in this record carries a `Drawn:` line naming the file and the presses that
+show it** (Dan, 2026-09-29, ovation#197, the claim per decision shape). Twice on 2026-09-10 the
+state a round was judging could not be drawn by its own file: `clients.html` opened on a client
+holding no money, and `invoice-list.html` had no client with two open invoices, which is the whole
+subject of PRD 14j. Every other check asserts things about what IS drawn, so a state no fixture
+reaches was invisible to all of them. A claim reads:
+
+    Drawn: `invoice.html` pressing `sent` then `2 invoices open` shows `.heldoffer .heldbtn` reading `Use it here`.
+
+Each press is the exact words of one drawn element, pressed where they sit, and `words @ selector`
+names which when the words are on more than one. `shows` is a selector at least one element of
+which must be drawn after the last press, and `reading` is optional. A decision is a heading
+carrying `settled <YYYY-MM-DD>`, which is how every decision here is already headed, and its claims
+are the ones under that heading.
+
+**`scripts/check-design-decisions-drawn.sh` renders every claim and refuses one that does not
+draw**, and refuses a decision settled after 2026-09-29 that carries none. A decision settled on
+or before that day is counted by line rather than refused, so the rule never demanded the whole
+record at once; every decision in the record was given a claim with the check anyway, so that
+count starts at nothing. A claim proves its state can be drawn, never that it is drawn right,
+which is still the other checks' and Dan's.
 
 ## One popup list, and something that keeps it the only one
 
@@ -1005,6 +1077,10 @@ own idea, collapses at these numbers: 27 of 31 rise to the top, because a missin
 is the norm rather than the exception until the roster clean up in ovation#40 has been run.
 That is the shape working exactly as designed and still being wrong for the data.
 
+Drawn: `clients.html` shows `.split .names .nrow.sel`.
+
+Drawn: `clients.html` shows `.split .detail h5` reading `Drayton Wind Ensemble`.
+
 ### Round 2, settled 2026-09-07: BOTH, on the name and in the sidebar
 
 Four positions on one axis, from the pane alone up to a line in the sidebar card that reaches
@@ -1055,6 +1131,10 @@ itself rather than left for the implementer to find: putting the amount on the n
 "Ashgrove Chamber Players" short in a 240px column, and the strip above the list costs 43px,
 which in a real window comes out of the list and drops it from 15 visible clients to 14.
 
+Drawn: `clients.html` shows `.nrow.hasheld .nheld` reading `$1,250.00`.
+
+Drawn: `clients.html` shows `nav.side .railheld` reading `Money held`.
+
 ### Round 3, settled 2026-09-07: a count of nothing is not drawn, and one line says so
 
 Nothing in the PRD or in this record has ever decided what a sidebar count does at zero, so
@@ -1077,6 +1157,8 @@ between them and one holding $5,000.00 are the same count. The argument that won
 own rule: its four neighbours are counts of things needing you, and a sum among them is a second
 kind of number in one small object. The amounts are not lost, they are beside the clients in the
 list, which is where the count sends you.
+
+Drawn: `clients.html` pressing `A day with work waiting` then `A day with the address fixed` shows `nav.side .card .quiet` reading `Nothing waiting`.
 
 ### Round 4, settled 2026-09-07: a quantity of nothing is not drawn, anywhere
 
@@ -1120,6 +1202,8 @@ show no money row at all**.
 not: what is left is the design, plus two things that are behaviour rather than choice. Clicking
 a name changes the client, which is what the real screen does and is the only way to see the
 rule at work. The day switch shows the quiet state, which is where the zero rule is visible.
+
+Drawn: `clients.html` shows `.detail .taxval.absent` reading `Not recorded`.
 
 ### Round 5, settled 2026-09-07: the roster gets its own screen, and it is not there when it is empty
 
@@ -1177,6 +1261,10 @@ something is MISSING is still drawn.
 navigates between the two screens and clicking a name changes the client, both of which the real
 window does.
 
+Drawn: `clients.html` pressing `Settle the roster` shows `.scroll.pass .passhead`.
+
+Drawn: `clients.html` shows `nav.side .item` reading `Settle the roster`.
+
 ### Round A, settled 2026-09-10: both boxes stay, and the FIGURES tell them apart
 
 PRD 5.14c is the requirement with a real consequence behind it: held money and referral credit
@@ -1198,6 +1286,8 @@ One thing rode along rather than being tested: the credit's note said it "comes 
 line", which PRD 8 corrected on 2026-09-07 to its own BLOCK above the subtotal. Leaving the stale
 sentence in would have made the round about a wording nobody was proposing.
 
+Drawn: `clients.html` pressing `Harborlight Ballet` shows `.money .mbox .mval.notmoney` reading `3.0 hrs`.
+
 ### Round B, settled 2026-09-10: applying held money is NOT on this screen
 
 `ovation#109` asked where the control lives, and it was put to Dan as whether it belongs here at
@@ -1210,6 +1300,8 @@ He chose the invoice. **So this screen SHOWS the money and never moves it**, and
 design record that read as a defect ("nothing on the screen is an ACTION") is now the design. The
 sidebar count still counts down, because applying happens on the invoice. What the invoice does
 with it is recorded under "The invoice screen" below.
+
+Drawn: `clients.html` pressing `Ashgrove Chamber Players` shows `.money .mbox .mval` reading `$500.00`.
 
 ### Round D, settled 2026-09-10: the payment terms value is the control
 
@@ -1225,6 +1317,8 @@ so `scripts/check-design-terms-agree.sh` compares them and the push gate refuses
 That guard exists because the claim that the two lists cannot drift was made to Dan while he was
 choosing the control, and on the day it was said nothing compared them.
 
+Drawn: `clients.html` pressing `14 days` shows `.termlist .termitem` reading `On receipt`.
+
 ### Round E, settled 2026-09-10: the box names the arrival, and lists them when there is more than one
 
 `ovation#96` asked whether a deposit is told apart from an overpayment at all, and answering no
@@ -1234,6 +1328,10 @@ than one arrival it lists them with their amounts.
 
 **A single arrival is never broken down**, in any state. One row restating the figure standing
 directly above it is the same number twice, which is the fault this screen has rejected before.
+
+Drawn: `clients.html` pressing `Harborlight Ballet` shows `.money .arrivals .arrival` reading `Overpaid on invoice 1126`.
+
+Drawn: `clients.html` pressing `Ashgrove Chamber Players` shows `.money.single .mnote` reading `Deposit received`.
 
 ### Round F, settled 2026-09-10: the row keeps its figure, except beside the box (ovation#98)
 
@@ -1271,6 +1369,8 @@ there were four, which ovation#183 counted as a cost worth removing. Since ovati
 starts one browser however many files it renders, so that step starts six browsers, one per check,
 where it used to start twenty six, one per render.
 
+Drawn: `clients.html` pressing `Ashgrove Chamber Players` shows `.nrow.hasheld .nheld` reading `$1,250.00`.
+
 ### The roster pass holds what blocks, settled 2026-09-10 (ovation#40)
 
 **Two of the 31 clients share one address, and it stays where PRD 38c put it, on the client.** The
@@ -1290,6 +1390,8 @@ them changes nothing: two of the three options drew the identical screen. The ro
 a status. For the real pair the export does say, because it carries `isTaxExempt` (PRD 5a0,
 ovation#215): in the 2026-09-05 snapshot neither client of the pair holds a value, so both sat in
 the pass, as they do in the file.
+
+Drawn: `clients.html` pressing `Settle the roster` shows `.scroll.pass .passhead` reading `Sales tax status`.
 
 ### The address half emptied itself, 2026-09-11 (ovation#40)
 
@@ -1351,6 +1453,8 @@ the sidebar card was drawn with the invoice list's fixture counts, which would h
 **The placeholder treatment was deliberately not settled by the round.** It was drawn plain so the
 round stayed about whether the rail is there at all. Dan chose to keep it as drawn rather than run
 a second round, on the stated grounds that it is four words in one place.
+
+Drawn: `clients.html` pressing `Settle the roster` shows `nav.side .item` reading `Invoices`.
 
 ### What the screen still is not
 
@@ -1651,6 +1755,12 @@ the rest held. Nothing said what happened to the rest, so the line now reads `$5
 the client`. It follows from round C's own logic, that Ovation applies it and SAYS so, but it was
 not put to him.
 
+Drawn: `invoice.html` pressing `sent` shows `.heldline .heldback` reading `Remove`.
+
+Drawn: `invoice.html` pressing `sent` then `2 invoices open` shows `.heldoffer .heldbtn` reading `Use it here`.
+
+Drawn: `invoice.html` pressing `sent` then `$150.00` shows `.invsum.hasout .outline` reading `Outstanding`.
+
 ### The rail's held money line, settled 2026-09-10 (ovation#191)
 
 **It stays, unchanged, on a screen that already names one client's held money.** The rail's figure
@@ -1690,6 +1800,8 @@ different layout modes, and the same markup measured 37.95px in one and 41.06px 
 was built). It says `Money held` three times rather than twice, the rail's total, a figure on every
 name row, and the selected client's box, and a figure repeated down a list is a different question
 from one standing beside a total. It gets its own round.
+
+Drawn: `invoice.html` pressing `sent` shows `nav.side .railheld` reading `Money held`.
 
 ### What is deliberately still open
 
@@ -1731,6 +1843,8 @@ time, which is the fault already recorded here once about a panel over this same
 looks inert until a name is typed, because a control that does nothing and gives no reason leaves
 pressing it again as the only diagnosis (L109). Both are written here so they can be reversed.
 
+Drawn: `invoice.html` pressing `Add a line` then `Choose a type` then `New type...` shows `.newpanel` reading `A new service type`.
+
 ### Adding a line item, settled 2026-09-08
 
 **The word appends a row and the type is chosen inside it**, so the line is built where it is going
@@ -1752,6 +1866,8 @@ amount anywhere, so every added line has an amount to type whichever way it was 
 draws no placeholder reading `0.00`: a zero total is a legitimate comped invoice (PRD 5.1b), so a
 figure the screen has not been given is never drawn as one. An amount it cannot read leaves the row
 where it is rather than committing a line worth nothing.
+
+Drawn: `invoice.html` pressing `Add a line` shows `.lrow.newrow .typebtn` reading `Choose a type`.
 
 ### Leaving a line being added, and changing its type, settled 2026-09-29 (ovation#489)
 
@@ -1803,6 +1919,10 @@ the amount's one right edge included. `asserted by check-invoice-screen-draws.sh
 Cancel, both Escapes and a change of type with and without a typed amount, each refused by name on a
 damaged copy in `scripts/test-invoice-screen-draws.sh`.
 
+Drawn: `invoice.html` pressing `Add a line` shows `.invlines .laddbtn` reading `Cancel`.
+
+Drawn: `invoice.html` pressing `Add a line` then `Choose a type` then `Rush turnaround` shows `.lrow.newrow .typebtn.chosen` reading `Rush turnaround`.
+
 ### The due date, settled 2026-09-08
 
 **The date in the foot opens the terms an invoice is written on**, each showing the date it lands
@@ -1834,6 +1954,8 @@ again as the only diagnosis (L109, L148).
 term later, so the header's `29 Aug 2026` and the foot's two dates all come from one stamp rather
 than being typed in three places that can disagree. It is UTC throughout, since a date built in
 local time and read back in another is off by one for half of every day (L39).
+
+Drawn: `invoice.html` pressing `12 Sep 2026` shows `.poplist .plast` reading `Another date`.
 
 ### Asking before a rare, consequential action, settled 2026-09-08
 
@@ -1874,6 +1996,8 @@ the quiet word beside it and the accent an ordinary confirm uses: against the qu
 removing the destructive colour altogether still passed, because the button fell back to the accent,
 which differs from quiet just as much. That is a check agreeing with the right answer for the wrong
 reason, and it was caught by running the mutation rather than by reading it.
+
+Drawn: `invoice.html` pressing `Edit` then `Delete this draft` shows `.askpanel`.
 
 ### One component came out of the four rounds
 
