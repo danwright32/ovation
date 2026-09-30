@@ -141,13 +141,21 @@ window.addEventListener("load", function () {
     });
   }
   function finish() {
-    var all = [].slice.call(document.querySelectorAll(claim.shows));
+    var all;
+    /* A SELECTOR THE BROWSER CANNOT READ IS THE CLAIM'S FAULT, and said as that. It
+       used to throw here, so no report was written and the renderer blamed the page
+       for a claim with a typo in it (L11). */
+    try { all = [].slice.call(document.querySelectorAll(claim.shows)); }
+    catch (e) { report.badSelector = "shows"; write(); return; }
     var shown = all.filter(drawn);
     report.matched = all.length;
     report.drawn = shown.length;
     if (claim.reading !== null) {
       report.reads = shown.some(function (e) { return norm(e.innerText).indexOf(norm(claim.reading)) >= 0; });
     }
+    write();
+  }
+  function write() {
     var out = document.createElement("pre");
     out.id = "ovation-probe";
     out.textContent = JSON.stringify(report);
@@ -156,6 +164,10 @@ window.addEventListener("load", function () {
   function press(i) {
     if (i >= claim.presses.length) { finish(); return; }
     var hits;
+    if (claim.presses[i].scope) {
+      try { document.querySelector(claim.presses[i].scope); }
+      catch (e) { report.badSelector = "press " + (i + 1); write(); return; }
+    }
     try { hits = find(claim.presses[i].words, claim.presses[i].scope); }
     catch (e) { report.threw = String(e).slice(0, 120); hits = []; }
     report.presses.push({ found: hits.length });
@@ -219,6 +231,11 @@ def judge(session, claim):
                             % json.dumps({"presses": claim["presses"], "shows": claim["shows"],
                                           "reading": claim["reading"]}).replace("</", "<\\/"))
     where = named(claim["file"])
+    if report.get("badSelector"):
+        part = report["badSelector"]
+        return ("names a selector the browser cannot read, %s, so nothing it claims could be "
+                "looked for in %s" % ("in what it shows" if part == "shows"
+                                     else "in the scope of %s" % part, where))
     if report.get("threw"):
         return "could not be judged in %s: the page threw %s" % (where, report["threw"])
     if report.get("stopped") is not None:

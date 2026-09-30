@@ -14,7 +14,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design decisions drawn tests" 32
+harness_begin "design decisions drawn tests" 36
 
 TARGET="scripts/check-design-decisions-drawn.sh"
 require_target "$TARGET"
@@ -155,6 +155,17 @@ L="$WORK/elsewhere"; record "$L" 2026-09-30
 printf 'Drawn: `page.html` shows `.rest`.\n' >> "$L/README.md"
 judge "$L"
 check_rendered_status "a claim in another section does not satisfy a decision" "$L" "1"
+
+# 13b. A SELECTOR THE BROWSER CANNOT READ IS REFUSED AS THE CLAIM'S FAULT, not
+#      reported as a page that failed to render (L11).
+S="$WORK/badselector"; record "$S" 2026-09-10 'Drawn: `page.html` shows `.drawer[`.'
+judge "$S"
+check_rendered_status "a claim whose selector cannot be read is refused" "$S" "1"
+says "and it says the selector is the fault, on the claim's line" "line 7: names a selector the browser cannot read"
+T2="$WORK/badscope"; record "$T2" 2026-09-10 'Drawn: `page.html` pressing `sent @ .bar[` shows `.rest`.'
+judge "$T2"
+check_rendered_status "a press scoped by a selector that cannot be read is refused" "$T2" "1"
+says "and it names the press" "in the scope of press 1"
 
 # 14. A RECORD WITH NO CLAIM AT ALL CANNOT BE MEASURED. Rendering nothing and
 #     passing reads exactly like rendering everything and passing (L98).
