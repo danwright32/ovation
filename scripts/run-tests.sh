@@ -299,6 +299,20 @@ test_domains() {
 
 count_lines() { printf '%s' "$1" | grep -c . || true; }
 
+# A STORE DELETED WHILE STILL OPEN FAILS THE RUN (ovation#632). SQLite prints
+# "vnode unlinked while in use" when a test removes a store that a container
+# still holds, and every case still passes, so the line scrolled by on every run
+# for weeks in two suites, for two different reasons. The first of those kept a
+# container alive for the rest of the process, which is what the migration crash
+# needed. Read from standard input; names each store once.
+VNODE_MARKER="vnode unlinked while in use"
+refuse_deleted_live_store() {
+  echo "Error: a test deleted a store that was still open, which SQLite reports as" >&2
+  echo "       '${VNODE_MARKER}'. Every case can pass while this happens, so the run" >&2
+  echo "       is refused. Release the container before removing its directory:" >&2
+  grep -F "${VNODE_MARKER}" | sed 's/.*while in use: //' | sort -u | sed 's/^/           /' >&2
+}
+
 # Released on EVERY exit path, not only the tidy one. A directory lock left
 # planted blocks the next run of a DIFFERENT app, which is the failure this
 # whole thing exists to prevent.
@@ -1335,6 +1349,10 @@ else
       echo "==> The pure suite executed all ${PURE_COUNT} tests ${PURE_EXPECTED_ALL}."
     fi
   fi
+  if [ "${STATUS}" -eq 0 ] && grep -qF "${VNODE_MARKER}" "${PURE_OUTPUT}"; then
+    refuse_deleted_live_store < "${PURE_OUTPUT}"
+    STATUS=7
+  fi
   rm -f "${PURE_OUTPUT}"
 
   # ---------------------------------------------------------------------------
@@ -1723,6 +1741,9 @@ else
         echo "       Nothing about the launch surface was verified." >&2
       fi
       STATUS=6
+    elif grep -qF "${VNODE_MARKER}" <<<"${HOSTED_OUTPUT}"; then
+      refuse_deleted_live_store <<<"${HOSTED_OUTPUT}"
+      STATUS=7
     fi
 
     # LET GO THE MOMENT THE HOSTED SUITE IS DONE, rather than at exit: the live

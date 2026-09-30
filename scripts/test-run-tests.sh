@@ -81,7 +81,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 344
+harness_begin "test runner lock tests" 348
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -835,6 +835,22 @@ check_exit "a pure run that FAILED keeps its own status rather than the floor's"
     65 pure_status 'echo "Test run with 294 tests in 29 suites failed"; exit 65' 100
 check "the streamed output still reaches the terminal" \
     "$(pure_run 'echo "Test run with 294 tests in 29 suites passed"; echo A-LINE-FROM-THE-RUN' 100 | grep -c 'A-LINE-FROM-THE-RUN')" "1"
+
+# A STORE DELETED WHILE STILL OPEN FAILS THE RUN (ovation#632). SQLite says
+# "vnode unlinked while in use" when a test removes a store a container still
+# holds, and nothing else notices: every case passes. SchemaMigrationTests and
+# SwiftDataBehaviourTests printed it on every run for two different reasons, and
+# the first of those left a container alive that the migration crash needed, so
+# the line is judged rather than scrolled past (L98).
+VNODE_LINE='echo "[logging] BUG IN CLIENT OF libsqlite3.dylib: database integrity compromised by API violation: vnode unlinked while in use: /tmp/ovation-probe-X/Probe.store"'
+check_exit "a pure run that deleted a store still in use is refused even though it exited 0" \
+    7 pure_status "echo 'Test run with 100 tests in 9 suites passed'; ${VNODE_LINE}" 100
+check "and the refusal names the store, so the case can be found" \
+    "$(pure_run "echo 'Test run with 100 tests in 9 suites passed'; ${VNODE_LINE}" 100 | grep -c '^           /tmp/ovation-probe-X/Probe.store$')" "1"
+check_exit "a hosted run that deleted a store still in use is refused too" \
+    7 hosted_status "echo 'Test run with 5 tests in 1 suite passed'; ${VNODE_LINE}"
+check_exit "a pure run that FAILED keeps its own status rather than the store's" \
+    65 pure_status "echo 'Test run with 100 tests in 9 suites failed'; ${VNODE_LINE}; exit 65" 100
 
 check "an injected command with no floor announces the skip rather than passing quietly" \
     "$(OVATION_UNLOCKED_COMMAND=true \
