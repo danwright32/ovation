@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "invoice screen rendering checks" 75
+harness_begin "invoice screen rendering checks" 84
 
 TARGET="scripts/check-invoice-screen-draws.sh"
 require_target "$TARGET"
@@ -380,6 +380,38 @@ judge "$BORDERED"
 check_rendered_status "a chosen type drawn as the bordered button is refused" "$(case_of "$BORDERED")" "1"
 check "and the claim that fired names the chosen type's treatment" \
     "$(claims_of "$BORDERED")" "a chosen type stays the chooser, shaded, 8px inside the row's shading;"
+
+# 23. AN EVENT AFTER TODAY (ovation#629). The history had the invoice Sent on
+#     12 Sep while the clock said 7 Sep: each date right on its own, and together
+#     a timeline that cannot happen. Dating Sent three days ahead puts it back.
+AHEAD="$WORK/sent-ahead.html"
+check "the sent event is where the mutation expects it" \
+    "$(mutate "$AHEAD" 's/on(daysBeforeToday(20), "Sent"/on(daysBeforeToday(-3), "Sent"/' 'daysBeforeToday(-3), "Sent"')" "1"
+judge "$AHEAD"
+check_rendered_status "a fixture event dated after today is refused" "$(case_of "$AHEAD")" "1"
+check "and the claim that fired names today" \
+    "$(claims_of "$AHEAD")" "no fixture event is dated after the file's today;"
+
+# 24. AN EVENT WITH NO DATE TO COMPARE. Written back as the bare words it used
+#     to be, the event has nothing the check can compare, and a check that
+#     skipped it would pass the very fixture it exists to judge (L98).
+UNDATED="$WORK/undated.html"
+check "the draft event is where the mutation expects it" \
+    "$(mutate "$UNDATED" 's/\[on(daysBeforeToday(39), "Draft created", "from a Downbeat booking")\]/[{ when: "24 Aug", what: "Draft created", more: null }]/' 'when: "24 Aug", what: "Draft created"')" "1"
+judge "$UNDATED"
+check_rendered_status "a fixture event carrying no date is refused, not skipped" "$(case_of "$UNDATED")" "1"
+check "and the claim that fired names today" \
+    "$(claims_of "$UNDATED")" "no fixture event is dated after the file's today;"
+
+# 25. A CLOCK WITH A DATE OF ITS OWN. The written clock this file used to carry
+#     said 7 Sep beside a history reaching 2 Oct.
+OWNCLOCK="$WORK/own-clock.html"
+check "the clock is where the mutation expects it" \
+    "$(mutate "$OWNCLOCK" 's/el("span", "clock", weekday + " " + shortDate(TODAY) + "  2:40 PM")/el("span", "clock", "Mon 7 Sep  2:40 PM")/' '"clock", "Mon 7 Sep')" "1"
+judge "$OWNCLOCK"
+check_rendered_status "a clock that is not the file's today is refused" "$(case_of "$OWNCLOCK")" "1"
+check "and the claim that fired names the clock" \
+    "$(claims_of "$OWNCLOCK")" "the menu bar clock shows the file's today;"
 
 # ---------------------------------------------------------------------------
 # Used wrongly, and pointed at nothing.

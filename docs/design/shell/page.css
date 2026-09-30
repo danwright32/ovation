@@ -1,0 +1,41 @@
+/* PART OF THE SHELL, ovation#165: the record page every design file is written
+   on, around the rendering of its screen. The page palette, light and dark, the
+   body set in Archivo, the eyebrow, and the heading in Instrument Serif.
+
+   ITS OWN PART BECAUSE IT HAD ALREADY DIVERGED. ovation#120 lifted the SCREEN's
+   shell out and left the page alone, and by 2026-09-09 invoice.html's page was
+   set in the system typeface with a plain 26px heading while the list files sat
+   in the settled faces. The page is not neutral chrome: it is the decision record
+   Dan opens, and its type living on a `body` rule is the same fault ovation#120
+   names as its first.
+
+   LAYOUT IS NOT IN HERE, only type and colour. The list files lay their page out
+   as a flex column with gaps, and invoice.html spends its height above the
+   window more carefully, because scripts/check-design-window-top.sh measures it:
+   the list files' layout applied verbatim put its window 506px down, past that
+   check's 460px ceiling. So each file keeps its own layout rules beside this. */
+:root {
+  --page-bg: #F4F4F3; --page-panel: #FFFFFF; --page-ink: #1A1B1C;
+  --page-ink-soft: #55585B; --page-ink-faint: #71767A;
+  --page-rule: #DEDEDC; --page-rule-soft: #EAEAE8;
+  --page-tag: #2C2E30; --page-tag-ink: #F6F6F5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page-bg: #131415; --page-panel: #1C1D1F; --page-ink: #ECEDEE;
+    --page-ink-soft: #A8ADB1; --page-ink-faint: #8B9094; --page-rule: #303234;
+    --page-rule-soft: #262829; --page-tag: #ECEDEE; --page-tag-ink: #131415;
+  }
+}
+:root[data-theme="dark"] {
+  --page-bg: #131415; --page-panel: #1C1D1F; --page-ink: #ECEDEE;
+  --page-ink-soft: #A8ADB1; --page-ink-faint: #8B9094; --page-rule: #303234;
+  --page-rule-soft: #262829; --page-tag: #ECEDEE; --page-tag-ink: #131415;
+}
+body {
+  background: var(--page-bg); color: var(--page-ink);
+  font-family: "Archivo", ui-sans-serif, -apple-system, sans-serif;
+  font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+}
+.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--page-ink-faint); }
+h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clamp(34px,4.8vw,46px); line-height: 1.05; font-weight: 400; letter-spacing: -.01em; text-wrap: balance; }
