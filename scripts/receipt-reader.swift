@@ -1,7 +1,7 @@
 // The Vision half of scripts/measure-receipt-reads.py, ovation#74.
 //
 // It reads each image it is given with Apple's on device text recognition and
-// barcode detection, and writes what Vision saw as JSON on stdout for the
+// barcode detection, and writes what Vision saw as JSON into a file for the
 // Python half to interpret. Nothing here decides what the amount, the date or
 // the vendor is; that is interpretation, and it lives in one place, the Python
 // half, where the output privacy suite can drive it on any machine.
@@ -9,13 +9,15 @@
 // NEVER A NETWORK SERVICE. Vision runs on the Mac, and the images are Dan's
 // real receipts (docs/PRIVACY-FLOOR.md).
 //
-// STDOUT IS CAPTURED, NEVER SHOWN. It carries receipt text, so the only thing
-// allowed to read it is the Python half, which writes it into the custody
-// folder and prints counts. Anything written to stderr names a receipt by its
+// THE READINGS GO TO THE FILE NAMED BY --out, NEVER STDOUT. They carry receipt
+// text, so the only thing allowed to read them is the Python half, which writes
+// them into the custody folder and prints counts. And stdout is not this
+// program's alone: in a virtual machine Apple's model runtime prints its own
+// exceptions there, which spoiled the JSON on CI (2026-09-30). Anything written to stderr names a receipt by its
 // position, never its filename or its content, because stderr does reach the
 // terminal.
 //
-// Usage: swiftc -O -o reader receipt-reader.swift && reader <image>...
+// Usage: swiftc -O -o reader receipt-reader.swift && reader --out <file> <image>...
 
 import CoreGraphics
 import Foundation
@@ -143,11 +145,13 @@ func read(_ path: String, index: Int) -> Receipt {
     }
 }
 
-let paths = Array(CommandLine.arguments.dropFirst())
-guard !paths.isEmpty else {
-    FileHandle.standardError.write(Data("usage: receipt-reader <image>...\n".utf8))
+let arguments = Array(CommandLine.arguments.dropFirst())
+guard arguments.count >= 3, arguments[0] == "--out" else {
+    FileHandle.standardError.write(Data("usage: receipt-reader --out <file> <image>...\n".utf8))
     exit(64)
 }
+let outPath = arguments[1]
+let paths = Array(arguments.dropFirst(2))
 
 let output = Output(
     osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
@@ -158,8 +162,8 @@ let output = Output(
 let encoder = JSONEncoder()
 encoder.outputFormatting = [.sortedKeys]
 do {
-    FileHandle.standardOutput.write(try encoder.encode(output))
+    try encoder.encode(output).write(to: URL(fileURLWithPath: outPath))
 } catch {
-    FileHandle.standardError.write(Data("could not encode the readings\n".utf8))
+    FileHandle.standardError.write(Data("could not encode or write the readings: \(error.localizedDescription)\n".utf8))
     exit(1)
 }

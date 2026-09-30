@@ -259,30 +259,54 @@ check "and no refusal wrote a results file" \
 check_exit "a Mac without the Swift compiler answers CANNOT MEASURE, not a result" 2 \
     env PATH="$WORK/no-tools" "$(command -v python3)" "$TARGET" --folder "$RECEIPTS" --results "$WORK/r4"
 
-# WHAT THE READER SAID, WHEN IT WAS NOT ITS JSON (L11). On CI the only words
-# were "not its JSON", which named no cause. Stand in readers, so each shape of
-# bad output can be produced on purpose.
-printf '#!/bin/bash\necho "objc[1]: a framework warning"\necho "{\\"x\\":"\necho "a note on stderr" >&2\n' > "$WORK/junk-reader"
-printf '#!/bin/bash\nprintf %%s "{\\"receipts\\": [{\\"text\\": \\"QUILLFEATHER"\n' > "$WORK/cut-reader"
-printf '#!/bin/bash\nprintf %%s "{\\"receipts\\": []}"\necho "a framework line after it"\n' > "$WORK/trailing-reader"
-chmod +x "$WORK/junk-reader" "$WORK/cut-reader" "$WORK/trailing-reader"
-TRAIL="$(OVATION_RECEIPT_READER="$WORK/trailing-reader" ./"$TARGET" --folder "$RECEIPTS" --results "$WORK/r8" 2>&1)"
-check "text after a complete JSON value is quoted, since it is not the reader's JSON" \
-    "$(grep -c '^  after the JSON came: a framework line after it$' <<< "$TRAIL"):$(grep -c 'the parser said: Extra data' <<< "$TRAIL")" "1:1"
+# STAND IN READERS, so each shape of bad output can be produced on purpose. A
+# reader is called as `reader --out <file> <image>...` and writes its JSON to
+# that file; stdout is not its channel (see the next case for why).
+stand_in() {
+    { printf '#!/bin/bash\nout="$2"\n'; cat; } > "$WORK/$1"
+    chmod +x "$WORK/$1"
+}
+ONE_RECEIPT='{"osVersion": "x", "textRecognitionRevision": 3, "barcodeRevision": 4, "receipts": [{"index": 1, "readable": true, "pixelWidth": 900, "pixelHeight": 900, "observations": [], "observationsWithCorrection": [], "barcodes": []}]}'
+mkdir -p "$WORK/one"
+cp "$WORK/good.png" "$WORK/one/a.png"
+
+# THE CAUSE OF THE FIRST CI FAILURE. In a virtual machine Apple's own model
+# runtime prints its exceptions to STDOUT ("E5RT encountered an STL exception
+# ... On-device compilation within a VM only supports CPU currently"), after
+# the reader's JSON, so a reading that had worked was refused as not JSON.
+# The JSON therefore goes to a file, and chatter on stdout spoils nothing.
+stand_in chatty-reader <<SH
+printf '%s' '$ONE_RECEIPT' > "\$out"
+echo "E5RT encountered an STL exception. msg = On-device compilation within a VM only supports CPU currently."
+SH
+check_exit "a framework printing to stdout does not spoil a reading written to the reader's file" 0 \
+    env OVATION_RECEIPT_READER="$WORK/chatty-reader" ./"$TARGET" --folder "$WORK/one" --results "$WORK/r8"
+
+# WHAT THE READER SAID, WHEN ITS FILE WAS NOT ITS JSON (L11). On CI the only
+# words were "not its JSON", which named no cause.
+stand_in junk-reader <<'SH'
+printf '{"x":' > "$out"
+echo "objc[1]: a framework warning"
+echo "a note on stderr" >&2
+SH
+stand_in cut-reader <<'SH'
+printf '{"receipts": [{"text": "QUILLFEATHER' > "$out"
+SH
 JUNK="$(OVATION_RECEIPT_READER="$WORK/junk-reader" ./"$TARGET" --folder "$RECEIPTS" --results "$WORK/r5" 2>&1)"; JUNK_STATUS=$?
 check "output that is not the reader's JSON is refused" \
     "$JUNK_STATUS:$(grep -c '^REFUSED: the Vision reader wrote something that is not its JSON' <<< "$JUNK")" "1:1"
 check "and the refusal names the reader's exit status and what it wrote to stderr" \
     "$(grep -c 'exit status 0' <<< "$JUNK"):$(grep -c 'a note on stderr' <<< "$JUNK")" "1:1"
-check "and quotes the first line of stdout, which was not receipt JSON" \
-    "$(grep -c 'objc\[1\]: a framework warning' <<< "$JUNK")" "1"
+check "and quotes the first line of stdout, where no receipt text is ever written" \
+    "$(grep -c 'objc\[1\]: a framework warning' <<< "$JUNK"):$(grep -c 'the parser said: Expecting value' <<< "$JUNK")" "1:1"
 CUT="$(OVATION_RECEIPT_READER="$WORK/cut-reader" ./"$TARGET" --folder "$RECEIPTS" --results "$WORK/r6" 2>&1)"
 check "JSON cut short is refused by its size, never quoted, since it can carry a receipt's text" \
     "$(grep -c 'bytes of JSON that do not parse' <<< "$CUT"):$(grep -ci quillfeather <<< "$CUT")" "1:0"
 
 # VISION REFUSING IS ITS OWN CAUSE, not an unreadable image and not a result.
-printf '#!/bin/bash\nprintf %%s "{\\"osVersion\\": \\"x\\", \\"textRecognitionRevision\\": 3, \\"barcodeRevision\\": 4, \\"receipts\\": [{\\"index\\": 1, \\"readable\\": false, \\"visionRefused\\": true, \\"error\\": \\"Vision refused: no model\\", \\"pixelWidth\\": 0, \\"pixelHeight\\": 0, \\"observations\\": [], \\"observationsWithCorrection\\": [], \\"barcodes\\": []}]}"\n' > "$WORK/refusing-reader"
-chmod +x "$WORK/refusing-reader"
+stand_in refusing-reader <<'SH'
+printf '%s' '{"osVersion": "x", "textRecognitionRevision": 3, "barcodeRevision": 4, "receipts": [{"index": 1, "readable": false, "visionRefused": true, "error": "Vision refused: no model", "pixelWidth": 0, "pixelHeight": 0, "observations": [], "observationsWithCorrection": [], "barcodes": []}]}' > "$out"
+SH
 REFUSING="$(OVATION_RECEIPT_READER="$WORK/refusing-reader" ./"$TARGET" --folder "$RECEIPTS" --results "$WORK/r7" 2>&1)"; REFUSING_STATUS=$?
 check "Vision refusing to recognise text answers CANNOT MEASURE, naming Vision's own words" \
     "$REFUSING_STATUS:$(grep -c '^CANNOT MEASURE: Vision text recognition refused on this machine: Vision refused: no model' <<< "$REFUSING")" "2:1"
@@ -300,10 +324,9 @@ fi
 # seam is honoured whenever it is set, so a value left exported from a test
 # would otherwise put a stand in's numbers where Vision's belong, looking like a
 # normal run (L169, review of ovation#636).
-printf '#!/bin/bash\nprintf %%s "{\\"osVersion\\": \\"x\\", \\"textRecognitionRevision\\": 3, \\"barcodeRevision\\": 4, \\"receipts\\": [{\\"index\\": 1, \\"readable\\": true, \\"pixelWidth\\": 900, \\"pixelHeight\\": 900, \\"observations\\": [], \\"observationsWithCorrection\\": [], \\"barcodes\\": []}]}"\n' > "$WORK/fine-reader"
-chmod +x "$WORK/fine-reader"
-mkdir -p "$WORK/one"
-cp "$WORK/good.png" "$WORK/one/a.png"
+stand_in fine-reader <<SH
+printf '%s' '$ONE_RECEIPT' > "\$out"
+SH
 STOOD="$(OVATION_RECEIPT_READER="$WORK/fine-reader" ./"$TARGET" --folder "$WORK/one" --results "$WORK/r9" 2>&1)"
 check "a run with a stand in reader says so in its summary" \
     "$(grep -c "^READER REPLACED: OVATION_RECEIPT_READER=$WORK/fine-reader stood in for Vision" <<< "$STOOD")" "1"

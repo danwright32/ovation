@@ -531,48 +531,39 @@ def receipts_in(folder):
                   if not name.startswith(".") and os.path.isfile(os.path.join(folder, name)))
 
 
-def what_the_reader_said(ran):
-    """The reader's exit status, its stderr and, where it is safe, its stdout.
+def what_the_reader_said(ran, written):
+    """The reader's exit status, its stderr, its stdout, and what is wrong with
+    the file it wrote.
 
     "Not its JSON" alone named no cause, and on CI it was the only words there
-    were (L11). Stdout is quoted only when it does NOT open as the reader's own
-    JSON, which is what framework chatter looks like; JSON cut short is given by
-    its size alone, because it can carry a receipt's text (docs/PRIVACY-FLOOR.md).
-    Stderr carries positions and system messages, never receipt content."""
-    stdout = ran.stdout.decode("utf-8", "replace")
+    were (L11). Stdout and stderr carry framework messages and positions, never
+    receipt content, because the reader writes its readings only to its file, so
+    both are quoted. The file is described by its size and the parser's own
+    complaint, a position and a kind of fault, and never quoted, because JSON cut
+    short still holds a receipt's text (docs/PRIVACY-FLOOR.md)."""
     lines = [f"  exit status {ran.returncode}"]
-    stderr = ran.stderr.decode("utf-8", "replace").strip()
-    lines.append("  stderr: " + (stderr[:1500] if stderr else "(nothing)"))
-    if not stdout.strip():
-        lines.append("  stdout: (nothing)")
-    elif stdout.lstrip().startswith("{"):
-        lines.append(f"  stdout: {len(ran.stdout)} bytes of JSON that do not parse (not quoted, it can hold receipt text)")
-        # The decoder's own complaint names a position and a kind of fault,
-        # never the text, and anything AFTER a complete JSON value is not the
-        # reader's JSON at all, so it is quoted: on CI it was the whole cause.
+    for name, stream in (("stderr", ran.stderr), ("stdout", ran.stdout)):
+        text = stream.decode("utf-8", "replace").strip()
+        lines.append(f"  {name}: " + (text.splitlines()[0][:300] if text else "(nothing)"))
+    if written is None:
+        lines.append("  its file: not written")
+    else:
+        lines.append(f"  its file: {len(written)} bytes of JSON that do not parse (not quoted, it can hold receipt text)")
         try:
-            json.loads(stdout)
+            json.loads(written)
         except ValueError as error:
             lines.append(f"  the parser said: {getattr(error, 'msg', 'not JSON')} at character {getattr(error, 'pos', '?')}")
-        try:
-            _, end = json.JSONDecoder().raw_decode(stdout.lstrip())
-            after = stdout.lstrip()[end:].strip()
-            if after:
-                lines.append("  after the JSON came: " + after[:300])
-        except ValueError:
-            pass
-    else:
-        lines.append("  stdout began: " + stdout.lstrip().splitlines()[0][:300])
     return "\n".join(lines)
 
 
 def read_with_vision(paths):
     # A STAND IN READER, for the suite alone, so it can drive the refusals below
     # on purpose, the UNMEASURED one included (L411). Empty is the real reader.
+    # A run that uses one says so in its summary and its results, and may not
+    # write into the custody folder (see measure()).
     stand_in = os.environ.get("OVATION_RECEIPT_READER", "")
     if stand_in:
-        ran = subprocess.run([stand_in] + paths, capture_output=True)
-        return parse_reader_output(ran)
+        return run_reader(stand_in, paths)
     if platform.system() != "Darwin" or shutil.which("swiftc") is None:
         raise Refusal("CANNOT MEASURE: the probe reads receipts with Apple's Vision framework, which needs "
                       "a Mac with the Swift compiler (swiftc). Nothing was read.", 2)
@@ -583,18 +574,36 @@ def read_with_vision(paths):
         if built.returncode != 0:
             raise Refusal("REFUSED: the Vision reader did not compile, so nothing was read.\n"
                           + "\n".join(built.stderr.splitlines()[:10]))
-        ran = subprocess.run([reader] + paths, capture_output=True)
-        return parse_reader_output(ran)
+        return run_reader(reader, paths)
 
 
-def parse_reader_output(ran):
-    if ran.returncode != 0:
-        raise Refusal("REFUSED: the Vision reader failed, so nothing was measured.\n" + what_the_reader_said(ran))
-    try:
-        raw = json.loads(ran.stdout)
-    except ValueError:
-        raise Refusal("REFUSED: the Vision reader wrote something that is not its JSON, so nothing was measured.\n"
-                      + what_the_reader_said(ran))
+def run_reader(reader, paths):
+    """Runs a reader and returns its readings, from the FILE it was told to
+    write rather than its stdout.
+
+    Measured on the macOS CI runner, 2026-09-30: in a virtual machine Apple's own
+    model runtime prints its exceptions to stdout ("E5RT encountered an STL
+    exception ... On-device compilation within a VM only supports CPU
+    currently") after the reader's JSON, while the recognition itself worked on
+    the CPU. A reading carried on stdout is at the mercy of every framework in
+    the process, so it is carried in a file the reader alone writes."""
+    with tempfile.TemporaryDirectory() as work:
+        out = os.path.join(work, "readings.json")
+        ran = subprocess.run([reader, "--out", out] + paths, capture_output=True)
+        written = None
+        if os.path.exists(out):
+            with open(out, "rb") as handle:
+                written = handle.read()
+        if ran.returncode != 0:
+            raise Refusal("REFUSED: the Vision reader failed, so nothing was measured.\n"
+                          + what_the_reader_said(ran, written))
+        try:
+            raw = json.loads(written) if written is not None else None
+        except ValueError:
+            raw = None
+        if not isinstance(raw, dict):
+            raise Refusal("REFUSED: the Vision reader wrote something that is not its JSON, so nothing was measured.\n"
+                          + what_the_reader_said(ran, written))
     # VISION REFUSING TO RUN is a fact about this machine, not about a receipt,
     # so it is CANNOT MEASURE by name rather than "could not be read as an
     # image", which would send somebody to look at a file that is fine (L11).
