@@ -471,7 +471,8 @@ struct WritersReachTheScreenTests {
         ViewHosting.host(view: shell)
         defer { ViewHosting.expel() }
         let screen = try await Self.open(draft, in: shell)
-        try #require(screen.review)()
+        let review = try #require(screen.review)
+        review()
 
         let floating = Floating()
         for _ in 0..<300 {
