@@ -177,12 +177,24 @@ how it read, which means none of them has been chosen at all.
 
 ## The shell every file carries
 
-**`shell/` holds the five parts that are the same in every file that draws the app**, and
+**`shell/` holds the six parts that are the same in every file that draws the app**, and
 `scripts/check-design-shell-inline.sh` refuses any file whose copy has drifted from them. It runs
 in the ordinary suite and on every push. The parts are `fonts.css` (the four embedded faces),
 `reset.css` (box sizing), `chrome.css` (the desktop and the menu bar), `palette.css` (the twenty
-seven colour tokens) and `window.css` (the window, the espresso sidebar with its card and status,
-the title bar, and the content area's toolbar and scroll region).
+seven colour tokens), `window.css` (the window, the espresso sidebar with its card and status,
+the title bar, and the content area's toolbar and scroll region) and `page.css` (the record page
+the rendering sits on: the page palette in light and dark, the body in Archivo, the eyebrow, and the
+heading in Instrument Serif).
+
+**`page.css` is the one part that is not the window** (ovation#165, 2026-09-29). ovation#120 lifted
+the screen's shell out and left the page around it alone, and it had already diverged:
+`invoice.html` was set in the system typeface on a warm grey with a plain 26px heading, beside three
+files in the settled faces. Dan saw a before and after of that page and could not see the difference,
+so this was a tidy up rather than a design choice. It carries type and colour and no layout: the list
+files lay their page out as a flex column with generous gaps, and that layout applied to
+`invoice.html` verbatim put its window 506px down (`measured 2026-09-29`), past the ceiling below.
+So each file keeps its own layout rules beside the part. `invoice-pdf.html` declares it carries none,
+because its page is set in the paper's own faces.
 
 **THE SHELL IS THE WINDOW CHROME, AND NOT ANY SCREEN'S CONTENT** (ovation#179, settled 2026-09-09).
 `window.css` used to hold the invoice list's column headers, rows, run marks and disclosures, and
@@ -405,6 +417,13 @@ the reading matter around it. `clients.html` keeps its masthead above the window
 notice and driving instructions now sit beneath it. `review-send.html` keeps its eyebrow and
 heading above and its whole record, including why the screen exists and what to press, now sits
 beneath. Both now read the way `invoice.html` already did: the thing, then the argument for it.
+
+**And `invoice.html` was trimmed back rather than the ceiling moved** (ovation#205, 2026-09-29). It
+had drifted 57px back towards the state the decision refused, leaving 23px of headroom, so the next
+row of switches would have stopped a build in the middle of something else. Only how to drive the
+screen and its switches now sit above the window; where the record came from, and the verdict of the
+rules the page carries, sit below it. With the shared page (ovation#165) and no panel around the
+stage, the window starts at 285px (`measured 2026-09-29`), under the 380px that decision accepted.
 
 ## One popup list, and something that keeps it the only one
 
@@ -1336,6 +1355,15 @@ a file that reaches out (ovation#114). Zero network requests, all four typefaces
 The switch above the window is BEHAVIOUR rather than a chooser, the same as the quiet day switch on
 the Clients screen: an invoice passes through all of these states and none of them can be seen from a
 still.
+
+**The file has one today** (ovation#629). It used to have three: the menu bar clock said 7 Sep, the
+payment sheet started at 26 Sep, and the history had the invoice Sent on 12 Sep, after the clock.
+Each was right alone and together they drew a timeline that cannot happen. Now `TODAY` is declared
+once, 2 Oct 2026, the latest event the paid history already carried, and every fixture date is
+counted back from it: the history, the shoot the invoice is dated from, the clock, the payment
+sheet's starting date and a check marked cleared. `check-invoice-screen-draws.sh` refuses any
+history event dated after it in all three states, one with no date it can compare, and a clock that
+shows another day.
 
 **Every decision below with a code consequence is also a numbered PRD requirement, 51 to 51e**, the
 same way the invoice list's are 43 to 49 and the client's PDF is 50 to 50f. That is the deliverable

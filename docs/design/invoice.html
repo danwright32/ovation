@@ -2,15 +2,49 @@
 <meta charset="utf-8">
 <title>Ovation, the invoice screen</title>
 <style>
-:root { color-scheme: light; }
-body { margin: 0; background: #F4F1ED; color: #1B1613;
-       font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-.frame { max-width: 1180px; margin: 0 auto; padding: 28px 24px 24px; }
-.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #6E6259; margin: 0 0 6px; }
-h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
-.asks { margin: 0 0 8px; max-width: 68ch; color: #3D342E; }
-.verdict { font-size: 13px; margin: 0 0 16px; padding: 8px 12px; border-radius: 7px;
-           max-width: 70ch; border: 1px solid #B6C7B2; background: #FFFDFB; color: #3D342E; }
+/* ===== shell/page.css, carried verbatim (ovation#165) =====
+   The record page the other design files are written on. Until ovation#165
+   this file's page was its own: the system typeface on a warm grey and a plain
+   26px heading, beside two files set in the faces this project settled. */
+:root {
+  --page-bg: #F4F4F3; --page-panel: #FFFFFF; --page-ink: #1A1B1C;
+  --page-ink-soft: #55585B; --page-ink-faint: #71767A;
+  --page-rule: #DEDEDC; --page-rule-soft: #EAEAE8;
+  --page-tag: #2C2E30; --page-tag-ink: #F6F6F5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page-bg: #131415; --page-panel: #1C1D1F; --page-ink: #ECEDEE;
+    --page-ink-soft: #A8ADB1; --page-ink-faint: #8B9094; --page-rule: #303234;
+    --page-rule-soft: #262829; --page-tag: #ECEDEE; --page-tag-ink: #131415;
+  }
+}
+:root[data-theme="dark"] {
+  --page-bg: #131415; --page-panel: #1C1D1F; --page-ink: #ECEDEE;
+  --page-ink-soft: #A8ADB1; --page-ink-faint: #8B9094; --page-rule: #303234;
+  --page-rule-soft: #262829; --page-tag: #ECEDEE; --page-tag-ink: #131415;
+}
+body {
+  background: var(--page-bg); color: var(--page-ink);
+  font-family: "Archivo", ui-sans-serif, -apple-system, sans-serif;
+  font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+}
+.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--page-ink-faint); }
+h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clamp(34px,4.8vw,46px); line-height: 1.05; font-weight: 400; letter-spacing: -.01em; text-wrap: balance; }
+
+/* THIS FILE'S OWN LAYOUT, which page.css deliberately does not carry. The list
+   files lay their page out as a flex column with 26px gaps under 48px of top
+   padding; applied here verbatim that put the window 506px down an 800px laptop
+   window, past scripts/check-design-window-top.sh's 460px ceiling (measured
+   2026-09-29, ovation#165). So the page above the window is spent tightly, and
+   what is not needed before the window is below it (ovation#205). */
+.frame { max-width: 1180px; margin: 0 auto; padding: 20px 24px 24px; }
+.head { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; }
+.asks { margin: 0 0 14px; max-width: 72ch; color: var(--page-ink-soft); }
+.after { margin: 22px 0 0; max-width: 72ch; color: var(--page-ink-soft); }
+.verdict { font-size: 13px; margin: 12px 0 0; padding: 8px 12px; border-radius: 7px;
+           max-width: 72ch; border: 1px solid var(--page-rule); background: var(--page-panel);
+           color: var(--page-ink-soft); }
 
 /* A BLOCK, NOT A FLEX CONTAINER, and NO overflow declared on either axis. This
    is the treatment invoice-list.html and clients.html already carry, and the
@@ -29,9 +63,13 @@ h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 600; }
    reported no horizontal scroll at all. The history pane sits exactly there, so
    it was gone with nothing to say so, which is how Dan came to be asked to judge
    a pane he could not see (L76). The two settled files never had this because
-   they never had the flex stage. */
-.stage { background: #E9E4DE; border: 1px solid #DDD5CD;
-         border-radius: 10px; padding: 24px; }
+   they never had the flex stage.
+
+   AND NO PANEL AROUND IT, since ovation#165, which is how the other files draw
+   their window: straight on the page. The panel was a warm box with 24px of
+   padding, which cost 25px above the window, and inside it the 1120px screen
+   was wider than the room it had, so the menu bar ran out past its border. */
+.stage { padding-bottom: 4px; }
 
 /* Fonts embedded so this file needs NOTHING external: it renders identically
    with no network at all. Latin subset only, because the page is pure ASCII.
@@ -832,12 +870,14 @@ color: var(--faint); }
    behaviour, not a chooser between designs: an invoice passes through all of
    these and none of them can be seen from a still. */
 .statebar { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; flex-wrap: wrap; }
-.statebar .lab { font-size: 13px; color: #6E6259; }
+/* IN THE PAGE'S TOKENS (ovation#165), because these sit on the page and not in
+   the window: the warm hand written colours they had were the old page's. */
+.statebar .lab { font-size: 13px; color: var(--page-ink-faint); }
 .sbtn { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px;
-        border: 1px solid #DAD1C8; background: #FFFDFB; color: #1B1613; cursor: default; }
-.sbtn[aria-pressed="true"] { background: #1B1613; border-color: #1B1613; color: #FBFAF8; }
-.sbtn .share { color: #7C7168; font-size: 11px; margin-left: 5px; }
-.sbtn[aria-pressed="true"] .share { color: #C9C1BA; }
+        border: 1px solid var(--page-rule); background: var(--page-panel); color: var(--page-ink); cursor: default; }
+.sbtn[aria-pressed="true"] { background: var(--page-tag); border-color: var(--page-tag); color: var(--page-tag-ink); }
+.sbtn .share { color: var(--page-ink-faint); font-size: 11px; margin-left: 5px; }
+.sbtn[aria-pressed="true"] .share { color: var(--page-tag-ink); opacity: .7; }
 
 /* ============================================================
    THE HISTORY PANE. Dan, 2026-09-07: "I don't like this line...
@@ -996,29 +1036,29 @@ color: var(--faint); }
 .hev.justnow { background: var(--selbg); }
 </style>
 <div class="frame">
-  <p class="eyebrow">Ovation, the design record</p>
-  <h1>The invoice screen</h1>
-  <p class="asks">ovation#111, settled with Dan over nine rounds on 7 September, with money held on the client added on 10 September (ovation#109). Set the two times, then answer the tax status. Use the switches for the states an invoice passes through and for how many of the client's invoices are open, press History in the header, and open Edit in the menu bar for a discount, a referral credit, and the rest of the rare things. The switches are BEHAVIOUR rather than a chooser, the same way the quiet day switch is on the Clients screen: none of these states can be seen from a still.</p>
-  <!-- NO PARAGRAPH OF EVIDENCE HERE, deliberately. What the nine rounds settled and what they were
-       measured from is in this folder's README, and the frequency behind the foot's order is stated
-       in this file's own round 9 comment. Both files this record was merged from carried two prose
-       blocks above the window; carrying all three took the top of the design from 380px down the
-       page to 514px, measured on an 800px laptop window, which is more than half the screen gone
-       before the thing the page exists to show.
+  <header class="head">
+    <div class="eyebrow">Ovation, the design record</div>
+    <h1>The invoice screen</h1>
+  </header>
+  <p class="asks">Set the two times, then answer the tax status. Use the switches for the states an invoice passes through and for how many of the client's invoices are open, press History in the header, and open Edit in the menu bar for a discount, a referral credit, and the rest of the rare things.</p>
+  <!-- ONLY WHAT IS NEEDED BEFORE THE WINDOW IS ABOVE IT (ovation#205). Both files this record was
+       merged from carried two prose blocks above the window; carrying all three took the top of
+       the design from 380px down the page to 514px, measured on an 800px laptop window, which is
+       more than half the screen gone before the thing the page exists to show. So what the rounds
+       settled and what they were measured from is in this folder's README, and what is left here
+       is how to drive the screen. Where the record came from, and the verdict of the rules this
+       page carries, are below the window, because neither is needed to use it.
 
-       THAT DECISION IS NOW ENFORCED, by scripts/check-design-window-top.sh (ovation#192), which
-       renders every design file in that same 800px window and refuses one whose window starts more
-       than 460px down the page. 460 is derived from the two numbers above rather than invented: 380
-       was the state this decision accepted and 514 the state it rejected.
-
-       AND THE 380 ABOVE IS THE NUMBER AS IT WAS, not as it is. This file renders its window 437px
-       down today, so the decision had already drifted 57px back towards the state it refused, with
-       nothing able to say so. The measured figure is deliberately not restated here as a second
-       number to maintain: the check prints it, and a number in prose that nothing asserts goes
-       stale the first time the thing it measures changes while reading exactly like one that is
-       enforced (L210, ovation#201). -->
-  <p class="verdict" id="verdict"></p>
+       THAT DECISION IS ENFORCED by scripts/check-design-window-top.sh (ovation#192), which renders
+       every design file in that same 800px window and refuses one whose window starts more than
+       460px down the page. 460 is derived from the two numbers above rather than invented: 380 was
+       the state this decision accepted and 514 the state it rejected. The measured figure is
+       deliberately not restated here as a second number to maintain: the check prints it, and a
+       number in prose that nothing asserts goes stale the first time the thing it measures changes
+       while reading exactly like one that is enforced (L210, ovation#201). -->
   <div class="stage" id="stage"></div>
+  <p class="after">ovation#111, settled with Dan over nine rounds on 7 September, with money held on the client added on 10 September (ovation#109). The switches above the window are behaviour rather than a chooser, the same way the quiet day switch is on the Clients screen: none of these states can be seen from a still.</p>
+  <p class="verdict" id="verdict"></p>
 </div>
 
 <script>
@@ -1813,13 +1853,21 @@ var HELD_REMOVED = false;    /* Remove was pressed, in the one invoice case */
 
    `PAYMENTS` is what was recorded through the sheet, oldest first. `SHEET` is
    the sheet while it is open. `JUST` marks the payment just recorded. */
-var PAYMENTS = [];           /* { amount, method, when, cleared, clearedWhen, held } */
+var PAYMENTS = [];           /* { amount, method, on, cleared, clearedOn, held } */
 var SHEET = null;            /* { amount: the typed text, method } while open */
 var JUST = -1;               /* the index of the payment just recorded, marked in the history */
-/* TODAY IN THE FIXTURE, in Eastern Time, which is what the date starts at. It is
-   the date the history already gave this invoice's payment, 26 Sep, so the two
-   never disagree; the menu bar's clock is chrome and predates this. */
-var TODAY_TEXT = "26 Sep 2026", CLEARED_SHORT = "2 Oct";
+/* TODAY IN THE FIXTURE, ONCE (ovation#629), in Eastern Time, which is what the
+   payment sheet's date starts at. Every other date this file draws is counted
+   back from it: the history, the shoot the invoice is dated from, the menu bar
+   clock, and a check marked cleared. There used to be three todays, 7 Sep on the
+   clock, 26 Sep in the sheet, and the history had the invoice Sent on 12 Sep,
+   after the first; each was right on its own and together they drew an
+   impossible timeline. It is 2 Oct because that is the latest event the paid
+   history already carried, its check clearing, so no event had to move.
+   scripts/check-invoice-screen-draws.sh refuses any event dated after it. */
+var DAY_MS = 86400000;
+var TODAY = Date.UTC(2026, 9, 2);            /* Fri 2 Oct 2026 */
+function daysBeforeToday(n) { return TODAY - n * DAY_MS; }
 var METHODS = ["Check", "Zelle", "Venmo", "PayPal"];   /* PRD 15, and only these */
 /* A method named inside a sentence: "by check", as this history always said,
    while the brand names keep their capitals. */
@@ -2028,9 +2076,13 @@ function footFor(state) {
    history contradicting the invoice it belongs to is worse than one that says
    less. */
 function historyFor(state, total) {
-  var events = [{ when: "24 Aug", what: "Draft created", more: "from a Downbeat booking" }];
+  /* EACH EVENT CARRIES ITS DATE as well as its words, counted back from TODAY,
+     so the check can compare dates rather than read "12 Sep" back off a string
+     with no year in it. */
+  function on(stamp, what, more) { return { on: stamp, when: shortDate(stamp), what: what, more: more }; }
+  var events = [on(daysBeforeToday(39), "Draft created", "from a Downbeat booking")];
   if (state !== "draft") {
-    events.push({ when: "12 Sep", what: "Sent", more: "to office@cedarhillyo.example" });
+    events.push(on(daysBeforeToday(20), "Sent", "to office@cedarhillyo.example"));
   }
   /* PAYMENTS RECORDED THROUGH THE SHEET are their own entries (ovation#510). The
      paid state reached by the switch alone keeps the check that cleared, which
@@ -2039,14 +2091,15 @@ function historyFor(state, total) {
     PAYMENTS.forEach(function (p, i) {
       var more = "$" + screenMoney(p.amount) + " by " + methodWord(p.method);
       if (p.held > 0) more += ", $" + screenMoney(p.held) + " held on the client";
-      events.push({ when: p.when, what: "Payment recorded", more: more, just: i === JUST });
+      events.push({ on: p.on, when: shortDate(p.on), what: "Payment recorded", more: more,
+                    just: i === JUST });
       if (p.method === "Check" && p.cleared) {
-        events.push({ when: p.clearedWhen, what: "Cleared", more: null });
+        events.push(on(p.clearedOn, "Cleared", null));
       }
     });
   } else if (state === "paid") {
-    events.push({ when: "26 Sep", what: "Payment recorded", more: "$" + screenMoney(total) + " by check" },
-                 { when: "2 Oct", what: "Cleared", more: null });
+    events.push(on(daysBeforeToday(6), "Payment recorded", "$" + screenMoney(total) + " by check"),
+                on(TODAY, "Cleared", null));
   }
   return events;
 }
@@ -2077,8 +2130,8 @@ var PANEL = false;     /* the new type panel is up */
 
    UTC throughout, because a date built in local time and read back in another
    is off by one for half of every day (L39). */
-var ISSUED = Date.UTC(2026, 7, 29);          /* 29 Aug 2026, the shoot */
-var DUE = ISSUED + 14 * 86400000;            /* PRD 7's default term */
+var ISSUED = daysBeforeToday(34);            /* 29 Aug 2026, the shoot */
+var DUE = ISSUED + 14 * DAY_MS;            /* PRD 7's default term */
 var DUEOPEN = false;                         /* the terms are showing */
 var DUEPANEL = false;                        /* another date is being typed */
 var ASKING = false;                          /* the panel is asking before acting */
@@ -2100,7 +2153,6 @@ var DELETED = false;                         /* the answer was yes, and it is go
    `var` hoists the name and not the value, so `MONTHS` was undefined and the
    whole page stopped, verdict and all. */
 function shootName() { return "Side by Side concert, " + dateText(ISSUED); }
-var TODAY = "7 Sep 2026";
 
 function askNotBilling() {
   var holder = el("div");
@@ -2139,6 +2191,12 @@ var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 function dateText(stamp) {
   var d = new Date(stamp);
   return d.getUTCDate() + " " + MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear();
+}
+
+/* The same date without its year, the way the history and the foot say it. */
+function shortDate(stamp) {
+  var d = new Date(stamp);
+  return d.getUTCDate() + " " + MONTHS[d.getUTCMonth()];
 }
 
 /* A DATE IT CANNOT READ IS NOT A DATE, and nothing moves: a typed date that
@@ -2724,7 +2782,7 @@ function buildInvoice() {
       act.setAttribute("role", "button");
       act.tabIndex = 0;
       var openSheet = function () {
-        var opened = { amount: screenMoney(owedOn(t.total)), method: "Zelle", received: TODAY_TEXT };
+        var opened = { amount: screenMoney(owedOn(t.total)), method: "Zelle", received: dateText(TODAY) };
         SHEET = { amount: opened.amount, method: opened.method, received: opened.received,
                   opened: opened, asking: false };
         redraw(function () {
@@ -2790,7 +2848,7 @@ function paymentsBlock(sumBox, line, total) {
     var b = el("button", "heldback", "Mark cleared");
     b.type = "button";
     b.addEventListener("click", function () {
-      p.cleared = true; p.clearedWhen = CLEARED_SHORT; redraw();
+      p.cleared = true; p.clearedOn = TODAY; redraw();
     });
     return b;
   }
@@ -2807,7 +2865,7 @@ function paymentsBlock(sumBox, line, total) {
     var row = el("div", "sline payline");
     var paid = el("div", "heldlabel");
     if (p.cleared) {
-      paid.append(el("span", null, "Paid " + p.when + " by " + methodWord(p.method)));
+      paid.append(el("span", null, "Paid " + shortDate(p.on) + " by " + methodWord(p.method)));
     } else {
       paid.append(el("span", null, "Check, not cleared"), clearButton(p));
     }
@@ -2874,16 +2932,15 @@ function paymentSheet(total) {
     var ok = amountOk && dateOk;
     record.setAttribute("aria-disabled", String(!ok));
     record.classList.toggle("greyed", !ok);
-    why.textContent = !amountOk ? "Needs an amount." : !dateOk ? "Needs a date like 26 Sep 2026." : "";
+    why.textContent = !amountOk ? "Needs an amount." : !dateOk ? "Needs a date like " + dateText(TODAY) + "." : "";
   }
   record.addEventListener("click", function () {
     var n = typed(), on = readDate(SHEET.received);
     if (n === null || on === null) return;
-    var when = new Date(on).getUTCDate() + " " + MONTHS[new Date(on).getUTCMonth()];
     var owed = owedOn(total);
     var held = Math.max(0, cents(n - owed));
-    PAYMENTS.push({ amount: n, method: SHEET.method, when: when,
-                    cleared: SHEET.method !== "Check", clearedWhen: null, held: held });
+    PAYMENTS.push({ amount: n, method: SHEET.method, on: on,
+                    cleared: SHEET.method !== "Check", clearedOn: null, held: held });
     if (held > 0) HELD_ON_CLIENT = cents(HELD_ON_CLIENT + held);
     if (n >= owed) { INVSTATE = "paid"; markInvoiceStates(); }
     JUST = PAYMENTS.length - 1;
@@ -3418,7 +3475,9 @@ function buildInvoiceScreen() {
     if (MENU_OPEN) wrap.append(buildMenu());
     bar.append(wrap);
   });
-  bar.append(el("span", "clock", "Mon 7 Sep  2:40 PM"));
+  /* THE FILE'S ONE TODAY (ovation#629); only the time of day is a constant. */
+  var weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(TODAY).getUTCDay()];
+  bar.append(el("span", "clock", weekday + " " + shortDate(TODAY) + "  2:40 PM"));
 
   var win = el("div", "win"), app = el("div", "app");
   var tb = el("div", "titlebar");

@@ -62,6 +62,48 @@ window.addEventListener("load", function () {
           verdict && /^All \d+ cases pass/.test(verdict.textContent),
           verdict ? verdict.textContent.slice(0, 70) : "no verdict element");
 
+    /* ---- one today (ovation#629) ----
+       The file used to carry three: the menu bar clock and TODAY said 7 Sep,
+       the payment sheet started at 26 Sep, and the history had the invoice Sent
+       on 12 Sep, after the first of them. A history dated after today reads as a
+       fault in the design to whoever is judging it, and no still shows it,
+       because each date is right on its own. So every fixture event is compared,
+       as a DATE, against the one TODAY the file declares, in all three states
+       the switch can put the invoice in, and an event carrying no date this can
+       read is refused rather than skipped (L98). Read from the page's own values
+       before anything is pressed, so no claim below moves what this one sees. */
+    var todayOk = typeof TODAY === "number" && isFinite(TODAY);
+    var late = [];
+    if (!todayOk) {
+      late.push("the file declares no TODAY as a date, so nothing could be compared");
+    } else {
+      ["draft", "sent", "paid"].forEach(function (state) {
+        historyFor(state, 100).forEach(function (e) {
+          if (typeof e.on !== "number" || !isFinite(e.on)) {
+            late.push(state + ": " + e.what + " carries no date to compare");
+          } else if (e.on > TODAY) {
+            late.push(state + ": " + e.what + " on " + e.when);
+          }
+        });
+      });
+      if (typeof ISSUED !== "number" || !(ISSUED <= TODAY)) {
+        late.push("the shoot the invoice is dated from");
+      }
+    }
+    claim("no fixture event is dated after the file's today", !late.length,
+          late.length ? late.join("; ") : "every event is on or before it");
+
+    /* AND THE CLOCK IS THAT SAME TODAY, since it is the date a person reads
+       first and the one the other two used to disagree with. */
+    var clock = document.querySelector(".menubar .clock");
+    var todayShort = todayOk
+      ? new Date(TODAY).getUTCDate() + " " + MONTHS[new Date(TODAY).getUTCMonth()] : null;
+    claim("the menu bar clock shows the file's today",
+          !!clock && !!todayShort
+            && new RegExp("(^|\\s)" + todayShort + "(\\s|$)").test(clock.textContent),
+          (clock ? "the clock says " + JSON.stringify(clock.textContent) : "no clock drawn")
+            + (todayShort ? ", today is " + todayShort : ", and no TODAY to compare"));
+
     /* ---- the Edit menu ---- */
     var edit = Array.prototype.filter.call(
       document.querySelectorAll(".menubar [role=button]"),
