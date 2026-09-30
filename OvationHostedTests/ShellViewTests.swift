@@ -343,6 +343,27 @@ struct ShellViewTests {
         #expect(problems.all.allSatisfy { $0.acknowledgedAt != nil })
     }
 
+    /// ovation#609. The list behind "and N more" groups as the foot does: two backups
+    /// broken on one day are one entry, reading each with its time, and its "I have
+    /// read this" marks both read.
+    @Test("the list behind and N more shows two same day backups as one entry with both times")
+    func theMoreListGroupsLikeTheFoot() throws {
+        let problems = Self.noProblems()
+        _ = problems.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-090000",
+                           sentence: "The morning one.", now: Self.at(1))
+        _ = problems.raise(kind: .archiveNoLongerVerifies, subject: "Ovation-backup-2026-05-30-210000",
+                           sentence: "The evening one.", now: Self.at(2))
+        final class Read { var ids: [Problem.ID] = [] }
+        let read = Read()
+        let list = FootReadingList(problems: problems, read: { read.ids.append($0.id) })
+        let texts = try list.inspect().findAll(ViewType.Text.self).compactMap { try? $0.string() }
+
+        #expect(texts.filter { $0 == "Bad backup, 30 May" }.count == 1)
+        #expect(texts.contains { $0.contains("Taken at 09:00.") && $0.contains("Taken at 21:00.") })
+        try list.inspect().find(button: RailFoot.readIt).tap()
+        #expect(Set(read.ids) == Set(problems.open.map(\.id)))
+    }
+
     /// ovation#566, Dan 2026-09-26. "and N more" is a control like Read, and what it
     /// opens lists EVERY open thing with its sentence and its own "I have read this",
     /// so nothing open is out of reach from the shell. Before, the third thing's

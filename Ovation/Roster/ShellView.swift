@@ -871,9 +871,16 @@ enum RailFoot {
     /// later. Problems that share one line (ovation#609) stand as their newest, and
     /// "and N more" counts lines, not problems.
     static func lines(for open: [Problem]) -> Lines {
-        var seen: Set<String> = []
-        let newest = newestFirst(open).filter { seen.insert(lineKey($0, among: open)).inserted }
+        let newest = everyLine(for: open)
         return Lines(shown: Array(newest.prefix(most)), more: max(newest.count - most, 0))
+    }
+
+    /// Every line, newest first, each standing as its newest member: the foot's
+    /// order and the list behind "and N more", which groups exactly as the foot does
+    /// so two backups of one day are one entry there too.
+    static func everyLine(for open: [Problem]) -> [Problem] {
+        var seen: Set<String> = []
+        return newestFirst(open).filter { seen.insert(lineKey($0, among: open)).inserted }
     }
 
     /// Which line a problem stands on: its own, or for a kind that shares one line
@@ -980,25 +987,30 @@ struct FootReadingList: View {
     let read: (Problem) -> Void
 
     var body: some View {
-        let open = RailFoot.newestFirst(problems.open)
+        let open = problems.open
+        let lines = RailFoot.everyLine(for: open)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(open.enumerated()), id: \.element.id) { index, problem in
+                ForEach(Array(lines.enumerated()), id: \.element.id) { index, problem in
                     if index > 0 { Divider().overlay(OvationPalette.rule) }
                     let name = problem.shortName(among: open)
+                    // ONE ENTRY PER FOOT LINE (ovation#609): a line shared by several
+                    // reads each of them, and is read as a whole.
+                    let members = RailFoot.members(of: problem, among: open)
                     VStack(alignment: .leading, spacing: 6) {
                         // Headed by the name the foot calls it, as the design record
                         // draws the list (rules/rail-foot.js, PRD 44f).
                         Text(name)
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(OvationPalette.ink)
-                        Text(problem.sentence)
+                        Text(RailFoot.sentence(for: members))
                             .font(.system(size: 13))
                             .foregroundStyle(OvationPalette.ink)
                             .lineSpacing(2)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
-                        ActionWord(word: RailFoot.readIt, size: 13, press: { read(problem) },
+                        ActionWord(word: RailFoot.readIt, size: 13,
+                                   press: { members.forEach(read) },
                                    spoken: "\(RailFoot.readIt): \(name)")
                     }
                     .padding(.vertical, 10)
