@@ -57,7 +57,7 @@ CLEAN="$(fresh clean)"
 check_exit "the committed record is already in step" 0 check_status "$CLEAN"
 check_exit "so the writer changes nothing" 0 write_status "$CLEAN"
 check "and says how many copies it found in step" \
-    "$(write_in "$CLEAN" | grep -c '24 copy(s) already in step, 0 rewritten')" "1"
+    "$(write_in "$CLEAN" | grep -c '30 copy(s) already in step, 0 rewritten')" "1"
 check "and every file is byte for byte what it was" \
     "$(diff -r docs/design "$CLEAN" >/dev/null 2>&1 && echo same)" "same"
 
