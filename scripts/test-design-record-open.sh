@@ -165,7 +165,7 @@ check "every committed design file's open list is correctly shaped" \
 # AND THE RUN THAT SAID SO ACTUALLY READ THEM. A check on the absence of a word
 # is answered just as well by a run that refused before reaching the files (L159).
 check "and that run really did read the files' own lists" \
-    "$(printf '%s' "$COMMITTED" | grep -c 'carries its own .What is deliberately still open. list')" "3"
+    "$(printf '%s' "$COMMITTED" | grep -c 'carries its own .What is deliberately still open. list')" "4"
 
 # ---------------------------------------------------------------------------
 # EACH DESIGN FILE'S OWN LIST OF WHAT IT DOES NOT ANSWER (ovation#200). The

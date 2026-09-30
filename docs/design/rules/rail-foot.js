@@ -52,7 +52,7 @@
    ONE COPY FOR EVERY SCREEN THAT DRAWS THE RAIL, because the rail is chrome and
    the foot is part of it: three files drawing it by hand is three places for the
    retired count to come back.
-   CARRIED BY: invoice-list.html, invoice.html, clients.html */
+   CARRIED BY: invoice-list.html, invoice.html, clients.html, receipts.html */
 
 /* The lines the foot draws for the items open, newest first. `drawn` false is
    the zero rule: no problem or notice line, not a line saying nothing. `looked`

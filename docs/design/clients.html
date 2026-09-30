@@ -1157,7 +1157,7 @@ function clientsScreen() {
    ONE COPY FOR EVERY SCREEN THAT DRAWS THE RAIL, because the rail is chrome and
    the foot is part of it: three files drawing it by hand is three places for the
    retired count to come back.
-   CARRIED BY: invoice-list.html, invoice.html, clients.html */
+   CARRIED BY: invoice-list.html, invoice.html, clients.html, receipts.html */
 
 /* The lines the foot draws for the items open, newest first. `drawn` false is
    the zero rule: no problem or notice line, not a line saying nothing. `looked`
@@ -1333,7 +1333,7 @@ function buildClientsScreen() {
      the same unit. The card is chrome and is the same on every screen, so it is
      here as well as on the list where it was settled. */
   var lines = QUIET ? [] : [["To send", 4], ["To chase", 2], ["To confirm", 2],
-                            ["To place", 2], ["Receipts to file", 7]];
+                            ["To place", 2], ["Receipts to file", 20]];
   if (lines.length === 0) {
     card.append(el("div", "quiet", "Nothing waiting"));
   } else {

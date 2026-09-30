@@ -177,6 +177,43 @@ the subject, the composed message, and all three sending sentences. None has had
 held identical across every option in every round precisely so that no sentence could be chosen for
 how it read, which means none of them has been chosen at all.
 
+## The Expenses screen and the receipts to file
+
+`receipts.html` is the agreed design for the Expenses screen, settled with Dan on 2026-09-29 over
+six rendered rounds (`ovation#100`, `ovation#626`, `ovation#82`). **Open it in any browser.** One
+self contained file, no build step, nothing fetched, carrying the shell from `shell/` and the rail's
+foot from `rules/rail-foot.js` verbatim like every file that draws the window. The decision record
+is inside it, each decision with its reason and the words Dan chose it by; this is the summary.
+
+**Four switches draw every state the record describes**: ROUTE (Expenses from the rail, or the
+card's Receipts to file line), OPEN (the receipt beside the list: an unsure amount, a possible
+duplicate, a likely asset), WINDOW (1064, or the 860 point minimum) and the rail's settled day.
+
+| | |
+| --- | --- |
+| The place | ONE screen. Expenses in the rail opens the receipts waiting to be filed with the filed expenses under them in the same list, each under a band; the card's Receipts to file line opens the same screen narrowed to the queue. Rejected: a queue and a filed list as two screens. |
+| The layout | The list beside the receipt, the open receipt's fields beside the list. Rejected: a full width list opening the receipt in its place, and one receipt at a time with Previous and Next. |
+| The row | Newest first, one line, and every row's word is File, so the Action column is 48 points. A filed row keeps the queue's columns and puts its category under the vendor. |
+| At 860 points | The vendor gives way: 5 of the 20 receipts shorten and every row stays one line (`measured 2026-09-29`). Rejected: the date under the vendor, which made the 20 rows need 1,395 points against 988. |
+| An unsure field | The quiet word `unsure` in its cell; the readings are beside the empty field in the receipt. Rejected: both readings in the row, and a blank. |
+| A possible duplicate | Both answers, Both are real and Delete this one, under the flag on each row of the pair. Rejected: in the receipt panel, and a pairing view. |
+| A likely asset | A line under the Amount naming the 2,500.00 threshold with PRD 9.4's per item caveat, then Asset Yes and No. Rejected: a quiet word, and a suggestion with no reason. |
+| Categories and threshold | PRD 19's list as it stands; the threshold is a field in a pane of the standard Mac Settings window. |
+
+**Two corrections to what the rounds drew, both said in the file.** A filed row names its CATEGORY
+(Software), where the round printed the Schedule C line it maps to (Office expense). And the fifteen
+filed expenses are drawn a month earlier than the round drew them, because at its dates eleven of
+them had the same vendor, day and amount as a receipt still waiting, which the duplicate rule would
+flag against each other.
+
+**The card now has rows behind its last line.** `Receipts to file` is counted from the twenty queue
+rows, each stamped with the line, and `check-design-sidebar-card.sh` compares them; the other four
+files carry the same 20, up from a 7 that nothing counted, because the card is chrome.
+
+What it does not answer is listed in the file under `What is deliberately still open`: what a pair
+of rows shows once answered, what File in the receipt waits on, the Settings pane itself, and two
+layout calls that are Claude's rather than Dan's.
+
 ## The shell every file carries
 
 **`shell/` holds the six parts that are the same in every file that draws the app**, and
@@ -353,10 +390,9 @@ the row ACTIONS it rolls up. The card's figure is counted from that, and every r
 the line it was counted into as it is built, so the check compares two readings of one derivation
 rather than the file's idea of the mapping against a second one written beside the checker.
 
-**Four lines can be judged and sixteen cannot, and the check says so rather than passing over
-them.** `Receipts to file` counts the other half of the product, which has no screen in this record
-at all; and three of the four files draw the card without drawing any rows beneath it, because they
-are not the list. A run that judged four lines and a run that judged none would otherwise end with
+**Five lines can be judged and twenty cannot, and the check says so rather than passing over
+them.** `Receipts to file` is judged in `receipts.html`, which draws the receipts it counts, and in
+no other file; and the files that are not a list draw the card without drawing any rows beneath it. A run that judged four lines and a run that judged none would otherwise end with
 the same sentence.
 
 **Two drafts belong to no line, deliberately.** The one waiting for a date and the one waiting for
@@ -812,11 +848,13 @@ because what a decision REPLACED is part of the decision, and moved rather than 
 heading above is read as a list of what is outstanding.
 
 **The seven design questions open on 2026-09-29 are all settled, each by Dan on that day and each
-recorded as the latest comment on its issue.** The issues stay open because the building is not
-done; only the design is.
+recorded as the latest comment on its issue.** Most of the issues stay open because the building is not
+done; only the design is. The receipts queue closed once its design file was committed, because a
+design file is all it asked for.
 
 - **The receipts queue** (`ovation#100`): at the 860 point window the vendor column gives way and
-  every row stays one line; a field Ovation was unsure of shows the quiet word "unsure".
+  every row stays one line; a field Ovation was unsure of shows the quiet word "unsure". Committed
+  as `receipts.html`, with `ovation#626`'s one screen, which closed both.
 - **How a combined invoice's header names several shoots** (`ovation#147`): each shoot on its own
   line under the client, with its own date; the times sit on each shoot's photography line.
 - **How a chosen type looks while it stays changeable** (`ovation#489`): the chooser is drawn
