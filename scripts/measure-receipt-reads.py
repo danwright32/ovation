@@ -406,6 +406,11 @@ def summary(results):
         out.append("  Enough receipts for the verdict, which is judged against the marks agreed on ovation#74.")
     out.append("  Whether any reading is RIGHT is judged by Dan against the receipts, not by this probe.")
     reader = results["reader"]
+    if reader.get("standIn"):
+        # Said before any number, because a stand in's numbers otherwise read
+        # exactly like Vision's (L169).
+        out.append(f"READER REPLACED: OVATION_RECEIPT_READER={reader['standIn']} stood in for Vision, "
+                   "so none of these numbers is a measurement of Vision.")
     out.append(f"Reader: macOS {reader['osVersion']}, text recognition revision "
                f"{reader['textRecognitionRevision']}, barcode revision {reader['barcodeRevision']}")
     out.append(f"Per field, over {n} receipts, language correction off:")
@@ -623,6 +628,12 @@ def measure(folder, results_folder):
     names = receipts_in(folder)
     if not names:
         raise Refusal(f"REFUSED: the receipt folder holds no receipts, so there is nothing to measure: {folder}")
+    stand_in = os.environ.get("OVATION_RECEIPT_READER", "")
+    if stand_in and os.path.realpath(results_folder).startswith(os.path.realpath(CUSTODY) + os.sep):
+        # A value left exported by a test must never put a stand in's results
+        # where Dan keeps the real ones (L169).
+        raise Refusal("REFUSED: OVATION_RECEIPT_READER is set, so a stand in would replace Vision, and its "
+                      f"results may not be written into the custody folder. Unset it to measure: {results_folder}")
     if inside_git_repository(results_folder):
         raise Refusal("REFUSED: the results folder is inside a git repository, where the receipts' content "
                       f"could be committed. Give it a folder outside any repository: {results_folder}")
@@ -650,7 +661,8 @@ def measure(folder, results_folder):
         "folder": os.path.abspath(folder),
         "reader": {"osVersion": raw["osVersion"],
                    "textRecognitionRevision": raw["textRecognitionRevision"],
-                   "barcodeRevision": raw["barcodeRevision"]},
+                   "barcodeRevision": raw["barcodeRevision"],
+                   "standIn": os.environ.get("OVATION_RECEIPT_READER") or None},
         "receipts": receipts,
     }
     os.makedirs(results_folder, mode=0o700, exist_ok=True)

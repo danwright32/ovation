@@ -20,7 +20,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "photographed receipt probe tests" 58
+harness_begin "photographed receipt probe tests" 61
 
 TARGET="scripts/measure-receipt-reads.py"
 require_target "$TARGET"
@@ -295,6 +295,24 @@ if [ -z "${OVATION_TEST_RECEIPT_READER:-}" ]; then
 else
     check "the nested run does not nest again" "nested" "nested"
 fi
+
+# A REPLACED READER IS SAID OUT LOUD, and kept out of Dan's custody folder. The
+# seam is honoured whenever it is set, so a value left exported from a test
+# would otherwise put a stand in's numbers where Vision's belong, looking like a
+# normal run (L169, review of ovation#636).
+printf '#!/bin/bash\nprintf %%s "{\\"osVersion\\": \\"x\\", \\"textRecognitionRevision\\": 3, \\"barcodeRevision\\": 4, \\"receipts\\": [{\\"index\\": 1, \\"readable\\": true, \\"pixelWidth\\": 900, \\"pixelHeight\\": 900, \\"observations\\": [], \\"observationsWithCorrection\\": [], \\"barcodes\\": []}]}"\n' > "$WORK/fine-reader"
+chmod +x "$WORK/fine-reader"
+mkdir -p "$WORK/one"
+cp "$WORK/good.png" "$WORK/one/a.png"
+STOOD="$(OVATION_RECEIPT_READER="$WORK/fine-reader" ./"$TARGET" --folder "$WORK/one" --results "$WORK/r9" 2>&1)"
+check "a run with a stand in reader says so in its summary" \
+    "$(grep -c "^READER REPLACED: OVATION_RECEIPT_READER=$WORK/fine-reader stood in for Vision" <<< "$STOOD")" "1"
+check "and in its results file" \
+    "$(python3 -c 'import json,sys,glob; print(json.load(open(glob.glob(sys.argv[1]+"/results-*.json")[0]))["reader"]["standIn"])' "$WORK/r9" 2>&1)" \
+    "$WORK/fine-reader"
+CUSTODY_RESULTS="$HOME/Library/Application Support/Ovation/custody/receipt-probe"
+check "and a stand in reader is refused the real custody folder" \
+    "$(OVATION_RECEIPT_READER="$WORK/fine-reader" ./"$TARGET" --folder "$WORK/one" --results "$CUSTODY_RESULTS" 2>&1 | grep -c '^REFUSED: OVATION_RECEIPT_READER is set'):$(ls "$CUSTODY_RESULTS" 2>/dev/null | grep -c results-)" "1:0"
 
 # A LINE ITEM IS NOT A PAYMENT because a word inside it looks like one. The
 # payment words matched bare substrings, so Postcard, Cardstock, Author copy,
