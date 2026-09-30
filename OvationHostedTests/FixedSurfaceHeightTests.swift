@@ -80,9 +80,15 @@ struct FixedSurfaceHeightTests {
         let pane = BackupsPaneView(folder: "/Volumes/Backups", retention: BackupSettingsPresenter.retention,
                                    archives: .rows(one), outcome: nil)
 
-        #expect(throws: (any Error).self) {
-            try pane.fixedPart.inspect().find(text: "Ovation-backup-1")
-        }
+        // THE POSITIVE FIRST, in the same fixture (L159): the fixed part inspects and
+        // holds what belongs to it, so the absence below is a fact about the rows
+        // rather than about an inspection that failed for some other reason (L140).
+        let fixed = try pane.fixedPart.inspect()
+        #expect(throws: Never.self) { try fixed.find(text: "/Volumes/Backups") }
+        // AND THE ROW IS ABSENT, counted rather than caught: a search for every Text
+        // carrying its words finds none, where any throw at all would have passed.
+        let rows = fixed.findAll(ViewType.Text.self, where: { try $0.string() == "Ovation-backup-1" })
+        #expect(rows.isEmpty, "the fixed part draws an archive row, so the list counts against the window")
     }
 
     /// PRESSING RESTORE HANDS THE ROW TO THE PRESS, and drawing hands it to nothing.
