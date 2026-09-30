@@ -8,10 +8,17 @@
 // mouse event sent through a window goes through the hit test, so that is what
 // this does.
 //
-// THE PLACE IS FOUND FROM THE ACCESSIBILITY TREE, never typed as a coordinate.
-// A button's accessibility frame is the frame the layout gave it, so a point near
-// its far end is inside the row and away from its words however the row is laid
-// out, and a layout change moves the point with it (L237).
+// THE PLACE IS FOUND BY SWEEPING, never by asking the accessibility tree. SwiftUI
+// builds that tree only while something assistive is reading it, so in a test run
+// it is empty (measured 2026-09-30: every lookup saw no buttons at all). A click
+// is sent at every few points down a line a row's words cannot reach, and what
+// each one did is collected, so the case asserts WHICH rows answered there and
+// a layout change moves nothing it depends on (L237).
+//
+// A CLICK IS ANSWERED BEFORE `sendEvent` RETURNS. Measured 2026-09-30 in a bare
+// AppKit host: the action had run by the time the release was delivered, both
+// for the plain style on its words and for `WholeTarget` on its clear end, and
+// a plain button's clear end did nothing, which is the defect reproduced.
 //
 // NEVER ORDERED FRONT, for the reason `OffscreenShot` gives: these run inside an
 // ordinary test run while Dan is working. The window is ordered BACK, far outside
@@ -22,17 +29,6 @@ import SwiftUI
 
 @MainActor
 enum RealClick {
-
-    enum Failure: Error, CustomStringConvertible {
-        case noSuchButton(String, seen: [String])
-
-        var description: String {
-            switch self {
-            case .noSuchButton(let label, let seen):
-                return "no button labelled \(label) in the hosted view; saw \(seen)"
-            }
-        }
-    }
 
     /// A window holding `view` at `size`, laid out and able to take events. The
     /// caller closes it.
@@ -52,43 +48,17 @@ enum RealClick {
         return window
     }
 
-    /// The frame, in the window's coordinates, of the button whose accessibility
-    /// label or title is `label`.
-    static func frame(ofButton label: String, in window: NSWindow) throws -> CGRect {
-        var seen: [String] = []
-        var found: CGRect?
-        func walk(_ element: Any, depth: Int) {
-            guard found == nil, depth < 60,
-                  let node = element as? NSAccessibilityProtocol else { return }
-            let role: NSAccessibility.Role? = node.accessibilityRole()
-            if role == .button {
-                let named: String? = node.accessibilityLabel()
-                let titled: String? = node.accessibilityTitle()
-                let said = [named, titled].compactMap { $0 }.first { !$0.isEmpty } ?? ""
-                seen.append(said)
-                if said == label {
-                    found = window.convertFromScreen(node.accessibilityFrame())
-                    return
-                }
-            }
-            let children: [Any]? = node.accessibilityChildren()
-            for child in children ?? [] { walk(child, depth: depth + 1) }
+    /// A click at every `step` points down the vertical line at `x`, between
+    /// `fromTop` and `toTop` points below the top of the window's content, calling
+    /// `after` once each click has been answered.
+    static func sweep(x: CGFloat, in window: NSWindow, fromTop: CGFloat = 0, toTop: CGFloat? = nil,
+                      step: CGFloat = 3, after: () -> Void) {
+        let height = window.contentView?.bounds.height ?? 0
+        let bottom = min(toTop ?? height, height)
+        for fromTheTop in stride(from: fromTop + 1, to: bottom, by: step) {
+            click(at: NSPoint(x: x, y: height - fromTheTop), in: window)
+            after()
         }
-        if let content = window.contentView { walk(content, depth: 0) }
-        guard let found else { throw Failure.noSuchButton(label, seen: seen) }
-        return found
-    }
-
-    /// A point inside `frame`, `inset` points in from its trailing edge and halfway
-    /// down: where a row's words are not.
-    static func nearTrailingEnd(of frame: CGRect, inset: CGFloat = 6) -> NSPoint {
-        NSPoint(x: frame.maxX - inset, y: frame.midY)
-    }
-
-    /// A point inside `frame`, `inset` points in from its leading edge: where a
-    /// row's words start.
-    static func nearLeadingEnd(of frame: CGRect, inset: CGFloat = 14) -> NSPoint {
-        NSPoint(x: frame.minX + inset, y: frame.midY)
     }
 
     /// One press and release of the left button at `point`, in window coordinates.
@@ -102,11 +72,10 @@ enum RealClick {
             else { continue }
             window.sendEvent(event)
         }
-        settle()
     }
 
-    /// One pass of the run loop, so an action dispatched after the release has
-    /// run. A wait on the run loop rather than on the clock (L290).
+    /// One pass of the run loop, so a view that finishes its layout
+    /// asynchronously has done so before the first click.
     private static func settle() {
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
     }

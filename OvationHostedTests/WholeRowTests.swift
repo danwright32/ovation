@@ -35,31 +35,36 @@ struct WholeRowTests {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The one row's words and its clear end, in a 240 by 40 window.
+    private static let onTheWords = NSPoint(x: 14, y: 20)
+    private static let atTheClearEnd = NSPoint(x: 234, y: 20)
+
+    private static func hostRow(_ button: some View) -> NSWindow {
+        RealClick.host(button, size: CGSize(width: 240, height: 40))
+    }
+
     // MARK: the harness can see the defect
 
     @Test("a plain button's words answer a real click, so the harness delivers one")
-    func aplainButtonsWordsAnswer() throws {
+    func aplainButtonsWordsAnswer() {
         var pressed = 0
-        let window = RealClick.host(Button { pressed += 1 } label: { Self.row("Invoices") }
-            .buttonStyle(.plain), size: CGSize(width: 240, height: 40))
+        let window = Self.hostRow(Button { pressed += 1 } label: { Self.row("Invoices") }
+            .buttonStyle(.plain))
         defer { window.close() }
 
-        let frame = try RealClick.frame(ofButton: "Invoices", in: window)
-        RealClick.click(at: RealClick.nearLeadingEnd(of: frame), in: window)
+        RealClick.click(at: Self.onTheWords, in: window)
 
         #expect(pressed == 1, "a click on the words did nothing, so no case below can be believed")
     }
 
     @Test("and its clear end does not, which is the defect this suite exists to catch")
-    func aplainButtonsClearEndDoesNotAnswer() throws {
+    func aplainButtonsClearEndDoesNotAnswer() {
         var pressed = 0
-        let window = RealClick.host(Button { pressed += 1 } label: { Self.row("Invoices") }
-            .buttonStyle(.plain), size: CGSize(width: 240, height: 40))
+        let window = Self.hostRow(Button { pressed += 1 } label: { Self.row("Invoices") }
+            .buttonStyle(.plain))
         defer { window.close() }
 
-        let frame = try RealClick.frame(ofButton: "Invoices", in: window)
-        #expect(frame.width > 200, "the row was not laid out across the window")
-        RealClick.click(at: RealClick.nearTrailingEnd(of: frame), in: window)
+        RealClick.click(at: Self.atTheClearEnd, in: window)
 
         #expect(pressed == 0, "the clear end answered, so this harness cannot see the defect")
     }
@@ -67,15 +72,13 @@ struct WholeRowTests {
     // MARK: the component
 
     @Test("a button styled WholeTarget answers on its clear end")
-    func wholeTargetAnswersOnItsClearEnd() throws {
+    func wholeTargetAnswersOnItsClearEnd() {
         var pressed = 0
-        let window = RealClick.host(Button { pressed += 1 } label: { Self.row("Invoices") }
-            .buttonStyle(WholeTarget(RoundedRectangle(cornerRadius: 5))),
-                                    size: CGSize(width: 240, height: 40))
+        let window = Self.hostRow(Button { pressed += 1 } label: { Self.row("Invoices") }
+            .buttonStyle(WholeTarget(RoundedRectangle(cornerRadius: 5))))
         defer { window.close() }
 
-        let frame = try RealClick.frame(ofButton: "Invoices", in: window)
-        RealClick.click(at: RealClick.nearTrailingEnd(of: frame), in: window)
+        RealClick.click(at: Self.atTheClearEnd, in: window)
 
         #expect(pressed == 1)
     }
@@ -83,25 +86,27 @@ struct WholeRowTests {
     /// WHAT THE ROW ALLOWS IS UNCHANGED (ovation#615): a disabled row takes a click
     /// anywhere on it and does nothing, as it did on its words before.
     @Test("and a disabled one still does nothing, wherever it is pressed")
-    func aDisabledWholeTargetDoesNothing() throws {
+    func aDisabledWholeTargetDoesNothing() {
         var pressed = 0
-        let window = RealClick.host(Button { pressed += 1 } label: { Self.row("Expenses") }
-            .buttonStyle(WholeTarget()).disabled(true), size: CGSize(width: 240, height: 40))
+        let window = Self.hostRow(Button { pressed += 1 } label: { Self.row("Expenses") }
+            .buttonStyle(WholeTarget()).disabled(true))
         defer { window.close() }
 
-        let frame = try RealClick.frame(ofButton: "Expenses", in: window)
-        RealClick.click(at: RealClick.nearTrailingEnd(of: frame), in: window)
-        RealClick.click(at: RealClick.nearLeadingEnd(of: frame), in: window)
+        RealClick.click(at: Self.atTheClearEnd, in: window)
+        RealClick.click(at: Self.onTheWords, in: window)
 
         #expect(pressed == 0)
     }
 
     // MARK: the rows in the app
 
-    /// The case Dan reported. Invoices is not the current destination, so its
-    /// background is clear, which is exactly the row that did not answer.
-    @Test("the rail's row answers a click on its clear end")
-    func theRailRowAnswersOnItsClearEnd() throws {
+    /// Where the rail's words start and where its rows end, from the rail's own
+    /// width and inset, so a change to either moves these with it.
+    private static let railWords = RailFoot.railInset + 16
+    private static let railRowEnd = OvationWindow.railWidth - RailFoot.railInset - 4
+
+    /// Every destination the rail's rows reach from clicks down one line.
+    private static func railReached(atX x: CGFloat) -> Set<Destination> {
         let shell = ShellPresenter(selected: .roster, rosterHasWork: { true })
         let roster = RosterPresenter(clients: [Client(name: "Client 0", taxStatus: .neverRecorded)],
                                      write: { _, _ in })
@@ -109,15 +114,31 @@ struct WholeRowTests {
                              problems: ProblemsStore(journal: InMemoryProblemsJournal()))
         let window = RealClick.host(view, size: CGSize(width: 1100, height: 720))
         defer { window.close() }
-
-        let frame = try RealClick.frame(ofButton: Destination.invoices.title, in: window)
-        RealClick.click(at: RealClick.nearTrailingEnd(of: frame), in: window)
-
-        #expect(shell.selected == .invoices)
+        var reached: Set<Destination> = []
+        // The title bar, the card and the rows, and not the foot, whose words
+        // are controls of their own.
+        RealClick.sweep(x: x, in: window, toTop: 360) { reached.insert(shell.selected) }
+        return reached
     }
 
-    @Test("a name on the Clients screen answers a click beside it")
-    func aclientNameAnswersBesideIt() throws {
+    /// The case Dan reported: a row that is not the current destination has a
+    /// clear background, and it did not answer beside its title.
+    @Test("the rail's rows answer a click at their far end")
+    func theRailRowsAnswerAtTheirFarEnd() {
+        let reached = Self.railReached(atX: Self.railRowEnd)
+
+        #expect(reached.isSuperset(of: [.invoices, .clients]), "reached only \(reached)")
+    }
+
+    @Test("and on their words, so the line the far end is swept on is the rows' line")
+    func theRailRowsAnswerOnTheirWords() {
+        let reached = Self.railReached(atX: Self.railWords)
+
+        #expect(reached.isSuperset(of: [.invoices, .clients]), "reached only \(reached)")
+    }
+
+    @Test("a name on the Clients screen answers a click at the far end of its row")
+    func aclientNameAnswersAtItsFarEnd() throws {
         let (clients, _) = try ClientsViewTests.population()
         let chosen = Box<UUID?>(try ClientsViewTests.id(of: "Harborlight Ballet", in: clients))
         let view = ClientsView(presenter: ClientsPresenter(clients: clients),
@@ -125,42 +146,47 @@ struct WholeRowTests {
         let window = RealClick.host(view, size: CGSize(width: 1100, height: 1000))
         defer { window.close() }
 
-        // A client holding nothing, so nothing is drawn at the row's far end.
-        let frame = try RealClick.frame(ofButton: "Kestrel Lane Quartet", in: window)
-        RealClick.click(at: RealClick.nearTrailingEnd(of: frame), in: window)
+        var reached: Set<UUID> = []
+        RealClick.sweep(x: ClientsView.namesWidth - 8, in: window, step: 4) {
+            if let id = chosen.value { reached.insert(id) }
+        }
 
-        #expect(chosen.value == (try ClientsViewTests.id(of: "Kestrel Lane Quartet", in: clients)))
+        // Three of the 31 draw a held figure at that end, and a click on a figure
+        // answered even before; the rest are the rows whose far end was dead.
+        #expect(reached.count >= 20, "only \(reached.count) names answered at the far end")
     }
 
     /// The list is as wide as its widest entry or its minimum, and a short entry
     /// is a row of that list: a click to the right of its words is on it.
-    @Test("a popup list's short entry answers a click at the list's far edge")
-    func apopupEntryAnswersAtTheListsEdge() throws {
-        var taken: [String] = []
-        let list = PopupList(choices: [PopupList.Choice(id: "rush", says: "Rush")],
-                             asks: "New type...", ask: {}, choose: { taken.append($0.id) })
-        let window = RealClick.host(list, size: CGSize(width: 186, height: 120))
-        defer { window.close() }
-
-        let frame = try RealClick.frame(ofButton: "Rush", in: window)
-        let edge = try #require(window.contentView).bounds.width - 6
-        RealClick.click(at: NSPoint(x: edge, y: frame.midY), in: window)
-
-        #expect(taken == ["rush"])
-    }
-
-    @Test("and so does its trailing entry, which asks rather than chooses")
-    func apopupsTrailingEntryAnswersAtTheListsEdge() throws {
+    @Test("a popup list's short entries answer a click at the list's far edge")
+    func apopupsEntriesAnswerAtTheListsEdge() {
+        var taken: Set<String> = []
         var asked = 0
         let list = PopupList(choices: [PopupList.Choice(id: "rush", says: "Rush")],
-                             asks: "New type...", ask: { asked += 1 }, choose: { _ in })
+                             asks: "New type...", ask: { asked += 1 },
+                             choose: { taken.insert($0.id) })
         let window = RealClick.host(list, size: CGSize(width: 186, height: 120))
         defer { window.close() }
 
-        let frame = try RealClick.frame(ofButton: "New type...", in: window)
-        let edge = try #require(window.contentView).bounds.width - 6
-        RealClick.click(at: NSPoint(x: edge, y: frame.midY), in: window)
+        RealClick.sweep(x: 180, in: window, step: 2) {}
 
-        #expect(asked == 1)
+        #expect(taken == ["rush"], "the choice did not answer at the list's edge")
+        #expect(asked > 0, "the trailing entry did not answer at the list's edge")
+    }
+
+    @Test("and on their words, so the edge is swept across the entries")
+    func apopupsEntriesAnswerOnTheirWords() {
+        var taken: Set<String> = []
+        var asked = 0
+        let list = PopupList(choices: [PopupList.Choice(id: "rush", says: "Rush")],
+                             asks: "New type...", ask: { asked += 1 },
+                             choose: { taken.insert($0.id) })
+        let window = RealClick.host(list, size: CGSize(width: 186, height: 120))
+        defer { window.close() }
+
+        RealClick.sweep(x: 22, in: window, step: 2) {}
+
+        #expect(taken == ["rush"])
+        #expect(asked > 0)
     }
 }
