@@ -38,12 +38,10 @@ struct SwiftDataBehaviourTests {
     ///
     /// THE DIRECTORY GOES AFTER THE CONTAINER, NOT BESIDE IT (ovation#632). This
     /// used to hand back the container with a cleanup the caller ran in a
-    /// `defer`, and a `defer` runs while the caller's own container is still in
-    /// scope, so every on disk case deleted a store SQLite still held: 27 lines of
-    /// "vnode unlinked while in use" per run of this suite. Here the container
-    /// lives only inside this call, and if anything still holds the store once it
-    /// has returned, that is recorded against the case that did it rather than
-    /// deleted from under it.
+    /// `defer`, which runs while the caller's own container is still in scope, so
+    /// every on disk case deleted a store SQLite still held: 27 lines of "vnode
+    /// unlinked while in use" per run of this suite. `ScratchStore` owns the
+    /// directory now, and checks it once the container is gone.
     private static func withContainer(
         kind: StoreKind,
         for models: any PersistentModel.Type...,
@@ -55,32 +53,11 @@ struct SwiftDataBehaviourTests {
             let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
             try body(try ModelContainer(for: schema, configurations: configuration))
         case .onDisk:
-            let directory = URL.temporaryDirectory
-                .appending(path: "ovation-probe-\(UUID().uuidString)", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: directory) }
-            do {
-                let configuration = ModelConfiguration(
-                    schema: schema,
-                    url: directory.appending(path: "Probe.store")
-                )
-                try body(try ModelContainer(for: schema, configurations: configuration))
+            try ScratchStore.with("probe", file: "Probe.store") { url in
+                try body(try ModelContainer(
+                    for: schema, configurations: ModelConfiguration(schema: schema, url: url)))
             }
-            let held = Self.descriptors(inside: directory)
-            #expect(held.isEmpty, "the store is still open after its container was released: \(held)")
         }
-    }
-
-    /// Every descriptor this process holds on a file inside `directory`.
-    private static func descriptors(inside directory: URL) -> [String] {
-        var held: [String] = []
-        for descriptor in 0..<Int32(getdtablesize()) {
-            var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-            guard fcntl(descriptor, F_GETPATH, &path) == 0 else { continue }
-            let text = String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            if text.contains("/\(directory.lastPathComponent)/") { held.append(text) }
-        }
-        return held
     }
 
     // MARK: Q1, an enum with associated values
@@ -432,59 +409,56 @@ struct SwiftDataBehaviourTests {
     /// this OS does, and names what changes if that flips.
     @Test("a saved row, and whether the store file alone carries it")
     func theStoreFileAloneAfterASave() throws {
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-wal-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        try ScratchStore.with("wal") { storeURL in
+            let directory = storeURL.deletingLastPathComponent()
+            let schema = Schema([Client.self])
+            let container = try ModelContainer(
+                for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
+            let context = ModelContext(container)
+            context.insert(Client(name: "Ashgrove Chamber Players", taxStatus: .neverRecorded))
+            try context.save()
 
-        let storeURL = directory.appending(path: "Ovation.store")
-        let schema = Schema([Client.self])
-        let container = try ModelContainer(
-            for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
-        let context = ModelContext(container)
-        context.insert(Client(name: "Ashgrove Chamber Players", taxStatus: .neverRecorded))
-        try context.save()
+            // Copy the store file ALONE, exactly as a backup would if the log were
+            // absent, and read it with a container that has never seen the original.
+            let alone = directory.appending(path: "alone.store")
+            try FileManager.default.copyItem(at: storeURL, to: alone)
 
-        // Copy the store file ALONE, exactly as a backup would if the log were
-        // absent, and read it with a container that has never seen the original.
-        let alone = directory.appending(path: "alone.store")
-        try FileManager.default.copyItem(at: storeURL, to: alone)
+            let log = directory.appending(path: "Ovation.store-wal")
+            let logExists = FileManager.default.fileExists(atPath: log.path)
+            let logBytes = (try? Data(contentsOf: log).count) ?? 0
 
-        let log = directory.appending(path: "Ovation.store-wal")
-        let logExists = FileManager.default.fileExists(atPath: log.path)
-        let logBytes = (try? Data(contentsOf: log).count) ?? 0
+            let copiedSchema = Schema([Client.self])
+            let copied = try ModelContainer(
+                for: copiedSchema,
+                configurations: ModelConfiguration(schema: copiedSchema, url: alone))
+            let rows = try ModelContext(copied).fetch(FetchDescriptor<Client>())
 
-        let copiedSchema = Schema([Client.self])
-        let copied = try ModelContainer(
-            for: copiedSchema,
-            configurations: ModelConfiguration(schema: copiedSchema, url: alone))
-        let rows = try ModelContext(copied).fetch(FetchDescriptor<Client>())
+            // The row is in the original either way. That is the control: without it
+            // a fetch of zero from the copy could mean the save never happened.
+            #expect(try ModelContext(container).fetch(FetchDescriptor<Client>()).count == 1)
 
-        // The row is in the original either way. That is the control: without it
-        // a fetch of zero from the copy could mean the save never happened.
-        #expect(try ModelContext(container).fetch(FetchDescriptor<Client>()).count == 1)
-
-        // What this OS actually does, recorded rather than asserted one way.
-        // A log holding the pages is what makes the checkpoint load bearing; a
-        // store file that already carries them means the checkpoint protects
-        // only against a crash, and ovation#88's reasoning must say so.
-        // MEASURED 2026-09-07, macOS 15.5 (Darwin 25.5.0). The log is 57,712
-        // bytes and the store file alone holds NOTHING. So on this OS a saved
-        // row lives entirely in the write ahead log until something checkpoints.
-        //
-        // What this decides, which is the reason the test exists: the launch
-        // checkpoint in ovation#88 is LOAD BEARING, not an optimisation. A
-        // backup that copied Ovation.store without its log would restore an
-        // empty database, and BackupPlan cannot require the log, because a
-        // checkpointed store legitimately has none. Checkpointing first is what
-        // makes the store file self sufficient before it is read.
-        //
-        // If this ever flips, so that the store file alone carries the row, the
-        // checkpoint stops protecting against a missing log and protects only
-        // against a crash. Say so in ovation#88 rather than deleting it.
-        #expect(logExists, "no write ahead log beside the store at all")
-        #expect(logBytes > 0, "the log exists but is empty, which is a different world")
-        #expect(rows.isEmpty, "the store file alone now carries the row, which reverses the reasoning above")
+            // What this OS actually does, recorded rather than asserted one way.
+            // A log holding the pages is what makes the checkpoint load bearing; a
+            // store file that already carries them means the checkpoint protects
+            // only against a crash, and ovation#88's reasoning must say so.
+            // MEASURED 2026-09-07, macOS 15.5 (Darwin 25.5.0). The log is 57,712
+            // bytes and the store file alone holds NOTHING. So on this OS a saved
+            // row lives entirely in the write ahead log until something checkpoints.
+            //
+            // What this decides, which is the reason the test exists: the launch
+            // checkpoint in ovation#88 is LOAD BEARING, not an optimisation. A
+            // backup that copied Ovation.store without its log would restore an
+            // empty database, and BackupPlan cannot require the log, because a
+            // checkpointed store legitimately has none. Checkpointing first is what
+            // makes the store file self sufficient before it is read.
+            //
+            // If this ever flips, so that the store file alone carries the row, the
+            // checkpoint stops protecting against a missing log and protects only
+            // against a crash. Say so in ovation#88 rather than deleting it.
+            #expect(logExists, "no write ahead log beside the store at all")
+            #expect(logBytes > 0, "the log exists but is empty, which is a different world")
+            #expect(rows.isEmpty, "the store file alone now carries the row, which reverses the reasoning above")
+        }
     }
 
     @Test("a second context that has not seen a write CLOBBERS it on its next save")
@@ -697,44 +671,40 @@ struct SwiftDataBehaviourTests {
 
     @Test("a Codable enum is flattened into columns a reader outside SwiftData can select")
     func aCodableEnumIsReadableWithoutSwiftData() throws {
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-column-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        try ScratchStore.with("column", file: "Probe.store") { storeURL in
+            let schema = Schema([ProbeReceipted.self])
+            let container = try ModelContainer(
+                for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
+            let context = ModelContext(container)
+            context.insert(ProbeReceipted(label: "with a receipt",
+                                          receipt: .file(sha256: "abc123",
+                                                         relativePath: "ab/abc123.pdf")))
+            context.insert(ProbeReceipted(label: "without one", receipt: .noneRecorded))
+            try context.save()
 
-        let storeURL = directory.appending(path: "Probe.store")
-        let schema = Schema([ProbeReceipted.self])
-        let container = try ModelContainer(
-            for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
-        let context = ModelContext(container)
-        context.insert(ProbeReceipted(label: "with a receipt",
-                                      receipt: .file(sha256: "abc123",
-                                                     relativePath: "ab/abc123.pdf")))
-        context.insert(ProbeReceipted(label: "without one", receipt: .noneRecorded))
-        try context.save()
+            // The rows live in the write ahead log until something checkpoints, which
+            // the test above this one measures. The launch sequence checkpoints
+            // before the backup for exactly this reason, so the reader under design
+            // will always meet a checkpointed file; this does the same.
+            var attempts = 0
+            while attempts < 200, StoreCheckpoint.run(storeURL: storeURL) != .checkpointed {
+                attempts += 1
+            }
 
-        // The rows live in the write ahead log until something checkpoints, which
-        // the test above this one measures. The launch sequence checkpoints
-        // before the backup for exactly this reason, so the reader under design
-        // will always meet a checkpointed file; this does the same.
-        var attempts = 0
-        while attempts < 200, StoreCheckpoint.run(storeURL: storeURL) != .checkpointed {
-            attempts += 1
+            let columns = try Self.columnNames(of: "ZPROBERECEIPTED", in: storeURL)
+            // NAMED EXACTLY, not merely "contains something". A test satisfied by any
+            // column would pass against an opaque blob column too, which is the
+            // answer that would rule out the whole route (L140).
+            #expect(columns.contains("ZSHA256"))
+            #expect(columns.contains("ZRELATIVEPATH"))
+            #expect(columns.contains("ZNONERECORDED"))
+            #expect(!columns.contains("ZRECEIPT"),
+                    "the enum is stored under one column after all, so it may be an opaque value")
+
+            let references = try Self.textColumn("ZRELATIVEPATH",
+                                                 of: "ZPROBERECEIPTED", in: storeURL)
+            #expect(references == ["ab/abc123.pdf"])
         }
-
-        let columns = try Self.columnNames(of: "ZPROBERECEIPTED", in: storeURL)
-        // NAMED EXACTLY, not merely "contains something". A test satisfied by any
-        // column would pass against an opaque blob column too, which is the
-        // answer that would rule out the whole route (L140).
-        #expect(columns.contains("ZSHA256"))
-        #expect(columns.contains("ZRELATIVEPATH"))
-        #expect(columns.contains("ZNONERECORDED"))
-        #expect(!columns.contains("ZRECEIPT"),
-                "the enum is stored under one column after all, so it may be an opaque value")
-
-        let references = try Self.textColumn("ZRELATIVEPATH",
-                                             of: "ZPROBERECEIPTED", in: storeURL)
-        #expect(references == ["ab/abc123.pdf"])
     }
 
     // MARK: reading the store file the way something outside SwiftData must

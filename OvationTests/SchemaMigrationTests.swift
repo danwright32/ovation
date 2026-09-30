@@ -231,24 +231,25 @@ struct SchemaMigrationTests {
 
     @Test("an ADDED optional field carries every existing row and its values forward")
     func anAdditiveChangeCarriesTheData() throws {
-        let url = try writeVersionOne()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try ScratchStore.with("migration", file: "Probe.store") { url in
+            try writeVersionOne(at: url)
 
-        let container = try ModelContainer(
-            for: ProbeSchemaV2.Probe.self,
-            migrationPlan: ProbeMigrationPlan.self,
-            configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
-                                               url: url))
-        let rows = try ModelContext(container).fetch(FetchDescriptor<ProbeSchemaV2.Probe>())
+            let container = try ModelContainer(
+                for: ProbeSchemaV2.Probe.self,
+                migrationPlan: ProbeMigrationPlan.self,
+                configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
+                                                   url: url))
+            let rows = try ModelContext(container).fetch(FetchDescriptor<ProbeSchemaV2.Probe>())
 
-        // NOT merely that it opened. An empty store opens perfectly, and that is
-        // the failure this test exists to catch (L98).
-        #expect(rows.count == 1)
-        #expect(rows.first?.name == "Ashgrove Chamber Players")
-        #expect(rows.first?.amount == 27219)
-        // The added field is absent rather than fabricated, which is what makes
-        // an optional the safe shape for an additive change.
-        #expect(rows.first?.note == nil)
+            // NOT merely that it opened. An empty store opens perfectly, and that is
+            // the failure this test exists to catch (L98).
+            #expect(rows.count == 1)
+            #expect(rows.first?.name == "Ashgrove Chamber Players")
+            #expect(rows.first?.amount == 27219)
+            // The added field is absent rather than fabricated, which is what makes
+            // an optional the safe shape for an additive change.
+            #expect(rows.first?.note == nil)
+        }
     }
 
     @Test("dropping a required field keeps the rows and drops only the column")
@@ -268,19 +269,20 @@ struct SchemaMigrationTests {
         // EMPTY, ovation#105's plan must gain a custom stage for every non
         // additive change before that change ships, and this test is where that
         // is discovered rather than a customer's store.
-        let url = try writeVersionOne()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try ScratchStore.with("migration", file: "Probe.store") { url in
+            try writeVersionOne(at: url)
 
-        let container = try ModelContainer(
-            for: ProbeSchemaV3.Probe.self,
-            migrationPlan: nil,
-            configurations: ModelConfiguration(
-                schema: Schema(versionedSchema: ProbeSchemaV3.self), url: url))
-        let rows = try ModelContext(container).fetch(FetchDescriptor<ProbeSchemaV3.Probe>())
+            let container = try ModelContainer(
+                for: ProbeSchemaV3.Probe.self,
+                migrationPlan: nil,
+                configurations: ModelConfiguration(
+                    schema: Schema(versionedSchema: ProbeSchemaV3.self), url: url))
+            let rows = try ModelContext(container).fetch(FetchDescriptor<ProbeSchemaV3.Probe>())
 
-        #expect(rows.count == 1,
-                "it opened and the row is GONE, which is the silent loss this exists to catch")
-        #expect(rows.first?.name == "Ashgrove Chamber Players")
+            #expect(rows.count == 1,
+                    "it opened and the row is GONE, which is the silent loss this exists to catch")
+            #expect(rows.first?.name == "Ashgrove Chamber Players")
+        }
     }
 
     // MARK: THE REAL ONE: Ovation's own store, version 1 to version 2 (ovation#382)
@@ -291,66 +293,62 @@ struct SchemaMigrationTests {
         // This one drives OVATION'S OWN schema through OVATION'S OWN factory, which
         // is the path that ships, so a version that works for the probe and not for
         // the app cannot pass here (L3, L472).
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-real-migration-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appending(path: "Ovation.store")
+        try await ScratchStore.with("real-migration") { url in
+            // Written by VERSION 1, related rows and all, because the reuse failure
+            // this version exists to avoid only shows through a relationship.
+            try await EarlierVersionStore.write(OvationSchemaV1.self, at: url) { context in
+                let client = OvationSchemaV1.Client()
+                client.name = "Ashgrove Chamber Players"
+                client.taxStatus = .notExempt
+                let invoice = OvationSchemaV1.Invoice()
+                invoice.number = 1_123
+                invoice.hourlyRate = Money(dollars: 250)
+                invoice.noteToClient = "a note version 2 does not have"
+                invoice.client = client
+                let shoot = OvationSchemaV1.Shoot()
+                shoot.name = "Autumn Evensong"
+                shoot.invoice = invoice
+                let line = OvationSchemaV1.LineItem()
+                line.summary = "Photography"
+                line.unitAmount = Money(dollars: 500)
+                line.invoice = invoice
+                context.insert(client)
+                context.insert(invoice)
+                context.insert(shoot)
+                context.insert(line)
+            }
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        // Written by VERSION 1, related rows and all, because the reuse failure
-        // this version exists to avoid only shows through a relationship.
-        try await EarlierVersionStore.write(OvationSchemaV1.self, at: url) { context in
-            let client = OvationSchemaV1.Client()
-            client.name = "Ashgrove Chamber Players"
-            client.taxStatus = .notExempt
-            let invoice = OvationSchemaV1.Invoice()
-            invoice.number = 1_123
-            invoice.hourlyRate = Money(dollars: 250)
-            invoice.noteToClient = "a note version 2 does not have"
-            invoice.client = client
-            let shoot = OvationSchemaV1.Shoot()
-            shoot.name = "Autumn Evensong"
-            shoot.invoice = invoice
-            let line = OvationSchemaV1.LineItem()
-            line.summary = "Photography"
-            line.unitAmount = Money(dollars: 500)
-            line.invoice = invoice
-            context.insert(client)
-            context.insert(invoice)
-            context.insert(shoot)
-            context.insert(line)
+            // Opened by the APP, which means version 2, the plan and the stage.
+            let container = try OvationSchema.container(at: url)
+            let context = ModelContext(container)
+            let invoices = try context.fetch(FetchDescriptor<Invoice>())
+            let clients = try context.fetch(FetchDescriptor<Client>())
+
+            // NOT MERELY THAT IT OPENED. An empty store opens perfectly, and a silent
+            // empty store is indistinguishable from a fresh install, which is the loss
+            // PRD 5.30 says can never happen (L98).
+            #expect(invoices.count == 1)
+            #expect(clients.count == 1)
+            let migrated = try #require(invoices.first)
+            #expect(migrated.number == 1_123)
+            #expect(migrated.hourlyRate == Money(dollars: 250))
+
+            // THE LINKS, which is the half a single entity probe cannot measure and the
+            // half that fails when a version reuses another's types.
+            #expect(migrated.client?.name == "Ashgrove Chamber Players")
+            #expect(migrated.shoots.count == 1)
+            #expect(migrated.lineItems.count == 1)
+            #expect(migrated.lineItems.first?.unitAmount == Money(dollars: 500))
+            // THE INVERSE IS READ IN A CONTEXT OF ITS OWN (ovation#632). Reading both
+            // sides of one link in one context keeps both models alive for the rest of
+            // the process, and with them this container and its open store, which the
+            // `defer` then deleted underneath it: SQLite reported "vnode unlinked while
+            // in use" on every run. Measured: the same reads in two contexts leave no
+            // descriptor open and the container released.
+            let inverse = try ModelContext(container).fetch(FetchDescriptor<Client>())
+            #expect(inverse.first?.invoices.count == 1, "and the inverse resolves too")
         }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
-
-        // Opened by the APP, which means version 2, the plan and the stage.
-        let container = try OvationSchema.container(at: url)
-        let context = ModelContext(container)
-        let invoices = try context.fetch(FetchDescriptor<Invoice>())
-        let clients = try context.fetch(FetchDescriptor<Client>())
-
-        // NOT MERELY THAT IT OPENED. An empty store opens perfectly, and a silent
-        // empty store is indistinguishable from a fresh install, which is the loss
-        // PRD 5.30 says can never happen (L98).
-        #expect(invoices.count == 1)
-        #expect(clients.count == 1)
-        let migrated = try #require(invoices.first)
-        #expect(migrated.number == 1_123)
-        #expect(migrated.hourlyRate == Money(dollars: 250))
-
-        // THE LINKS, which is the half a single entity probe cannot measure and the
-        // half that fails when a version reuses another's types.
-        #expect(migrated.client?.name == "Ashgrove Chamber Players")
-        #expect(migrated.shoots.count == 1)
-        #expect(migrated.lineItems.count == 1)
-        #expect(migrated.lineItems.first?.unitAmount == Money(dollars: 500))
-        // THE INVERSE IS READ IN A CONTEXT OF ITS OWN (ovation#632). Reading both
-        // sides of one link in one context keeps both models alive for the rest of
-        // the process, and with them this container and its open store, which the
-        // `defer` then deleted underneath it: SQLite reported "vnode unlinked while
-        // in use" on every run. Measured: the same reads in two contexts leave no
-        // descriptor open and the container released.
-        let inverse = try ModelContext(container).fetch(FetchDescriptor<Client>())
-        #expect(inverse.first?.invoices.count == 1, "and the inverse resolves too")
     }
 
     /// ovation#502. THE TWO FIELDS THE REPAIR ACTUALLY CHANGED, carried the whole
@@ -375,45 +373,41 @@ struct SchemaMigrationTests {
     /// is what a failed decode produces, so asserting it would pass either way.
     @Test("a sent invoice and a cleared payment survive the whole chain")
     func thesentStatusAndTheClearedDateSurvive() async throws {
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-real-migration-3-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appending(path: "Ovation.store")
+        try await ScratchStore.with("real-migration-3") { url in
+            let sentAt = Date(timeIntervalSinceReferenceDate: 790_000_000)
+            let clearedOn = BusinessDate(storedInstant: sentAt, storedDayKey: "2026-01-14")
 
-        let sentAt = Date(timeIntervalSinceReferenceDate: 790_000_000)
-        let clearedOn = BusinessDate(storedInstant: sentAt, storedDayKey: "2026-01-14")
+            try await EarlierVersionStore.write(OvationSchemaV1.self, at: url) { context in
+                let client = OvationSchemaV1.Client()
+                client.name = "Ashgrove Chamber Players"
+                client.taxStatus = .notExempt
+                let invoice = OvationSchemaV1.Invoice()
+                invoice.number = 1_123
+                invoice.hourlyRate = Money(dollars: 250)
+                invoice.sentStatus = .sent(route: .ovationSentIt, at: sentAt)
+                invoice.client = client
+                let payment = OvationSchemaV1.Payment()
+                payment.amount = Money(dollars: 500)
+                payment.method = .check
+                payment.clearedOn = clearedOn
+                payment.client = client
+                context.insert(client)
+                context.insert(invoice)
+                context.insert(payment)
+            }
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        try await EarlierVersionStore.write(OvationSchemaV1.self, at: url) { context in
-            let client = OvationSchemaV1.Client()
-            client.name = "Ashgrove Chamber Players"
-            client.taxStatus = .notExempt
-            let invoice = OvationSchemaV1.Invoice()
-            invoice.number = 1_123
-            invoice.hourlyRate = Money(dollars: 250)
-            invoice.sentStatus = .sent(route: .ovationSentIt, at: sentAt)
-            invoice.client = client
-            let payment = OvationSchemaV1.Payment()
-            payment.amount = Money(dollars: 500)
-            payment.method = .check
-            payment.clearedOn = clearedOn
-            payment.client = client
-            context.insert(client)
-            context.insert(invoice)
-            context.insert(payment)
+            let container = try OvationSchema.container(at: url)
+            let context = ModelContext(container)
+            let migrated = try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
+            let carried = try #require(try context.fetch(FetchDescriptor<Payment>()).first)
+
+            #expect(migrated.sentStatus == .sent(route: .ovationSentIt, at: sentAt),
+                    "the route and the instant both, because a partial decode keeps neither")
+            #expect(carried.clearedOn == clearedOn)
+            #expect(carried.amount == Money(dollars: 500),
+                    "and the payment's own figure, so an empty row cannot satisfy the case")
         }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
-
-        let container = try OvationSchema.container(at: url)
-        let context = ModelContext(container)
-        let migrated = try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
-        let carried = try #require(try context.fetch(FetchDescriptor<Payment>()).first)
-
-        #expect(migrated.sentStatus == .sent(route: .ovationSentIt, at: sentAt),
-                "the route and the instant both, because a partial decode keeps neither")
-        #expect(carried.clearedOn == clearedOn)
-        #expect(carried.amount == Money(dollars: 500),
-                "and the payment's own figure, so an empty row cannot satisfy the case")
     }
 
     /// ovation#43. The same drive for the step Dan's own installed store will
@@ -421,62 +415,58 @@ struct SchemaMigrationTests {
     /// and the chain above only proves the FIRST step when it starts at version 1.
     @Test("a real version 2 store opens under version 3 with its rows and its links")
     func therealStoreMigratesFromVersionTwo() async throws {
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-real-migration-2-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appending(path: "Ovation.store")
+        try await ScratchStore.with("real-migration-2") { url in
+            try await EarlierVersionStore.write(OvationSchemaV2.self, at: url) { context in
+                let client = OvationSchemaV2.Client()
+                client.name = "Ashgrove Chamber Players"
+                client.taxStatus = .notExempt
+                let invoice = OvationSchemaV2.Invoice()
+                invoice.number = 1_124
+                invoice.hourlyRate = Money(dollars: 250)
+                invoice.client = client
+                let shoot = OvationSchemaV2.Shoot()
+                shoot.name = "Autumn Evensong"
+                shoot.invoice = invoice
+                let line = OvationSchemaV2.LineItem()
+                line.summary = "Photography"
+                line.hours = Hours(whole: 2)
+                line.unitAmount = Money(dollars: 250)
+                line.shoot = shoot
+                line.invoice = invoice
+                context.insert(client)
+                context.insert(invoice)
+                context.insert(shoot)
+                context.insert(line)
+            }
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        try await EarlierVersionStore.write(OvationSchemaV2.self, at: url) { context in
-            let client = OvationSchemaV2.Client()
-            client.name = "Ashgrove Chamber Players"
-            client.taxStatus = .notExempt
-            let invoice = OvationSchemaV2.Invoice()
-            invoice.number = 1_124
-            invoice.hourlyRate = Money(dollars: 250)
-            invoice.client = client
-            let shoot = OvationSchemaV2.Shoot()
-            shoot.name = "Autumn Evensong"
-            shoot.invoice = invoice
-            let line = OvationSchemaV2.LineItem()
-            line.summary = "Photography"
-            line.hours = Hours(whole: 2)
-            line.unitAmount = Money(dollars: 250)
-            line.shoot = shoot
-            line.invoice = invoice
-            context.insert(client)
-            context.insert(invoice)
-            context.insert(shoot)
-            context.insert(line)
+            let container = try OvationSchema.container(at: url)
+            let context = ModelContext(container)
+            let invoices = try context.fetch(FetchDescriptor<Invoice>())
+
+            #expect(invoices.count == 1, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
+            let migrated = try #require(invoices.first)
+            #expect(migrated.number == 1_124)
+            #expect(migrated.client?.name == "Ashgrove Chamber Players")
+            #expect(migrated.shoots.count == 1)
+            #expect(migrated.lineItems.count == 1)
+
+            // THE NEW FIELDS ARRIVE EMPTY, which is what an added optional means, and
+            // the row carries on pricing from the hours it already had rather than
+            // dropping to nothing the moment the app is updated (ovation#43).
+            let shoot = try #require(migrated.shoots.first)
+            #expect(shoot.shotFrom == nil)
+            #expect(shoot.shotUntil == nil)
+            #expect(migrated.lineItems.first?.billedHours == Hours(whole: 2))
+            #expect(migrated.subtotal == Money(dollars: 500))
+
+            // And they can be written, which is the half a read of a migrated store
+            // cannot show on its own.
+            shoot.shotFrom = ClockTime("19:30")
+            shoot.shotUntil = ClockTime("21:00")
+            try context.save()
+            #expect(migrated.subtotal == Money(dollars: 375), "the typed times now decide it")
         }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
-
-        let container = try OvationSchema.container(at: url)
-        let context = ModelContext(container)
-        let invoices = try context.fetch(FetchDescriptor<Invoice>())
-
-        #expect(invoices.count == 1, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
-        let migrated = try #require(invoices.first)
-        #expect(migrated.number == 1_124)
-        #expect(migrated.client?.name == "Ashgrove Chamber Players")
-        #expect(migrated.shoots.count == 1)
-        #expect(migrated.lineItems.count == 1)
-
-        // THE NEW FIELDS ARRIVE EMPTY, which is what an added optional means, and
-        // the row carries on pricing from the hours it already had rather than
-        // dropping to nothing the moment the app is updated (ovation#43).
-        let shoot = try #require(migrated.shoots.first)
-        #expect(shoot.shotFrom == nil)
-        #expect(shoot.shotUntil == nil)
-        #expect(migrated.lineItems.first?.billedHours == Hours(whole: 2))
-        #expect(migrated.subtotal == Money(dollars: 500))
-
-        // And they can be written, which is the half a read of a migrated store
-        // cannot show on its own.
-        shoot.shotFrom = ClockTime("19:30")
-        shoot.shotUntil = ClockTime("21:00")
-        try context.save()
-        #expect(migrated.subtotal == Money(dollars: 375), "the typed times now decide it")
     }
 
     /// ovation#510. VERSION 3 IS WHAT THE INSTALLED APP WRITES, so this is the
@@ -484,55 +474,54 @@ struct SchemaMigrationTests {
     /// is the truth rather than a gap: the day was never recorded.
     @Test("a real version 3 store opens under version 4 with its rows, and no invented creation day")
     func therealStoreMigratesFromVersionThree() async throws {
-        let url = try Self.scratchStore("real-3")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-
-        try await EarlierVersionStore.write(OvationSchemaV3.self, at: url) { context in
-            let client = OvationSchemaV3.Client()
-            client.name = "Cedar Hill Youth Orchestra"
-            client.taxStatus = .exempt
-            let invoice = OvationSchemaV3.Invoice()
-            invoice.number = 1_042
-            invoice.hourlyRate = Money(dollars: 250)
-            invoice.client = client
-            invoice.sentStatus = .sent(route: .ovationSentIt,
-                                       at: Date(timeIntervalSince1970: 1_789_920_000))
-            let shoot = OvationSchemaV3.Shoot()
-            shoot.name = "Side by Side concert"
-            shoot.shotFrom = ClockTime("19:00")
-            shoot.shotUntil = ClockTime("20:30")
-            shoot.invoice = invoice
-            let line = OvationSchemaV3.LineItem()
-            line.summary = "Photography"
-            line.hours = Hours(whole: 1)
-            line.unitAmount = Money(dollars: 250)
-            line.shoot = shoot
-            line.invoice = invoice
-            for model in [client, invoice, shoot, line] as [any PersistentModel] {
-                context.insert(model)
+        try await ScratchStore.with("real-3") { url in
+            try await EarlierVersionStore.write(OvationSchemaV3.self, at: url) { context in
+                let client = OvationSchemaV3.Client()
+                client.name = "Cedar Hill Youth Orchestra"
+                client.taxStatus = .exempt
+                let invoice = OvationSchemaV3.Invoice()
+                invoice.number = 1_042
+                invoice.hourlyRate = Money(dollars: 250)
+                invoice.client = client
+                invoice.sentStatus = .sent(route: .ovationSentIt,
+                                           at: Date(timeIntervalSince1970: 1_789_920_000))
+                let shoot = OvationSchemaV3.Shoot()
+                shoot.name = "Side by Side concert"
+                shoot.shotFrom = ClockTime("19:00")
+                shoot.shotUntil = ClockTime("20:30")
+                shoot.invoice = invoice
+                let line = OvationSchemaV3.LineItem()
+                line.summary = "Photography"
+                line.hours = Hours(whole: 1)
+                line.unitAmount = Money(dollars: 250)
+                line.shoot = shoot
+                line.invoice = invoice
+                for model in [client, invoice, shoot, line] as [any PersistentModel] {
+                    context.insert(model)
+                }
             }
-        }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        let container = try OvationSchema.container(at: url)
-        let context = ModelContext(container)
-        let invoices = try context.fetch(FetchDescriptor<Invoice>())
-        #expect(invoices.count == 1, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
-        let migrated = try #require(invoices.first)
-        #expect(migrated.number == 1_042)
-        #expect(migrated.client?.name == "Cedar Hill Youth Orchestra")
-        #expect(migrated.shoots.first?.shotFrom == ClockTime("19:00"), "version 3's own field survived")
-        #expect(migrated.subtotal == Money(dollars: 375))
-        if case .sent = migrated.sentStatus {} else {
-            Issue.record("the sent status did not survive: \(migrated.sentStatus)")
-        }
-        #expect(migrated.createdOn == nil, "a day nobody recorded is not invented")
+            let container = try OvationSchema.container(at: url)
+            let context = ModelContext(container)
+            let invoices = try context.fetch(FetchDescriptor<Invoice>())
+            #expect(invoices.count == 1, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
+            let migrated = try #require(invoices.first)
+            #expect(migrated.number == 1_042)
+            #expect(migrated.client?.name == "Cedar Hill Youth Orchestra")
+            #expect(migrated.shoots.first?.shotFrom == ClockTime("19:00"), "version 3's own field survived")
+            #expect(migrated.subtotal == Money(dollars: 375))
+            if case .sent = migrated.sentStatus {} else {
+                Issue.record("the sent status did not survive: \(migrated.sentStatus)")
+            }
+            #expect(migrated.createdOn == nil, "a day nobody recorded is not invented")
 
-        // And it can be written, which a read alone cannot show.
-        migrated.createdOn = .stamping(Date(timeIntervalSince1970: 1_790_352_000))
-        try context.save()
-        let again = try #require(try ModelContext(container).fetch(FetchDescriptor<Invoice>()).first)
-        #expect(again.createdOn != nil)
+            // And it can be written, which a read alone cannot show.
+            migrated.createdOn = .stamping(Date(timeIntervalSince1970: 1_790_352_000))
+            try context.save()
+            let again = try #require(try ModelContext(container).fetch(FetchDescriptor<Invoice>()).first)
+            #expect(again.createdOn != nil)
+        }
     }
 
     /// ovation#185. VERSION 4 IS WHAT THE INSTALLED APP WRITES FROM ovation#510 ON,
@@ -542,49 +531,48 @@ struct SchemaMigrationTests {
     /// with the payment, and no invoice has had held money taken off it.
     @Test("a real version 4 store opens under version 5, its allocations reading as recorded with the payment")
     func therealStoreMigratesFromVersionFour() async throws {
-        let url = try Self.scratchStore("real-4")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-
-        try await EarlierVersionStore.write(OvationSchemaV4.self, at: url) { context in
-            let client = OvationSchemaV4.Client()
-            client.name = "Cedar Hill Youth Orchestra"
-            let invoice = OvationSchemaV4.Invoice()
-            invoice.number = 1_042
-            invoice.client = client
-            invoice.createdOn = .stamping(Date(timeIntervalSince1970: 1_790_352_000))
-            let payment = OvationSchemaV4.Payment()
-            payment.amount = Money(dollars: 500)
-            payment.client = client
-            let allocation = OvationSchemaV4.PaymentAllocation()
-            allocation.payment = payment
-            allocation.invoice = invoice
-            allocation.amount = Money(dollars: 408)
-            for model in [client, invoice, payment, allocation] as [any PersistentModel] {
-                context.insert(model)
+        try await ScratchStore.with("real-4") { url in
+            try await EarlierVersionStore.write(OvationSchemaV4.self, at: url) { context in
+                let client = OvationSchemaV4.Client()
+                client.name = "Cedar Hill Youth Orchestra"
+                let invoice = OvationSchemaV4.Invoice()
+                invoice.number = 1_042
+                invoice.client = client
+                invoice.createdOn = .stamping(Date(timeIntervalSince1970: 1_790_352_000))
+                let payment = OvationSchemaV4.Payment()
+                payment.amount = Money(dollars: 500)
+                payment.client = client
+                let allocation = OvationSchemaV4.PaymentAllocation()
+                allocation.payment = payment
+                allocation.invoice = invoice
+                allocation.amount = Money(dollars: 408)
+                for model in [client, invoice, payment, allocation] as [any PersistentModel] {
+                    context.insert(model)
+                }
             }
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+
+            let container = try OvationSchema.container(at: url)
+            let context = ModelContext(container)
+            let allocations = try context.fetch(FetchDescriptor<PaymentAllocation>())
+            #expect(allocations.count == 1, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
+            let migrated = try #require(allocations.first)
+            #expect(migrated.amount == Money(dollars: 408))
+            #expect(migrated.invoice?.number == 1_042)
+            #expect(migrated.invoice?.createdOn != nil, "version 4's own field survived")
+            #expect(migrated.source == nil, "a source nobody recorded is not invented")
+            #expect(!migrated.isHeldMoney, "and a row from before version 5 is money recorded with its payment")
+            #expect(migrated.invoice?.heldMoneyRemovedOn == nil)
+
+            // And both can be written, which a read alone cannot show.
+            migrated.source = .heldMoney
+            migrated.invoice?.heldMoneyRemovedOn = .stamping(Date(timeIntervalSince1970: 1_790_352_000))
+            try context.save()
+            let again = try #require(try ModelContext(container)
+                .fetch(FetchDescriptor<PaymentAllocation>()).first)
+            #expect(again.isHeldMoney)
+            #expect(again.invoice?.heldMoneyRemovedOn != nil)
         }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
-
-        let container = try OvationSchema.container(at: url)
-        let context = ModelContext(container)
-        let allocations = try context.fetch(FetchDescriptor<PaymentAllocation>())
-        #expect(allocations.count == 1, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
-        let migrated = try #require(allocations.first)
-        #expect(migrated.amount == Money(dollars: 408))
-        #expect(migrated.invoice?.number == 1_042)
-        #expect(migrated.invoice?.createdOn != nil, "version 4's own field survived")
-        #expect(migrated.source == nil, "a source nobody recorded is not invented")
-        #expect(!migrated.isHeldMoney, "and a row from before version 5 is money recorded with its payment")
-        #expect(migrated.invoice?.heldMoneyRemovedOn == nil)
-
-        // And both can be written, which a read alone cannot show.
-        migrated.source = .heldMoney
-        migrated.invoice?.heldMoneyRemovedOn = .stamping(Date(timeIntervalSince1970: 1_790_352_000))
-        try context.save()
-        let again = try #require(try ModelContext(container)
-            .fetch(FetchDescriptor<PaymentAllocation>()).first)
-        #expect(again.isHeldMoney)
-        #expect(again.invoice?.heldMoneyRemovedOn != nil)
     }
 
     /// ovation#482. THE STAGE THAT IS NOT LIGHTWEIGHT, carried across a real version
@@ -597,60 +585,60 @@ struct SchemaMigrationTests {
     /// a stage that stamped a constant, reads back wrong on at least one row.
     @Test("a real version 5 store opens under version 6 with every sent invoice's tax status recorded")
     func therealStoreMigratesFromVersionFive() async throws {
-        let url = try Self.scratchStore("real-5")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
+        try await ScratchStore.with("real-5") { url in
+            let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
 
-        try await EarlierVersionStore.write(OvationSchemaV5.self, at: url) { context in
-            let taxed = OvationSchemaV5.Client()
-            taxed.name = "Calder Street Theatre"
-            taxed.taxStatus = .notExempt
-            let exempt = OvationSchemaV5.Client()
-            exempt.name = "Larkspur Community Chorus"
-            exempt.taxStatus = .exempt
-            func invoice(_ number: Int64?, _ client: OvationSchemaV5.Client,
-                         _ status: SentStatus) -> OvationSchemaV5.Invoice {
-                let invoice = OvationSchemaV5.Invoice()
-                invoice.number = number
-                invoice.client = client
-                invoice.sentStatus = status
-                return invoice
+            try await EarlierVersionStore.write(OvationSchemaV5.self, at: url) { context in
+                let taxed = OvationSchemaV5.Client()
+                taxed.name = "Calder Street Theatre"
+                taxed.taxStatus = .notExempt
+                let exempt = OvationSchemaV5.Client()
+                exempt.name = "Larkspur Community Chorus"
+                exempt.taxStatus = .exempt
+                func invoice(_ number: Int64?, _ client: OvationSchemaV5.Client,
+                             _ status: SentStatus) -> OvationSchemaV5.Invoice {
+                    let invoice = OvationSchemaV5.Invoice()
+                    invoice.number = number
+                    invoice.client = client
+                    invoice.sentStatus = status
+                    return invoice
+                }
+                let rows: [any PersistentModel] = [
+                    taxed, exempt,
+                    invoice(1_131, taxed, .sent(route: .ovationSentIt, at: sentAt)),
+                    invoice(1_126, exempt, .sent(route: .foundInTheMailbox, at: sentAt)),
+                    invoice(1_119, taxed, .couldNotDetermine(checkedAt: sentAt)),
+                    invoice(nil, exempt, .notSent),
+                ]
+                for model in rows { context.insert(model) }
             }
-            let rows: [any PersistentModel] = [
-                taxed, exempt,
-                invoice(1_131, taxed, .sent(route: .ovationSentIt, at: sentAt)),
-                invoice(1_126, exempt, .sent(route: .foundInTheMailbox, at: sentAt)),
-                invoice(1_119, taxed, .couldNotDetermine(checkedAt: sentAt)),
-                invoice(nil, exempt, .notSent),
-            ]
-            for model in rows { context.insert(model) }
-        }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        let container = try OvationSchema.container(at: url)
-        let context = ModelContext(container)
-        let invoices = try context.fetch(FetchDescriptor<Invoice>())
-        #expect(invoices.count == 4, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
-        func read(_ number: Int64?) throws -> Invoice {
-            try #require(invoices.first { $0.number == number })
-        }
-        #expect(try read(1_131).taxStatusWhenSent == .notExempt)
-        #expect(try read(1_126).taxStatusWhenSent == .exempt)
-        #expect(try read(1_119).taxStatusWhenSent == .notExempt, "a send that may have gone is stamped too")
-        #expect(try read(nil).taxStatusWhenSent == nil, "a draft follows its client, so nothing is recorded")
+            let container = try OvationSchema.container(at: url)
+            let context = ModelContext(container)
+            let invoices = try context.fetch(FetchDescriptor<Invoice>())
+            #expect(invoices.count == 4, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
+            func read(_ number: Int64?) throws -> Invoice {
+                try #require(invoices.first { $0.number == number })
+            }
+            #expect(try read(1_131).taxStatusWhenSent == .notExempt)
+            #expect(try read(1_126).taxStatusWhenSent == .exempt)
+            #expect(try read(1_119).taxStatusWhenSent == .notExempt, "a send that may have gone is stamped too")
+            #expect(try read(nil).taxStatusWhenSent == nil, "a draft follows its client, so nothing is recorded")
 
-        // THE POINT OF IT: correct both clients, and only the draft moves.
-        for client in try context.fetch(FetchDescriptor<Client>()) {
-            client.taxStatus = client.taxStatus == .exempt ? .notExempt : .exempt
+            // THE POINT OF IT: correct both clients, and only the draft moves.
+            for client in try context.fetch(FetchDescriptor<Client>()) {
+                client.taxStatus = client.taxStatus == .exempt ? .notExempt : .exempt
+            }
+            try context.save()
+            let again = try ModelContext(container).fetch(FetchDescriptor<Invoice>())
+            let sentTaxed = try #require(again.first { $0.number == 1_131 })
+            let sentExempt = try #require(again.first { $0.number == 1_126 })
+            let draft = try #require(again.first { $0.number == nil })
+            #expect(sentTaxed.taxStatusCharged == .notExempt)
+            #expect(sentExempt.taxStatusCharged == .exempt)
+            #expect(draft.taxStatusCharged == .notExempt, "the draft took the corrected status")
         }
-        try context.save()
-        let again = try ModelContext(container).fetch(FetchDescriptor<Invoice>())
-        let sentTaxed = try #require(again.first { $0.number == 1_131 })
-        let sentExempt = try #require(again.first { $0.number == 1_126 })
-        let draft = try #require(again.first { $0.number == nil })
-        #expect(sentTaxed.taxStatusCharged == .notExempt)
-        #expect(sentExempt.taxStatusCharged == .exempt)
-        #expect(draft.taxStatusCharged == .notExempt, "the draft took the corrected status")
     }
 
     /// ovation#596. A real version 6 store, written through version 6's own frozen
@@ -661,51 +649,51 @@ struct SchemaMigrationTests {
     /// the invoice, which is what the history pane reads.
     @Test("a real version 6 store opens under version 7 with its rows, and no invented sent message")
     func therealStoreMigratesFromVersionSix() async throws {
-        let url = try Self.scratchStore("real-6")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
+        try await ScratchStore.with("real-6") { url in
+            let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
 
-        try await EarlierVersionStore.write(OvationSchemaV6.self, at: url) { context in
-            let client = OvationSchemaV6.Client()
-            client.name = "Calder Street Theatre"
-            client.email = "office@calder.example"
-            client.taxStatus = .exempt
-            let sent = OvationSchemaV6.Invoice()
-            sent.number = 1_131
-            sent.client = client
-            sent.sentStatus = .sent(route: .ovationSentIt, at: sentAt)
-            sent.taxStatusWhenSent = .exempt
-            let draft = OvationSchemaV6.Invoice()
-            draft.client = client
-            for model in [client, sent, draft] as [any PersistentModel] { context.insert(model) }
+            try await EarlierVersionStore.write(OvationSchemaV6.self, at: url) { context in
+                let client = OvationSchemaV6.Client()
+                client.name = "Calder Street Theatre"
+                client.email = "office@calder.example"
+                client.taxStatus = .exempt
+                let sent = OvationSchemaV6.Invoice()
+                sent.number = 1_131
+                sent.client = client
+                sent.sentStatus = .sent(route: .ovationSentIt, at: sentAt)
+                sent.taxStatusWhenSent = .exempt
+                let draft = OvationSchemaV6.Invoice()
+                draft.client = client
+                for model in [client, sent, draft] as [any PersistentModel] { context.insert(model) }
+            }
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+
+            let container = try OvationSchema.container(at: url)
+            let context = ModelContext(container)
+            let invoices = try context.fetch(FetchDescriptor<Invoice>())
+            #expect(invoices.count == 2, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
+            let sent = try #require(invoices.first { $0.number == 1_131 })
+            #expect(sent.sentStatus == .sent(route: .ovationSentIt, at: sentAt))
+            #expect(sent.taxStatusWhenSent == .exempt)
+            #expect(sent.client?.email == "office@calder.example")
+            #expect(sent.sentMessages.isEmpty, "a send made before version 7 is not given a record it never had")
+            #expect(try context.fetch(FetchDescriptor<SentMessage>()).isEmpty)
+
+            // AND THE NEW ENTITY IS WRITABLE AND READ BACK THROUGH THE INVOICE.
+            let reminder = SentMessage(kind: .reminder, recipients: ["office@calder.example"],
+                                       sentAt: sentAt.addingTimeInterval(86_400),
+                                       subject: "Re: Invoice 1131", gmailThreadID: "thread-9", messageID: "<m9@messages.example>")
+            context.insert(reminder)
+            reminder.invoice = sent
+            try context.save()
+            let again = try #require(try ModelContext(container).fetch(FetchDescriptor<Invoice>())
+                .first { $0.number == 1_131 })
+            #expect(again.sentMessages.map(\.kind) == [.reminder])
+            #expect(again.sentMessages.first?.recipients == ["office@calder.example"])
+            #expect(again.sentMessages.first?.gmailThreadID == "thread-9")
+            #expect(again.sentMessages.first?.subject == "Re: Invoice 1131")
+            #expect(again.sentMessages.first?.messageID == "<m9@messages.example>")
         }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
-
-        let container = try OvationSchema.container(at: url)
-        let context = ModelContext(container)
-        let invoices = try context.fetch(FetchDescriptor<Invoice>())
-        #expect(invoices.count == 2, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
-        let sent = try #require(invoices.first { $0.number == 1_131 })
-        #expect(sent.sentStatus == .sent(route: .ovationSentIt, at: sentAt))
-        #expect(sent.taxStatusWhenSent == .exempt)
-        #expect(sent.client?.email == "office@calder.example")
-        #expect(sent.sentMessages.isEmpty, "a send made before version 7 is not given a record it never had")
-        #expect(try context.fetch(FetchDescriptor<SentMessage>()).isEmpty)
-
-        // AND THE NEW ENTITY IS WRITABLE AND READ BACK THROUGH THE INVOICE.
-        let reminder = SentMessage(kind: .reminder, recipients: ["office@calder.example"],
-                                   sentAt: sentAt.addingTimeInterval(86_400),
-                                   subject: "Re: Invoice 1131", gmailThreadID: "thread-9", messageID: "<m9@messages.example>")
-        context.insert(reminder)
-        reminder.invoice = sent
-        try context.save()
-        let again = try #require(try ModelContext(container).fetch(FetchDescriptor<Invoice>())
-            .first { $0.number == 1_131 })
-        #expect(again.sentMessages.map(\.kind) == [.reminder])
-        #expect(again.sentMessages.first?.recipients == ["office@calder.example"])
-        #expect(again.sentMessages.first?.gmailThreadID == "thread-9")
-        #expect(again.sentMessages.first?.subject == "Re: Invoice 1131")
-        #expect(again.sentMessages.first?.messageID == "<m9@messages.example>")
     }
 
     /// ovation#362. A real version 7 store, written through version 7's own frozen
@@ -715,49 +703,49 @@ struct SchemaMigrationTests {
     /// before version 8, so the launch sweep must keep it, and does.
     @Test("a real version 7 store opens under version 8, and no number it held is given back")
     func therealStoreMigratesFromVersionSeven() async throws {
-        let url = try Self.scratchStore("real-7")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
+        try await ScratchStore.with("real-7") { url in
+            let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
 
-        try await EarlierVersionStore.write(OvationSchemaV7.self, at: url) { context in
-            let client = OvationSchemaV7.Client()
-            client.name = "Calder Street Theatre"
-            client.email = "office@calder.example"
-            let sent = OvationSchemaV7.Invoice()
-            sent.number = 1_131
-            sent.client = client
-            sent.sentStatus = .sent(route: .ovationSentIt, at: sentAt)
-            let message = OvationSchemaV7.SentMessage()
-            message.kind = .invoice
-            message.recipients = ["office@calder.example"]
-            message.sentAt = sentAt
-            message.subject = "Invoice 1131"
-            message.gmailThreadID = "thread-7"
-            message.invoice = sent
-            // THE CASE THE SWEEP MUST NOT TOUCH: numbered, unsent, and the highest,
-            // which is exactly what an invoice left by a quit mid review looks like,
-            // and exactly what one left by a quit just after Gmail accepted looks like.
-            let reviewed = OvationSchemaV7.Invoice()
-            reviewed.number = 1_132
-            reviewed.client = client
-            for model in [client, sent, message, reviewed] as [any PersistentModel] { context.insert(model) }
+            try await EarlierVersionStore.write(OvationSchemaV7.self, at: url) { context in
+                let client = OvationSchemaV7.Client()
+                client.name = "Calder Street Theatre"
+                client.email = "office@calder.example"
+                let sent = OvationSchemaV7.Invoice()
+                sent.number = 1_131
+                sent.client = client
+                sent.sentStatus = .sent(route: .ovationSentIt, at: sentAt)
+                let message = OvationSchemaV7.SentMessage()
+                message.kind = .invoice
+                message.recipients = ["office@calder.example"]
+                message.sentAt = sentAt
+                message.subject = "Invoice 1131"
+                message.gmailThreadID = "thread-7"
+                message.invoice = sent
+                // THE CASE THE SWEEP MUST NOT TOUCH: numbered, unsent, and the highest,
+                // which is exactly what an invoice left by a quit mid review looks like,
+                // and exactly what one left by a quit just after Gmail accepted looks like.
+                let reviewed = OvationSchemaV7.Invoice()
+                reviewed.number = 1_132
+                reviewed.client = client
+                for model in [client, sent, message, reviewed] as [any PersistentModel] { context.insert(model) }
+            }
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+
+            let container = try OvationSchema.container(at: url)
+            let context = ModelContext(container)
+            let invoices = try context.fetch(FetchDescriptor<Invoice>())
+            #expect(invoices.count == 2, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
+            let sent = try #require(invoices.first { $0.number == 1_131 })
+            #expect(sent.sentStatus == .sent(route: .ovationSentIt, at: sentAt))
+            #expect(sent.sentMessages.first?.gmailThreadID == "thread-7")
+            #expect(sent.client?.email == "office@calder.example")
+            #expect(invoices.allSatisfy { !$0.numberHeldByAReview }, "a hold was invented for a number nobody recorded")
+
+            let sweep = try await InvoiceNumberAllocator(modelContainer: container).releaseNumbersAbandonedReviewsHeld()
+            #expect(sweep.released.isEmpty, "a number taken before version 8 was given back on a guess")
+            #expect(try ModelContext(container).fetch(FetchDescriptor<Invoice>()).compactMap(\.number).sorted()
+                    == [1_131, 1_132])
         }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
-
-        let container = try OvationSchema.container(at: url)
-        let context = ModelContext(container)
-        let invoices = try context.fetch(FetchDescriptor<Invoice>())
-        #expect(invoices.count == 2, "an empty store opens perfectly, which is the loss PRD 5.30 forbids")
-        let sent = try #require(invoices.first { $0.number == 1_131 })
-        #expect(sent.sentStatus == .sent(route: .ovationSentIt, at: sentAt))
-        #expect(sent.sentMessages.first?.gmailThreadID == "thread-7")
-        #expect(sent.client?.email == "office@calder.example")
-        #expect(invoices.allSatisfy { !$0.numberHeldByAReview }, "a hold was invented for a number nobody recorded")
-
-        let sweep = try await InvoiceNumberAllocator(modelContainer: container).releaseNumbersAbandonedReviewsHeld()
-        #expect(sweep.released.isEmpty, "a number taken before version 8 was given back on a guess")
-        #expect(try ModelContext(container).fetch(FetchDescriptor<Invoice>()).compactMap(\.number).sorted()
-                == [1_131, 1_132])
     }
 
     // MARK: every entity, every field, the whole way (ovation#408)
@@ -789,76 +777,75 @@ struct SchemaMigrationTests {
     /// failed to carry reads back as.
     @Test("every entity's rows and links survive from a version 1 store")
     func everyEntitySurvivesFromVersionOne() async throws {
-        let url = try Self.scratchStore("every-entity-1")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try await ScratchStore.with("every-entity-1") { url in
+            try await EarlierVersionStore.write(OvationSchemaV1.self, at: url) { context in
+                typealias V = OvationSchemaV1
+                let fixture = EveryEntity.self
+                let client = V.Client()
+                client.name = fixture.clientName
+                let invoice = V.Invoice()
+                invoice.number = fixture.invoiceNumber
+                invoice.client = client
+                let payment = V.Payment()
+                payment.amount = fixture.paymentAmount
+                payment.client = client
 
-        try await EarlierVersionStore.write(OvationSchemaV1.self, at: url) { context in
-            typealias V = OvationSchemaV1
-            let fixture = EveryEntity.self
-            let client = V.Client()
-            client.name = fixture.clientName
-            let invoice = V.Invoice()
-            invoice.number = fixture.invoiceNumber
-            invoice.client = client
-            let payment = V.Payment()
-            payment.amount = fixture.paymentAmount
-            payment.client = client
+                let service = V.ServiceType()
+                service.name = fixture.serviceName
+                service.role = fixture.serviceRole
+                service.defaultUnitAmount = fixture.serviceDefault
+                service.retiredOn = fixture.serviceRetired
+                let line = V.LineItem()
+                line.summary = fixture.lineSummary
+                line.serviceType = service
+                line.invoice = invoice
 
-            let service = V.ServiceType()
-            service.name = fixture.serviceName
-            service.role = fixture.serviceRole
-            service.defaultUnitAmount = fixture.serviceDefault
-            service.retiredOn = fixture.serviceRetired
-            let line = V.LineItem()
-            line.summary = fixture.lineSummary
-            line.serviceType = service
-            line.invoice = invoice
+                let allocation = V.PaymentAllocation()
+                allocation.payment = payment
+                allocation.invoice = invoice
+                allocation.amount = fixture.allocationAmount
+                allocation.allocatedOn = fixture.allocatedOn
+                allocation.releasedOn = fixture.releasedOn
 
-            let allocation = V.PaymentAllocation()
-            allocation.payment = payment
-            allocation.invoice = invoice
-            allocation.amount = fixture.allocationAmount
-            allocation.allocatedOn = fixture.allocatedOn
-            allocation.releasedOn = fixture.releasedOn
+                let refund = V.Refund()
+                refund.invoice = invoice
+                refund.payment = payment
+                refund.amount = fixture.refundAmount
+                refund.refundedOn = fixture.refundedOn
+                refund.method = fixture.refundMethod
+                refund.note = fixture.refundNote
 
-            let refund = V.Refund()
-            refund.invoice = invoice
-            refund.payment = payment
-            refund.amount = fixture.refundAmount
-            refund.refundedOn = fixture.refundedOn
-            refund.method = fixture.refundMethod
-            refund.note = fixture.refundNote
+                let expense = V.Expense()
+                expense.amount = fixture.expenseAmount
+                expense.incurredOn = fixture.incurredOn
+                expense.vendor = fixture.vendor
+                expense.category = fixture.category
+                expense.assetJudgement = fixture.assetJudgement
+                expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
+                expense.receipt = fixture.receipt
+                expense.note = fixture.expenseNote
+                expense.gmailMessageKey = fixture.gmailMessageKey
+                expense.attachmentPartIndex = fixture.attachmentPartIndex
+                expense.gmailAttachmentID = fixture.gmailAttachmentID
+                expense.importKey = fixture.expenseImportKey
 
-            let expense = V.Expense()
-            expense.amount = fixture.expenseAmount
-            expense.incurredOn = fixture.incurredOn
-            expense.vendor = fixture.vendor
-            expense.category = fixture.category
-            expense.assetJudgement = fixture.assetJudgement
-            expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
-            expense.receipt = fixture.receipt
-            expense.note = fixture.expenseNote
-            expense.gmailMessageKey = fixture.gmailMessageKey
-            expense.attachmentPartIndex = fixture.attachmentPartIndex
-            expense.gmailAttachmentID = fixture.gmailAttachmentID
-            expense.importKey = fixture.expenseImportKey
+                let referral = V.ReferralLedgerEntry()
+                referral.client = client
+                referral.hours = fixture.referralHours
+                referral.occurredOn = fixture.referralOn
+                referral.earnedFromBookingKey = fixture.earnedFromBookingKey
+                referral.spentOnInvoiceID = fixture.spentOnInvoiceID
+                referral.note = fixture.referralNote
 
-            let referral = V.ReferralLedgerEntry()
-            referral.client = client
-            referral.hours = fixture.referralHours
-            referral.occurredOn = fixture.referralOn
-            referral.earnedFromBookingKey = fixture.earnedFromBookingKey
-            referral.spentOnInvoiceID = fixture.spentOnInvoiceID
-            referral.note = fixture.referralNote
-
-            for model in [client, invoice, payment, service, line, allocation, refund,
-                          expense, referral] as [any PersistentModel] {
-                context.insert(model)
+                for model in [client, invoice, payment, service, line, allocation, refund,
+                              expense, referral] as [any PersistentModel] {
+                    context.insert(model)
+                }
             }
-        }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        try Self.expectEveryEntityCarried(from: url)
+            try Self.expectEveryEntityCarried(from: url)
+        }
     }
 
     /// The same statement from version 2, the step Dan's installed store takes.
@@ -867,224 +854,221 @@ struct SchemaMigrationTests {
     /// defends; a shared writer would have to name one version's classes.
     @Test("every entity's rows and links survive from a version 2 store")
     func everyEntitySurvivesFromVersionTwo() async throws {
-        let url = try Self.scratchStore("every-entity-2")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try await ScratchStore.with("every-entity-2") { url in
+            try await EarlierVersionStore.write(OvationSchemaV2.self, at: url) { context in
+                typealias V = OvationSchemaV2
+                let fixture = EveryEntity.self
+                let client = V.Client()
+                client.name = fixture.clientName
+                let invoice = V.Invoice()
+                invoice.number = fixture.invoiceNumber
+                invoice.client = client
+                let payment = V.Payment()
+                payment.amount = fixture.paymentAmount
+                payment.client = client
 
-        try await EarlierVersionStore.write(OvationSchemaV2.self, at: url) { context in
-            typealias V = OvationSchemaV2
-            let fixture = EveryEntity.self
-            let client = V.Client()
-            client.name = fixture.clientName
-            let invoice = V.Invoice()
-            invoice.number = fixture.invoiceNumber
-            invoice.client = client
-            let payment = V.Payment()
-            payment.amount = fixture.paymentAmount
-            payment.client = client
+                let service = V.ServiceType()
+                service.name = fixture.serviceName
+                service.role = fixture.serviceRole
+                service.defaultUnitAmount = fixture.serviceDefault
+                service.retiredOn = fixture.serviceRetired
+                let line = V.LineItem()
+                line.summary = fixture.lineSummary
+                line.serviceType = service
+                line.invoice = invoice
 
-            let service = V.ServiceType()
-            service.name = fixture.serviceName
-            service.role = fixture.serviceRole
-            service.defaultUnitAmount = fixture.serviceDefault
-            service.retiredOn = fixture.serviceRetired
-            let line = V.LineItem()
-            line.summary = fixture.lineSummary
-            line.serviceType = service
-            line.invoice = invoice
+                let allocation = V.PaymentAllocation()
+                allocation.payment = payment
+                allocation.invoice = invoice
+                allocation.amount = fixture.allocationAmount
+                allocation.allocatedOn = fixture.allocatedOn
+                allocation.releasedOn = fixture.releasedOn
 
-            let allocation = V.PaymentAllocation()
-            allocation.payment = payment
-            allocation.invoice = invoice
-            allocation.amount = fixture.allocationAmount
-            allocation.allocatedOn = fixture.allocatedOn
-            allocation.releasedOn = fixture.releasedOn
+                let refund = V.Refund()
+                refund.invoice = invoice
+                refund.payment = payment
+                refund.amount = fixture.refundAmount
+                refund.refundedOn = fixture.refundedOn
+                refund.method = fixture.refundMethod
+                refund.note = fixture.refundNote
 
-            let refund = V.Refund()
-            refund.invoice = invoice
-            refund.payment = payment
-            refund.amount = fixture.refundAmount
-            refund.refundedOn = fixture.refundedOn
-            refund.method = fixture.refundMethod
-            refund.note = fixture.refundNote
+                let expense = V.Expense()
+                expense.amount = fixture.expenseAmount
+                expense.incurredOn = fixture.incurredOn
+                expense.vendor = fixture.vendor
+                expense.category = fixture.category
+                expense.assetJudgement = fixture.assetJudgement
+                expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
+                expense.receipt = fixture.receipt
+                expense.note = fixture.expenseNote
+                expense.gmailMessageKey = fixture.gmailMessageKey
+                expense.attachmentPartIndex = fixture.attachmentPartIndex
+                expense.gmailAttachmentID = fixture.gmailAttachmentID
+                expense.importKey = fixture.expenseImportKey
 
-            let expense = V.Expense()
-            expense.amount = fixture.expenseAmount
-            expense.incurredOn = fixture.incurredOn
-            expense.vendor = fixture.vendor
-            expense.category = fixture.category
-            expense.assetJudgement = fixture.assetJudgement
-            expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
-            expense.receipt = fixture.receipt
-            expense.note = fixture.expenseNote
-            expense.gmailMessageKey = fixture.gmailMessageKey
-            expense.attachmentPartIndex = fixture.attachmentPartIndex
-            expense.gmailAttachmentID = fixture.gmailAttachmentID
-            expense.importKey = fixture.expenseImportKey
+                let referral = V.ReferralLedgerEntry()
+                referral.client = client
+                referral.hours = fixture.referralHours
+                referral.occurredOn = fixture.referralOn
+                referral.earnedFromBookingKey = fixture.earnedFromBookingKey
+                referral.spentOnInvoiceID = fixture.spentOnInvoiceID
+                referral.note = fixture.referralNote
 
-            let referral = V.ReferralLedgerEntry()
-            referral.client = client
-            referral.hours = fixture.referralHours
-            referral.occurredOn = fixture.referralOn
-            referral.earnedFromBookingKey = fixture.earnedFromBookingKey
-            referral.spentOnInvoiceID = fixture.spentOnInvoiceID
-            referral.note = fixture.referralNote
-
-            for model in [client, invoice, payment, service, line, allocation, refund,
-                          expense, referral] as [any PersistentModel] {
-                context.insert(model)
+                for model in [client, invoice, payment, service, line, allocation, refund,
+                              expense, referral] as [any PersistentModel] {
+                    context.insert(model)
+                }
             }
-        }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        try Self.expectEveryEntityCarried(from: url)
+            try Self.expectEveryEntityCarried(from: url)
+        }
     }
 
     @Test("every entity's rows and links survive from a version 3 store")
     func everyEntitySurvivesFromVersionThree() async throws {
-        let url = try Self.scratchStore("every-entity-3")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try await ScratchStore.with("every-entity-3") { url in
+            try await EarlierVersionStore.write(OvationSchemaV3.self, at: url) { context in
+                typealias V = OvationSchemaV3
+                let fixture = EveryEntity.self
+                let client = V.Client()
+                client.name = fixture.clientName
+                let invoice = V.Invoice()
+                invoice.number = fixture.invoiceNumber
+                invoice.client = client
+                let payment = V.Payment()
+                payment.amount = fixture.paymentAmount
+                payment.client = client
 
-        try await EarlierVersionStore.write(OvationSchemaV3.self, at: url) { context in
-            typealias V = OvationSchemaV3
-            let fixture = EveryEntity.self
-            let client = V.Client()
-            client.name = fixture.clientName
-            let invoice = V.Invoice()
-            invoice.number = fixture.invoiceNumber
-            invoice.client = client
-            let payment = V.Payment()
-            payment.amount = fixture.paymentAmount
-            payment.client = client
+                let service = V.ServiceType()
+                service.name = fixture.serviceName
+                service.role = fixture.serviceRole
+                service.defaultUnitAmount = fixture.serviceDefault
+                service.retiredOn = fixture.serviceRetired
+                let line = V.LineItem()
+                line.summary = fixture.lineSummary
+                line.serviceType = service
+                line.invoice = invoice
 
-            let service = V.ServiceType()
-            service.name = fixture.serviceName
-            service.role = fixture.serviceRole
-            service.defaultUnitAmount = fixture.serviceDefault
-            service.retiredOn = fixture.serviceRetired
-            let line = V.LineItem()
-            line.summary = fixture.lineSummary
-            line.serviceType = service
-            line.invoice = invoice
+                let allocation = V.PaymentAllocation()
+                allocation.payment = payment
+                allocation.invoice = invoice
+                allocation.amount = fixture.allocationAmount
+                allocation.allocatedOn = fixture.allocatedOn
+                allocation.releasedOn = fixture.releasedOn
 
-            let allocation = V.PaymentAllocation()
-            allocation.payment = payment
-            allocation.invoice = invoice
-            allocation.amount = fixture.allocationAmount
-            allocation.allocatedOn = fixture.allocatedOn
-            allocation.releasedOn = fixture.releasedOn
+                let refund = V.Refund()
+                refund.invoice = invoice
+                refund.payment = payment
+                refund.amount = fixture.refundAmount
+                refund.refundedOn = fixture.refundedOn
+                refund.method = fixture.refundMethod
+                refund.note = fixture.refundNote
 
-            let refund = V.Refund()
-            refund.invoice = invoice
-            refund.payment = payment
-            refund.amount = fixture.refundAmount
-            refund.refundedOn = fixture.refundedOn
-            refund.method = fixture.refundMethod
-            refund.note = fixture.refundNote
+                let expense = V.Expense()
+                expense.amount = fixture.expenseAmount
+                expense.incurredOn = fixture.incurredOn
+                expense.vendor = fixture.vendor
+                expense.category = fixture.category
+                expense.assetJudgement = fixture.assetJudgement
+                expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
+                expense.receipt = fixture.receipt
+                expense.note = fixture.expenseNote
+                expense.gmailMessageKey = fixture.gmailMessageKey
+                expense.attachmentPartIndex = fixture.attachmentPartIndex
+                expense.gmailAttachmentID = fixture.gmailAttachmentID
+                expense.importKey = fixture.expenseImportKey
 
-            let expense = V.Expense()
-            expense.amount = fixture.expenseAmount
-            expense.incurredOn = fixture.incurredOn
-            expense.vendor = fixture.vendor
-            expense.category = fixture.category
-            expense.assetJudgement = fixture.assetJudgement
-            expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
-            expense.receipt = fixture.receipt
-            expense.note = fixture.expenseNote
-            expense.gmailMessageKey = fixture.gmailMessageKey
-            expense.attachmentPartIndex = fixture.attachmentPartIndex
-            expense.gmailAttachmentID = fixture.gmailAttachmentID
-            expense.importKey = fixture.expenseImportKey
+                let referral = V.ReferralLedgerEntry()
+                referral.client = client
+                referral.hours = fixture.referralHours
+                referral.occurredOn = fixture.referralOn
+                referral.earnedFromBookingKey = fixture.earnedFromBookingKey
+                referral.spentOnInvoiceID = fixture.spentOnInvoiceID
+                referral.note = fixture.referralNote
 
-            let referral = V.ReferralLedgerEntry()
-            referral.client = client
-            referral.hours = fixture.referralHours
-            referral.occurredOn = fixture.referralOn
-            referral.earnedFromBookingKey = fixture.earnedFromBookingKey
-            referral.spentOnInvoiceID = fixture.spentOnInvoiceID
-            referral.note = fixture.referralNote
-
-            for model in [client, invoice, payment, service, line, allocation, refund,
-                          expense, referral] as [any PersistentModel] {
-                context.insert(model)
+                for model in [client, invoice, payment, service, line, allocation, refund,
+                              expense, referral] as [any PersistentModel] {
+                    context.insert(model)
+                }
             }
-        }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        try Self.expectEveryEntityCarried(from: url)
+            try Self.expectEveryEntityCarried(from: url)
+        }
     }
 
     @Test("every entity's rows and links survive from a version 4 store")
     func everyEntitySurvivesFromVersionFour() async throws {
-        let url = try Self.scratchStore("every-entity-4")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try await ScratchStore.with("every-entity-4") { url in
+            try await EarlierVersionStore.write(OvationSchemaV4.self, at: url) { context in
+                typealias V = OvationSchemaV4
+                let fixture = EveryEntity.self
+                let client = V.Client()
+                client.name = fixture.clientName
+                let invoice = V.Invoice()
+                invoice.number = fixture.invoiceNumber
+                invoice.client = client
+                let payment = V.Payment()
+                payment.amount = fixture.paymentAmount
+                payment.client = client
 
-        try await EarlierVersionStore.write(OvationSchemaV4.self, at: url) { context in
-            typealias V = OvationSchemaV4
-            let fixture = EveryEntity.self
-            let client = V.Client()
-            client.name = fixture.clientName
-            let invoice = V.Invoice()
-            invoice.number = fixture.invoiceNumber
-            invoice.client = client
-            let payment = V.Payment()
-            payment.amount = fixture.paymentAmount
-            payment.client = client
+                let service = V.ServiceType()
+                service.name = fixture.serviceName
+                service.role = fixture.serviceRole
+                service.defaultUnitAmount = fixture.serviceDefault
+                service.retiredOn = fixture.serviceRetired
+                let line = V.LineItem()
+                line.summary = fixture.lineSummary
+                line.serviceType = service
+                line.invoice = invoice
 
-            let service = V.ServiceType()
-            service.name = fixture.serviceName
-            service.role = fixture.serviceRole
-            service.defaultUnitAmount = fixture.serviceDefault
-            service.retiredOn = fixture.serviceRetired
-            let line = V.LineItem()
-            line.summary = fixture.lineSummary
-            line.serviceType = service
-            line.invoice = invoice
+                let allocation = V.PaymentAllocation()
+                allocation.payment = payment
+                allocation.invoice = invoice
+                allocation.amount = fixture.allocationAmount
+                allocation.allocatedOn = fixture.allocatedOn
+                allocation.releasedOn = fixture.releasedOn
 
-            let allocation = V.PaymentAllocation()
-            allocation.payment = payment
-            allocation.invoice = invoice
-            allocation.amount = fixture.allocationAmount
-            allocation.allocatedOn = fixture.allocatedOn
-            allocation.releasedOn = fixture.releasedOn
+                let refund = V.Refund()
+                refund.invoice = invoice
+                refund.payment = payment
+                refund.amount = fixture.refundAmount
+                refund.refundedOn = fixture.refundedOn
+                refund.method = fixture.refundMethod
+                refund.note = fixture.refundNote
 
-            let refund = V.Refund()
-            refund.invoice = invoice
-            refund.payment = payment
-            refund.amount = fixture.refundAmount
-            refund.refundedOn = fixture.refundedOn
-            refund.method = fixture.refundMethod
-            refund.note = fixture.refundNote
+                let expense = V.Expense()
+                expense.amount = fixture.expenseAmount
+                expense.incurredOn = fixture.incurredOn
+                expense.vendor = fixture.vendor
+                expense.category = fixture.category
+                expense.assetJudgement = fixture.assetJudgement
+                expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
+                expense.receipt = fixture.receipt
+                expense.note = fixture.expenseNote
+                expense.gmailMessageKey = fixture.gmailMessageKey
+                expense.attachmentPartIndex = fixture.attachmentPartIndex
+                expense.gmailAttachmentID = fixture.gmailAttachmentID
+                expense.importKey = fixture.expenseImportKey
 
-            let expense = V.Expense()
-            expense.amount = fixture.expenseAmount
-            expense.incurredOn = fixture.incurredOn
-            expense.vendor = fixture.vendor
-            expense.category = fixture.category
-            expense.assetJudgement = fixture.assetJudgement
-            expense.bothAreRealAcknowledgedOn = fixture.acknowledgedOn
-            expense.receipt = fixture.receipt
-            expense.note = fixture.expenseNote
-            expense.gmailMessageKey = fixture.gmailMessageKey
-            expense.attachmentPartIndex = fixture.attachmentPartIndex
-            expense.gmailAttachmentID = fixture.gmailAttachmentID
-            expense.importKey = fixture.expenseImportKey
+                let referral = V.ReferralLedgerEntry()
+                referral.client = client
+                referral.hours = fixture.referralHours
+                referral.occurredOn = fixture.referralOn
+                referral.earnedFromBookingKey = fixture.earnedFromBookingKey
+                referral.spentOnInvoiceID = fixture.spentOnInvoiceID
+                referral.note = fixture.referralNote
 
-            let referral = V.ReferralLedgerEntry()
-            referral.client = client
-            referral.hours = fixture.referralHours
-            referral.occurredOn = fixture.referralOn
-            referral.earnedFromBookingKey = fixture.earnedFromBookingKey
-            referral.spentOnInvoiceID = fixture.spentOnInvoiceID
-            referral.note = fixture.referralNote
-
-            for model in [client, invoice, payment, service, line, allocation, refund,
-                          expense, referral] as [any PersistentModel] {
-                context.insert(model)
+                for model in [client, invoice, payment, service, line, allocation, refund,
+                              expense, referral] as [any PersistentModel] {
+                    context.insert(model)
+                }
             }
-        }
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        try Self.expectEveryEntityCarried(from: url)
+            try Self.expectEveryEntityCarried(from: url)
+        }
     }
 
     /// Opens the store the way the app does and reads every field the fixture set,
@@ -1166,43 +1150,6 @@ struct SchemaMigrationTests {
         #expect(referringClient?.referralEntries.count == 1, "and the inverse resolves too")
     }
 
-    /// ovation#632. A case that deletes its store while a container still holds it
-    /// open is the fault SQLite names "vnode unlinked while in use", and it was
-    /// logged by five cases on every run. The cause was measured, not assumed:
-    /// reading BOTH sides of one link in ONE context keeps the models, their
-    /// context and the container alive for the rest of the process. So after the
-    /// two readers that did it have run, nothing in this process may still hold a
-    /// store file that no longer exists. A store another case is still using
-    /// exists, so it cannot be mistaken for one.
-    @Test("a case that deletes its store leaves nothing holding it open")
-    func noDeletedStoreIsStillOpen() async throws {
-        try await therealStoreMigrates()
-        try await everyEntitySurvivesFromVersionOne()
-        #expect(Self.deletedStoresStillOpen() == [])
-    }
-
-    /// Every descriptor this process holds on an `ovation-` store file that is no
-    /// longer on disk.
-    private static func deletedStoresStillOpen() -> [String] {
-        var held: [String] = []
-        for descriptor in 0..<Int32(getdtablesize()) {
-            var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-            guard fcntl(descriptor, F_GETPATH, &path) == 0 else { continue }
-            let text = String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            if text.contains("/ovation-"), text.contains(".store"),
-               !FileManager.default.fileExists(atPath: text) {
-                held.append(text)
-            }
-        }
-        return held
-    }
-
-    private static func scratchStore(_ label: String) throws -> URL {
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-\(label)-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appending(path: "Ovation.store")
-    }
 
     /// One value per stored field, each distinct from its default and from every
     /// other value of its type, so a lost or swapped column cannot read back right.
@@ -1268,72 +1215,68 @@ struct SchemaMigrationTests {
         // Ovation ships as a Debug and a Release build on the same Mac
         // (ovation#103), and a restore from an archive taken by a newer build
         // lands in the same place, so this is not hypothetical.
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-downgrade-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appending(path: "Probe.store")
+        try ScratchStore.with("downgrade", file: "Probe.store") { url in
+            // A store written by version TWO, carrying a value only version two has.
+            let newer = try ModelContainer(
+                for: ProbeSchemaV2.Probe.self, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
+                                                   url: url))
+            let writing = ModelContext(newer)
+            let row = ProbeSchemaV2.Probe(name: "Ashgrove Chamber Players", amount: 27219)
+            row.note = "only version two knows this"
+            writing.insert(row)
+            try writing.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        // A store written by version TWO, carrying a value only version two has.
-        let newer = try ModelContainer(
-            for: ProbeSchemaV2.Probe.self, migrationPlan: nil,
-            configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
-                                               url: url))
-        let writing = ModelContext(newer)
-        let row = ProbeSchemaV2.Probe(name: "Ashgrove Chamber Players", amount: 27219)
-        row.note = "only version two knows this"
-        writing.insert(row)
-        try writing.save()
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+            // Now the OLDER build opens it, with no plan, exactly as an older build
+            // would.
+            var opened = false
+            var refusal: String?
+            do {
+                let older = try ModelContainer(
+                    for: ProbeSchemaV1.Probe.self, migrationPlan: nil,
+                    configurations: ModelConfiguration(
+                        schema: Schema(versionedSchema: ProbeSchemaV1.self), url: url))
+                opened = true
+                let reading = ModelContext(older)
+                let rows = try reading.fetch(FetchDescriptor<ProbeSchemaV1.Probe>())
+                #expect(rows.count == 1, "MEASURED: the older build read the row")
+                #expect(rows.first?.amount == 27219, "MEASURED: and the fields it knows about survived")
+            } catch {
+                refusal = "\(error)"
+            }
 
-        // Now the OLDER build opens it, with no plan, exactly as an older build
-        // would.
-        var opened = false
-        var refusal: String?
-        do {
-            let older = try ModelContainer(
-                for: ProbeSchemaV1.Probe.self, migrationPlan: nil,
-                configurations: ModelConfiguration(
-                    schema: Schema(versionedSchema: ProbeSchemaV1.self), url: url))
-            opened = true
-            let reading = ModelContext(older)
-            let rows = try reading.fetch(FetchDescriptor<ProbeSchemaV1.Probe>())
-            #expect(rows.count == 1, "MEASURED: the older build read the row")
-            #expect(rows.first?.amount == 27219, "MEASURED: and the fields it knows about survived")
-        } catch {
-            refusal = "\(error)"
+            // THE FINDING, whichever way it went, recorded as the assertion so a
+            // future OS changing it turns this red rather than passing quietly.
+            #expect(opened, "MEASURED on macOS 26.5: an older build OPENS a newer store rather than refusing. Refusal would have been the safe answer, so the guard in ovation#116 has to supply it.")
+            #expect(refusal == nil)
+
+            // And the question that decides how bad that is: is the newer build's
+            // value still there afterwards?
+            let backAgain = try ModelContainer(
+                for: ProbeSchemaV2.Probe.self, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
+                                                   url: url))
+            let after = try ModelContext(backAgain).fetch(FetchDescriptor<ProbeSchemaV2.Probe>())
+            #expect(after.count == 1, "MEASURED: the row itself survived")
+            #expect(after.first?.name == "Ashgrove Chamber Players",
+                    "MEASURED: and the fields BOTH versions know about survived")
+
+            // THE FINDING, AND IT IS THE WORST OF THE THREE THE ISSUE NAMED.
+            // Measured 2026-09-08 on macOS 26.5, Swift 6.3.3: the older build did not
+            // refuse, and it did not merely ignore the column it does not know about.
+            // It MIGRATED THE STORE BACKWARDS and the value is GONE. Reopening under
+            // version two returns nil, not the string version two wrote.
+            //
+            // So the downgrade case destroys data that only the newer build knows
+            // about, silently, on a store whose backup was taken before any of it.
+            // Nothing in the app can currently tell this is about to happen, which is
+            // the whole of ovation#116.
+            #expect(after.first?.note == nil,
+                    Comment(rawValue: "MEASURED: the older build DROPPED the column it does not know "
+                        + "about. This is data loss, not a graceful downgrade, and it is why the "
+                        + "guard has to refuse before the store is opened."))
         }
-
-        // THE FINDING, whichever way it went, recorded as the assertion so a
-        // future OS changing it turns this red rather than passing quietly.
-        #expect(opened, "MEASURED on macOS 26.5: an older build OPENS a newer store rather than refusing. Refusal would have been the safe answer, so the guard in ovation#116 has to supply it.")
-        #expect(refusal == nil)
-
-        // And the question that decides how bad that is: is the newer build's
-        // value still there afterwards?
-        let backAgain = try ModelContainer(
-            for: ProbeSchemaV2.Probe.self, migrationPlan: nil,
-            configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
-                                               url: url))
-        let after = try ModelContext(backAgain).fetch(FetchDescriptor<ProbeSchemaV2.Probe>())
-        #expect(after.count == 1, "MEASURED: the row itself survived")
-        #expect(after.first?.name == "Ashgrove Chamber Players",
-                "MEASURED: and the fields BOTH versions know about survived")
-
-        // THE FINDING, AND IT IS THE WORST OF THE THREE THE ISSUE NAMED.
-        // Measured 2026-09-08 on macOS 26.5, Swift 6.3.3: the older build did not
-        // refuse, and it did not merely ignore the column it does not know about.
-        // It MIGRATED THE STORE BACKWARDS and the value is GONE. Reopening under
-        // version two returns nil, not the string version two wrote.
-        //
-        // So the downgrade case destroys data that only the newer build knows
-        // about, silently, on a store whose backup was taken before any of it.
-        // Nothing in the app can currently tell this is about to happen, which is
-        // the whole of ovation#116.
-        #expect(after.first?.note == nil,
-                Comment(rawValue: "MEASURED: the older build DROPPED the column it does not know "
-                    + "about. This is data loss, not a graceful downgrade, and it is why the "
-                    + "guard has to refuse before the store is opened."))
     }
 
     @Test("MEASUREMENT: whether a raw SQLite read can tell WHICH version wrote the store")
@@ -1342,36 +1285,32 @@ struct SchemaMigrationTests {
         // sqlite_master read only, so if the version is reachable that way the
         // guard can answer; if it is not, the answer has to come from somewhere
         // else, such as a version file Ovation writes beside the store.
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-version-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appending(path: "Probe.store")
+        try ScratchStore.with("version", file: "Probe.store") { url in
+            let container = try ModelContainer(
+                for: ProbeSchemaV2.Probe.self, migrationPlan: nil,
+                configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
+                                                   url: url))
+            let context = ModelContext(container)
+            context.insert(ProbeSchemaV2.Probe(name: "Ashgrove Chamber Players", amount: 1))
+            try context.save()
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
-        let container = try ModelContainer(
-            for: ProbeSchemaV2.Probe.self, migrationPlan: nil,
-            configurations: ModelConfiguration(schema: Schema(versionedSchema: ProbeSchemaV2.self),
-                                               url: url))
-        let context = ModelContext(container)
-        context.insert(ProbeSchemaV2.Probe(name: "Ashgrove Chamber Players", amount: 1))
-        try context.save()
-        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+            let tables = Self.rawTableNames(at: url)
+            #expect(tables.contains("Z_METADATA"),
+                    "MEASURED: Core Data's metadata table is there and a raw read can reach it")
 
-        let tables = Self.rawTableNames(at: url)
-        #expect(tables.contains("Z_METADATA"),
-                "MEASURED: Core Data's metadata table is there and a raw read can reach it")
-
-        // WHAT IT DOES NOT CARRY is the finding that matters. Z_METADATA holds
-        // Core Data's model version HASHES, not the semantic version Ovation
-        // declares. A hash answers "different", never "newer", and ovation#116
-        // needs the DIRECTION: a foreign store is a file to move aside, and a
-        // newer one means "you are running the wrong build", which is a
-        // completely different sentence to read at launch (L11).
-        let metadata = Self.rawMetadataText(at: url)
-        #expect(metadata != nil, "MEASURED: a raw read can pull the metadata blob out")
-        #expect(metadata?.contains("2.0.0") == false,
-                Comment(rawValue: "MEASURED: the semantic version Ovation declares is NOT in "
-                    + "the file, so the guard cannot answer this question from sqlite_master alone"))
+            // WHAT IT DOES NOT CARRY is the finding that matters. Z_METADATA holds
+            // Core Data's model version HASHES, not the semantic version Ovation
+            // declares. A hash answers "different", never "newer", and ovation#116
+            // needs the DIRECTION: a foreign store is a file to move aside, and a
+            // newer one means "you are running the wrong build", which is a
+            // completely different sentence to read at launch (L11).
+            let metadata = Self.rawMetadataText(at: url)
+            #expect(metadata != nil, "MEASURED: a raw read can pull the metadata blob out")
+            #expect(metadata?.contains("2.0.0") == false,
+                    Comment(rawValue: "MEASURED: the semantic version Ovation declares is NOT in "
+                        + "the file, so the guard cannot answer this question from sqlite_master alone"))
+        }
     }
 
     /// The table names in a store file, read only, the same way
@@ -1421,11 +1360,7 @@ struct SchemaMigrationTests {
         return found
     }
 
-    private func writeVersionOne() throws -> URL {
-        let directory = URL.temporaryDirectory
-            .appending(path: "ovation-migration-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appending(path: "Probe.store")
+    private func writeVersionOne(at url: URL) throws {
 
         let container = try ModelContainer(
             for: ProbeSchemaV1.Probe.self,
@@ -1441,7 +1376,6 @@ struct SchemaMigrationTests {
         // store file that never held the row, and the test would be measuring
         // the checkpoint rather than the migration.
         #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
-        return url
     }
 }
 
