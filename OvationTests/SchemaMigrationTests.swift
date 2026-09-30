@@ -286,7 +286,7 @@ struct SchemaMigrationTests {
     // MARK: THE REAL ONE: Ovation's own store, version 1 to version 2 (ovation#382)
 
     @Test("a real version 1 store opens under version 2 with its rows and its links")
-    func therealStoreMigrates() throws {
+    func therealStoreMigrates() async throws {
         // THE OTHER CASES IN THIS FILE MEASURE THE PLATFORM with a probe entity.
         // This one drives OVATION'S OWN schema through OVATION'S OWN factory, which
         // is the path that ships, so a version that works for the probe and not for
@@ -299,12 +299,7 @@ struct SchemaMigrationTests {
 
         // Written by VERSION 1, related rows and all, because the reuse failure
         // this version exists to avoid only shows through a relationship.
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV1.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV1.self, at: url) { context in
             let client = OvationSchemaV1.Client()
             client.name = "Ashgrove Chamber Players"
             client.taxStatus = .notExempt
@@ -324,9 +319,8 @@ struct SchemaMigrationTests {
             context.insert(invoice)
             context.insert(shoot)
             context.insert(line)
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         // Opened by the APP, which means version 2, the plan and the stage.
         let container = try OvationSchema.container(at: url)
@@ -349,7 +343,14 @@ struct SchemaMigrationTests {
         #expect(migrated.shoots.count == 1)
         #expect(migrated.lineItems.count == 1)
         #expect(migrated.lineItems.first?.unitAmount == Money(dollars: 500))
-        #expect(clients.first?.invoices.count == 1, "and the inverse resolves too")
+        // THE INVERSE IS READ IN A CONTEXT OF ITS OWN (ovation#632). Reading both
+        // sides of one link in one context keeps both models alive for the rest of
+        // the process, and with them this container and its open store, which the
+        // `defer` then deleted underneath it: SQLite reported "vnode unlinked while
+        // in use" on every run. Measured: the same reads in two contexts leave no
+        // descriptor open and the container released.
+        let inverse = try ModelContext(container).fetch(FetchDescriptor<Client>())
+        #expect(inverse.first?.invoices.count == 1, "and the inverse resolves too")
     }
 
     /// ovation#502. THE TWO FIELDS THE REPAIR ACTUALLY CHANGED, carried the whole
@@ -373,7 +374,7 @@ struct SchemaMigrationTests {
     /// asserting an absence must first prove the positive fires (L159): `notSent`
     /// is what a failed decode produces, so asserting it would pass either way.
     @Test("a sent invoice and a cleared payment survive the whole chain")
-    func thesentStatusAndTheClearedDateSurvive() throws {
+    func thesentStatusAndTheClearedDateSurvive() async throws {
         let directory = URL.temporaryDirectory
             .appending(path: "ovation-real-migration-3-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -383,12 +384,7 @@ struct SchemaMigrationTests {
         let sentAt = Date(timeIntervalSinceReferenceDate: 790_000_000)
         let clearedOn = BusinessDate(storedInstant: sentAt, storedDayKey: "2026-01-14")
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV1.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV1.self, at: url) { context in
             let client = OvationSchemaV1.Client()
             client.name = "Ashgrove Chamber Players"
             client.taxStatus = .notExempt
@@ -405,9 +401,8 @@ struct SchemaMigrationTests {
             context.insert(client)
             context.insert(invoice)
             context.insert(payment)
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         let container = try OvationSchema.container(at: url)
         let context = ModelContext(container)
@@ -425,19 +420,14 @@ struct SchemaMigrationTests {
     /// actually take, because version 2 is the shape that shipped before this one
     /// and the chain above only proves the FIRST step when it starts at version 1.
     @Test("a real version 2 store opens under version 3 with its rows and its links")
-    func therealStoreMigratesFromVersionTwo() throws {
+    func therealStoreMigratesFromVersionTwo() async throws {
         let directory = URL.temporaryDirectory
             .appending(path: "ovation-real-migration-2-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "Ovation.store")
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV2.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV2.self, at: url) { context in
             let client = OvationSchemaV2.Client()
             client.name = "Ashgrove Chamber Players"
             client.taxStatus = .notExempt
@@ -458,9 +448,8 @@ struct SchemaMigrationTests {
             context.insert(invoice)
             context.insert(shoot)
             context.insert(line)
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         let container = try OvationSchema.container(at: url)
         let context = ModelContext(container)
@@ -494,16 +483,11 @@ struct SchemaMigrationTests {
     /// migration Dan's own store takes. Its rows arrive with no creation day, which
     /// is the truth rather than a gap: the day was never recorded.
     @Test("a real version 3 store opens under version 4 with its rows, and no invented creation day")
-    func therealStoreMigratesFromVersionThree() throws {
+    func therealStoreMigratesFromVersionThree() async throws {
         let url = try Self.scratchStore("real-3")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV3.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV3.self, at: url) { context in
             let client = OvationSchemaV3.Client()
             client.name = "Cedar Hill Youth Orchestra"
             client.taxStatus = .exempt
@@ -527,9 +511,8 @@ struct SchemaMigrationTests {
             for model in [client, invoice, shoot, line] as [any PersistentModel] {
                 context.insert(model)
             }
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         let container = try OvationSchema.container(at: url)
         let context = ModelContext(container)
@@ -558,16 +541,11 @@ struct SchemaMigrationTests {
     /// before version 5, so its rows arrive with no source and read as recorded
     /// with the payment, and no invoice has had held money taken off it.
     @Test("a real version 4 store opens under version 5, its allocations reading as recorded with the payment")
-    func therealStoreMigratesFromVersionFour() throws {
+    func therealStoreMigratesFromVersionFour() async throws {
         let url = try Self.scratchStore("real-4")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV4.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV4.self, at: url) { context in
             let client = OvationSchemaV4.Client()
             client.name = "Cedar Hill Youth Orchestra"
             let invoice = OvationSchemaV4.Invoice()
@@ -584,9 +562,8 @@ struct SchemaMigrationTests {
             for model in [client, invoice, payment, allocation] as [any PersistentModel] {
                 context.insert(model)
             }
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         let container = try OvationSchema.container(at: url)
         let context = ModelContext(container)
@@ -619,17 +596,12 @@ struct SchemaMigrationTests {
     /// THE CLIENTS ARE ONE OF EACH STATUS, so a stamp read from the wrong client, or
     /// a stage that stamped a constant, reads back wrong on at least one row.
     @Test("a real version 5 store opens under version 6 with every sent invoice's tax status recorded")
-    func therealStoreMigratesFromVersionFive() throws {
+    func therealStoreMigratesFromVersionFive() async throws {
         let url = try Self.scratchStore("real-5")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV5.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV5.self, at: url) { context in
             let taxed = OvationSchemaV5.Client()
             taxed.name = "Calder Street Theatre"
             taxed.taxStatus = .notExempt
@@ -652,9 +624,8 @@ struct SchemaMigrationTests {
                 invoice(nil, exempt, .notSent),
             ]
             for model in rows { context.insert(model) }
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         let container = try OvationSchema.container(at: url)
         let context = ModelContext(container)
@@ -689,17 +660,12 @@ struct SchemaMigrationTests {
     /// client (L192). A message recorded afterwards is kept and read back through
     /// the invoice, which is what the history pane reads.
     @Test("a real version 6 store opens under version 7 with its rows, and no invented sent message")
-    func therealStoreMigratesFromVersionSix() throws {
+    func therealStoreMigratesFromVersionSix() async throws {
         let url = try Self.scratchStore("real-6")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV6.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV6.self, at: url) { context in
             let client = OvationSchemaV6.Client()
             client.name = "Calder Street Theatre"
             client.email = "office@calder.example"
@@ -712,9 +678,8 @@ struct SchemaMigrationTests {
             let draft = OvationSchemaV6.Invoice()
             draft.client = client
             for model in [client, sent, draft] as [any PersistentModel] { context.insert(model) }
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         let container = try OvationSchema.container(at: url)
         let context = ModelContext(container)
@@ -754,12 +719,7 @@ struct SchemaMigrationTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let sentAt = Date(timeIntervalSince1970: 1_794_531_600)
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV7.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV7.self, at: url) { context in
             let client = OvationSchemaV7.Client()
             client.name = "Calder Street Theatre"
             client.email = "office@calder.example"
@@ -781,9 +741,8 @@ struct SchemaMigrationTests {
             reviewed.number = 1_132
             reviewed.client = client
             for model in [client, sent, message, reviewed] as [any PersistentModel] { context.insert(model) }
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         let container = try OvationSchema.container(at: url)
         let context = ModelContext(container)
@@ -829,16 +788,11 @@ struct SchemaMigrationTests {
     /// exactly that field and no other, which is what a column the frozen copy
     /// failed to carry reads back as.
     @Test("every entity's rows and links survive from a version 1 store")
-    func everyEntitySurvivesFromVersionOne() throws {
+    func everyEntitySurvivesFromVersionOne() async throws {
         let url = try Self.scratchStore("every-entity-1")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV1.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV1.self, at: url) { context in
             typealias V = OvationSchemaV1
             let fixture = EveryEntity.self
             let client = V.Client()
@@ -901,9 +855,8 @@ struct SchemaMigrationTests {
                           expense, referral] as [any PersistentModel] {
                 context.insert(model)
             }
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         try Self.expectEveryEntityCarried(from: url)
     }
@@ -913,16 +866,11 @@ struct SchemaMigrationTests {
     /// are distinct types by design, which is the property `theversionsDoNotShareTheirTypes`
     /// defends; a shared writer would have to name one version's classes.
     @Test("every entity's rows and links survive from a version 2 store")
-    func everyEntitySurvivesFromVersionTwo() throws {
+    func everyEntitySurvivesFromVersionTwo() async throws {
         let url = try Self.scratchStore("every-entity-2")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV2.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV2.self, at: url) { context in
             typealias V = OvationSchemaV2
             let fixture = EveryEntity.self
             let client = V.Client()
@@ -985,24 +933,18 @@ struct SchemaMigrationTests {
                           expense, referral] as [any PersistentModel] {
                 context.insert(model)
             }
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         try Self.expectEveryEntityCarried(from: url)
     }
 
     @Test("every entity's rows and links survive from a version 3 store")
-    func everyEntitySurvivesFromVersionThree() throws {
+    func everyEntitySurvivesFromVersionThree() async throws {
         let url = try Self.scratchStore("every-entity-3")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV3.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV3.self, at: url) { context in
             typealias V = OvationSchemaV3
             let fixture = EveryEntity.self
             let client = V.Client()
@@ -1065,24 +1007,18 @@ struct SchemaMigrationTests {
                           expense, referral] as [any PersistentModel] {
                 context.insert(model)
             }
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         try Self.expectEveryEntityCarried(from: url)
     }
 
     @Test("every entity's rows and links survive from a version 4 store")
-    func everyEntitySurvivesFromVersionFour() throws {
+    func everyEntitySurvivesFromVersionFour() async throws {
         let url = try Self.scratchStore("every-entity-4")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-        do {
-            let schema = Schema(versionedSchema: OvationSchemaV4.self)
-            let container = try ModelContainer(
-                for: schema, migrationPlan: nil,
-                configurations: ModelConfiguration(schema: schema, url: url))
-            let context = ModelContext(container)
+        try await EarlierVersionStore.write(OvationSchemaV4.self, at: url) { context in
             typealias V = OvationSchemaV4
             let fixture = EveryEntity.self
             let client = V.Client()
@@ -1145,9 +1081,8 @@ struct SchemaMigrationTests {
                           expense, referral] as [any PersistentModel] {
                 context.insert(model)
             }
-            try context.save()
-            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
         }
+        #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
 
         try Self.expectEveryEntityCarried(from: url)
     }
@@ -1194,11 +1129,14 @@ struct SchemaMigrationTests {
         #expect(refund.payment?.amount == fixture.paymentAmount)
         #expect(refund.invoice?.number == fixture.invoiceNumber)
 
-        // And the inverses, which are what the invoice and payment screens read.
-        let invoice = try #require(allocation.invoice)
+        // And the inverses, which are what the invoice and payment screens read,
+        // each from a context of its own for the reason `therealStoreMigrates`
+        // gives: both sides of a link read in one context keep the store open past
+        // the test (ovation#632).
+        let invoice = try #require(try ModelContext(container).fetch(FetchDescriptor<Invoice>()).first)
         #expect(invoice.allocations.count == 1)
         #expect(invoice.refunds.count == 1)
-        let payment = try #require(allocation.payment)
+        let payment = try #require(try ModelContext(container).fetch(FetchDescriptor<Payment>()).first)
         #expect(payment.allocations.count == 1)
         #expect(payment.refunds.count == 1)
 
@@ -1224,7 +1162,39 @@ struct SchemaMigrationTests {
         #expect(referral.spentOnInvoiceID == fixture.spentOnInvoiceID)
         #expect(referral.note == fixture.referralNote)
         #expect(referral.client?.name == fixture.clientName)
-        #expect(referral.client?.referralEntries.count == 1, "and the inverse resolves too")
+        let referringClient = try ModelContext(container).fetch(FetchDescriptor<Client>()).first
+        #expect(referringClient?.referralEntries.count == 1, "and the inverse resolves too")
+    }
+
+    /// ovation#632. A case that deletes its store while a container still holds it
+    /// open is the fault SQLite names "vnode unlinked while in use", and it was
+    /// logged by five cases on every run. The cause was measured, not assumed:
+    /// reading BOTH sides of one link in ONE context keeps the models, their
+    /// context and the container alive for the rest of the process. So after the
+    /// two readers that did it have run, nothing in this process may still hold a
+    /// store file that no longer exists. A store another case is still using
+    /// exists, so it cannot be mistaken for one.
+    @Test("a case that deletes its store leaves nothing holding it open")
+    func noDeletedStoreIsStillOpen() async throws {
+        try await therealStoreMigrates()
+        try await everyEntitySurvivesFromVersionOne()
+        #expect(Self.deletedStoresStillOpen() == [])
+    }
+
+    /// Every descriptor this process holds on an `ovation-` store file that is no
+    /// longer on disk.
+    private static func deletedStoresStillOpen() -> [String] {
+        var held: [String] = []
+        for descriptor in 0..<Int32(getdtablesize()) {
+            var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+            guard fcntl(descriptor, F_GETPATH, &path) == 0 else { continue }
+            let text = String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            if text.contains("/ovation-"), text.contains(".store"),
+               !FileManager.default.fileExists(atPath: text) {
+                held.append(text)
+            }
+        }
+        return held
     }
 
     private static func scratchStore(_ label: String) throws -> URL {
