@@ -163,6 +163,27 @@ struct QuickBooksInvoicesAndPaymentsTests {
         #expect(result.refusals.last?.groupRow == 8)
     }
 
+    @Test("one invoice number under two clients is refused by name, and neither client's payments are tied")
+    func oneNumberUnderTwoClientsIsAmbiguous() {
+        // L521. Two rows carrying one number is not the invoice twice; which
+        // client it belongs to is not something the file settles.
+        let result = QuickBooksPaymentReconciliation.reconcile(
+            invoices: Self.list([F.invoice(number: "1001", amount: "100.00")], total: "$100.00"),
+            ledger: Self.ledger([
+                F.client("Fictive Quartet"), F.ledgerInvoice(number: "1001", amount: "100.00"),
+                F.ledgerPayment(amount: "100.00"),
+                F.client("Imaginary Opera"), F.ledgerInvoice(number: "1001", amount: "100.00"),
+                F.ledgerPayment(amount: "100.00"),
+            ]))
+        #expect(result.tied.isEmpty)
+        #expect(result.refusals.map(\.reason) == [
+            .numberUnderSeveralRows,
+            .groupHoldsAnInvoiceThatDoesNotReconcile,
+            .groupHoldsAnInvoiceThatDoesNotReconcile,
+        ])
+        #expect(result.refusals.first?.ledgerRows == [7, 10])
+    }
+
     @Test("payments under a client with no invoice in scope are refused, not dropped")
     func paymentsWithNoInvoiceAreRefused() {
         let result = QuickBooksPaymentReconciliation.reconcile(

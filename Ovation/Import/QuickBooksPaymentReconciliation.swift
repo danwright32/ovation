@@ -37,6 +37,9 @@ struct QuickBooksPaymentReconciliation: Equatable, Sendable {
         case invoiceNotInPaymentsReport
         /// An invoice in the payments report the invoice list does not carry.
         case onlyInPaymentsReport
+        /// One invoice number carried by more than one row, possibly under more
+        /// than one client, so which client it belongs to is not settled (L521).
+        case numberUnderSeveralRows
         /// The invoice list total minus the payments report's amount.
         case amountDiffersFromInvoiceList(difference: Money)
         /// What the invoice list says was paid, minus the payments under it.
@@ -76,9 +79,19 @@ struct QuickBooksPaymentReconciliation: Equatable, Sendable {
                 unsound.insert(row.groupRow)
                 refusals.append((number, Refusal(groupRow: row.groupRow, invoiceListRows: [],
                                                  ledgerRows: carried.map(\.row), reason: .onlyInPaymentsReport)))
+            case (let listed?, _) where carried.count > 1:
+                // EVERY group it touches, not the first: a number under two
+                // clients leaves both unable to tie anything.
+                unsound.formUnion(carried.map(\.groupRow))
+                refusals.append((number, Refusal(groupRow: nil, invoiceListRows: [listed.row],
+                                                 ledgerRows: carried.map(\.row), reason: .numberUnderSeveralRows)))
+            case (nil, _) where carried.count > 1:
+                unsound.formUnion(carried.map(\.groupRow))
+                refusals.append((number, Refusal(groupRow: nil, invoiceListRows: [],
+                                                 ledgerRows: carried.map(\.row), reason: .numberUnderSeveralRows)))
             case (let listed?, let row?):
                 let difference = listed.amount - row.amount
-                if difference != .zero || carried.count > 1 {
+                if difference != .zero {
                     unsound.insert(row.groupRow)
                     refusals.append((number, Refusal(groupRow: row.groupRow, invoiceListRows: [listed.row],
                                                      ledgerRows: carried.map(\.row),

@@ -172,6 +172,8 @@ struct QuickBooksRowRefusal: Equatable, Sendable {
         case duplicateInvoiceNumber(rows: [Int])
         /// A data row above the first group heading, so it belongs to nobody.
         case outsideAnyGroup
+        /// The reader failed in a way it does not anticipate, named by type.
+        case unexpectedError(type: String)
     }
 }
 
@@ -430,6 +432,16 @@ enum QuickBooksExport {
 
     // MARK: the invoice list and payments, one row per record
 
+    /// The reason a row reader's error refuses its row. A refusal the reader
+    /// meant carries its own reason; anything else is a fault in the reader and
+    /// is named as one, by its type only, never passed off as a fault in the file
+    /// (L11, L35). The type and not the message, because a message can quote the
+    /// value it choked on (docs/PRIVACY-FLOOR.md).
+    static func rowRefusalReason(for error: any Error) -> QuickBooksRowRefusal.Reason {
+        if let refusal = error as? RowRefused { return refusal.reason }
+        return .unexpectedError(type: String(describing: type(of: error)))
+    }
+
     /// A row refused, thrown from inside a row reader so that each reader states
     /// its checks in order and stops at the first that fails.
     private struct RowRefused: Error { let reason: QuickBooksRowRefusal.Reason }
@@ -450,10 +462,8 @@ enum QuickBooksExport {
             do {
                 try checkShape(record, report: report)
                 accepted.append(try read(record))
-            } catch let refusal as RowRefused {
-                refused.append(QuickBooksRowRefusal(row: record.row, reason: refusal.reason))
             } catch {
-                refused.append(QuickBooksRowRefusal(row: record.row, reason: .malformedQuoting))
+                refused.append(QuickBooksRowRefusal(row: record.row, reason: rowRefusalReason(for: error)))
             }
         }
         var refusals = frame.refusals
@@ -579,10 +589,8 @@ enum QuickBooksExport {
                 try checkShape(record, report: report)
                 guard label.isEmpty else { throw RowRefused(reason: .unexpectedValue(field: "the first column")) }
                 accepted.append(try line(from: record, product: nestingBroken ? nil : groups.last))
-            } catch let refusal as RowRefused {
-                refused.append(QuickBooksRowRefusal(row: record.row, reason: refusal.reason))
             } catch {
-                refused.append(QuickBooksRowRefusal(row: record.row, reason: .malformedQuoting))
+                refused.append(QuickBooksRowRefusal(row: record.row, reason: rowRefusalReason(for: error)))
             }
         }
         if let total = frame.total, !groups.isEmpty { breakNesting(at: total.row) }
@@ -663,10 +671,8 @@ enum QuickBooksExport {
                 guard label.isEmpty else { throw RowRefused(reason: .unexpectedValue(field: "the first column")) }
                 guard let group else { throw RowRefused(reason: .outsideAnyGroup) }
                 accepted.append(try ledgerRow(from: record, group: group))
-            } catch let refusal as RowRefused {
-                refused.append(QuickBooksRowRefusal(row: record.row, reason: refusal.reason))
             } catch {
-                refused.append(QuickBooksRowRefusal(row: record.row, reason: .malformedQuoting))
+                refused.append(QuickBooksRowRefusal(row: record.row, reason: rowRefusalReason(for: error)))
             }
         }
         return QuickBooksFileRead(fileRefusals: frame.refusals, rowsRead: accepted.count + refused.count,

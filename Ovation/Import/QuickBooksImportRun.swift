@@ -117,6 +117,7 @@ struct QuickBooksImportRun: Sendable {
             case .invoiceNotInPaymentsReport: why = "the invoice is not in the invoices and payments file"
             case .onlyInPaymentsReport: why = "the invoice is not in the invoice list"
             case .amountDiffersFromInvoiceList: why = "the invoice's amount differs from the invoice list"
+            case .numberUnderSeveralRows: why = "one invoice number is carried by several rows, so it belongs to no one client"
             case .paymentsDoNotMatchAmountPaid: why = "the payments do not add up to what the invoice was paid"
             case .paymentsNotTiedToOneInvoice(let invoices, let payments, let agrees):
                 why = "the client holds \(invoices) invoices and \(payments) payments, and the file does not say "
@@ -194,6 +195,7 @@ struct QuickBooksImportRun: Sendable {
         case .duplicateInvoiceNumber(let rows):
             return "Num is shared by rows \(rows.map(String.init).joined(separator: ", "))"
         case .outsideAnyGroup: return "the row sits above the first client heading, so it belongs to nobody"
+        case .unexpectedError(let type): return "the reader failed unexpectedly (\(type)), a fault in Ovation, not the file"
         }
     }
 
@@ -211,6 +213,7 @@ struct QuickBooksImportRun: Sendable {
         case .amountIsNotQuantityTimesPrice: return "amount is not quantity times price"
         case .duplicateInvoiceNumber: return "shared invoice number"
         case .outsideAnyGroup: return "outside any group"
+        case .unexpectedError: return "unexpected reader fault"
         }
     }
 }

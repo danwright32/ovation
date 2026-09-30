@@ -158,6 +158,15 @@ struct QuickBooksExportTests {
         #expect(rows.sorted() == Array(6...11))
     }
 
+    @Test("an error nobody anticipated is named as unexpected, with its type, never as a quoting fault")
+    func anUnexpectedErrorIsNamedAsSuch() {
+        // L11, L35. Every refusal a reader intends is thrown as its own reason;
+        // anything else reaching the catch is a fault in the reader, and calling
+        // it malformed quoting would send Dan to look at his file for nothing.
+        struct Surprise: Error {}
+        #expect(QuickBooksExport.rowRefusalReason(for: Surprise()) == .unexpectedError(type: "Surprise"))
+    }
+
     // MARK: the file as a whole
 
     @Test("a header that is not the measured one refuses the file and reads no rows")
