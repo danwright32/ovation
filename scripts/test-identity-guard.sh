@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 75
+harness_begin "identity guard tests" 77
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -536,14 +536,19 @@ printf 'Zzfixture Studio,,,,,,,\r\nInvoice List by Date,,,,,,,\r\n"January 1-Sep
 printf 'Zzfixture Studio,,,,,,,,,\r\nSales by Product/Service Detail,,,,,,,,,\r\n"January 1-September 29, 2026",,,,,,,,,\r\n\r\n,Transaction date,Transaction type,Num,Client full name,Description,Quantity,Sales price,Amount,Balance\r\nPhotography,,,,,,,,,\r\n,1/19/2026,Invoice,1001,Xxfixture Voices,an ordinary description,1.00,100.00,100.00,100.00\r\n' \
     > "$CSVDIR/lines.csv"
 printf 'Client Name,Invoice #,Item Name\r\nUufixture Players,7,an ordinary item\r\n' > "$CSVDIR/history.csv"
+# The Invoices and Received Payments shape: no name column, the client only in
+# group headings, no TOTAL, then empty lines and a timestamp that names nobody.
+printf 'Zzfixture Studio,,,,,\r\nInvoices and Received Payments,,,,,\r\n"January 1-September 30, 2026",,,,,\r\n\r\n,Date,Transaction type,Memo/Description,Transaction number,Amount\r\nTtfixture Sinfonia,,,,,\r\n,1/19/2026,Invoice,,1001,100.00\r\n,1/25/2026,Payment,,,100.00\r\n\r\n\r\n\r\n" Ordinary Weekday stamp",,,,,\r\n' \
+    > "$CSVDIR/ledger.csv"
 NOTE="$WORK/custody-note.md"
 {
     printf '## list.csv\n\n| Field | Value |\n| --- | --- |\n| Path | `%s` |\n\n' "$CSVDIR/list.csv"
     printf '## lines.csv\n\n| Field | Value |\n| --- | --- |\n| Path | `%s` |\n\n' "$CSVDIR/lines.csv"
     printf '## history.csv\n\n| Field | Value |\n| --- | --- |\n| Path | `%s` |\n\n' "$CSVDIR/history.csv"
+    printf '## ledger.csv\n\n| Field | Value |\n| --- | --- |\n| Path | `%s` |\n\n' "$CSVDIR/ledger.csv"
 } > "$NOTE"
 
-for planted in "Yyfixture Consort, Ltd" "Xxfixture Voices" "Uufixture Players"; do
+for planted in "Yyfixture Consort, Ltd" "Xxfixture Voices" "Uufixture Players" "Ttfixture Sinfonia"; do
     TC="$(tree "csv-$(printf '%s' "$planted" | cut -c1-2)")"
     printf 'let client = "%s"\n' "$planted" > "$TC/a.swift"
     OUTC="$(run_guard "$TC" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE")"; STC=$?
@@ -552,7 +557,7 @@ for planted in "Yyfixture Consort, Ltd" "Xxfixture Voices" "Uufixture Players"; 
         "$(says "$OUTC" "a.swift")$(says "$OUTC" "$planted")" "yesno"
 done
 
-TC2="$(tree csv-clean)"; printf 'an ordinary description of an ordinary item\n' > "$TC2/a.md"
+TC2="$(tree csv-clean)"; printf 'an ordinary description of an ordinary item, stamped Ordinary Weekday stamp\n' > "$TC2/a.md"
 OUTC2="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE")"; STC2=$?
 check "a memo, description or item name is not a needle, so ordinary prose passes" "$STC2" "0"
 check "and the coverage says the recorded CSV files were consulted" \

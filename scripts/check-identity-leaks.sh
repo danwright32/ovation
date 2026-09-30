@@ -482,6 +482,16 @@ def build_matcher(needles):
 # being searched for while reading as clean (L217).
 CSV_IDENTITY_COLUMNS = ("Name", "Client full name", "Client Name")
 
+# A report that names its client only in GROUP HEADINGS, rows whose first cell
+# is filled and every other empty, under a header whose first cell is empty.
+# MEASURED on the Invoices and Received Payments export (2026-09-30): it has no
+# name column at all, so without this its clients are in custody and searched
+# for by nothing. Named by its whole header, because the sales lines report
+# groups the same way by PRODUCT, and product names are ordinary words (L104).
+CSV_CLIENT_HEADED_HEADERS = (
+    ("", "Date", "Transaction type", "Memo/Description", "Transaction number", "Amount"),
+)
+
 
 def recorded_csv_paths(note, problems=None):
     """Every `.csv` path docs/CUSTODY.md records, home expanded.
@@ -521,11 +531,23 @@ def needles_from_csv(path, source_name, problems):
         problems.append("%s: a recorded CSV could not be read (%s)" % (source_name, type(exc).__name__))
         return out
     columns = None
+    client_headed = False
     for row in rows:
         if columns is None:
+            if tuple(cell.strip() for cell in row) in CSV_CLIENT_HEADED_HEADERS:
+                columns, client_headed = [], True
+                continue
             found = [i for i, cell in enumerate(row) if cell.strip() in CSV_IDENTITY_COLUMNS]
             if found:
                 columns = found
+            continue
+        if client_headed:
+            # The body ends at its first empty row; what follows is the report
+            # timestamp, which has a heading's shape and names nobody.
+            if not any(cell.strip() for cell in row):
+                break
+            if row and row[0].strip() and not any(cell.strip() for cell in row[1:]):
+                out.add(row[0].strip())
             continue
         for i in columns:
             if i < len(row):
