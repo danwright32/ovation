@@ -122,12 +122,7 @@ struct SettingsView: View {
             archives: archives,
             outcome: lastOutcome,
             choose: chooseAFolder,
-            restore: { row in
-                confirmingConsequence =
-                    (try? restore?.consequence(of: row.name))
-                    ?? "Ovation could not read what is in this backup."
-                confirming = row
-            })
+            restore: askToRestore)
         .task { await loadArchives() }
         .confirmationDialog(
             "Put this backup back?",
@@ -160,6 +155,15 @@ struct SettingsView: View {
         return .sentence(restore == nil
                          ? "Choose a folder first, and Ovation will start backing up."
                          : "There are no backups in that folder yet.")
+    }
+
+    /// WHAT RESTORING THAT ONE WOULD DO, read from the archive when Restore is
+    /// pressed rather than while the pane draws, since it reads the manifest from disk.
+    private func askToRestore(_ row: RestorePresenter.Archive) {
+        confirmingConsequence =
+            (try? restore?.consequence(of: row.name))
+            ?? "Ovation could not read what is in this backup."
+        confirming = row
     }
 
     private func chooseAFolder() {
