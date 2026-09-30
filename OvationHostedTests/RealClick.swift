@@ -18,6 +18,7 @@
 // every display, which is enough for it to lay out and take events.
 import AppKit
 import SwiftUI
+@testable import Ovation
 
 @MainActor
 enum RealClick {
