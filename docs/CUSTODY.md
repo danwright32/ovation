@@ -176,13 +176,132 @@ photography lines on ISSUED invoices priced at one of Dan's hourly rates.
 
 **It carries real client names in its `Client Name` column and real event names in
 `Item Name`, so it must never be committed**, and anything derived from it reports counts and
-distributions rather than rows. **It is NOT yet a needle source for the identity
-guard, and that is stated rather than implied**: `check-identity-leaks.sh` reads only `.json`
-files under `~/Library/Application Support/Ovation/custody`, and this is a `.csv` somewhere else,
-so its 41 clients are invisible to the guard while the live export's 31 are not. Making it one is
-ovation#23, which exists for exactly this, and it is not free: the guard's own note warns that
-needles derived from real business names WILL over match, and this file's `Item Name` column holds
-event titles that are ordinary English words.
+distributions rather than rows. **It IS a needle source for the identity guard, by its
+`Client Name` column only** (since ovation#67): `check-identity-leaks.sh` reads every `.csv` this
+note records a Path for, wherever it lives, so its 41 clients are searched for like the live
+export's. `Item Name` is deliberately NOT read, because it holds event titles that are ordinary
+English words, and needles derived from those would fire for ever (L104).
+
+## quickbooks-invoice-list-2026-09-29.csv
+
+The QuickBooks Invoice List report for 2026, exported by Dan on 2026-09-29 for the QuickBooks
+migration import (ovation#66). One row per invoice: its total and open balance, not its lines.
+
+| Field | Value |
+| --- | --- |
+| Path | `~/Library/Application Support/Ovation/custody/quickbooks-invoice-list-2026-09-29.csv` |
+| SHA-256 | `811848e1452c8fa8546e4c4b64ecc2d7ea0d8dc87411f8c08fc29947595870aa` |
+| Captured | 2026-09-29 |
+| Mode | 0600 |
+| Contents | 31 invoice rows, 31 distinct invoice numbers, dated 2026-01-19 to 2026-09-13 |
+
+## quickbooks-payments-2026-09-29.csv
+
+The QuickBooks Transaction List by Date, filtered to payments, for 2026 (ovation#66).
+
+| Field | Value |
+| --- | --- |
+| Path | `~/Library/Application Support/Ovation/custody/quickbooks-payments-2026-09-29.csv` |
+| SHA-256 | `d798e8d99a45cc3ba271323bcc8bceb7d81d5464010b4fda92195311771a3c09` |
+| Captured | 2026-09-29 |
+| Mode | 0600 |
+| Contents | 35 payment rows, dated 2026-01-10 to 2026-09-18, deposited to two accounts |
+
+**Its Num column is empty on every row**, so nothing in this file says which invoice a payment
+paid. Matching payments to invoices is a question for the import's write, not something this
+file answers.
+
+## quickbooks-sales-lines-2026-09-29.csv
+
+> **SUPERSEDED 2026-09-30** by `quickbooks-sales-lines-accrual-2026-09-30.csv` below, and not
+> imported. Kept, hash and all, because it is the only real evidence that the importer refuses a
+> cash basis report: run through it, this file is refused as a whole by name (`cashBasis`), with
+> 57 rows read, 38 accepted and 19 refused as "amount is not quantity times price".
+
+The QuickBooks Sales by Product/Service Detail report, 1 January to 29 September 2026, taken
+because the invoice list carries no lines and no tax (ovation#66).
+
+| Field | Value |
+| --- | --- |
+| Path | `~/Library/Application Support/Ovation/custody/quickbooks-sales-lines-2026-09-29.csv` |
+| SHA-256 | `cf520aad69ff7280dad38fe9cf486c571d5a6bb7a91671542d98797d310e3961` |
+| Captured | 2026-09-29 |
+| Mode | 0600 |
+| Contents | 57 line rows across 33 invoice numbers, grouped by product |
+
+**It was run on CASH basis, and that makes its rows shares of lines rather than lines.** Measured
+2026-09-29 without reading a value: its timestamp line opens "Cash Basis", 19 of its 57 rows
+carry an amount that is not their quantity times their price, and those rows pair up into
+fractions of one whole line (a half and a half, a quarter and three quarters), which is how a
+cash basis report splits a line across the payments that covered it. It also carries two invoice numbers
+the invoice list lacks, which an accrual export will either keep or explain. Ovation keeps its figures on accrual (PRD 5.24), so the
+importer refuses a cash basis sales lines report as a whole (ovation#67) and this file needs
+exporting again on accrual basis before any line is imported. Dan did, on 2026-09-30.
+
+## quickbooks-sales-lines-accrual-2026-09-30.csv
+
+The same Sales by Product/Service Detail report, 1 January to 30 September 2026, run on ACCRUAL
+basis (Dan, 2026-09-30). This is the sales lines file the import reads.
+
+| Field | Value |
+| --- | --- |
+| Path | `~/Library/Application Support/Ovation/custody/quickbooks-sales-lines-accrual-2026-09-30.csv` |
+| SHA-256 | `d866fde4bc2adca23d492984e1bf5477e096f133ff8cd6ec356b9d94dfad292b` |
+| Captured | 2026-09-30 |
+| Mode | 0600 |
+| Contents | 45 line rows across 31 invoice numbers, the invoice list's 31, grouped by product |
+
+Same header and structure as the cash basis file. Run through the importer on 2026-09-30: 45 read,
+45 accepted, 0 refused, TOTAL agrees, and every row's amount is its quantity times its price.
+Reconciled against the invoice list, 10 invoices' lines sum to their total and 21 differ, which is
+where tax shows, since no tax column exports.
+
+## quickbooks-invoices-and-payments-2026-09-30.csv
+
+The QuickBooks Invoices and Received Payments report, 1 January to 30 September 2026 (Dan,
+2026-09-30), taken because the payments export carries no invoice number.
+
+| Field | Value |
+| --- | --- |
+| Path | `~/Library/Application Support/Ovation/custody/quickbooks-invoices-and-payments-2026-09-30.csv` |
+| SHA-256 | `e1a8283fa097bf6acce4af61317c2db4fa712462c2306a9c1d0ea8263a22cbb8` |
+| Captured | 2026-09-30 |
+| Mode | 0600 |
+| Contents | 32 invoice rows and 33 payment rows under 21 client headings |
+
+**Measured shape, and it is not the one the name suggests.** Four preamble lines and the header on
+line 5 (`(empty)`, Date, Transaction type, Memo/Description, Transaction number, Amount). Rows are
+grouped by CLIENT, under a heading row carrying only the client's name, not by invoice. A payment
+carries NO transaction number. There is no TOTAL row and no "Total for" row, so the body runs
+straight into three empty lines and the report timestamp.
+
+So a payment is tied to an invoice only where its client heading holds exactly one invoice. Run
+through the importer on 2026-09-30: 65 rows read, 63 accepted, 2 refused as dated before 2026.
+
+**How its 32 invoice rows reconcile to the invoice list's 31**, measured 2026-09-30 by number,
+counts only: the 32 rows carry 32 distinct invoice numbers. 30 of them are also on the invoice
+list, at the same amount. The other 2 are not on the invoice list, and both are dated 2025, so they
+are refused as before 2026 (the invoice list is 2026 only). The invoice list's 31st invoice is not
+in this file at all. So 32 = 30 shared + 2 from 2025, and 31 = 30 shared + 1 this file lacks.
+
+Payments by invoice: 16 invoices tied, 6 refused: one invoice list invoice this file does not carry, one
+single invoice client whose payments do not add up to what the invoice was paid, and four clients
+holding several invoices, where the file does not say which payment paid which (the payments of
+three of them add up to what their invoices were paid, and one does not).
+
+**How all of these must be read.** The same rule as every file above: the SHA-256 is verified at read
+time, by the importer itself (`QuickBooksExport` in `Ovation/Import`), and absent, unreadable or
+changed are three named outcomes that read nothing. The format they share is recorded on
+ovation#66 and in `OvationTests/QuickBooksFixtures.swift`, whose fixtures carry the measured
+shape with invented values. They carry real client names and amounts, so they must never be
+committed, and anything derived from them reports counts, row numbers and field names only.
+
+**They are needle sources for the identity guard**: `check-identity-leaks.sh` reads every `.csv`
+this note records, so recording a custody CSV here is what makes the guard search for its clients.
+It reads the name COLUMNS where a report has one (`Name` on the invoice list and payments,
+`Client full name` on the sales lines). The invoices and payments report has no name column at
+all, so its clients are read from its group HEADING rows instead, the rows carrying only a client's
+name, recognised by that report's whole header (`CSV_CLIENT_HEADED_HEADERS` in the guard).
 
 ## The LIVE export, which is not a custody file at all
 
