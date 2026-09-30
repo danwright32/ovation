@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 63
+harness_begin "identity guard tests" 75
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -61,6 +61,7 @@ run_guard() {
     OVATION_GUARD_STORE="${4-$WORK/nostore/Ovation.store}" \
     OVATION_GUARD_QUEUE_DIR="${5-$WORK/noqueue}" \
     OVATION_GUARD_FINGERPRINTS="${6-$FINGERPRINTS}" \
+    OVATION_GUARD_CUSTODY_NOTE="${7-$WORK/nonote.md}" \
     OVATION_GUARD_SCAN_ROOT="$1" \
         "./$TARGET" 2>&1
 }
@@ -520,5 +521,57 @@ OUTF6="$(run_guard "$TF6" "$EXPORT" "" "" "" "$WORK/no-such-fingerprints.txt")";
 check "a missing fingerprint file refuses as a fault rather than passing" "$STF6" "4"
 check "and it says the fingerprints are what could not be read" \
     "$(printf '%s' "$OUTF6" | grep -c 'CANNOT MEASURE: the fingerprint file could not be read')" "1"
+
+# CUSTODY CSV FILES ARE A NEEDLE SOURCE (ovation#67). The three QuickBooks
+# exports and the Freshbooks history are CSV, recorded in docs/CUSTODY.md, and
+# until this the guard read only the custody folder's JSON, so a client named in
+# them alone could be committed with nothing looking. The files come from the
+# NOTE, the same record check-custody-files.sh verifies, so there is no second
+# list. The fixtures are synthetic and shaped like the measured exports: three
+# preamble lines and an empty one above the header, "Name" on the invoice list,
+# "Client full name" on the sales lines, "Client Name" on the Freshbooks file.
+CSVDIR="$WORK/csvcustody"; mkdir -p "$CSVDIR"
+printf 'Zzfixture Studio,,,,,,,\r\nInvoice List by Date,,,,,,,\r\n"January 1-September 29, 2026",,,,,,,\r\n\r\nDate,Transaction type,Num,Name,Memo,Due date,Amount,Open balance\r\n1/19/2026,Invoice,1001,"Yyfixture Consort, Ltd",,2/18/2026,100.00,0.00\r\nTOTAL,,,,,,$100.00,$0.00\r\n' \
+    > "$CSVDIR/list.csv"
+printf 'Zzfixture Studio,,,,,,,,,\r\nSales by Product/Service Detail,,,,,,,,,\r\n"January 1-September 29, 2026",,,,,,,,,\r\n\r\n,Transaction date,Transaction type,Num,Client full name,Description,Quantity,Sales price,Amount,Balance\r\nPhotography,,,,,,,,,\r\n,1/19/2026,Invoice,1001,Xxfixture Voices,an ordinary description,1.00,100.00,100.00,100.00\r\n' \
+    > "$CSVDIR/lines.csv"
+printf 'Client Name,Invoice #,Item Name\r\nUufixture Players,7,an ordinary item\r\n' > "$CSVDIR/history.csv"
+NOTE="$WORK/custody-note.md"
+{
+    printf '## list.csv\n\n| Field | Value |\n| --- | --- |\n| Path | `%s` |\n\n' "$CSVDIR/list.csv"
+    printf '## lines.csv\n\n| Field | Value |\n| --- | --- |\n| Path | `%s` |\n\n' "$CSVDIR/lines.csv"
+    printf '## history.csv\n\n| Field | Value |\n| --- | --- |\n| Path | `%s` |\n\n' "$CSVDIR/history.csv"
+} > "$NOTE"
+
+for planted in "Yyfixture Consort, Ltd" "Xxfixture Voices" "Uufixture Players"; do
+    TC="$(tree "csv-$(printf '%s' "$planted" | cut -c1-2)")"
+    printf 'let client = "%s"\n' "$planted" > "$TC/a.swift"
+    OUTC="$(run_guard "$TC" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE")"; STC=$?
+    check "a name only a recorded custody CSV holds is caught (${planted%% *})" "$STC" "1"
+    check "and the output names the file and never the name (${planted%% *})" \
+        "$(says "$OUTC" "a.swift")$(says "$OUTC" "$planted")" "yesno"
+done
+
+TC2="$(tree csv-clean)"; printf 'an ordinary description of an ordinary item\n' > "$TC2/a.md"
+OUTC2="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE")"; STC2=$?
+check "a memo, description or item name is not a needle, so ordinary prose passes" "$STC2" "0"
+check "and the coverage says the recorded CSV files were consulted" \
+    "$(says "$OUTC2" "custody-csv: consulted")" "yes"
+
+printf 'Date,Memo,Amount\r\n1/19/2026,Wwfixture memo,1.00\r\n' > "$CSVDIR/shapeless.csv"
+NOTE2="$WORK/custody-note-shapeless.md"
+printf '## shapeless.csv\n\n| Path | `%s` |\n' "$CSVDIR/shapeless.csv" > "$NOTE2"
+OUTC3="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE2")"; STC3=$?
+check "a recorded CSV with no identity column refuses rather than deriving nothing" "$STC3" "4"
+check "and says which columns it looked for" \
+    "$(says "$OUTC3" "none of the identity columns")" "yes"
+
+# A NOTE THAT IS THERE AND UNREADABLE REFUSES, rather than reading as a note that
+# records no CSV (L11).
+NOTE3="$WORK/custody-note-unreadable.md"; cp "$NOTE" "$NOTE3"; chmod 000 "$NOTE3"
+OUTC4="$(run_guard "$TC2" "$EXPORT" "" "" "" "$FINGERPRINTS" "$NOTE3")"; STC4=$?
+chmod 600 "$NOTE3"
+check "an unreadable custody note refuses rather than deriving nothing" "$STC4" "4"
+check "and says the note is what could not be read" "$(says "$OUTC4" "custody note could not be read")" "yes"
 
 harness_end

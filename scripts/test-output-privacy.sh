@@ -140,6 +140,7 @@ OUT_GUARD="$(OVATION_GUARD_EXPORT="$EXPORT" \
     OVATION_GUARD_STORE="$WORK/no-store/Ovation.store" \
     OVATION_GUARD_QUEUE_DIR="$WORK/no-queue" \
     OVATION_GUARD_FINGERPRINTS="$WORK/fingerprints-none.txt" \
+    OVATION_GUARD_CUSTODY_NOTE="$WORK/no-custody-note.md" \
     OVATION_GUARD_SCAN_ROOT="$TREE" \
     ./scripts/check-identity-leaks.sh 2>&1)"
 check "the identity guard found the planted identity, so its reporting branch ran" \
@@ -1551,7 +1552,7 @@ SEAMSCAN="$WORK/seamscan"; mkdir -p "$SEAMSCAN"
 GUARD_CALL="./scripts/check-""identity-leaks.sh"
 printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    %s 2>&1)"\n' \
     "$GUARD_CALL" > "$SEAMSCAN/test-offender.sh"
-printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_CUSTODY_DIR=x \\\n    OVATION_GUARD_STORE=x \\\n    OVATION_GUARD_QUEUE_DIR=x \\\n    OVATION_GUARD_FINGERPRINTS=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    %s 2>&1)"\n' \
+printf 'OUT="$(OVATION_GUARD_EXPORT=x \\\n    OVATION_GUARD_CUSTODY_DIR=x \\\n    OVATION_GUARD_STORE=x \\\n    OVATION_GUARD_QUEUE_DIR=x \\\n    OVATION_GUARD_FINGERPRINTS=x \\\n    OVATION_GUARD_CUSTODY_NOTE=x \\\n    OVATION_GUARD_SCAN_ROOT=y \\\n    %s 2>&1)"\n' \
     "$GUARD_CALL" > "$SEAMSCAN/test-clean.sh"
 SEAMS_SCANNED="$(unfixtured_guard_runs "$SEAMSCAN")"
 check "a guard run that leaves a source unset is reported" \

@@ -29,6 +29,7 @@ from real business names WILL over match, and an over match reads exactly like
 the feature working (L104). A multi word name is matched as a phrase, because
 half a name is not the name.
 """
+import csv
 import hashlib
 import json
 import os
@@ -47,6 +48,12 @@ STORE = os.environ.get("OVATION_GUARD_STORE",
                        os.path.expanduser("~/Library/Application Support/Ovation/Ovation.store"))
 QUEUE = os.environ.get("OVATION_GUARD_QUEUE_DIR",
                        os.path.expanduser("~/Library/Application Support/Ovation/booking-queue"))
+# THE CUSTODY NOTE, which records every custody file wherever it lives, CSV files
+# included (ovation#67). Read for its CSV entries: the JSON snapshots are found by
+# listing the custody folder, and a CSV may live outside it (the Freshbooks file).
+CUSTODY_NOTE = os.environ.get("OVATION_GUARD_CUSTODY_NOTE",
+                              os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                           "docs", "CUSTODY.md"))
 SCAN_ROOT = os.environ.get("OVATION_GUARD_SCAN_ROOT",
                            os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -465,6 +472,86 @@ def build_matcher(needles):
     return matchers
 
 
+# The CSV columns that hold a person or a business, by the header each export
+# writes. NAMED rather than every column, for the reason STORE_COLUMNS is named:
+# a memo, a description or an item name is ordinary prose, and taking it would
+# turn common words into needles that fire for ever (L104). QuickBooks writes
+# "Name" on its invoice list and payments and "Client full name" on its sales
+# lines; Freshbooks writes "Client Name". A recorded CSV carrying NONE of them is
+# a refusal, never zero needles, because a changed export would otherwise stop
+# being searched for while reading as clean (L217).
+CSV_IDENTITY_COLUMNS = ("Name", "Client full name", "Client Name")
+
+
+def recorded_csv_paths(note, problems=None):
+    """Every `.csv` path docs/CUSTODY.md records, home expanded.
+
+    DERIVED FROM THE NOTE, the same record scripts/check-custody-files.sh
+    verifies the files against, so recording a custody CSV there is what makes
+    it a needle source and there is no second list to forget (L41, ovation#67).
+    """
+    try:
+        with open(note, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        # A note that is THERE and cannot be read is a problem, never an empty
+        # list: an empty list reads exactly like a note recording no CSV (L11).
+        if problems is not None:
+            problems.append("the custody note could not be read (%s)" % type(exc).__name__)
+        return []
+    paths = []
+    for match in re.finditer(r"^\|\s*Path\s*\|\s*`([^`]+)`\s*\|", text, re.MULTILINE):
+        path = match.group(1)
+        if path.lower().endswith(".csv"):
+            paths.append(os.path.expanduser(path))
+    return paths
+
+
+def needles_from_csv(path, source_name, problems):
+    """The identity columns of one custody CSV.
+
+    The header is found as the first row carrying an identity column, because
+    QuickBooks writes three preamble lines and an empty one above its header.
+    """
+    out = set()
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as fh:
+            rows = list(csv.reader(fh))
+    except Exception as exc:
+        problems.append("%s: a recorded CSV could not be read (%s)" % (source_name, type(exc).__name__))
+        return out
+    columns = None
+    for row in rows:
+        if columns is None:
+            found = [i for i, cell in enumerate(row) if cell.strip() in CSV_IDENTITY_COLUMNS]
+            if found:
+                columns = found
+            continue
+        for i in columns:
+            if i < len(row):
+                value = row[i].strip()
+                if value:
+                    out.add(value)
+    if columns is None:
+        problems.append("%s: a recorded CSV has none of the identity columns this reads (%s)"
+                        % (source_name, ", ".join(CSV_IDENTITY_COLUMNS)))
+    return out
+
+
+def read_custody_csvs(note, source_name, problems):
+    """Every recorded custody CSV that is on this machine.
+
+    One that is recorded and absent is NOT a problem here: its absence is
+    scripts/check-custody-files.sh's finding, and a second refusal for one fact
+    would be two alarms about one event (L36).
+    """
+    out = set()
+    for path in recorded_csv_paths(note, problems):
+        if os.path.exists(path):
+            out |= needles_from_csv(path, source_name, problems)
+    return out
+
+
 def read_custody(path, source_name, problems):
     out = set()
     for name in sorted(os.listdir(path)):
@@ -505,6 +592,12 @@ POPULATIONS = [
      "path": lambda: CUSTODY,
      "present": lambda p: os.path.isdir(p),
      "read": read_custody},
+    {"key": "custody-csv",
+     "what": "the CSV files docs/CUSTODY.md records: QuickBooks and Freshbooks client names",
+     "arrives": None,
+     "path": lambda: CUSTODY_NOTE,
+     "present": lambda p: os.path.exists(p),
+     "read": read_custody_csvs},
     {"key": "ovation-store",
      "what": "Ovation's own store: client names, contract emails, vendor names",
      "arrives": "ovation#68 imports the clients, ovation#82 the vendors",
