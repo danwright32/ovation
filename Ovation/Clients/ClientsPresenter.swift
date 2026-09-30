@@ -95,6 +95,10 @@ struct ClientsPresenter: Equatable {
         let sharer: Sharer
         let after: String
         var id: UUID { sharer.clientID }
+        /// What a screen reader hears for the name: the name and the words after
+        /// it, so the names read in order speak the sentence once, whole (review
+        /// of ovation#616, L20).
+        var spoken: String { sharer.name + after }
     }
 
     /// One client's page.

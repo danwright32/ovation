@@ -565,8 +565,12 @@ struct SharedAddressNotice<Answer: View>: View {
         HStack(alignment: .top, spacing: 12) {
             WordFlow(wordSpacing: Self.wordSpace) {
                 ForEach(said) { named in
+                    // SPOKEN WITH ITS CLAUSE, and the plain words below hidden, so a
+                    // screen reader hears the sentence once, whole, instead of the
+                    // separate words it is laid out in (review of ovation#616, L20,
+                    // L577). Each name is still its own button.
                     ActionWord(word: named.sharer.name, size: Self.size,
-                               press: { open(named.sharer.clientID) })
+                               press: { open(named.sharer.clientID) }, spoken: named.spoken)
                         .fixedSize()
                         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.space)) }) {
                             placed?(named.sharer.name, $0)
@@ -576,6 +580,7 @@ struct SharedAddressNotice<Answer: View>: View {
                             .font(.system(size: Self.size))
                             .foregroundStyle(OvationPalette.soft)
                             .fixedSize()
+                            .accessibilityHidden(true)
                             .joinsPreviousWord(word.joins)
                     }
                 }

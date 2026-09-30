@@ -294,6 +294,34 @@ struct SharedAddressNoticeLayoutTests {
         }, placed: placed)
     }
 
+    /// A SCREEN READER HEARS THE SENTENCE ONCE, WHOLE (review of ovation#616, L20,
+    /// L577). The words are separate views so they can wrap, and read as views
+    /// they would be spoken as fragments: "uses", "this", "address", "too." So
+    /// the plain words are hidden and each name's button carries its clause.
+    /// The accessibility tree is empty under test, so this reads the labels and
+    /// the hidden flags the views themselves carry.
+    @Test("a screen reader hears the notice as one sentence, and each name is still a button")
+    func thenoticeIsSpokenWhole() throws {
+        let page = try Self.page()
+        let view = Self.notice(page)
+
+        let spoken = try view.inspect().findAll(ViewType.Button.self)
+            .map { try $0.accessibilityLabel().string() }
+        #expect(spoken.joined(separator: " ")
+                == "Brackenridge Youth Orchestra, Nettlefield Baroque Consort and Vesper Lane Chamber Society use this address too. That is correct")
+
+        let names = Set(Self.longNames)
+        let words = try view.inspect().findAll(ViewType.Text.self).filter { text in
+            // The words that are not a button's own label.
+            let said = (try? text.string()) ?? ""
+            return !names.contains(said) && said != "That is correct"
+        }
+        #expect(!words.isEmpty, "no plain words were drawn, so nothing here was checked")
+        let heard = words.filter { (try? $0.accessibilityHidden()) != true }
+            .map { (try? $0.string()) ?? "?" }
+        #expect(heard.isEmpty, "a screen reader hears these as fragments: \(heard)")
+    }
+
     @Test("three long names at the 860 point window wrap: none is cut short, and the answer stays on the notice")
     func threeLongNamesWrap() throws {
         let page = try Self.page()

@@ -233,6 +233,11 @@ struct ClientsPresenterTests {
 
         let page = try #require(presenter.pages[first.id])
         #expect(page.sharedSaid.map(\.after) == [",", " and", " use this address too."])
+        // SPOKEN AS ONE SENTENCE (review of ovation#616, L20): each name carries
+        // the words after it, so a screen reader reading the names in order
+        // hears the sentence once, whole.
+        #expect(page.sharedSaid.map(\.spoken).joined(separator: " ")
+                == "Brackenridge Youth Orchestra, Calder Street Theatre and Drayton Wind Ensemble use this address too.")
     }
 
     /// ONE LOOKUP (L16). Whether the notice shows and whom it names are the same
