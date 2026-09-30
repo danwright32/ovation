@@ -228,7 +228,13 @@ color: var(--faint); }
    is the collision ovation#132 exists for. */
 
 /* ---- the sheet, over the invoice ---- */
-.rs-b .win { position: relative; }
+/* THE WINDOW'S TEXT IS THE WINDOW'S INK, never the record page's. Everything inside
+   the window that sets no colour of its own inherited the page's --page-ink, so in
+   the page's dark theme the title bar's "Invoices" and the rest went near white on
+   the light pinned window (ovation#547). Measured by rendering both themes and
+   comparing every element's computed colours inside the window: 44 differed, and
+   none does with this. */
+.rs-b .win { position: relative; color: var(--ink); }
 .rs-behind { display: flex; flex-direction: column; height: 100%; }
 .rs-behind .rs-inv { flex: 1 1 auto; min-height: 0; height: auto; }
 
