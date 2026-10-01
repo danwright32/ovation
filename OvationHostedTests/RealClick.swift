@@ -51,15 +51,22 @@ enum RealClick {
 
     /// A click at every `step` points down the vertical line at `x`, between
     /// `fromTop` and `toTop` points below the top of the window's content, calling
-    /// `after` once each click has been answered.
+    /// `after` once each click has been answered. Returns how many clicks it sent
+    /// and how many of their releases something else took off the queue (see
+    /// `click`), so a case that fails can say which of the two happened.
+    @discardableResult
     static func sweep(x: CGFloat, in window: NSWindow, fromTop: CGFloat = 0, toTop: CGFloat? = nil,
-                      step: CGFloat = 3, after: () -> Void) {
+                      step: CGFloat = 3, after: () -> Void) -> (clicks: Int, releasesTaken: Int) {
         let height = window.contentView?.bounds.height ?? 0
         let bottom = min(toTop ?? height, height)
+        var clicks = 0
+        var taken = 0
         for fromTheTop in stride(from: fromTop + 1, to: bottom, by: step) {
-            click(at: NSPoint(x: x, y: height - fromTheTop), in: window)
+            if click(at: NSPoint(x: x, y: height - fromTheTop), in: window) { taken += 1 }
+            clicks += 1
             after()
         }
+        return (clicks, taken)
     }
 
     /// One press and release of the left button at `point`, in window coordinates.
@@ -73,7 +80,11 @@ enum RealClick {
     /// release is on the queue first, where a tracking loop finds it; where nothing
     /// tracked the press it is still there, and is taken off the queue and
     /// delivered here, so no stray release reaches the next click.
-    static func click(at point: NSPoint, in window: NSWindow) {
+    ///
+    /// Returns whether the queued release was taken by something else before it
+    /// could be delivered here, which is what a loop tracking the press does.
+    @discardableResult
+    static func click(at point: NSPoint, in window: NSWindow) -> Bool {
         func event(_ type: NSEvent.EventType) -> NSEvent? {
             NSEvent.mouseEvent(
                 with: type, location: point, modifierFlags: [],
@@ -89,7 +100,9 @@ enum RealClick {
         if let unconsumed = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast,
                                             inMode: .default, dequeue: true) {
             window.sendEvent(unconsumed)
+            return false
         }
+        return true
     }
 
     /// One pass of the run loop, so a view that finishes its layout

@@ -155,13 +155,21 @@ struct WholeRowTests {
         defer { window.close() }
 
         var reached: Set<UUID> = []
-        RealClick.sweep(x: ClientsView.namesWidth - 8, in: window, step: 4) {
+        let sent = RealClick.sweep(x: ClientsView.namesWidth - 8, in: window, step: 4) {
             if let id = chosen.value { reached.insert(id) }
         }
 
         // Three of the 31 draw a held figure at that end, and a click on a figure
         // answered even before; the rest are the rows whose far end was dead.
-        #expect(reached.count >= 20, "only \(reached.count) names answered at the far end")
+        // THE MESSAGE SAYS WHAT THE CLICKS MET (review of #644): on the CI runner
+        // not one landed while every other sweep did, and this is the only one
+        // through a scroll view, so a failure reports how many releases something
+        // else took and the size the window was really given.
+        #expect(reached.count >= 20, """
+            only \(reached.count) names answered at the far end; \(sent.releasesTaken) of \
+            \(sent.clicks) releases were taken before the click could deliver them, in a \
+            content area of \(window.contentView?.bounds.size ?? .zero)
+            """)
     }
 
     /// The list is as wide as its widest entry or its minimum, and a short entry
