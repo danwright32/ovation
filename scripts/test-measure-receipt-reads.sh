@@ -20,7 +20,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "photographed receipt probe tests" 71
+harness_begin "photographed receipt probe tests" 75
 
 TARGET="scripts/measure-receipt-reads.py"
 require_target "$TARGET"
@@ -441,6 +441,45 @@ check "a reading that is not an object is refused by name, with no traceback" \
     "$(shape_refused not-objects '  reading 1 is not an object')" "1:1:1:0"
 check "and so is one without an integer index" \
     "$(shape_refused no-index '  reading 1 has no integer index')" "1:1:1:0"
+
+# A DATE WRITTEN WITH DOTS IS NOT AN AMOUNT. The amount pattern found "03.14"
+# inside "03.14.2026", so a dot separated date row was read as an unlabelled
+# line carrying 3.14, a false amount on the lines and the results page (review
+# of ovation#636). Each row is drawn as its own reading, so the date row is
+# judged on its own; "3.14" and "TOTAL 14.03" must still read as amounts.
+DOTS="$(python3 - "$TARGET" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+def read(date, total="14.03"):
+    rows = [("QUILLFEATHER TEST STATIONERS", None), (date, None), ("Pen", "3.14"), ("TOTAL", total)]
+    observations = []
+    for n, (label, amount) in enumerate(rows):
+        y = 0.9 - n * 0.08
+        for text, x in ((label, 0.05), (amount, 0.75)):
+            if text is None:
+                continue
+            observations.append({"candidates": [{"text": text, "confidence": 1.0}],
+                                 "topLeft": [x, y + 0.03], "topRight": [x + 0.2, y + 0.03],
+                                 "bottomLeft": [x, y], "bottomRight": [x + 0.2, y]})
+    raw = {"index": 1, "readable": True, "pixelWidth": 900, "pixelHeight": 900, "barcodes": [],
+           "observations": observations, "observationsWithCorrection": []}
+    result = probe.interpret(raw, "a.png", "0")
+    kinds = [line["kind"] for line in result["lines"]]
+    return f"{result['date']['value']}|{kinds[1]}|{kinds[2]}|{result['amount']['value']}"
+print(read("03.14.2026"), read("14.03.2026"), read("03.14.2026", "14.03."))
+PY
+)"
+check "a date written 03.14.2026 is read as the date and carries no amount" \
+    "$(cut -d' ' -f1 <<< "$DOTS" | cut -d'|' -f1,2)" "03.14.2026|None"
+check "and so is 14.03.2026" "$(cut -d' ' -f2 <<< "$DOTS" | cut -d'|' -f1,2)" "14.03.2026|None"
+check "while a genuine 3.14 is still an item and TOTAL 14.03 still the amount" \
+    "$(cut -d' ' -f1 <<< "$DOTS" | cut -d'|' -f3,4)" "item|14.03"
+# Only a dot FOLLOWED BY A DIGIT continues a date: an amount ending a sentence,
+# "14.03.", is still an amount.
+check "and an amount followed by a full stop is still the amount" \
+    "$(cut -d' ' -f3 <<< "$DOTS" | cut -d'|' -f4)" "14.03"
 
 # A LINE ITEM IS NOT A PAYMENT because a word inside it looks like one. The
 # payment words matched bare substrings, so Postcard, Cardstock, Author copy,

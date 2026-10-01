@@ -68,7 +68,10 @@ VERDICT_SAMPLE = 20
 # this count is for: it asks how often a receipt arrives sideways or upside down.
 TURNED_BEYOND_DEGREES = 45
 
-MONEY = re.compile(r"(?<![\d.,])(-)?\$?\s?(\d{1,3}(?:,\d{3})+|\d+)\.(\d{2})(?!\d)")
+# NOT FOLLOWED BY A DOT AND A DIGIT, because "03.14.2026" is a date written with
+# dots, and without this its first two parts read as the amount 3.14 (review of
+# ovation#636). The date patterns below read the whole of it as the date.
+MONEY = re.compile(r"(?<![\d.,])(-)?\$?\s?(\d{1,3}(?:,\d{3})+|\d+)\.(\d{2})(?!\d)(?!\.\d)")
 MONTHS = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
 DATES = [
     re.compile(r"(?<!\d)\d{4}-\d{1,2}-\d{1,2}(?!\d)"),
