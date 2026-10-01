@@ -20,7 +20,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "photographed receipt probe tests" 66
+harness_begin "photographed receipt probe tests" 71
 
 TARGET="scripts/measure-receipt-reads.py"
 require_target "$TARGET"
@@ -396,6 +396,51 @@ PY
 )"
 check "a leftover page moves BOTH new files to the next free stem, and is left alone" \
     "$PAIR" "results-X-1.json results-X-1.html an older page"
+
+# A SYMLINK INTO A REPOSITORY IS STILL INSIDE IT. The repository test walked up
+# from the path as written, so a results folder that was a link into a checkout
+# passed while the custody test beside it resolved links (review of ovation#636).
+# The privacy guard, so the case that matters most.
+mkdir -p "$WORK/repo/inside"
+# Private, so only the repository guard can be what refuses it.
+chmod 700 "$WORK/repo/inside"
+ln -s "$WORK/repo/inside" "$WORK/linked-results"
+LINKED="$(OVATION_RECEIPT_READER="$WORK/fine-reader" ./"$TARGET" --folder "$WORK/one" --results "$WORK/linked-results" 2>&1)"; LINKED_STATUS=$?
+check "a results folder that is a symlink into a repository is refused, and nothing lands there" \
+    "$LINKED_STATUS:$(grep -c '^REFUSED: the results folder is inside a git repository' <<< "$LINKED"):$(ls "$WORK/repo/inside" | grep -c results-)" "1:1:0"
+
+# AN EXISTING FOLDER IS NOT RE-PERMISSIONED. The run used to chmod whatever
+# --results named, so pointing it at ~/Documents would have locked Dan out of
+# sharing his own folder (review of ovation#636). Only a folder this run makes is
+# made private; an existing one must already be, or the run refuses, naming it.
+mkdir -p "$WORK/open-folder" "$WORK/private-folder"
+chmod 755 "$WORK/open-folder"
+chmod 700 "$WORK/private-folder"
+OPEN="$(OVATION_RECEIPT_READER="$WORK/fine-reader" ./"$TARGET" --folder "$WORK/one" --results "$WORK/open-folder" 2>&1)"; OPEN_STATUS=$?
+check "an existing folder others can read is refused by name, and its permissions are left as they were" \
+    "$OPEN_STATUS:$(grep -c "^REFUSED: the results folder already exists and others can read it (mode 755).*$WORK/open-folder" <<< "$OPEN"):$(stat -f '%Lp' "$WORK/open-folder"):$(ls "$WORK/open-folder" | grep -c results-)" "1:1:755:0"
+check_exit "an existing folder readable by Dan alone is used as it is" 0 \
+    env OVATION_RECEIPT_READER="$WORK/fine-reader" ./"$TARGET" --folder "$WORK/one" --results "$WORK/private-folder"
+
+# A READING THAT IS NOT THE SHAPE THE READER WRITES is refused by name before any
+# field of it is used. A non object entry crashed with a traceback on the first
+# field read from it (review of ovation#636).
+stand_in not-objects-reader <<'SH'
+printf '%s' '{"osVersion": "x", "textRecognitionRevision": 3, "barcodeRevision": 4, "receipts": [1]}' > "$out"
+SH
+stand_in no-index-reader <<'SH'
+printf '%s' '{"osVersion": "x", "textRecognitionRevision": 3, "barcodeRevision": 4, "receipts": [{"readable": true}]}' > "$out"
+SH
+shape_refused() {
+    local said status
+    said="$(OVATION_RECEIPT_READER="$WORK/$1-reader" ./"$TARGET" --folder "$WORK/one" --results "$WORK/s-$1" 2>&1)"; status=$?
+    printf '%s:%s:%s:%s' "$status" "$(grep -c "^REFUSED: the reader's readings are not in the shape it writes" <<< "$said")" \
+        "$(grep -c "$2" <<< "$said")" "$(grep -c Traceback <<< "$said")"
+}
+check "a reading that is not an object is refused by name, with no traceback" \
+    "$(shape_refused not-objects '  reading 1 is not an object')" "1:1:1:0"
+check "and so is one without an integer index" \
+    "$(shape_refused no-index '  reading 1 has no integer index')" "1:1:1:0"
 
 # A LINE ITEM IS NOT A PAYMENT because a word inside it looks like one. The
 # payment words matched bare substrings, so Postcard, Cardstock, Author copy,

@@ -516,7 +516,10 @@ def page(results):
 # ---------------------------------------------------------------------------
 
 def inside_git_repository(path):
-    current = os.path.abspath(path)
+    # RESOLVED, as the custody check beside it is: walking up from the path as
+    # written let a results folder that is a symlink into a checkout pass
+    # (review of ovation#636).
+    current = os.path.realpath(path)
     while True:
         if os.path.exists(os.path.join(current, ".git")):
             return True
@@ -577,6 +580,28 @@ def read_with_vision(paths):
         return run_reader(reader, paths)
 
 
+def refuse_unless_reader_shape(raw):
+    """Refuses, by name, readings that are not the shape the reader writes,
+    before any field of them is used: a non object entry crashed with a
+    traceback on the first field read from it (review of ovation#636)."""
+    faults = []
+    for key in ("osVersion", "textRecognitionRevision", "barcodeRevision"):
+        if key not in raw:
+            faults.append(f"  no {key}")
+    receipts = raw.get("receipts")
+    if not isinstance(receipts, list):
+        faults.append("  receipts is not a list")
+        receipts = []
+    for position, entry in enumerate(receipts, start=1):
+        if not isinstance(entry, dict):
+            faults.append(f"  reading {position} is not an object")
+        elif not isinstance(entry.get("index"), int) or isinstance(entry.get("index"), bool):
+            faults.append(f"  reading {position} has no integer index")
+    if faults:
+        raise Refusal("REFUSED: the reader's readings are not in the shape it writes, so nothing was measured.\n"
+                      + "\n".join(faults))
+
+
 def run_reader(reader, paths):
     """Runs a reader and returns its readings, from the FILE it was told to
     write rather than its stdout.
@@ -604,6 +629,7 @@ def run_reader(reader, paths):
         if not isinstance(raw, dict):
             raise Refusal("REFUSED: the Vision reader wrote something that is not its JSON, so nothing was measured.\n"
                           + what_the_reader_said(ran, written))
+    refuse_unless_reader_shape(raw)
     # VISION REFUSING TO RUN is a fact about this machine, not about a receipt,
     # so it is CANNOT MEASURE by name rather than "could not be read as an
     # image", which would send somebody to look at a file that is fine (L11).
@@ -674,6 +700,25 @@ def refuse_unless_one_reading_each(raw, count):
                       "given, so nothing was measured.\n" + "\n".join(faults))
 
 
+def results_folder_refusal(results_folder):
+    """Why an EXISTING results folder may not be used, or None.
+
+    The run used to chmod whatever --results named, so a folder like
+    ~/Documents would have been made private behind Dan's back (review of
+    ovation#636). An existing folder is never re-permissioned: it must already
+    be a folder only its owner can read, or the run refuses, naming it."""
+    if not os.path.lexists(results_folder):
+        return None
+    if not os.path.isdir(results_folder):
+        return f"REFUSED: the results folder is not a folder: {results_folder}"
+    mode = os.stat(results_folder).st_mode & 0o777
+    if mode & 0o077:
+        return ("REFUSED: the results folder already exists and others can read it "
+                f"(mode {mode:o}). Results are written only into a folder readable by its owner alone, "
+                f"or one this run creates. It was left as it is: {results_folder}")
+    return None
+
+
 def measure(folder, results_folder):
     if not os.path.isdir(folder):
         raise Refusal(f"REFUSED: the receipt folder does not exist: {folder}")
@@ -693,6 +738,11 @@ def measure(folder, results_folder):
     if inside_git_repository(results_folder):
         raise Refusal("REFUSED: the results folder is inside a git repository, where the receipts' content "
                       f"could be committed. Give it a folder outside any repository: {results_folder}")
+    # After the repository check, which is the privacy guard and the cause
+    # worth naming first when both apply.
+    refusal = results_folder_refusal(results_folder)
+    if refusal:
+        raise Refusal(refusal)
 
     paths = [os.path.join(folder, name) for name in names]
     raw = read_with_vision(paths)
@@ -722,8 +772,11 @@ def measure(folder, results_folder):
                    "standIn": os.environ.get("OVATION_RECEIPT_READER") or None},
         "receipts": receipts,
     }
-    os.makedirs(results_folder, mode=0o700, exist_ok=True)
-    os.chmod(results_folder, 0o700)
+    if not os.path.isdir(results_folder):
+        # Only a folder this run makes is given its permissions. An existing
+        # one was judged private before anything was read (results_folder_refusal).
+        os.makedirs(results_folder, mode=0o700)
+        os.chmod(results_folder, 0o700)
     stem = "results-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     json_path, html_path = write_pair(results_folder, stem, json.dumps(results, indent=2, sort_keys=True),
                                       page(results))
