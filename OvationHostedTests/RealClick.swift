@@ -15,10 +15,11 @@
 // each one did is collected, so the case asserts WHICH rows answered there and
 // a layout change moves nothing it depends on (L237).
 //
-// A CLICK IS ANSWERED BEFORE `sendEvent` RETURNS. Measured 2026-09-30 in a bare
+// A CLICK IS ANSWERED BEFORE `click` RETURNS. Measured 2026-09-30 in a bare
 // AppKit host: the action had run by the time the release was delivered, both
 // for the plain style on its words and for `WholeTarget` on its clear end, and
-// a plain button's clear end did nothing, which is the defect reproduced.
+// a plain button's clear end did nothing, which is the defect reproduced. How
+// the release reaches a control that tracks the press is in `click`.
 //
 // NEVER ORDERED FRONT, for the reason `OffscreenShot` gives: these run inside an
 // ordinary test run while Dan is working. The window is ordered BACK, far outside
@@ -62,15 +63,32 @@ enum RealClick {
     }
 
     /// One press and release of the left button at `point`, in window coordinates.
+    ///
+    /// THE RELEASE IS QUEUED BEFORE THE PRESS IS SENT. A control that tracks a
+    /// press does it in a loop that waits on the event queue for the release, and
+    /// a release only sent once the press has returned never arrives there: on the
+    /// CI runner, where the test app is the active one, the Clients screen's names
+    /// waited on it with no deadline and the job hung for its hour, twice (run
+    /// 36801613438 named the case once a time limit was on it, L110). So the
+    /// release is on the queue first, where a tracking loop finds it; where nothing
+    /// tracked the press it is still there, and is taken off the queue and
+    /// delivered here, so no stray release reaches the next click.
     static func click(at point: NSPoint, in window: NSWindow) {
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            guard let event = NSEvent.mouseEvent(
+        func event(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(
                 with: type, location: point, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber, context: nil,
                 eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)
-            else { continue }
-            window.sendEvent(event)
+        }
+        guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else {
+            preconditionFailure("AppKit made no mouse event for \(point)")
+        }
+        NSApp.postEvent(up, atStart: false)
+        window.sendEvent(down)
+        if let unconsumed = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast,
+                                            inMode: .default, dequeue: true) {
+            window.sendEvent(unconsumed)
         }
     }
 
