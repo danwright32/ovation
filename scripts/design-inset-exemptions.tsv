@@ -9,5 +9,6 @@
 clients.html	nav.side	button.read	ovation#633	The rail foot's first short name does not give way, so its Read runs 3.2px past the inset the foot's other controls keep. Shell chrome, fixed once in shell/window.css.
 invoice-list.html	nav.side	button.read	ovation#633	The same rail foot, carried verbatim from shell/window.css.
 invoice.html	nav.side	button.read	ovation#633	The same rail foot, carried verbatim from shell/window.css.
+receipts.html	nav.side	button.read	ovation#633	The same rail foot, carried verbatim from shell/window.css.
 review-send.html	div.rs-stagearea	div.rs-paper	ovation#634	The page preview is wider than its column's padding leaves, so it sits 18px from the left and under 3px from the right.
 review-send.html	div.rs-foot	button.rs-cancel	ovation#635	Cancel's letters sit 4px further in than Send's edge; which way it resolves is a look for Dan.

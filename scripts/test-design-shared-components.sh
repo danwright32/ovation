@@ -131,6 +131,6 @@ check_exit "a named file that is not there is refused, never skipped" \
 check_exit "the committed design record passes" \
     0 python3 "$TARGET"
 check "and it scanned every file rather than one" \
-    "$(python3 "$TARGET" 2>&1 | grep -c '5 design file(s) scanned')" "1"
+    "$(python3 "$TARGET" 2>&1 | grep -c '6 design file(s) scanned')" "1"
 
 harness_end

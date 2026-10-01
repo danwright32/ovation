@@ -3276,7 +3276,7 @@ function buildMenu() {
    ONE COPY FOR EVERY SCREEN THAT DRAWS THE RAIL, because the rail is chrome and
    the foot is part of it: three files drawing it by hand is three places for the
    retired count to come back.
-   CARRIED BY: invoice-list.html, invoice.html, clients.html */
+   CARRIED BY: invoice-list.html, invoice.html, clients.html, receipts.html */
 
 /* The lines the foot draws for the items open, newest first. `drawn` false is
    the zero rule: no problem or notice line, not a line saying nothing. `looked`
@@ -3498,7 +3498,7 @@ function buildInvoiceScreen() {
     card.append(el("div", "quiet", "Nothing waiting"));
   } else {
     [["To send", 4], ["To chase", 2], ["To confirm", 2], ["To place", 2],
-     ["Receipts to file", 7]].forEach(function (pr) {
+     ["Receipts to file", 20]].forEach(function (pr) {
       var ln = el("div", "ln");
       ln.append(el("span", null, pr[0]), el("b", null, String(pr[1])));
       card.append(ln);

@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design sidebar card tests" 41
+harness_begin "design sidebar card tests" 44
 
 TARGET="scripts/check-design-sidebar-card.sh"
 require_target "$TARGET"
@@ -282,9 +282,9 @@ check_rendered_count "and it names the line, the figure and the rows actually dr
 check_rendered_count "and it names the file the disagreement is in" \
     "$BAD" 'invoice-list.html: To send says 3' "1"
 
-# A LINE WITH NO ROWS IN THIS FILE IS NOT A PASS AND NOT A FAILURE. `Receipts to
-# file` counts the other half of the product, which has no screen in this record,
-# so it can only be reported as unjudged (L98).
+# A LINE WITH NO ROWS IN THIS FILE IS NOT A PASS AND NOT A FAILURE. The invoice
+# list draws no receipts, so its `Receipts to file` can only be reported as
+# unjudged there (L98); receipts.html is the file that draws them, below.
 UNJUDGED='    <div class="ln"><span>To send</span><b>2</b></div>
     <div class="ln"><span>Receipts to file</span><b>7</b></div>'
 NONE="$WORK/rollup-unjudged"; mkdir -p "$NONE"
@@ -294,6 +294,31 @@ judge "$NONE"
 check_rendered_status "a card line with no rows in the file does not refuse" "$NONE" "0"
 check_rendered_count "and the count of lines it could not judge is printed rather than left silent" \
     "$NONE" 'could not be judged' "1"
+
+# RECEIPTS TO FILE IS JUDGED WHERE ITS ROWS ARE DRAWN. receipts.html stamps every
+# receipt waiting with that line, so the card's figure there is held to them,
+# while a list drawing none of them leaves the same line unjudged. This is the
+# shape of the committed record: a card saying 7 above 20 stamped receipts, the
+# figure every file carried before the receipts screen existed, must be refused
+# in the one file that can see the rows, and pass as unjudged in the one that
+# cannot. Until this case nothing had seen that line fail (L1, L151).
+RCARD='    <div class="ln"><span>To send</span><b>2</b></div>
+    <div class="ln"><span>Receipts to file</span><b>7</b></div>'
+RROWS="$ROLL_ROWS"
+for i in $(seq 1 20); do
+    RROWS="$RROWS
+  <div class=\"rqrow\" data-cardline=\"Receipts to file\">receipt $i</div>"
+done
+RECEIPTS_BAD="$WORK/rollup-receipts"; mkdir -p "$RECEIPTS_BAD"
+rollup_file "$RECEIPTS_BAD/invoice-list.html" "$RCARD" "$ROLL_ROWS"
+rollup_file "$RECEIPTS_BAD/receipts.html" "$RCARD" "$RROWS"
+judge "$RECEIPTS_BAD"
+check_rendered_status "a Receipts to file figure that disagrees with the receipts stamped under it is refused" \
+    "$RECEIPTS_BAD" "1"
+check_rendered_count "and it names that line in the file drawing the receipts, with the rows it counted" \
+    "$RECEIPTS_BAD" 'receipts.html: Receipts to file says 7, and the file draws 20 row' "1"
+check_rendered_count "and never accuses the list that draws no receipts" \
+    "$RECEIPTS_BAD" 'invoice-list.html: Receipts to file says' "0"
 
 # ---------------------------------------------------------------------------
 # THE SETTLED DAY (ovation#193). The rail is chrome, so whatever the settled day

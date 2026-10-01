@@ -1,5 +1,5 @@
 <!doctype html>
-<title>Ovation Invoice List</title>
+<title>Ovation Expenses</title>
 <style>
 /* Fonts embedded so this file needs NOTHING external: it renders identically
    with no network at all. Latin subset only, because the page is pure ASCII.
@@ -43,8 +43,8 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .masthead { display: flex; flex-direction: column; gap: 13px; max-width: 72ch; }
 .lede { margin: 0; color: var(--page-ink-soft); font-size: 16.5px; }
 .lede strong { color: var(--page-ink); font-weight: 600; }
-/* THE DAY SWITCH, clients.html's own treatment, because it is the same control
-   (ovation#193). It changes the DATA the rail is drawn from, never the design. */
+/* THE SWITCHES, clients.html's own treatment for the day switch, because they are
+   the same control. Each changes the STATE drawn, never the design. */
 .tabs { display: flex; flex-wrap: wrap; gap: 8px; }
 .tab {
   appearance: none; cursor: pointer; font-family: inherit;
@@ -54,9 +54,6 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 }
 .tab .k { font-size: 11px; font-weight: 700; letter-spacing: .1em; color: var(--page-ink-faint); }
 .tab:focus-visible { outline: 2px solid var(--page-ink); outline-offset: 2px; }
-
-
-
 /* NO overflow declared here. It used to say overflow-x: auto, and setting
    overflow on one axis makes the other compute to auto too, so this element
    was a scroll container on BOTH axes waiting to happen. The window is wide,
@@ -89,14 +86,6 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
 .menubar .app-name { font-weight: 700; }
 .menubar .clock { margin-left: auto; font-size: 12px; color: #4A4640; font-variant-numeric: tabular-nums; }
 
-/* ============================================================
-   ESPRESSO, settled. NO CHIPS: the chip said SEND on the left
-   while the action said Send on the right, which is one fact
-   labelled twice on every row, and the heading above it was a
-   third. So the chips are gone from all three, and the only
-   variable left is what, if anything, marks where one run of
-   invoices ends and the next begins.
-   ============================================================ */
 
 
 /* THE PALETTE IS ON `.screen`, NOT ON `.win`, and that is load bearing rather
@@ -119,22 +108,6 @@ h1 { margin: 0; font-family: "Instrument Serif", Georgia, serif; font-size: clam
   --rail-card-bg: #4D3E35; --rail-card-bd: #62554D; --rail-card-hd: #D4D0CE;
   --rail-card-ln: #DCD9D7; --rail-card-b: #F7F7F6;
   --rail-st-bd: #5A4D45; --rail-fault: #F3F2F2; --rail-read: #E2BC82; --rail-dim: #C4BFBC;
-  /* THE ACTION COLUMN IS AT ITS FLOOR, 132px to 84px, settled 2026-09-09.
-     The shoot carrying the weight (see .row .sub) stopped the first column
-     fitting: Harbor Light Opera's row filled its 336px exactly, to one pixel,
-     and a 26 character title ran 16px over on a thirteen row fixture.
-     84px IS MEASURED, NOT CHOSEN. The widest thing this cell ever holds is
-     "Mark cleared" at 80px; the next widest are "34d Remind" at 79 and
-     "sent 15d ago" at 76. Every row was checked for overflow at 84px and none
-     has any. A first attempt at 100px was rejected on a measurement: it left
-     the first column at 368px and the longest title still 25px over, so it
-     would have shipped the cost without the fix.
-     WHAT IT DOES NOT DO, and Dan chose this knowing it. 48px takes the first
-     column to 384px, and the worst row needs 393px to show both names in
-     full, so the longest shoot titles still shorten. He was shown two ways to
-     close the last 9px, the client giving way instead and the window widening
-     to 1216px, and took neither: "the action column gives everything it has
-     and that is the end of it." So a long title ellipsises, deliberately. */
 }
 
 
@@ -232,179 +205,169 @@ color: var(--faint); }
 .status .fault .read { color: var(--rail-read); }
 .status .also, .status .looked { color: var(--rail-dim); }
 
+
 /* ============================================================
-   THE INVOICE LIST ITSELF, and it is NOT part of the shell
-   (ovation#179). The column headers, the row, the run marks and
-   the idle disclosures used to live in shell/window.css, and
-   `--cols` in shell/palette.css, so every screen carried them and
-   only this one drew them: measured 2026-09-09, `.row` matched 13
-   elements here and none at all in clients.html, invoice.html or
-   review-send.html. Four rounds on this screen the same day
-   changed two shell parts and had to be pasted into three files
-   the change could not affect.
-
-   THE SHELL IS THE WINDOW CHROME. A screen's own furniture lives
-   with the screen. `.toolbar`, `.scroll` and `.act` stayed in the
-   shell because Clients draws them too.
-
-   `--cols` is redeclared on `.screen`, where the palette it left
-   is declared, so the rules below resolve it exactly as before.
+   THE EXPENSES SCREEN ITSELF, and it is NOT part of the shell
+   (ovation#179): everything below is this screen's furniture and
+   lives with this screen. Settled with Dan on 2026-09-29 over six
+   rendered rounds (ovation#100, ovation#626, ovation#82), each of
+   them drawn in this window with these fixtures, one variable at
+   a time. Every rule says which decision it draws.
    ============================================================ */
-.screen {
-  /* The date column is 152px, up from 104px, because a combined invoice shows
-     a SPAN and a span does not fit in 104. Measured in the browser, not
-     guessed: "2 to 6 Sep 2026" needs 113px and "28 Sep to 3 Oct 2026" needs
-     150px, against 75px for a single date. It must be a FIXED width: each row
-     is its own grid, so an auto column is sized per row and the dates and
-     amounts stop lining up down the list, which was tried and measured at four
-     different left edges. The year is printed once, at the end, which is what
-     keeps the worst case at 150 rather than the 188 a range carrying both
-     years would need. */
-  /* The 48px the date column gained is taken back from the two columns that
-     were over reserving, not from the names. Measured: the invoice number
-     column held 58px for content needing 38px, and still needs only 38 at five
-     digits; the amount column held 104px where "123,456.00" needs 76. An over
-     reservation fails no test and breaks nothing, it simply stops the neighbour
-     growing, which is why it survives unnoticed. */
-  --cols: minmax(0,1fr) 152px 44px 88px 84px;
-}
- /* THE COLUMN HEADERS, settled 2026-09-09. Dan asked for them, then chose
-    every column against three lighter options: the four data columns only,
-    the two ambiguous ones only, and the amount alone. He named the first
-    column SHOOT rather than "client and shoot".
-    IT REUSES `.card .hd`, the label treatment already in this window, rather
-    than inventing a second one for the same job.
-    ITS GRID IS `--cols`, the same variable the rows use, so a label cannot
-    drift from the column it names: measured, every label's left and right
-    edge equals its column's cells, to the pixel.
-    AMOUNT AND ACTION ARE RIGHT ALIGNED because their cells are. A column's
-    header alignment and its cells' alignment are one fact declared at two
-    sites and they diverge silently, each site reading as correct alone
-    (L553).
-    IT SITS ABOVE THE SCROLL REGION, not inside it, so it stays put while the
-    list moves under it. */
- .colhead { display: grid; grid-template-columns: var(--cols); gap: 14px; padding: 10px 24px 7px; border-bottom: 1px solid var(--rule); flex: none; }
- .colhead > div { font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
- .colhead .amt-h, .colhead .end-h { text-align: right; }
-.row { display: grid; grid-template-columns: var(--cols); gap: 14px; align-items: baseline; padding: 8px 24px; border-bottom: 1px solid var(--rule-soft); font-size: 15px; color: var(--ink); }
-.row .who { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
-/* THE SHOOT CARRIES THE WEIGHT, NOT THE CLIENT. Settled 2026-09-09 by Dan,
-    against three alternatives (the client as it was, both at one weight, and
-    the client named once at the head of a run of shoots). Shown to him on a
-    client holding three separate invoices for three shoots, beside a single
-    invoice covering two, because those two cases look alike and are not the
-    same thing.
-    HIS RULE, NOT THE CASE HE WAS SHOWN: "this is always, not just when they
-    have several shoots." So it is not a run treatment, it is the row.
-    The client keeps its place at the head of the line and goes quiet. */
-/* THE CLIENT GIVES WAY AND EVERY SHOOT ENDS ON ONE RIGHT EDGE, at every width
-   (Dan, 2026-09-26, ovation#110 rounds 3 and 4, PRD 47c). The client keeps its
-   place at the head of the line and is the part that shortens, down to five
-   letters, before the shoot does; the shoot is pushed to the right hand edge of
-   the column, so the shoots read as one column down the list. His objection to
-   the version where the shoot sat right after the client: "i dont like that the
-   shoot names arent all right aligned", which it was not wherever a client was
-   short. It replaces, at full width too and by his choice, the 2026-09-09 layout
-   in which the shoot followed the client: at 1064 it shortens 1 client name
-   where that layout cut the shoot "Uncle Vanya, opening night". */
- .row .client { font-weight: 400; color: var(--faint); letter-spacing: -.005em; white-space: nowrap; flex: 1 1 0; min-width: 5ch; overflow: hidden; text-overflow: ellipsis; }
-.row .sub { font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
-/* BELOW A 900 POINT WINDOW THE SHOOT GOES UNDERNEATH (Dan, 2026-09-26,
-   ovation#110, PRD 47c). At the app's minimum, 860, which is half his screen,
-   this column is 180 points; on one line the shoot was squeezed to nothing in 8
-   of 16 rows. Round 1 chose the shoot on a line of its own under the client,
-   over the client shortening first on one line, which at 860 cut every client
-   to a few letters. Rows go from 40 points to 65.
-   WHERE IT SWITCHES IS HIS, from a round drawing the one line rule above at 900,
-   940, 980, 1020 and 1064: 900 is the narrowest he judged still right, where it
-   shortens every client name and cuts 2 of 16 shoots. It had first been set at
-   1020, the width where the one line row with the shoot giving way still held,
-   and that rule is gone. The app switches at the same window width
-   (`OvationWindow.shootUnderneathBelow`).
-   UNDERNEATH, NOTHING STRETCHES: the one line rule's flex would size the client's
-   height from zero in a column, so the stack resets it. */
-@container win (max-width: 899px) { .row .who { flex-direction: column; align-items: flex-start; gap: 1px; } .row .who > * { max-width: 100%; flex: none; } .row .client, .row .sub { overflow: hidden; text-overflow: ellipsis; max-width: 100%; } }
-.row .when, .row .num, .row .amt { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--soft); white-space: nowrap; }
-.row .amt { text-align: right; color: var(--ink); font-weight: 500; font-size: 13.5px; }
- /* A WORD WHERE A FIGURE WOULD BE, settled 2026-09-09 (ovation#117).
-   Two rows can hold no money and they mean opposite things: a draft nobody has
-   priced yet, which cannot be sent until the hours are supplied, and a shoot
-   comped on purpose, which is finished. Both drew 0.00, which PRD 5.1b makes a
-   legitimate comped invoice, so the two read as one row while needing opposite
-   actions. Dan chose, against three alternatives (nothing against zero, the
-   word on only the unpriced, the word on only the comped), that BOTH say what
-   they are rather than either being left to be inferred from a figure.
-   It keeps the column's mono face and its right edge and drops only the weight
-   and the colour, so nothing else moves: measured at one right edge across all
-   thirteen rows, before and after.
-   NOT WRITTEN AS `.said`, this file's existing quiet treatment for a word
-   sitting where a figure would sit. `.said` is one class of specificity and
-   `.row .amt` is two, so it loses every declaration it makes and paints
-   nothing at all. That was tried first and caught by reading the computed
-   colour back out of the browser, not by looking: the words were there and
-   the row looked finished. */
-.row .amt.word { color: var(--quiet); font-weight: 400; }
-.row .end { display: flex; justify-content: flex-end; align-items: baseline; gap: 11px; }
-.age { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; font-weight: 500; color: var(--soft); font-variant-numeric: tabular-nums; }
-.said { font-size: 12.5px; color: var(--faint); white-space: nowrap; }
-/* A combined invoice names its LAST shoot, because that is the shoot the
-   invoice is dated by, and says how many others it covers. Same mono face as
-   the figures, because it IS a figure. */
-.row .plus { font-size: 11.5px; color: var(--faint); white-space: nowrap; font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-.row.idle { color: var(--quiet); }
-.row.idle .client { font-weight: 500; color: var(--quiet); }
-.row.idle .amt { color: var(--quiet); font-weight: 400; }
-/* N3. The run's total and nothing else: keeps the money, drops the words. */
-.N3 .brk { display: grid; grid-template-columns: var(--cols); gap: 14px; padding: 14px 24px 5px; border-top: 1px solid var(--rule); }
-.N3 .brk:first-child { border-top: 0; padding-top: 6px; }
-.N3 .brk .sum { grid-column: 4; text-align: right; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
-/* the idle groups get air rather than a label: "Paid or cleared" and
-   "Cancelled" already say they need nothing. */
-.disc.firstidle { margin-top: 16px; border-top: 1px solid var(--rule); }
-/* The first ordinary row after the waiting group, carrying the same separation
-   that band carries, because a band with rows under it and nothing closing it
-   makes every row below read as part of it (ovation#190). */
-.row.afterwaiting { margin-top: 16px; border-top: 1px solid var(--rule); }
-.disc { display: grid; grid-template-columns: var(--cols); gap: 14px; align-items: center; padding: 9px 24px; font-size: 13.5px; color: var(--quiet); background: var(--sunk); border-bottom: 1px solid var(--rule-soft); }
-.disc .lead { grid-column: 1 / 4; display: flex; align-items: center; gap: 10px; }
-.disc b { font-weight: 600; }
-.disc .n { font-size: 12px; color: var(--faint); font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-.disc .sum { grid-column: 4; text-align: right; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
-.disc .tri { flex: none; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid var(--faint); }
-.disc.open .tri { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid var(--faint); border-bottom: 0; }
-/* C2: the row you are on takes the rail's colour */
-/* tint only: a left bar flush against a dark rail is invisible, and a tint
-   is what macOS uses for selection regardless */
-.row.sel { background: var(--selbg); }
-/* THE SEARCH FIELD (ovation#449). Its LOOK HAS NOT BEEN JUDGED: the round that
-   settled what a search does held the field's appearance out of the question,
-   and the app draws the platform's own search field rather than this one. It
-   sits at the right of the toolbar, where the round drew it. */
-.search { margin-left: auto; display: flex; align-items: center; gap: 7px; width: 230px; box-sizing: border-box; padding: 5px 9px; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); color: var(--faint); font-size: 13px; }
-.search svg { flex: none; }
-.search .q { flex: 1; color: var(--ink); }
-.search .q.empty { color: var(--faint); }
-.search .x { color: var(--faint); font-size: 14px; line-height: 1; }
-/* A SEARCH THAT FINDS NOTHING SAYS SO, never a blank list under the heads. Its
-   sentence was drafted with the app, not chosen in a round. */
-.nomatch { padding: 24px; font-size: 13px; color: var(--soft); }
 
+/* THE LIST BESIDE THE RECEIPT (Dan, 2026-09-29, ovation#100), kept against a
+   full width list whose row opens the receipt in its place, and one receipt at
+   a time with Previous and Next. The list stays on the left and the receipt
+   being worked on sits beside it with its fields, so moving to the next receipt
+   is one press on the list rather than a trip back to it. */
+.rqbody { flex: 1; display: flex; min-height: 0; }
+/* 470 at the 1064 window, as every round drew it. At the 860 point minimum
+   (PRD 44b) the receipt keeps the 246 its widest line needs, "Read as 47.55 or
+   41.55" at 196 plus the 24 inset each side and the list's rule, so the list
+   takes what is left: 860 minus the 208 rail minus 247 is 405. It answers to
+   the WINDOW, through the container the shell declares, so the window drawn at
+   its minimum by check-design-draws.sh gets the same list the switch draws. */
+.rqlist { display: flex; flex-direction: column; min-width: 0; flex: none; width: 470px; border-right: 1px solid var(--rule); }
+@container win (max-width: 899px) { .rqlist { width: 405px; } }
+/* THE COLUMNS, each measured in the headless shell against its widest content
+   (measured 2026-09-29): Receipt date 83 and its heading 89, so 92; Amount 65
+   for 2,899.00 and its heading 54, so 76; and ACTION 48 (Dan, 2026-09-29,
+   ovation#100). Every row's word is File now, and the heading is 47 over a
+   word of 21, so the column came down from the 84 it held while the widest
+   word was Add amount. The vendor takes the rest: 164 at 1064 and 99 at 860.
+   A FIXED width for every column but the vendor, because each row is its own
+   grid, and an auto column is sized per row and stops lining up down the list
+   (the invoice list measured that at four different left edges). */
+.rqhead, .rqrow { display: grid; grid-template-columns: minmax(0,1fr) 92px 76px 48px; gap: 14px; }
+.rqhead { padding: 10px 24px 7px; border-bottom: 1px solid var(--rule); }
+.rqhead > div { font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
+/* Right aligned because their cells are: one fact at two sites (L553). */
+.rqhead .rqr { text-align: right; }
+.rqrow { align-items: baseline; padding: 8px 24px; border-bottom: 1px solid var(--rule-soft); font-size: 15px; color: var(--ink); }
+/* The open receipt's row takes the selection shade, the invoice list's C2. */
+.rqrow.sel { background: var(--selbg); }
+.rqwho { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+/* AT THE 860 POINT WINDOW THE VENDOR GIVES WAY (Dan, 2026-09-29, ovation#100),
+   kept against the date moving to a line under the vendor. Every row stays one
+   line and the vendor column shortens: 5 of the 20 receipts are cut, Google
+   Workspace, Think Tank Photo, Hilton Garden Inn and both possible duplicate
+   words under Adorama (measured 2026-09-29), and the receipt beside the list
+   names the open one in full. The date moving under would have kept every
+   vendor whole and made every row two or three lines: the 20 rows needed 1,395
+   points of window against 988. The filed expenses under the queue follow the
+   same rule (ovation#626). */
+.rqvendor { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A FLAG IS A QUIET WORD UNDER THE VENDOR, in the figures' face, because it is
+   a fact Ovation worked out rather than one Dan typed: possible duplicate,
+   likely asset, no receipt (PRD 20, 21, 22). */
+.rqflag { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rqdate, .rqamt { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--soft); white-space: nowrap; }
+.rqamt { text-align: right; color: var(--ink); font-weight: 500; font-size: 13.5px; }
+/* A FIELD OVATION WAS UNSURE OF IS THE QUIET WORD "unsure" IN ITS CELL (Dan,
+   2026-09-29, ovation#100), kept against both readings in the row and a blank
+   cell. The heading above the cell already names the field, so the word says
+   unsure alone; the competing readings are in the receipt beside the list
+   (PRD 18). A blank was rejected because it reads the same as a field nobody
+   has filled in yet, and on the Blick receipt it left a row with no name at
+   all. Written as three selectors, each as specific as the rule it quietens,
+   so it cannot lose on specificity the way `.said` once did on the list. */
+.rqword, .rqamt.rqword, .rqvendor.rqword { color: var(--quiet); font-weight: 400; }
+.rqvendor.rqword { font-size: 13.5px; }
+.rqamt.rqword { font-size: 12.5px; }
+.rqend { display: flex; justify-content: flex-end; }
+/* A SUSPECTED DUPLICATE IS SETTLED ON THE ROWS (Dan, 2026-09-29, ovation#82),
+   kept against the answers in the receipt panel and a side by side pairing
+   view. Both answers sit under "possible duplicate" on EACH row of the pair, so
+   it can be settled from the list without opening either, and each of the two
+   rows grows a line. Ovation flags and never decides (PRD 22), so both answers
+   are always offered, and Both are real is recorded and consulted, so it sticks
+   (L269, L330). */
+.rqdupact { display: flex; gap: 14px; padding-top: 3px; }
+.rqlink { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; white-space: nowrap; }
+/* Delete this one removes a receipt, so it takes the colour the invoice
+   screen's own Delete it already uses rather than a new one. */
+.rqlink.rqharm { color: #8C4A3C; }
+/* THE ONE SCREEN'S TWO BANDS (Dan, 2026-09-29, ovation#626): Expenses in the
+   rail opens ONE list, the receipts waiting to be filed and the filed expenses
+   under them, each under a band. The invoice list's own sunk band look, and no
+   count, because the card already counts what is waiting. The band that
+   follows a receipt carries the rule and the air the invoice list's first idle
+   band carries, which is how a new block starts in this record. */
+.exband { padding: 9px 24px; font-size: 13.5px; color: var(--quiet); background: var(--sunk); border-bottom: 1px solid var(--rule-soft); }
+.exband b { font-weight: 600; }
+.rqrow + .exband { margin-top: 16px; border-top: 1px solid var(--rule); }
+/* A FILED EXPENSE KEEPS THE QUEUE'S COLUMNS, so its category goes on a line
+   under the vendor and every filed row is two lines. That was drawn in the
+   round Dan chose from, and it is the price of one list rather than two: the
+   filed list on a screen of its own had a Category column. */
+.excat { font-size: 12.5px; color: var(--quiet); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* THE RECEIPT BESIDE THE LIST: the receipt itself, then its fields. */
+.rqdetail { flex: 1; display: flex; flex-direction: column; gap: 22px; padding: 20px 24px; align-items: flex-start; min-width: 0; }
+.rqfields { display: flex; flex-direction: column; gap: 14px; min-width: 0; align-self: stretch; }
+/* A receipt, DRAWN rather than imaged, so this file needs nothing external. A
+   photographed one sits slightly askew and an emailed one does not. */
+.rqpaper { flex: none; width: 168px; background: #FFFFFF; border: 1px solid var(--rule-soft); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 6px 16px rgba(0,0,0,.08); padding: 14px 12px 18px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 9.5px; line-height: 1.55; color: #3A332E; transform: rotate(-1.2deg); }
+.rqc { text-align: center; }
+.rql { display: flex; justify-content: space-between; gap: 8px; }
+.rqgap { height: 8px; }
+/* The Staples total is smudged on the paper, which is why it was read two
+   ways; the blur is the fixture's reason for being unsure, not a style. */
+.rqsmudge { filter: blur(1.4px); opacity: .7; }
+.rqfield { display: flex; flex-direction: column; gap: 5px; }
+.rqlab { font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
+.rqbox { min-height: 28px; display: flex; align-items: center; padding: 3px 9px; background: var(--sunk); border: 1px solid var(--rule); border-radius: 4px; font-size: 14px; color: var(--ink); }
+/* THE READINGS OF AN UNSURE FIELD, beside the field left empty for them: the
+   field is filled only where the reading is unambiguous and nothing is ever
+   guessed (PRD 18, 18a). Each reading is a control that fills the field. */
+.rqreads { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--quiet); white-space: nowrap; }
+.rqpick { font: inherit; font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; padding: 2px 9px; border-radius: 5px; border: 1px solid var(--rule); background: var(--chrome); color: var(--ink); }
+/* A LIKELY ASSET IS SAID BY A LINE NAMING THE THRESHOLD, under the Amount
+   (Dan, 2026-09-29, ovation#82), then an Asset field with Yes and No. Kept
+   against a quiet word only, which names no threshold and cannot be overruled
+   here, and Ovation's suggestion beside Yes and No with no reason. It is the
+   only option that says WHY, and it carries PRD 9.4's caveat into the app as
+   PRD 5.20 asks: the threshold is per item and Ovation sees a receipt's total.
+   The threshold itself is set in the Settings window, not here. */
+.rqnote { font-size: 12.5px; line-height: 1.4; color: var(--quiet); }
+/* THE CATEGORY, chosen from PRD 19's list as it stands (Dan, 2026-09-29,
+   ovation#82), in the record's one popup list. */
+.rqcat { font: inherit; font-size: 13.5px; color: var(--soft); display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; background: var(--chrome); border: 1px solid var(--rule); border-radius: 5px; padding: 4px 10px; align-self: flex-start; min-width: 160px; }
+.rqcat .tri { flex: none; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--faint); }
+.rqcatat { position: relative; align-self: flex-start; }
+.rqgo { padding-top: 4px; }
+/* File in the panel, greyed as every round drew it. What it waits on, and what
+   it says while it waits, is listed as open below rather than settled here. */
+.act.rqoff { color: var(--faint); text-decoration: none; font-weight: 500; }
+
+/* ONE POPUP LIST (ovation#149), carried from invoice.html rather than drawn
+   again: the record's one short list of choices, which
+   check-design-shared-components.sh keeps the only one. Only the rules this
+   screen uses are carried. */
+.poplist { position: absolute; z-index: 6; background: #F7F4F1;
+           border: 1px solid #CFC7BF; border-radius: 6px;
+           box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 5px 0; min-width: 186px; }
+.poplist button { display: block; width: 100%; text-align: left;
+                  font: inherit; font-family: "Archivo", ui-sans-serif, sans-serif;
+                  font-size: 13px; color: #1F1812; background: none; border: 0;
+                  padding: 4px 16px; white-space: nowrap; }
+.poplist button:hover { background: var(--accent); color: var(--on-ink); }
+.rqcatat .poplist { top: calc(100% + 4px); left: 0; }
+/* The WINDOW switch: the window at its 860 point minimum (PRD 44b). The shell
+   declares the width as this variable so a screen can be drawn narrow without
+   anything but the width moving. */
+.win.at860 { --win-width: 860px; }
 </style>
 
 <div class="wrap">
 
   <header class="masthead">
-    <div class="eyebrow">Ovation, the invoice list</div>
-    <h1>Invoices</h1>
+    <div class="eyebrow">Ovation, Expenses and the receipts to file</div>
+    <h1>Expenses</h1>
     <p class="lede">
-      The agreed design for Ovation's main screen, settled with Dan on 2026-09-06 over eleven rounds,
-      one variable at a time. <strong>Every decision below is his, with the reason it was made.</strong>
-    </p>
-    <p class="lede">
-      This is a rendering, not the app. <strong>Read the README beside it</strong> before building from
-      it: three things here are web idioms that must be translated rather than copied, the loudest
-      being that the action words should not be underlined.
+      The agreed design for the Expenses screen, settled with Dan on 2026-09-29 over six rendered
+      rounds, one variable at a time. <strong>Every decision below is his, with the reason it was
+      made.</strong> A rendering, not the app: the action words are underlined here and should not be.
     </p>
   </header>
 
@@ -412,323 +375,239 @@ color: var(--faint); }
   <div class="stage" id="stage"></div>
 
   <div class="record">
-    <div><h3>The shell</h3>
-      <p><b>One window, three places:</b> Invoices, Expenses, Clients. Export and Import are File menu
-      commands because they are actions rather than rooms, and Settings is in the app menu where macOS
-      puts it. Requirement 41b makes single window a hard rule, asserted by a test.</p></div>
-    <div><h3>No instruction headings</h3>
-      <p><b>Your call, and the strongest cut in the whole session.</b> The chip said SEND on the left
-      while the action said Send on the right, and the heading above said it a third time. The row
-      already carries draft or number, the shoot date, the days late and the exact action, which covers
-      every case the headings were spelling out.</p></div>
-    <div><h3>The row</h3>
-      <p><b>One line, client and shoot name together</b>, then date, invoice number, amount, action.
-      About a third shorter than the two line version. Venue and shoot times are deliberately absent
-      and need a home elsewhere, filed as ovation#95.</p>
-      <p><b>Where one invoice covers several shoots</b> (PRD 5.1a) the row names the LAST of them and
-      counts the rest, and the date becomes a span. The last, because that is the shoot the invoice is
-      dated by, so the name and the date agree. The span appears only where the days really differ: a
-      matinee and an evening on one date show that one date.</p></div>
-    <div><h3>The actions</h3>
-      <p><b>Words, not buttons.</b> Eight filled buttons beside five filled bands made structure and
-      action look identical. A button also says what it does: Mark cleared, Mark unsent.</p>
-      <p>Downbeat already ships a three tier button system whose plain tier is a word with padding and
-      no border, so this builds natively with nothing invented.</p></div>
-    <div><h3>The counts</h3>
-      <p><b>Four, in the sidebar card, each shown once.</b> Down from six with one appearing twice.
-      Inventory counts are gone: a number in the chrome only ever means this many things need you.</p>
-      <p>The card and any group total must be computed once and read twice, never derived separately.
-      Recorded on ovation#49.</p></div>
-    <div><h3>A draft that cannot be sent</h3>
-      <p><b>It stays where its dates put it, and its action names what it is waiting on.</b> Three
-      drafts on this screen cannot go out: one with no shoot date, one with no hours recorded, and
-      one whose client has no tax status. Each says what is missing, <i>Add date</i>, <i>Add
-      hours</i>, <i>Add tax status</i>, so the reader meets one situation three times rather than
-      three kinds of row.</p>
-      <p><b>The card does not move for any of them.</b> It still reads To send 4 with all three
-      present. Its lines count things you can act on from here, and pressing the action on a blocked
-      draft does nothing. That is PRD 46a applied rather than extended, and it is now PRD 46f.</p>
-      <p>Dan, 2026-09-19 (ovation#129), with <i>Add tax status</i> and <i>Open client</i> drawn side
-      by side on the real screen. Naming the destination rather than the missing thing would make
-      one of the three read as a different kind of row, even though the tax status is a fact about
-      the client and is answered elsewhere.</p></div>
-    <div><h3>A number that was taken back</h3>
-      <p><b>The Invoice column says draft until the invoice is actually sent.</b> An invoice is
-      numbered when you press Review, because the number is printed on the page you read, and the
-      number is handed back if you close without sending. It can only be handed back while nothing
-      was numbered after it, so two reviews closed in the opposite order leave the first one holding
-      a number it was never sent with. Riverside Wind Ensemble is that row.</p>
-      <p><b>It reads as a draft because the column means the client has this number</b>, not that
-      one was reserved. The number is not lost: it stays on the invoice and returns to the column
-      when the invoice goes out. It is not a new group and not a new card line either, since it is
-      still an invoice waiting to be sent.</p>
-      <p>Dan, 2026-09-19 (ovation#364), with the number and the word drawn side by side on the real
-      screen. PRD 46g.</p></div>
-    <div><h3>A search</h3>
-      <p><b>It narrows the bands in place.</b> A band holding a match stays, with its count narrowed
-      and opened so the matches show; a band with no match is not drawn. Each match keeps the band it
-      came from, so no separate state filter is needed to reach every state. The card is not
-      narrowed, because a search changes nothing about what needs you.</p>
-      <p>Dan, 2026-09-29 (ovation#449), over replacing the bands with one flat list, which dropped the
-      bands' own facts, the held money and the paid total, while searching. The look of the search
-      field was not part of the round and has not been judged. PRD 39a.</p>
-      <p>This file counts the closed groups rather than listing them, so its search can open Paid or
-      cleared only for Cedar Hill, the round's query. The app searches every invoice.</p></div>
-    <div><h3>A check that has not cleared</h3>
-      <p><b>After 7 days it moves to the top of the list</b>, leading the invoices that need you, with
-      no mark of its own. Position is the whole callout. By then the check was likely never deposited,
-      or it bounced; a check under 7 days old keeps its place among the checks.</p>
-      <p>Dan, 2026-09-29 (ovation#546), over a line under To confirm in the card and a standing line
-      in the rail's foot, with no red in any of the three. An age before Mark cleared does not fit the
-      action column. PRD 46h.</p>
-      <p><b>Only a row in the overdue group carries an age</b>, because only it is overdue: not a
-      check, and not an invoice the waiting group moved. Approved by Dan on 2026-09-29.</p></div>
-    <div><h3>The idle half</h3>
-      <p><b>Disclosures, with Sent awaiting payment open.</b> The group you have money riding on stays
-      visible. No "Nothing to do" label above them, because the group names already say it.</p>
-      <p>Every state stays on this one screen and reachable, which requirement 22b insists on: a state
-      matching no view is invisible rather than merely awkward.</p></div>
-    <div><h3>Espresso, and no red</h3>
-      <p><b>An overdue invoice is not an error.</b> Nothing has failed, the money has not arrived.
-      Lateness is an age in mono, a duration rather than an alarm. Red belongs to the Problems store
-      alone, whose kinds are all faults in the app itself.</p>
-      <p>Espresso #3B2B21 on the group bands, chosen against ten alternatives and then against a
-      warm to cool ramp.</p></div>
-    <div><h3>The foot strip</h3>
-      <p><b>Names each open thing rather than counting it</b>, by a short name with Read beside it,
-      newest first, two at most and then "and N more". A notice that arrives while you work, like
-      the finished year end export, becomes its first line; nothing is drawn over the invoice you
-      have open. With nothing open there are no such lines, and the line saying when Ovation last
-      looked for bookings and receipts stays on its own.</p>
-      <p><b>A notice waiting at launch is no different.</b> It goes in the foot with Read like any
-      other, and Ovation opens straight onto this screen rather than giving the window to it.</p>
-      <p><b>Read opens a popover beside it</b> holding the whole sentence and I have read this, and
-      nothing else on the screen moves. A notice closes once read; a standing problem, like a backup
-      that is behind, stays until the backup catches up.</p>
-      <p><b>"and N more" is a control like Read</b> and opens a popover beside it listing every
-      open thing, each named with its whole sentence and its own I have read this, so everything
-      open can be read from the sidebar.</p>
-      <p><b>Two things here are Claude's, not Dan's.</b> Both popovers start just past the
-      sidebar's edge, so the list does not cover the names above "and 1 more"; the round Dan chose
-      from drew the Read popover about 16 points further left, over the sidebar. And the third
-      item, Bookings drafted, is in the fixture only so that "and 1 more" is drawn; its name is the
-      app's, which carries no count.</p>
-      <p>Dan, 2026-09-26, over four rounds drawn in the real window with the real sentences
-      (ovation#99, ovation#566): "Shortened beside Read", "In the sidebar's foot", "Popover from
-      Read" and "Name each open thing", and asked what "and N more" should do, "Opens a list
-      pop-up". Asked what happens when Ovation opens with an unread notice waiting, "Foot, like
-      the rest". And on 2026-09-27, asked whether a day with nothing open should still say when
-      Ovation last looked, "Keep that line". PRD 44c to 44g. It retires "1 other problem" and "1 more to
-      read", which counted different things.</p>
-      <p>It also says what looking means: Ovation checks the booking folder and the Gmail label only
-      while it is open, so everything time based is as old as the last launch.</p></div>
+    <div><h3>One screen, reached two ways</h3>
+      <p><b>Expenses in the rail opens one screen</b>: the receipts waiting to be filed, with the
+      filed expenses under them in the same list, each under a band, and the open receipt beside
+      it. <b>The card's Receipts to file line opens the same screen narrowed</b> to the receipts
+      waiting, and nothing else.</p>
+      <p>Dan, 2026-09-29 (ovation#626), after a round drawing one screen against two: "If I click
+      Expenses it's one screen, but if I click the Receipts to file in the card it just shows me
+      those." Two screens would have given each one job, and the filed expenses and what is
+      waiting would never be seen together. The price, drawn and accepted: a filed row keeps the
+      queue's columns, so its category sits under the vendor and every filed row is two lines.</p></div>
+    <div><h3>The list beside the receipt</h3>
+      <p><b>The list stays on the left and the receipt being worked on sits beside it</b> with its
+      fields. Kept against a full width list whose row opens the receipt in its place, and one
+      receipt at a time with Previous and Next, because the next receipt is one press on the list
+      rather than a trip back to it. Dan, 2026-09-29 (ovation#100), from three layouts drawn with
+      these twenty receipts.</p></div>
+    <div><h3>Newest first, and every row says File</h3>
+      <p><b>The queue is newest first</b>, so what just arrived is at the top. <b>Every row's word
+      is File</b>: what needs checking is shown in the receipt beside the list, never in the row's
+      word, so one word serves every row. That took the Action column from 84 points to 48, the
+      heading's own width, and gave the vendor the difference. Dan, 2026-09-29 (ovation#100).</p></div>
+    <div><h3>At the 860 point window, the vendor gives way</h3>
+      <p><b>Every row stays one line and the vendor column shortens.</b> Five of the twenty
+      receipts are cut at the 860 point minimum, half Dan's screen, and the receipt beside the list
+      names the open one in full. Kept against the date moving to a line under the vendor, which
+      kept every name whole and made the rows two or three lines: the twenty needed 1,395 points of
+      window against 988. The filed rows follow the same rule. Dan, 2026-09-29 (ovation#100,
+      ovation#626). Press WINDOW to draw it.</p></div>
+    <div><h3>A field Ovation was unsure of</h3>
+      <p><b>Its cell says unsure, quietly</b>, and the heading above says which field. The readings
+      are in the receipt beside the list, beside the field left empty for them, because a field is
+      filled only where the reading is unambiguous and nothing is guessed (PRD 18). Kept against
+      both readings in the row, which put them on screen twice, and a blank, which reads the same
+      as a field nobody has filled in and left the Blick receipt's row with no name at all. Dan,
+      2026-09-29 (ovation#100). Three rows carry it: a date, a vendor and an amount.</p></div>
+    <div><h3>A possible duplicate is settled on its rows</h3>
+      <p><b>Both answers sit under possible duplicate on each row of the pair</b>, so two Adorama
+      receipts for the same amount on the same day can be settled from the list without opening
+      either. Ovation flags and never decides (PRD 22), so Both are real and Delete this one are
+      always both offered, and Both are real sticks. Kept against the answers in the receipt panel
+      and a side by side pairing view. Dan, 2026-09-29 (ovation#82). A pair of filed expenses is
+      settled the same way.</p></div>
+    <div><h3>A likely asset names the threshold</h3>
+      <p><b>A line under the Amount says the receipt is over the 2,500.00 threshold, and that the
+      threshold is per item while this is the receipt's total</b>, then an Asset field with Yes and
+      No. It is a suggestion, never a determination (PRD 20), and the caveat is PRD 9.4's, carried
+      into the app as PRD 5.20 asks. Kept against a quiet word, which names no threshold and cannot
+      be overruled here, and a suggestion beside Yes and No with no reason. Dan, 2026-09-29
+      (ovation#82). Press OPEN until B&amp;H Photo is open to draw it.</p></div>
+    <div><h3>The threshold is set in Settings</h3>
+      <p><b>The asset threshold is a field in a pane of the standard Mac Settings window</b>
+      (Ovation, Settings, Command comma), beside the invoice settings and the backups, so it is
+      not on this screen. The single window rule, PRD 41b, is about the main window, not Settings.
+      Dan, 2026-09-29 (ovation#82).</p></div>
+    <div><h3>The categories are PRD 19's, as they stand</h3>
+      <p><b>Gear, Software, Travel, Insurance, Contract labour, Professional fees, Marketing and
+      Meals</b>, each carrying its Schedule C line, and a category added later must carry its line
+      too (PRD 19a). Dan, 2026-09-29 (ovation#82). Press Choose in the receipt to see the list.</p>
+      <p><b>A filed row names the category, not its Schedule C line.</b> The round Dan chose from
+      printed the line, Office expense where Adobe's category is Software; this file draws the
+      category, which is what an expense carries.</p></div>
+    <div><h3>The fixtures</h3>
+      <p><b>Twenty receipts waiting and fifteen expenses filed, every one an invented
+      business.</b> The receipts are the rounds' own. The filed fifteen are the last round's, moved a month
+      earlier: at its dates eleven of them had the same vendor, day and amount as a receipt still
+      waiting, which PRD 22 would flag as duplicates of each other.</p>
+      <p><b>The card's Receipts to file is counted from the rows</b> this screen draws, and every
+      other file in the record draws the same figure, because the card is chrome.</p></div>
   </div>
 
   <section class="closing">
     <h2>What is deliberately still open</h2>
     <ol>
-      <li><b>Money held against a client had no surface here, and now has two.</b> This entry said
-      the screen is a list of invoices so there is nowhere for it to appear, which was true when it
-      was written and stopped being true twice: PRD 46b put the held total in the rail on 2026-09-10
-      and 46d put a group of invoices at the top of this list the same day, where a client's held
-      money could settle more than one of them. What survives is the reason: the money belongs to
-      the client and not to any invoice (PRD 5.14a), so what this screen carries is invoices and a
-      figure about them, never a client's balance as a row. Money held against a client with NO open
-      invoice is the case that still has nothing here, and that is a decision rather than a gap
-      (PRD 46e).</li>
+      <li><b>What a pair of rows shows once it is answered</b>, and what Delete this one asks before
+      it removes a receipt. The answers' place is settled; their outcome is not drawn
+      (ovation#82, PRD 40).</li>
+      <li><b>What File in the receipt waits on, and what it says while it waits.</b> Every round
+      drew it greyed with no reason beside it, which PRD 52g's rule forbids in the app: a greyed
+      control carries what it is waiting for (PRD 53h).</li>
+      <li><b>The Settings pane that holds the asset threshold</b> is decided as a place and not
+      drawn (PRD 20, PRD 53g).</li>
+      <li><b>Two calls here are Claude's, not Dan's.</b> The narrowed screen is headed Receipts to
+      file, the words of the card line that opened it, and so draws no To file band, which would
+      say it twice; the round Dan chose from drew only the whole screen (PRD 53a).</li>
+      <li><b>The receipt panel is drawn for three receipts</b>: an unsure amount, a possible
+      duplicate and a likely asset. What it shows with nothing open, for an unsure vendor or date,
+      and for a filed expense opened from the list, follows the same form and is not drawn (PRD
+      18, PRD 22b).</li>
+      <li><b>Two states PRD 22b names have no row here</b>: an expense imported from QuickBooks
+      with no image, and an attachment that failed to become a receipt at all (PRD 22b).</li>
     </ol>
   </section>
 
 </div>
 
 <script>
-/* BUILT ON EVERY DRAW RATHER THAN ONCE AT LOAD. It was `var GROUPS = [...]`, a
-   literal evaluated when the script ran, and a design round that MOVES one of the
-   values in it then cannot: the round's harness reassigns the variable the value
-   came from, the array already holds the old string, and both options render
-   identically under a readout naming two different ones. Dan caught exactly that
-   on 2026-09-19, which is the same failure as the three widths that all drew the
-   same size (L1: an option nobody can tell apart is not an option). A function
-   is re-read every draw, so a moved value reaches the screen. */
-function groupsFor() { return [
-  /* A CHECK NOT CLEARED 7 DAYS AFTER IT WAS RECORDED LEADS THE LIST (Dan,
-     2026-09-29, ovation#546, PRD 46h), from a rendered round of three options
-     moving one variable, with no red in any: "Moved to the top of the list".
-     It leaves its place among the checks and leads the invoices that need you,
-     under the waiting group, with NO MARK OF ITS OWN: the same Mark cleared, no
-     age. Position is the whole callout. Saint Anne's check was recorded on
-     28 Aug 2026, 9 days before this fixture's Sun 6 Sep; `recorded` carries it so
-     the fixture records the state rather than only its effect.
-     Rejected: a line under To confirm in the sidebar card, and a standing line in
-     the sidebar's foot. An age word before Mark cleared, the way 34d sits before
-     Remind, was drawn and measured and does not fit: the action column is 84px,
-     Mark cleared alone takes 80, and 9d beside it ran into the amount.
-     A CHECK UNDER 7 DAYS OLD KEEPS ITS PLACE, fourth among the groups below. The
-     round drew one, Linden Park Brass, recorded 3 days before; it is not in this
-     file because the rail is chrome shared with three other design files, and a
-     third invoice to confirm here would make this card say To confirm 3 while
-     theirs say 2. */
-  { sum: "1,100.00", rows: [
-    { c: "Saint Anne's Chamber Series", s: "Advent Vespers", d: "11 Aug 2026", n: "1033", a: "1,100.00", recorded: "28 Aug 2026", act: "Mark cleared" }]},
-  { sum: "3,700.00", rows: [
-    { c: "Harbor Light Opera", n: "draft", a: "3,700.00", act: "Send",
-      shoots: [{ s: "Tosca, dress rehearsal", d: "2 Sep 2026" },
-               { s: "Tosca, opening night",   d: "6 Sep 2026" }] }]},
-  { sum: "4,220.00", rows: [
-    { c: "Westfield Choral Society", s: "Autumn Evensong", d: "18 Jul 2026", n: "1021", a: "1,240.00", age: "34d", act: "Remind" },
-    { c: "Ninth Street Players", s: "The Winter Guest", d: "2 Aug 2026", n: "1029", a: "960.00", age: "12d", act: "Remind" },
-    /* ONE CLIENT WITH TWO OPEN INVOICES, which this list had none of until
-       ovation#190. PRD 14j is about exactly that client: the money they are
-       holding could settle either invoice and not both, so Ovation applies it to
-       neither and asks. A branch no fixture can reach is the branch that ships
-       untested, and this one could not be drawn here at all. */
-    { c: "Cedar Hill Youth Orchestra", s: "Family concert", d: "12 Aug 2026", n: "1026", a: "620.00", age: "29d", act: "Remind" },
-    { c: "Cedar Hill Youth Orchestra", s: "Autumn Gala", d: "24 Aug 2026", n: "1044", a: "1,400.00", age: "17d", act: "Remind" }]},
-  { sum: "2,180.00", rows: [
-    { c: "Cedar Hill Youth Orchestra", s: "Side by Side concert", d: "29 Aug 2026", n: "draft", a: "1,400.00", act: "Send" },
-    /* AN INVOICE THAT TOOK A NUMBER AND WAS NEVER SENT (ovation#364). PRD 10c
-       numbers an invoice when Review is pressed, because the number is printed on
-       the page Dan reads, and gives it back when the sheet closes unsent. It can
-       only be given back while it is still the highest issued, so two reviews
-       closed in the opposite order leave the first one holding its number: it is
-       not a plain draft, since a number exists, and it is not sent.
-       THE NUMBER IS BELOW THE HIGHEST ISSUED, and it has to be. A number can be
-       given back only while nothing was numbered after it, so an invoice stuck
-       holding one is by definition not the highest: 1041 here, with 1044 sent and
-       chasing. A fixture numbering it above everything would draw a state that
-       cannot occur.
-       IT IS A STATE ON AN EXISTING ROW RATHER THAN A ROW OF ITS OWN, because it
-       is still an invoice waiting to be sent and the rail is chrome shared with
-       three other design files: a sixth sendable invoice here would make this
-       file say To send 5 while they say 4.
-       THE COLUMN SAYS `draft` ANYWAY (Dan, 2026-09-19, PRD 46g), with 1041 and the
-       word drawn side by side on this screen. The Invoice column means the client
-       has this number, not that a number was reserved, so the row reads like every
-       other invoice still to send. The number is not lost: it is on the invoice,
-       and it comes back into the column when the invoice goes out. `heldNumber`
-       carries it here so the fixture records the state rather than erasing it. */
-    { c: "Riverside Wind Ensemble", s: "Autumn Winds", d: "5 Sep 2026", n: "draft",
-      heldNumber: "1041", a: "780.00", act: "Send" },
-    { c: "Kestrel Quartet", s: "Quartet in E minor", d: "no date", n: "draft", a: "1,650.00", act: "Add date" },
-    { c: "Bellwether Chorale", s: "Nocturne for Two Choirs", d: "1 Sep 2026", n: "draft", unpriced: true, act: "Add hours" },
-    { c: "Thornbury Youth Theatre", s: "Benefit matinee", d: "3 Sep 2026", n: "draft", comped: true, act: "Send" },
-    /* A DRAFT BLOCKED BY A FACT ABOUT THE CLIENT (ovation#129, ovation#117). PRD 5
-       refuses the send until the client's tax status is answered, and this row is
-       the third shape of "cannot be sent yet" on this screen: unlike the missing
-       date and the missing hours, the answer is not on this invoice at all. The
-       amount IS known, so the amount column is the money rather than a word. */
-    { c: "Pemberton Early Music", s: "Candlemas Vespers", d: "28 Aug 2026", n: "draft", a: "900.00", act: "Add tax status" }]},
-  { sum: "1,320.00", rows: [
-    { c: "Alder Street Opera", s: "La Boheme, act three", d: "24 Aug 2026", n: "1037", a: "1,320.00", act: "Mark unsent" }]}
-]; }
-/* The invoices that client's money could settle, named by NUMBER so the group
-   moves them rather than holding a second copy of them, and the balance itself,
-   which is the same $500.00 the invoice screen's fixture holds. */
-var WAITING = ["1026", "1044"];
-var HELD_ON_CLIENT = "500.00";
+/* THE TWENTY RECEIPTS WAITING TO BE FILED, newest first (Dan, 2026-09-29,
+   ovation#100), the fixture every round on this screen was drawn with. Every
+   vendor is a business, invented or public, and never a person.
 
-/* THE CARD IS A ROLLUP, AND ITS FIGURES ARE COUNTED RATHER THAN TYPED (PRD 46a,
-   ovation#198). Each line names the row ACTIONS it rolls up. The figure comes
-   from counting the rows with those actions, and every row is STAMPED with the
-   line it belongs to as it is built, so the card's number and the rows under it
-   are one derivation read twice rather than two numbers a person keeps in step.
+   Three were read two ways, one field each, so each kind of unsure cell is on
+   the screen: Duane Reade's date (3 or 5 Sep), the Blick receipt's vendor (Blick
+   or Blink Art Materials) and the Staples total (47.55 or 41.55). A field read
+   two ways is left EMPTY with both readings kept, never guessed (PRD 18), which
+   is what `null` beside `dRead`, `vRead` and `aRead` records.
 
-   THAT IS THE FAULT DAN FOUND ON 2026-09-10, in this file: a band saying 2 above
-   a list that did not hold 2. PRD 46a states the rule and says in its own words
-   that it is unenforceable without the mapping beside it. This is the mapping,
-   and scripts/check-design-sidebar-card.sh reads the stamps back out of the
-   rendering and refuses a line whose figure and rows disagree.
+   Two Adorama receipts for 129.95 on 25 Aug came in, one photographed and one
+   emailed, so Ovation suspects one purchase (same vendor, day and amount, PRD
+   22) and each names the other in `dup`. The B&H Photo receipt is 2,899.00, over
+   the 2,500.00 asset threshold (PRD 20, 9.4). */
+var RECEIPTS = [
+  { id: "duane", v: "Duane Reade", d: null, dRead: ["3 Sep 2026", "5 Sep 2026"], a: "16.49", via: "photo" },
+  { id: "bh", v: "B&H Photo", d: "4 Sep 2026", a: "2,899.00", via: "photo", asset: true },
+  { id: "zoom", v: "Zoom", d: "3 Sep 2026", a: "15.99", via: "email" },
+  { id: "lyft", v: "Lyft", d: "2 Sep 2026", a: "27.85", via: "email" },
+  { id: "adobe", v: "Adobe", d: "1 Sep 2026", a: "59.99", via: "email" },
+  { id: "gws", v: "Google Workspace", d: "1 Sep 2026", a: "14.00", via: "email" },
+  { id: "tt", v: "Think Tank Photo", d: "30 Aug 2026", a: "219.75", via: "email" },
+  { id: "uber", v: "Uber", d: "29 Aug 2026", a: "38.20", via: "email" },
+  { id: "amtrak", v: "Amtrak", d: "28 Aug 2026", a: "164.00", via: "email" },
+  { id: "lr", v: "Lensrentals", d: "26 Aug 2026", a: "87.00", via: "email" },
+  { id: "adorama", v: "Adorama", d: "25 Aug 2026", a: "129.95", via: "photo", dup: "adorama2" },
+  { id: "adorama2", v: "Adorama", d: "25 Aug 2026", a: "129.95", via: "email", dup: "adorama" },
+  { id: "blick", v: null, vRead: ["Blick Art Materials", "Blink Art Materials"], d: "24 Aug 2026", a: "63.12", via: "photo" },
+  { id: "staples", v: "Staples", d: "22 Aug 2026", a: null, aRead: ["47.55", "41.55"], via: "photo" },
+  { id: "sq", v: "Squarespace", d: "20 Aug 2026", a: "276.00", via: "email" },
+  { id: "hilton", v: "Hilton Garden Inn", d: "18 Aug 2026", a: "231.44", via: "email" },
+  { id: "bb", v: "Backblaze", d: "15 Aug 2026", a: "9.00", via: "email" },
+  { id: "delta", v: "Delta", d: "12 Aug 2026", a: "412.60", via: "email" },
+  { id: "smug", v: "SmugMug", d: "10 Aug 2026", a: "360.00", via: "email" },
+  { id: "apple", v: "Apple", d: "7 Aug 2026", a: "9.99", via: "email" }
+];
 
-   RECEIPTS TO FILE CARRIES ITS OWN NUMBER HERE, because the receipts it counts
-   are drawn in receipts.html and not in this list, so there are no rows here for
-   it to be counted from. It carries no stamp and the check reports it as a line
-   it cannot judge in this file (L98). receipts.html counts it from its own rows,
-   and the check holds this figure to that one because the card is chrome.
+/* THE FIFTEEN EXPENSES ALREADY FILED, newest first, under the queue in the same
+   list (Dan, 2026-09-29, ovation#626). The last round's fifteen, every one a
+   business, MOVED A MONTH EARLIER: at the dates that round drew them, eleven had
+   the same vendor, day and amount as a receipt still waiting above, which the
+   duplicate rule would flag against each other, and nothing here meant that.
+   One pair is a possible duplicate between two FILED expenses (Backblaze, 9.00,
+   15 Jul, twice), which is the case ovation#626 was opened for, and one has no
+   receipt (MTA, PRD 21's mark).
 
-   THE TWO DRAFTS THAT NEED A DATE AND AN HOURS FIGURE BELONG TO NO LINE. They
-   cannot be sent yet, so they are not To send, and the card has no line for
-   them. That is the card as PRD 46a settles it, and it is recorded here because
-   a row in no line looks exactly like a row somebody forgot to map. */
+   `c` IS THE CATEGORY, from PRD 19's list as Dan took it on 2026-09-29, and not
+   the Schedule C line it maps to. The round printed the line, Office expense
+   where Adobe's category is Software, which is a second fact standing where the
+   first belongs; the line is what the export writes, and the category is what
+   an expense carries (Ovation/Domain/Vocabularies.swift, ExpenseCategory). */
+var FILED = [
+  { v: "Lyft", d: "2 Aug 2026", a: "27.85", c: "Travel" },
+  { v: "Adobe", d: "1 Aug 2026", a: "59.99", c: "Software" },
+  { v: "Google Workspace", d: "1 Aug 2026", a: "14.00", c: "Software" },
+  { v: "Think Tank Photo", d: "30 Jul 2026", a: "219.75", c: "Gear" },
+  { v: "Amtrak", d: "28 Jul 2026", a: "164.00", c: "Travel" },
+  { v: "Lensrentals", d: "26 Jul 2026", a: "87.00", c: "Gear" },
+  { v: "Squarespace", d: "20 Jul 2026", a: "276.00", c: "Marketing" },
+  { v: "Hiscox", d: "19 Jul 2026", a: "42.50", c: "Insurance" },
+  { v: "Backblaze", d: "15 Jul 2026", a: "9.00", c: "Software", dup: true },
+  { v: "Backblaze", d: "15 Jul 2026", a: "9.00", c: "Software", dup: true },
+  { v: "Delta", d: "12 Jul 2026", a: "412.60", c: "Travel" },
+  { v: "SmugMug", d: "10 Jul 2026", a: "360.00", c: "Marketing" },
+  { v: "Russ & Daughters", d: "8 Jul 2026", a: "36.40", c: "Meals" },
+  { v: "MTA", d: "7 Jul 2026", a: "34.00", c: "Travel", none: true },
+  { v: "Brooklyn Tax Partners", d: "5 Jul 2026", a: "450.00", c: "Professional fees" }
+];
+
+/* PRD 19'S CATEGORIES, IN PRD 19'S ORDER, AS THEY STAND (Dan, 2026-09-29,
+   ovation#82): "the starting category list is PRD 19's proposal AS IS". Each
+   maps to a Schedule C line, Gear to Supplies or to Assets over the threshold,
+   and the app holds that map complete by a test (PRD 19a). The same eight as
+   ExpenseCategory's cases. */
+var CATEGORIES = ["Gear", "Software", "Travel", "Insurance", "Contract labour",
+                  "Professional fees", "Marketing", "Meals"];
+
+/* THE CARD IS A ROLLUP, AND RECEIPTS TO FILE IS COUNTED HERE FROM THE ROWS THIS
+   SCREEN DRAWS (PRD 46a, ovation#198). This is the first file in the record to
+   draw the rows that line counts, so it is the one place the figure can be
+   checked against them: every queue row is STAMPED with the line as it is built
+   and scripts/check-design-sidebar-card.sh compares the two. The four invoice
+   lines count invoices, which this screen draws none of, so they are carried at
+   the figures every other file draws, because the card is chrome and the same
+   on every screen. The filed expenses are counted by no line: they need
+   nothing. */
 var CARD_LINES = [
-  { label: "To send",          acts: ["Send"] },
-  { label: "To chase",         acts: ["Remind"] },
-  { label: "To confirm",       acts: ["Mark cleared", "Mark unsent"] },
-  { label: "To place",         acts: ["Use it here"] },
-  { label: "Receipts to file", acts: [], fixed: "20" }
+  { label: "To send",          fixed: "4" },
+  { label: "To chase",         fixed: "2" },
+  { label: "To confirm",       fixed: "2" },
+  { label: "To place",         fixed: "2" },
+  { label: "Receipts to file", rows: RECEIPTS }
 ];
+function cardFigure(line) { return line.rows ? String(line.rows.length) : line.fixed; }
 
-/* A row that the waiting band moved is drawn with the band's own action, so the
-   count and the stamp have to read it the same way the list does. Deriving it
-   here, once, is what stops the card counting a row in the group it was taken
-   out of. */
-function actOf(r) { return WAITING.indexOf(r.n) !== -1 ? "Use it here" : r.act; }
+/* THE RECEIPTS THEMSELVES, drawn line by line rather than imaged, so the file
+   needs nothing external. Only the three the switch opens are drawn. */
+var PAPERS = {
+  staples: [
+    ["c", "STAPLES"], ["c", "Store 1147  Brooklyn NY"], ["c", "08/22/2026  4:12 PM"], ["gap"],
+    ["l", "LABEL TAPE 3PK", "24.99"], ["l", "ARCHIVAL SLEEVES", "12.49"],
+    ["l", "AA BATTERY 8PK", "6.19"], ["gap"],
+    ["l", "SUBTOTAL", "43.67"], ["l", "TAX 8.875%", "3.88"], ["smudge"], ["gap"],
+    ["l", "VISA **** 0000", ""], ["c", "THANK YOU"]
+  ],
+  adorama: [
+    ["c", "ADORAMA"], ["c", "42 W 18th St  New York NY"], ["c", "08/25/2026  11:02 AM"], ["gap"],
+    ["l", "SDXC 128GB 2PK", "99.99"], ["l", "LENSPEN CLEANER", "19.37"], ["gap"],
+    ["l", "SUBTOTAL", "119.36"], ["l", "TAX 8.875%", "10.59"], ["tot", "129.95"], ["gap"],
+    ["l", "VISA **** 0000", ""], ["c", "THANK YOU"]
+  ],
+  bh: [
+    ["c", "B&H PHOTO VIDEO"], ["c", "420 Ninth Ave  NY NY"], ["c", "09/04/2026  1:47 PM"], ["gap"],
+    ["l", "NIKKOR Z 70-200", "2,599.00"], ["l", "UV FILTER 77MM", "63.69"], ["gap"],
+    ["l", "SUBTOTAL", "2,662.69"], ["l", "TAX 8.875%", "236.31"], ["tot", "2,899.00"], ["gap"],
+    ["l", "VISA **** 0000", ""], ["c", "THANK YOU"]
+  ]
+};
 
-function cardLineFor(act) {
-  for (var i = 0; i < CARD_LINES.length; i++) {
-    if (CARD_LINES[i].acts.indexOf(act) !== -1) { return CARD_LINES[i].label; }
-  }
-  return null;
-}
-
-function cardFigure(line) {
-  if (!line.acts.length) { return line.fixed; }
-  var n = 0;
-  groupsFor().forEach(function (g) {
-    g.rows.forEach(function (r) { if (line.acts.indexOf(actOf(r)) !== -1) { n++; } });
-  });
-  return String(n);
-}
-
-var SENT = [
-  { c: "Marlowe Dance Collective", s: "Spring Program B", d: "22 Aug 2026", n: "1038", a: "2,150.00", said: "sent 15d ago" },
-  { c: "Blackwater Theatre Company", s: "Uncle Vanya, opening night", d: "30 Aug 2026", n: "1039", a: "1,675.00", said: "sent 7d ago" },
-  { c: "Fairmont Chorale", s: "Messiah, part one", d: "14 Aug 2026", n: "1040", a: "1,480.00", said: "sent 21d ago" }
+/* WHAT THE SWITCHES MOVE. None of it is design: each draws a state the record
+   above describes, so every decision can be seen rather than only read.
+     ROUTE   "rail", Expenses pressed in the rail: the one screen; "card", the
+             card's Receipts to file line pressed: the queue alone (ovation#626)
+     OPEN    which receipt is beside the list: the unsure amount, one of the
+             possible duplicates, or the likely asset
+     NARROW  the window at its 860 point minimum (PRD 44b) */
+var ROUTE = "rail";
+var OPENS = [
+  { id: "staples", says: "Staples, an amount read two ways" },
+  { id: "adorama", says: "Adorama, a possible duplicate" },
+  { id: "bh", says: "B&H Photo, a likely asset" }
 ];
-var IDLE = [
-  ["Sent, awaiting payment", "9", "14,320.00", true],
-  ["Draft, shoot still ahead", "6", "9,900.00", false],
-  ["Paid or cleared", "15", "23,080.00", false],
-  ["Cancelled", "2", "", false]
-];
-
+var OPEN = 0;
+var NARROW = false;
+var CATOPEN = false;
+var CHOSEN = {};
 function el(t, c, x) { var n = document.createElement(t); if (c) n.className = c; if (x !== undefined) n.textContent = x; return n; }
-
-/* One invoice can cover several shoots (PRD 5.1a), so the row names the LAST
-   of them, which is the shoot the invoice is dated by, and counts the rest.
-   The date becomes a span only where the shoots really are on different days:
-   a matinee and an evening on one date stay a single date. */
-function shootSpan(shoots) {
-  var a = shoots[0].d.split(" "), b = shoots[shoots.length - 1].d.split(" ");
-  if (a.join(" ") === b.join(" ")) return b.join(" ");
-  if (a[1] === b[1] && a[2] === b[2]) return a[0] + " to " + b[0] + " " + b[1] + " " + b[2];
-  return a[0] + " " + a[1] + " to " + b[0] + " " + b[1] + " " + b[2];
-}
-
-function rowEl(r, first) {
-  var n = el("div", "row" + (first ? " runstart" : ""));
-  var who = el("div", "who");
-  var when = r.d;
-  if (r.shoots) {
-    var last = r.shoots[r.shoots.length - 1], others = r.shoots.length - 1;
-    who.append(el("div", "client", r.c), el("div", "sub", last.s),
-               el("div", "plus", "+" + others + (others === 1 ? " shoot" : " shoots")));
-    when = shootSpan(r.shoots);
-  } else {
-    who.append(el("div", "client", r.c), el("div", "sub", r.s));
-  }
-  var end = el("div", "end");
-  if (r.age) end.append(el("span", "age", r.age));
-  if (r.act) end.append(el("span", "act", r.act));
-  if (r.said) end.append(el("span", "said", r.said));
-  var amt = el("div", "amt" + (r.unpriced || r.comped ? " word" : ""),
-                r.unpriced ? "no price" : r.comped ? "comped" : r.a);
-  n.append(who, el("div", "when", when), el("div", "num", r.n), amt, end);
-  /* THE STAMP IS WHAT MAKES THE ROLLUP CHECKABLE. Without it the card's figure
-     and the rows it claims to count can only be compared by a person. */
-  var line = cardLineFor(r.act);
-  if (line) { n.setAttribute("data-cardline", line); }
-  return n;
-}
 
 /* THE FOOT OF THE RAIL: EACH OPEN THING BY A SHORT NAME, WITH READ BESIDE IT,
    AND READ OPENING A POPOVER (Dan, 2026-09-26, four rendered rounds on ovation#99
@@ -930,7 +809,193 @@ function placeRailPop() {
   pop.querySelector(".railarrow").style.top = Math.round(mid - top - 7) + "px";
 }
 
-function windowFor(layout) {
+function byId(id) { return RECEIPTS.filter(function (r) { return r.id === id; })[0]; }
+
+/* Both answers to a possible duplicate, under the flag on each row of the pair
+   (Dan, 2026-09-29, ovation#82). What either does once pressed is not drawn
+   here, and the list below says so. */
+function dupWords() {
+  var w = el("div", "rqdupact");
+  var keep = el("button", "rqlink", "Both are real");
+  keep.type = "button";
+  var drop = el("button", "rqlink rqharm", "Delete this one");
+  drop.type = "button";
+  w.append(keep, drop);
+  return w;
+}
+
+/* THE QUIET WORD, in the cell of the field Ovation was unsure of (Dan,
+   2026-09-29, ovation#100). The heading names the field, so it says unsure
+   alone. */
+function unsure(cls) { return el("div", cls + " rqword", "unsure"); }
+
+/* A receipt waiting to be filed: vendor, receipt date, amount, and File, one
+   line (Dan, 2026-09-29, ovation#100), with its flag under the vendor and a
+   duplicate's answers under that. STAMPED with the card line it is counted
+   into, so the card's figure and these rows are one derivation read twice. */
+function queueRow(r, open) {
+  var n = el("div", "rqrow" + (r === open ? " sel" : ""));
+  var who = el("div", "rqwho");
+  who.append(r.v ? el("div", "rqvendor", r.v) : unsure("rqvendor"));
+  if (r.dup) who.append(el("div", "rqflag", "possible duplicate"), dupWords());
+  if (r.asset) who.append(el("div", "rqflag", "likely asset"));
+  n.append(who);
+  n.append(r.d ? el("div", "rqdate", r.d) : unsure("rqdate"));
+  n.append(r.a ? el("div", "rqamt", r.a) : unsure("rqamt"));
+  var end = el("div", "rqend");
+  end.append(el("span", "act", "File"));
+  n.append(end);
+  n.setAttribute("data-cardline", "Receipts to file");
+  return n;
+}
+
+/* A filed expense, under the queue in the same list and on its columns, so the
+   category sits under the vendor (Dan, 2026-09-29, ovation#626). It needs
+   nothing, so its Action cell is empty. */
+function filedRow(r) {
+  var n = el("div", "rqrow");
+  var who = el("div", "rqwho");
+  who.append(el("div", "rqvendor", r.v), el("div", "excat", r.c));
+  if (r.dup) who.append(el("div", "rqflag", "possible duplicate"), dupWords());
+  if (r.none) who.append(el("div", "rqflag", "no receipt"));
+  n.append(who, el("div", "rqdate", r.d), el("div", "rqamt", r.a), el("div", "rqend"));
+  return n;
+}
+
+function band(word) {
+  var b = el("div", "exband");
+  b.append(el("b", null, word));
+  return b;
+}
+
+function listFor(open) {
+  var box = el("div", "rqlist");
+  /* Every amount on the list, waiting or filed, ends on one right edge, the
+     unsure word included; check-design-draws.sh measures it. */
+  box.setAttribute("data-one-edge", ".rqamt");
+  var h = el("div", "rqhead");
+  h.append(el("div", null, "Vendor"), el("div", null, "Receipt date"),
+           el("div", "rqr", "Amount"), el("div", "rqr", "Action"));
+  box.append(h);
+  if (ROUTE === "rail") box.append(band("To file"));
+  RECEIPTS.forEach(function (r) { box.append(queueRow(r, open)); });
+  if (ROUTE === "rail") {
+    box.append(band("Filed"));
+    FILED.forEach(function (r) { box.append(filedRow(r)); });
+  }
+  return box;
+}
+
+function paperFor(id) {
+  var p = el("div", "rqpaper");
+  PAPERS[id].forEach(function (ln) {
+    if (ln[0] === "gap") { p.append(el("div", "rqgap")); return; }
+    if (ln[0] === "c") { p.append(el("div", "rqc", ln[1])); return; }
+    var row = el("div", "rql");
+    if (ln[0] === "smudge") {
+      var fig = el("span");
+      fig.append(el("span", "rqsmudge", "4"), document.createTextNode("7.55"));
+      row.append(el("b", null, "TOTAL"), fig);
+    } else if (ln[0] === "tot") {
+      row.append(el("b", null, "TOTAL"), el("b", null, ln[1]));
+    } else {
+      row.append(el("span", null, ln[1]), el("span", null, ln[2]));
+    }
+    p.append(row);
+  });
+  return p;
+}
+
+function fieldFor(label, value) {
+  var f = el("div", "rqfield");
+  f.append(el("div", "rqlab", label));
+  var box = el("div", "rqbox");
+  box.append(el("span", null, value));
+  f.append(box);
+  return f;
+}
+
+/* The readings, each a control that fills the field, after "Read as". */
+function picksFor(words, lead) {
+  var reads = el("div", "rqreads");
+  if (lead) reads.append(el("span", null, lead));
+  words.forEach(function (x, i) {
+    var b = el("button", "rqpick", x);
+    b.type = "button";
+    reads.append(b);
+    if (lead && i === 0 && words.length === 2) reads.append(el("span", null, "or"));
+  });
+  return reads;
+}
+
+/* THE AMOUNT, and under it, on a receipt over the threshold, THE LINE NAMING
+   THE THRESHOLD (Dan, 2026-09-29, ovation#82), carrying PRD 9.4's caveat. */
+function amountField(r) {
+  var amt = el("div", "rqfield");
+  amt.append(el("div", "rqlab", "Amount"));
+  if (r.a) {
+    var box = el("div", "rqbox");
+    box.append(el("span", null, r.a));
+    amt.append(box);
+  } else {
+    var empty = el("div", "rqbox");
+    empty.append(el("span", null, ""));
+    amt.append(empty, picksFor(r.aRead, "Read as"));
+  }
+  if (r.asset) {
+    amt.append(el("div", "rqnote", "Over the 2,500.00 asset threshold. The threshold is per item, and "
+      + "this is the receipt's total, so a receipt of several smaller items may not be an asset."));
+  }
+  return amt;
+}
+
+function categoryField(r) {
+  var cat = el("div", "rqfield");
+  cat.append(el("div", "rqlab", "Category"));
+  var at = el("div", "rqcatat");
+  var pick = el("button", "rqcat");
+  pick.type = "button";
+  pick.setAttribute("aria-expanded", String(CATOPEN));
+  pick.append(el("span", null, CHOSEN[r.id] || "Choose"), el("span", "tri"));
+  pick.addEventListener("click", function () { CATOPEN = !CATOPEN; drawList(); });
+  at.append(pick);
+  /* THE RECORD'S ONE POPUP LIST (ovation#149), holding PRD 19's eight. */
+  if (CATOPEN) {
+    var list = el("div", "poplist");
+    CATEGORIES.forEach(function (name) {
+      var b = el("button", null, name);
+      b.type = "button";
+      b.addEventListener("click", function () {
+        CHOSEN[r.id] = name;
+        CATOPEN = false;
+        drawList();
+      });
+      list.append(b);
+    });
+    at.append(list);
+  }
+  cat.append(at);
+  return cat;
+}
+
+function detailFor(r) {
+  var d = el("div", "rqdetail");
+  var fields = el("div", "rqfields");
+  fields.append(fieldFor("Vendor", r.v || ""), fieldFor("Receipt date", r.d || ""), amountField(r));
+  if (r.asset) {
+    var asset = el("div", "rqfield");
+    asset.append(el("div", "rqlab", "Asset"), picksFor(["Yes", "No"], null));
+    fields.append(asset);
+  }
+  fields.append(categoryField(r));
+  var go = el("div", "rqgo");
+  go.append(el("span", "act rqoff", "File"));
+  fields.append(go);
+  d.append(paperFor(r.id), fields);
+  return d;
+}
+
+function windowFor() {
   var screen = el("div", "screen");
 
   var bar = el("div", "menubar");
@@ -940,7 +1005,7 @@ function windowFor(layout) {
   ["File", "Edit", "View", "Window", "Help"].forEach(function (x) { bar.append(el("span", null, x)); });
   bar.append(el("span", "clock", "Sun 6 Sep  11:15 PM"));
 
-  var win = el("div", "win " + layout), app = el("div", "app");
+  var win = el("div", "win" + (NARROW ? " at860" : "")), app = el("div", "app");
   var tb = el("div", "titlebar");
 
   var side = el("nav", "side");
@@ -949,15 +1014,9 @@ function windowFor(layout) {
   side.append(top);
   var card = el("div", "card");
   card.append(el("div", "hd", "Needs you"));
-  /* TO PLACE COUNTS INVOICES, not clients (PRD 46a, 46d). Every other line in
-     this card counts invoices, which is what makes the four comparable, and the
-     one line that ever counted something else was taken out of it. It sits above
-     Receipts to file because that line is the other half of the product. */
-  /* A SETTLED DAY (ovation#193) is drawn by the rail alone: the card says
-     Nothing waiting instead of its counts, and the held money line below is not
-     drawn. The list is deliberately left as it is, because what this list looks
-     like with nothing waiting has never been designed, and a switch is not the
-     place to design it. */
+  /* A SETTLED DAY (ovation#193) is drawn by the rail alone, as on every screen
+     that draws the rail. What this list looks like with nothing waiting was
+     never designed, and a switch is not the place to design it. */
   if (QUIET) {
     card.append(el("div", "quiet", "Nothing waiting"));
   } else {
@@ -968,111 +1027,32 @@ function windowFor(layout) {
     });
   }
   side.append(card);
-  /* MONEY HELD IS NOT ONE OF THE CARD'S COUNTS (ovation#187, settled with Dan
-     2026-09-10 over two rounds, PRD 46b). The card says this many things need
-     you, and since PRD 14h Ovation places held money by itself whenever the
-     client has one open invoice, so this stopped being work waiting. It is a
-     figure under the card in the status colour, and it is a quantity, so a
-     quantity of nothing is not drawn. */
+  /* Money held is a figure under the card, not one of its counts (PRD 46b),
+     and a quantity of nothing is not drawn. */
   if (!QUIET) {
     var railheld = el("div", "railheld");
     railheld.append(el("span", null, "Money held"), el("b", null, "1,837.50"));
     side.append(railheld);
   }
-  ["Invoices", "Expenses", "Clients"].forEach(function (x, i) { side.append(el("div", "item" + (i === 0 ? " on" : ""), x)); });
+  /* EXPENSES IS THE PLACE ON EITHER ROUTE (ovation#626): the card's line opens
+     this same screen narrowed, not another one. */
+  ["Invoices", "Expenses", "Clients"].forEach(function (x) { side.append(el("div", "item" + (x === "Expenses" ? " on" : ""), x)); });
   side.append(el("div", "spacer"));
-  /* THE FOOT NAMES EACH OPEN THING, and Read opens a popover beside it (PRD 44c
-     to 44f), drawn by rules/rail-foot.js, whose record says why. */
-  /* drawList is named inside a function rather than passed, because a design round
-     lifts everything above drawList into a harness of its own, where drawList does
-     not exist until a press reaches for it. */
   var railParts = railFootFor(QUIET, function () { drawList(); });
   if (railParts.foot) side.append(railParts.foot);
 
   var main = el("div", "main");
   var tbar = el("div", "toolbar");
-  tbar.append(el("h4", null, "Invoices"), searchField(), el("div", "meta", "Last looked 2 minutes ago"));
+  /* The narrowed screen is headed with the words of the card line that opened
+     it, and so draws no To file band, which would say it twice (L605). That is
+     Claude's call, not Dan's, and the list at the foot of the page says so. */
+  tbar.append(el("h4", null, ROUTE === "rail" ? "Expenses" : "Receipts to file"),
+              el("div", "meta", "Last looked 2 minutes ago"));
   main.append(tbar);
-
-  var head = el("div", "colhead");
-  head.append(el("div", null, "Shoot"), el("div", null, "Shoot date"),
-              el("div", null, "Invoice"), el("div", "amt-h", "Amount"),
-              el("div", "end-h", "Action"));
-  main.append(head);
-
-  var scroll = el("div", "scroll");
-
-  /* WAITING ON YOU TO PLACE MONEY (ovation#190, settled with Dan 2026-09-10,
-     PRD 46d). PRD 14j says that where a client has more than one invoice open
-     Ovation applies their held money to neither and offers `Use it here` on
-     each. That offer was the only surface the case had, so it could only be met
-     by already being on one of those invoices, and it is not rare: 24 of 129
-     payments in the 2019 to 2024 history arrived while another of that client's
-     invoices was open, 18.6%, concentrated in 3 of the 41 clients
-     (scripts/measure-invoice-history.py).
-
-     THE ROWS ARE MOVED, NEVER COPIED. The first version drew them here AND left
-     them in their own group, so two invoices appeared twice under a header
-     saying 2. Every row read correctly on its own and the fault existed only in
-     the list as a whole. check-design-draws.sh now refuses a list that draws one
-     invoice twice.
-
-     THE COUNT IS THE LENGTH OF WHAT WAS MOVED, never a number written beside it,
-     which is this file's own rule: the card and any group total are computed
-     once and read twice. */
-  var waiting = [];
-  groupsFor().forEach(function (g) {
-    g.rows.forEach(function (r) { if (WAITING.indexOf(r.n) !== -1) waiting.push(r); });
-  });
-  if (waiting.length) {
-    var band = el("div", "disc open");
-    var lead = el("div", "lead");
-    lead.append(el("span", "tri"), el("b", null, "Waiting on you to place money"),
-                el("span", "n", String(waiting.length)));
-    band.append(lead, el("div", "sum", HELD_ON_CLIENT + " held"));
-    scroll.append(band);
-    /* NO AGE ON A MOVED ROW. The fixture's 29d and 17d are what those two
-       invoices would carry among the overdue, and only a row in the overdue group is
-       overdue, so only it carries an age (PRD 46h, approved by Dan on
-       2026-09-29 on ovation#631). The row is rebuilt from its facts rather than
-       copied, which is what leaves the age behind. */
-    waiting.forEach(function (r) {
-      scroll.append(rowEl({ c: r.c, s: r.s, d: r.d, n: r.n, a: r.a, act: "Use it here" }, false));
-    });
-  }
-
-  /* THE GROUP HAS TO END. Every other band in this list either sits at the
-     bottom or starts a block that runs to it, so a band at the TOP with rows
-     under it made the whole list read as its contents: the header said 2 and
-     thirteen rows followed. The first ordinary row after it carries the rule and
-     the air the idle block's first band carries, which is this file's own way of
-     saying a new block starts here. */
-  var closeNext = waiting.length > 0;
-
-  groupsFor().forEach(function (g) {
-    if (layout === "N3") {
-      var b = el("div", "brk");
-      b.append(el("div", "sum", g.sum));
-      scroll.append(b);
-    }
-    g.rows.forEach(function (r, i) {
-      if (WAITING.indexOf(r.n) !== -1) return;
-      var n = rowEl(r, i === 0);
-      if (r.c === "Westfield Choral Society") n.classList.add("sel");
-      if (closeNext) { n.classList.add("afterwaiting"); closeNext = false; }
-      scroll.append(n);
-    });
-  });
-  IDLE.forEach(function (g, gi) {
-    var d = el("div", "disc" + (g[3] ? " open" : "") + (gi === 0 ? " firstidle" : ""));
-    var lead = el("div", "lead");
-    lead.append(el("span", "tri"), el("b", null, g[0]), el("span", "n", g[1]));
-    d.append(lead, el("div", "sum", g[2]));
-    scroll.append(d);
-    if (g[3]) SENT.forEach(function (r) { var n = rowEl(r, false); n.classList.add("idle"); scroll.append(n); });
-  });
-  main.append(scroll);
-  if (SEARCH) narrowForSearch(scroll);
+  var open = byId(OPENS[OPEN].id);
+  var body = el("div", "rqbody");
+  body.append(listFor(open), detailFor(open));
+  main.append(body);
 
   app.append(tb, side, main);
   if (railParts.pop) app.append(railParts.pop);
@@ -1081,143 +1061,39 @@ function windowFor(layout) {
   return screen;
 }
 
-
-
-/* A SEARCH NARROWS THE BANDS IN PLACE (Dan, 2026-09-29, ovation#449, PRD 39a),
-   from a rendered round of two options moving one variable: "Narrow the bands in
-   place". A band holding a match stays, with its count narrowed and opened so the
-   matches show, and a band with no match is not drawn. EACH MATCH KEEPS THE BAND
-   IT CAME FROM, so a search needs no separate state filter to reach every state.
-   Rejected: replacing the bands with one flat list, which dropped the bands' own
-   facts (500.00 held, the paid total) for as long as the search was on.
-   THE CARD IS NOT NARROWED: it counts what needs you, and the round held it
-   identical in both options.
-   The SEARCH control below steps through no search, the round's own search
-   (Cedar Hill, 6 invoices: 2 waiting on held money, 1 draft to send, 3 paid)
-   and a search matching nothing, whose sentence was drafted with the app. */
-var SEARCHES = [null, "Cedar Hill", "Linden Park"];
-var SEARCH = null;
-/* Three of the fifteen paid invoices are Cedar Hill's. The Paid or cleared group
-   only COUNTS its rows here, it never lists them, so this file cannot search
-   them: the ones a search opens it to show are named here, for Cedar Hill alone.
-   Any other query that would match a paid invoice draws no paid row in this
-   file, and that is this rendering's limit, not the product's: the app searches
-   every paid invoice, since it holds every row. The same is true of the other
-   closed groups, whose rows this file does not hold either. Invented, like every
-   fixture name in this file. */
-var PAID_MATCHES = {
-  "Cedar Hill": { sum: "3,530.00", rows: [
-    { c: "Cedar Hill Youth Orchestra", s: "Winter showcase", d: "14 Feb 2026", n: "1003", a: "980.00", said: "paid 2 Mar" },
-    { c: "Cedar Hill Youth Orchestra", s: "Harvest serenade", d: "9 May 2026", n: "1011", a: "1,150.00", said: "paid 28 May" },
-    { c: "Cedar Hill Youth Orchestra", s: "Season finale", d: "13 Jun 2026", n: "1017", a: "1,400.00", said: "paid 2 Jul" }]}
-};
-
-function searchField() {
-  var f = el("div", "search");
-  f.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">'
-    + '<circle cx="5" cy="5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
-    + '<path d="M8 8l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
-  f.append(el("span", "q" + (SEARCH ? "" : " empty"), SEARCH || "Search"));
-  if (SEARCH) f.append(el("span", "x", "×"));
-  f.setAttribute("role", "searchbox");
-  f.setAttribute("aria-label", "Search invoices");
-  return f;
-}
-
-function moneyOf(rows) {
-  var t = 0;
-  rows.forEach(function (r) {
-    var txt = r.querySelector(".amt").textContent.replace(/,/g, "");
-    if (/^[0-9.]+$/.test(txt)) t += Math.round(parseFloat(txt) * 100);
-  });
-  return (t / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
-/* Takes the drawn list and narrows it in place: the rows are the ones drawn
-   above, removed rather than drawn again, so a match cannot land anywhere its
-   band did not already put it. */
-function narrowForSearch(scroll) {
-  [].forEach.call(scroll.querySelectorAll(".row"), function (r) {
-    var who = r.querySelector(".client").textContent + "\n" + r.querySelector(".sub").textContent;
-    if (who.toLowerCase().indexOf(SEARCH.toLowerCase()) === -1) r.remove();
-  });
-  var idleLabels = IDLE.map(function (g) { return g[0]; });
-  var discs = [].slice.call(scroll.querySelectorAll(".disc"));
-  var idle = discs.filter(function (d) {
-    return idleLabels.indexOf(d.querySelector(".lead b").textContent) !== -1;
-  });
-  var waitingBand = discs.filter(function (d) { return idle.indexOf(d) === -1; })[0] || null;
-  idle.forEach(function (d) {
-    var label = d.querySelector(".lead b").textContent;
-    var rows = [], k = d.nextElementSibling;
-    while (k && k.classList.contains("row")) { rows.push(k); k = k.nextElementSibling; }
-    var paid = label === "Paid or cleared" ? PAID_MATCHES[SEARCH] : null;
-    if (paid) {
-      var anchor = d;
-      paid.rows.forEach(function (r) {
-        var n = rowEl(r, false); n.classList.add("idle"); anchor.after(n); anchor = n; rows.push(n);
-      });
-    }
-    if (!rows.length) { d.remove(); return; }
-    d.classList.add("open");
-    d.querySelector(".n").textContent = String(rows.length);
-    d.querySelector(".sum").textContent = paid ? paid.sum : moneyOf(rows);
-  });
-  [].forEach.call(scroll.querySelectorAll(".afterwaiting"), function (r) { r.classList.remove("afterwaiting"); });
-  if (waitingBand) {
-    var wrows = [], w = waitingBand.nextElementSibling;
-    while (w && w.classList.contains("row") && w.querySelector(".act")
-           && w.querySelector(".act").textContent === "Use it here") { wrows.push(w); w = w.nextElementSibling; }
-    if (!wrows.length) { waitingBand.remove(); }
-    else {
-      waitingBand.querySelector(".n").textContent = String(wrows.length);
-      if (w && w.classList.contains("row")) w.classList.add("afterwaiting");
-    }
-  }
-  [].forEach.call(scroll.querySelectorAll(".firstidle"), function (x) { x.classList.remove("firstidle"); });
-  var left = idle.filter(function (d) { return d.isConnected; });
-  if (left.length) left[0].classList.add("firstidle");
-  if (!scroll.querySelector(".row")) {
-    scroll.replaceChildren(el("div", "nomatch", "No invoice matches “" + SEARCH + "”."));
-  }
-}
-
-var searchBtn = el("button", "tab");
-searchBtn.type = "button";
-function searchLabel() {
-  searchBtn.replaceChildren(el("span", "k", "SEARCH"),
-    el("span", null, SEARCH ? (PAID_MATCHES[SEARCH] ? "Searching " + SEARCH : "A search matching nothing")
-                            : "No search"));
-}
-searchBtn.addEventListener("click", function () {
-  SEARCH = SEARCHES[(SEARCHES.indexOf(SEARCH) + 1) % SEARCHES.length];
-  searchLabel();
-  drawList();
-  placeRailPop();
-});
-searchLabel();
-
-/* THE RAIL'S SETTLED DAY (ovation#193). The rail is chrome, so whatever a day
-   with nothing waiting looks like, it looks like that on every screen, and until
-   this only clients.html could draw it. The control names the day it moves to in
-   `data-day`, which is what scripts/check-design-sidebar-card.sh presses before
-   comparing the four rails on that day too. */
+/* THE SWITCHES. Each names the state it is showing, and pressing it moves to
+   the next. The rail's day names the day it moves to in `data-day`, which is
+   what scripts/check-design-sidebar-card.sh presses (ovation#193). */
 var QUIET = false;
-function drawList() { document.getElementById("stage").replaceChildren(windowFor("")); }
-var railBtn = el("button", "tab");
-railBtn.type = "button";
-function railLabel() {
-  railBtn.replaceChildren(el("span", "k", "RAIL"),
-    el("span", null, QUIET ? "A settled day" : "A day with work waiting"));
-  railBtn.setAttribute("data-day", QUIET ? "busy" : "quiet");
+function drawList() { document.getElementById("stage").replaceChildren(windowFor()); }
+
+function switchFor(key, says, press) {
+  var b = el("button", "tab");
+  b.type = "button";
+  function label() { b.replaceChildren(el("span", "k", key), el("span", null, says())); }
+  b.addEventListener("click", function () {
+    press(b);
+    CATOPEN = false;
+    label();
+    drawList();
+    placeRailPop();
+  });
+  label();
+  document.getElementById("tabs").append(b);
+  return b;
 }
-railBtn.addEventListener("click", function () {
-  QUIET = !QUIET;
-  railLabel();
-  drawList();
-  placeRailPop();
-});
-railLabel();
-document.getElementById("tabs").append(railBtn, searchBtn);
+
+switchFor("ROUTE", function () {
+  return ROUTE === "rail" ? "Expenses, from the rail" : "Receipts to file, from the card";
+}, function () { ROUTE = ROUTE === "rail" ? "card" : "rail"; });
+switchFor("OPEN", function () { return OPENS[OPEN].says; },
+          function () { OPEN = (OPEN + 1) % OPENS.length; });
+switchFor("WINDOW", function () {
+  return NARROW ? "860 points, the minimum" : "1064 points";
+}, function () { NARROW = !NARROW; });
+var railBtn = switchFor("RAIL", function () {
+  return QUIET ? "A settled day" : "A day with work waiting";
+}, function (b) { QUIET = !QUIET; b.setAttribute("data-day", QUIET ? "busy" : "quiet"); });
+railBtn.setAttribute("data-day", "quiet");
 drawList();
 </script>

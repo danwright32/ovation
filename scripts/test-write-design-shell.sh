@@ -57,7 +57,7 @@ CLEAN="$(fresh clean)"
 check_exit "the committed record is already in step" 0 check_status "$CLEAN"
 check_exit "so the writer changes nothing" 0 write_status "$CLEAN"
 check "and says how many copies it found in step" \
-    "$(write_in "$CLEAN" | grep -c '24 copy(s) already in step, 0 rewritten')" "1"
+    "$(write_in "$CLEAN" | grep -c '30 copy(s) already in step, 0 rewritten')" "1"
 check "and every file is byte for byte what it was" \
     "$(diff -r docs/design "$CLEAN" >/dev/null 2>&1 && echo same)" "same"
 
@@ -112,8 +112,8 @@ damage "$ADDED" shell/window.css \
     ".dot { width: 11px; height: 11px; border-radius: 50%; }" \
     ".dot { width: 11px; height: 11px; border-radius: 50%; }
 .dot.focused { outline: 1px solid var(--accent); }"
-check "a rule added to the shell leaves four copies drifted" \
-    "$(OVATION_DESIGN_ROOT="$ADDED" python3 "$CHECKER" 2>&1 | grep -c DRIFTED)" "4"
+check "a rule added to the shell leaves five copies drifted" \
+    "$(OVATION_DESIGN_ROOT="$ADDED" python3 "$CHECKER" 2>&1 | grep -c DRIFTED)" "5"
 check_exit "the writer puts it into all of them" 0 write_status "$ADDED"
 check_exit "and the checker then passes" 0 check_status "$ADDED"
 check "and it landed beside the rule it follows in the part" \
