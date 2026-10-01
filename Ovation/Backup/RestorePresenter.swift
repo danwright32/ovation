@@ -197,15 +197,8 @@ final class RestorePresenter {
             // AND WHY IT STOPPED (ovation#269). Freeing space, granting access again
             // and reconnecting a drive are three different remedies, and a sentence
             // that names only where it stopped leaves Dan guessing which one applies.
-            let done = replaced.isEmpty
-                ? "Nothing had been put back yet"
-                : "\(replaced.sorted().joined(separator: ", ")) had been put back"
-            return .partlyRestored(
-                "\(name) was only partly restored. \(done) when \(failedAt) could not be: "
-                    + "\(Self.asSentence(cause)) So \(failedAt) may now be missing or "
-                    + "incomplete, and Ovation's data is a mix of the backup and what was "
-                    + "there before. Everything as it was just before the restore is in "
-                    + "\(snapshot), in the backups folder.")
+            return .partlyRestored(Self.partlyRestoredSentence(
+                name: name, replaced: replaced, failedAt: failedAt, snapshot: snapshot, cause: cause))
         } catch {
             // ONLY A FAILURE BEFORE THE SNAPSHOT REACHES HERE, because the service
             // turns every failure after it into `restoredPartway`, so this sentence
@@ -239,6 +232,21 @@ final class RestorePresenter {
             return "\(bookings(added)) added back."
         }
         return "Every queued booking in it is already in the queue."
+    }
+
+    /// What a restore that stopped partway says, and the longest thing the backups pane
+    /// ever says, which is why it is its own function: the pane's height test states
+    /// it rather than a copy of its wording (ovation#393).
+    static func partlyRestoredSentence(name: String, replaced: [String], failedAt: String,
+                                       snapshot: String, cause: String) -> String {
+        let done = replaced.isEmpty
+            ? "Nothing had been put back yet"
+            : "\(replaced.sorted().joined(separator: ", ")) had been put back"
+        return "\(name) was only partly restored. \(done) when \(failedAt) could not be: "
+            + "\(asSentence(cause)) So \(failedAt) may now be missing or "
+            + "incomplete, and Ovation's data is a mix of the backup and what was "
+            + "there before. Everything as it was just before the restore is in "
+            + "\(snapshot), in the backups folder."
     }
 
     /// A cause ends in a full stop before the next sentence starts, whether or not

@@ -108,7 +108,7 @@ struct ReviewSheetShotTests {
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var written = 0
-        for size in [CGSize(width: OvationWindow.minimumWidth, height: 620),
+        for size in [CGSize(width: OvationWindow.minimumWidth, height: OvationWindow.minimumHeight),
                      CGSize(width: 1064, height: 900)] {
             for scheme in [ColorScheme.light, .dark] {
                 let presenter = try ReviewSampleWorld.presenter(for: .ordinary)
@@ -185,11 +185,15 @@ struct ReviewSheetShotTests {
 
     /// A review of a real invoice over an in-memory store, as the app opens one.
     /// Not private: AppearanceParityTests opens the same one (ovation#479).
-    static func review(redirected: Bool, dueToday: Bool, day: Date) async throws -> InvoiceReview {
+    static func review(redirected: Bool, dueToday: Bool, day: Date,
+                       overrideAddress: String? = nil) async throws -> InvoiceReview {
         let container = try OvationSchema.container(inMemory: true)
         let context = container.mainContext
         let client = Client(name: "A Client", taxStatus: .notExempt)
         client.email = "booker@example.com"
+        // A GENUINE OVERRIDE, where a caller asks for one, which is what makes the rail
+        // name who booked it (FixedSurfaceHeightTests, ovation#393).
+        client.contractEmail = overrideAddress
         context.insert(client)
         let issued = BusinessDate.stamping(day)
         let invoice = Invoice(client: client, kind: .fromABooking, invoiceDate: issued,

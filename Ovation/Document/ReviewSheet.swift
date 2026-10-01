@@ -36,7 +36,37 @@ struct ReviewSheet: View {
         self.close = close
     }
 
+    /// THE SHEET'S OWN SIZE, named so a test can hold it to what it has to show
+    /// (ovation#393).
+    static let size = CGSize(width: 800, height: 560)
+
+    /// HOW TALL IT IS IN THE SMALLEST WINDOW, which is the height its fixed part has to
+    /// fit (ovation#393). It floats clear of the title bar and the window's foot by the
+    /// floating sheet's margin (ovation#547), so at the minimum window it gives up
+    /// height rather than touch either edge.
+    static var smallestHeight: CGFloat {
+        min(size.height, OvationWindow.minimumHeight - ShellView.titleBarHeight - 2 * FloatingSheet<EmptyView>.margin)
+    }
+
     var body: some View {
+        laidOut(withLists: true)
+            // 560 TALL WHERE THE WINDOW HAS ROOM, AND LESS WHERE IT HAS NOT (ovation#547).
+            // It floats with room above and below it, and at the smallest window that
+            // room is 582 points less the margins, so it gives up height rather than
+            // touch the title bar; the page above scrolls, so nothing is lost.
+            .frame(width: Self.size.width)
+            .frame(maxHeight: Self.size.height)
+            .ovationAppearance()
+            .onAppear(perform: showPage)
+    }
+
+    /// THE SHEET WITH ITS TWO LISTS LEFT OUT, the page and the recipients, which is what
+    /// has to fit its size (Dan, 2026-09-30). The page already scrolls in its own box,
+    /// and the recipients do once there are more than fit, so neither counts against
+    /// the sheet's height. No frame, because a fixed frame answers with its own height.
+    var fixedPart: some View { laidOut(withLists: false) }
+
+    private func laidOut(withLists: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
@@ -72,20 +102,12 @@ struct ReviewSheet: View {
                 ReviewOutcome(review: review, close: close)
             } else {
                 HStack(alignment: .top, spacing: 0) {
-                    stage
+                    stage(withPage: withLists)
                     Divider()
-                    rail
+                    rail(withRecipients: withLists)
                 }
             }
         }
-        // 560 TALL WHERE THE WINDOW HAS ROOM, AND LESS WHERE IT HAS NOT (ovation#547).
-        // It floats with room above and below it, and at the smallest window that
-        // room is 582 points less the margins, so it gives up height rather than
-        // touch the title bar; the page above scrolls, so nothing is lost.
-        .frame(width: 800)
-        .frame(maxHeight: 560)
-        .ovationAppearance()
-        .onAppear(perform: showPage)
     }
 
     // MARK: the head
@@ -109,7 +131,7 @@ struct ReviewSheet: View {
 
     /// The way to open the page sits ABOVE it, because the page is taller than the
     /// sheet's visible area and anything beneath it is below the fold (PRD 52b).
-    private var stage: some View {
+    private func stage(withPage: Bool) -> some View {
         VStack(alignment: .center, spacing: 10) {
             Button(openLabel, action: togglePage)
                 .buttonStyle(.link)
@@ -121,7 +143,7 @@ struct ReviewSheet: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
-            } else {
+            } else if withPage {
                 ScrollView {
                     InvoicePageView(page: page)
                         .frame(width: presenter.pageWidth, height: presenter.pageWidth * 1.294)
@@ -142,7 +164,7 @@ struct ReviewSheet: View {
 
     // MARK: who it goes to
 
-    private var rail: some View {
+    private func rail(withRecipients: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Going to")
                 .font(.system(size: 11, weight: .semibold))
@@ -153,9 +175,17 @@ struct ReviewSheet: View {
                 Text(nowhere).font(.system(size: 13))
             } else {
                 // WHERE IT ACTUALLY GOES (L64): the test address when sends are
-                // redirected, never the client it will not reach.
-                ForEach(review?.goingTo ?? presenter.recipients, id: \.self) { address in
-                    Text(address).font(.system(size: 13))
+                // redirected, never the client it will not reach. In a box of its own
+                // that scrolls once long, since a client can carry any number of
+                // addresses (ovation#393).
+                if withRecipients {
+                    ScrollsWhenLong {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(review?.goingTo ?? presenter.recipients, id: \.self) { address in
+                                Text(address).font(.system(size: 13))
+                            }
+                        }
+                    }
                 }
                 // SAID ONCE FOR THE GROUP, never once per address: the same
                 // sentence printed twice is what PRD 52c rules out. Not said of a

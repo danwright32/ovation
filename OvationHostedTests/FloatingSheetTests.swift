@@ -76,7 +76,7 @@ struct FloatingSheetTests {
     }
 
     /// The smallest window the app allows, where the room is least, and a roomy one.
-    nonisolated private static let windows = [CGSize(width: OvationWindow.minimumWidth, height: 620),
+    nonisolated private static let windows = [CGSize(width: OvationWindow.minimumWidth, height: OvationWindow.minimumHeight),
                                   CGSize(width: 1064, height: 900)]
 
     @Test("the sheet is centred below the title bar, with room left above and below it",

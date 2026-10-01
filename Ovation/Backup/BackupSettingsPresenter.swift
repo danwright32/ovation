@@ -60,11 +60,13 @@ final class BackupSettingsPresenter {
     /// copy of the action's own list, so the day the policy changes the sentence
     /// stays true and goes incomplete, and every word still in it is correct
     /// (L679).
-    var retentionSentence: String {
-        "Ovation copies everything it holds into this folder once a day, when it "
-            + "starts. It keeps the most recent \(BackupService.defaultDailyKeep), "
-            + "and the last one of every month for good."
-    }
+    var retentionSentence: String { Self.retention }
+
+    /// The same sentence without a presenter, for the pane measured on its own
+    /// (ovation#393). It depends on nothing the presenter holds.
+    static let retention = "Ovation copies everything it holds into this folder once a day, when it "
+        + "starts. It keeps the most recent \(BackupService.defaultDailyKeep), "
+        + "and the last one of every month for good."
 
     @discardableResult
     func choose() -> ChoiceOutcome {

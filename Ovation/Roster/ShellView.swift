@@ -198,7 +198,7 @@ struct ShellView: View {
         // THE MINIMUM IS HALF DAN'S SCREEN (ovation#110), from `OvationWindow`,
         // which the design record's check reads too. It was a literal 900 here,
         // chosen rather than measured and wider than the half screen he uses.
-        .frame(minWidth: OvationWindow.minimumWidth, minHeight: 620, alignment: .topLeading)
+        .frame(minWidth: OvationWindow.minimumWidth, minHeight: OvationWindow.minimumHeight, alignment: .topLeading)
         .ovationAppearance()
         // THE SHEET BELONGS TO THE WINDOW (PRD 52a) AND FLOATS OVER IT (PRD 48a,
         // ovation#547), centred below the title bar with every corner rounded, which a
