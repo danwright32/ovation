@@ -77,6 +77,25 @@ struct WholeRowTests {
         #expect(pressed == 0, "the clear end answered, so this harness cannot see the defect")
     }
 
+    /// BOTH HALVES OF A CLICK ARE DISPATCHED, NEVER LEFT BEHIND. The click is posted
+    /// to the event queue and the application dispatches it (review of #644), so a
+    /// half left on the queue would reach whatever the next click lands on.
+    @Test("a click leaves neither half of itself on the event queue")
+    func aclickLeavesNothingQueued() {
+        var pressed = 0
+        let window = Self.hostRow(Button { pressed += 1 } label: { Self.row("Invoices") }
+            .buttonStyle(.plain))
+        defer { window.close() }
+
+        RealClick.click(at: Self.onTheWords, in: window)
+        RealClick.click(at: Self.atTheClearEnd, in: window)
+
+        #expect(pressed == 1, "the click on the words was not answered, so nothing here was dispatched")
+        let left = NSApp.nextEvent(matching: [.leftMouseDown, .leftMouseUp], until: .distantPast,
+                                   inMode: .default, dequeue: false)
+        #expect(left == nil, "a \(left.map { "\($0.type)" } ?? "") was left on the queue")
+    }
+
     // MARK: the component
 
     @Test("a button styled WholeTarget answers on its clear end")
