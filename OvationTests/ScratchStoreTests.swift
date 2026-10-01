@@ -11,6 +11,10 @@ struct ScratchStoreTests {
         init(note: String) { self.note = note }
     }
 
+    /// The deliberate leaks below are never released, so they are given a short
+    /// deadline rather than the default, which is sized for real late releases.
+    static var shortWait: ReleaseWait { ReleaseWait(deadline: .milliseconds(200)) }
+
     private static func write(_ url: URL) throws -> ModelContainer {
         let schema = Schema([Scrap.self])
         let container = try ModelContainer(
@@ -57,7 +61,7 @@ struct ScratchStoreTests {
         var kept: ModelContainer?
         var seen: URL?
         try withKnownIssue("the case kept its container, so the store is still open") {
-            try ScratchStore.with("scratch-leaked") { url in
+            try ScratchStore.with("scratch-leaked", release: Self.shortWait) { url in
                 seen = url
                 kept = try Self.write(url)
             }
@@ -77,7 +81,7 @@ struct ScratchStoreTests {
         var kept: ModelContainer?
         var seen: URL?
         try await withKnownIssue("the case kept its container") {
-            try await ScratchStore.with("scratch-leaked-async") { url in
+            try await ScratchStore.with("scratch-leaked-async", release: Self.shortWait) { url in
                 await Task.yield()
                 seen = url
                 kept = try Self.write(url)

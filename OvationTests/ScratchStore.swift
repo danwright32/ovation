@@ -20,17 +20,19 @@ enum ScratchStore {
     /// Runs `body` with a store URL `file` inside a new directory, then records an
     /// issue if anything still holds a file in that directory, then deletes it.
     static func with<Result>(_ label: String, file: String = "Ovation.store",
+                             release: ReleaseWait = ReleaseWait(deadline: ReleaseWait.storeReleaseDeadline),
                              _ body: (URL) throws -> Result) throws -> Result {
         let directory = try make(label)
-        defer { finish(directory) }
+        defer { finish(directory, release) }
         return try body(directory.appending(path: file))
     }
 
     /// The same, for a case whose work awaits.
     static func with<Result>(_ label: String, file: String = "Ovation.store",
+                             release: ReleaseWait = ReleaseWait(deadline: ReleaseWait.storeReleaseDeadline),
                              _ body: (URL) async throws -> Result) async throws -> Result {
         let directory = try make(label)
-        defer { finish(directory) }
+        defer { finish(directory, release) }
         return try await body(directory.appending(path: file))
     }
 
@@ -50,6 +52,16 @@ enum ScratchStore {
         return held
     }
 
+    /// Every descriptor this process holds on the store at `store` itself, its
+    /// write ahead log or its shared memory file, and on nothing else beside it.
+    static func descriptors(on store: URL) -> [String] {
+        let name = store.lastPathComponent
+        return descriptors(inside: store.deletingLastPathComponent()).filter {
+            let file = ($0 as NSString).lastPathComponent
+            return file == name || file == name + "-wal" || file == name + "-shm"
+        }
+    }
+
     private static func make(_ label: String) throws -> URL {
         let directory = URL.temporaryDirectory
             .appending(path: "ovation-\(label)-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -59,10 +71,9 @@ enum ScratchStore {
 
     /// A directory still held is recorded and LEFT, because deleting it would be
     /// the very fault being reported, and SQLite would say so all over again.
-    private static func finish(_ directory: URL) {
-        let held = descriptors(inside: directory)
-        guard held.isEmpty else {
-            Issue.record("the store is still open after the case released it, so \(directory.path) is left in place: \(held)")
+    private static func finish(_ directory: URL, _ release: ReleaseWait) {
+        if case .stillHeld(let waited) = release.until({ descriptors(inside: directory).isEmpty }) {
+            Issue.record("the store is still open after the case released it, and was still open \(waited) later, so \(directory.path) is left in place: \(descriptors(inside: directory))")
             return
         }
         try? FileManager.default.removeItem(at: directory)

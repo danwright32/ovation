@@ -66,7 +66,8 @@ struct EarlierVersionStoreTests {
         try ScratchStore.with("earlier") { url in
             var kept: ModelContainer?
             #expect(throws: EarlierVersionStore.StillOpen.self) {
-                try EarlierVersionStore.open(OvationSchemaV1.self, at: url) { kept = $0 }
+                try EarlierVersionStore.open(OvationSchemaV1.self, at: url,
+                                              release: ReleaseWait(deadline: .milliseconds(200))) { kept = $0 }
             }
             #expect(kept != nil, "the fixture really did keep it, so the refusal is about that")
             kept = nil

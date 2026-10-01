@@ -43,9 +43,12 @@ enum EarlierVersionStore {
     /// collision would outlast the fixture that caused it.
     struct StillOpen: Error, CustomStringConvertible {
         let version: Schema.Version
+        /// How long it was waited for before being refused (ovation#651).
+        let waited: Duration
         var description: String {
-            "the version \(version) container outlived the call that opened it, "
-                + "so every earlier opened container of another version stays unsafe to write"
+            "the version \(version) container or its store was still open \(waited) after "
+                + "the call that opened it, so every earlier opened container of another "
+                + "version stays unsafe to write"
         }
     }
 
@@ -53,6 +56,7 @@ enum EarlierVersionStore {
     /// container to `body`. `body` must not keep it.
     @MainActor
     static func open<Result>(_ version: any VersionedSchema.Type, at url: URL,
+                             release: ReleaseWait = ReleaseWait(deadline: ReleaseWait.storeReleaseDeadline),
                              _ body: (ModelContainer) throws -> Result) throws -> Result {
         weak var survivor: ModelContainer?
         let result = try autoreleasepool {
@@ -63,7 +67,10 @@ enum EarlierVersionStore {
             survivor = container
             return try body(container)
         }
-        guard survivor == nil else { throw StillOpen(version: version.versionIdentifier) }
+        let gone = release.until { survivor == nil && ScratchStore.descriptors(on: url).isEmpty }
+        if case .stillHeld(let waited) = gone {
+            throw StillOpen(version: version.versionIdentifier, waited: waited)
+        }
         return result
     }
 
