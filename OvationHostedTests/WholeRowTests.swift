@@ -16,7 +16,15 @@ import Testing
 /// click would have landed or not. And the harness is shown to tell the two apart
 /// before any row is judged by it: a plain button's empty end must NOT answer, or
 /// a green here would mean only that every click lands (L1, L159).
+///
+/// EVERY CASE HAS A TIME LIMIT. On the CI runner this branch's macOS job went
+/// silent for its whole hour in the hosted suite, twice, and this is the only
+/// suite that sends mouse events. A real click that is never answered waits with
+/// no deadline (L110), and a suite that hangs says nothing about which case did.
+/// One minute is the smallest limit Swift Testing allows, and every case here
+/// takes well under a second.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct WholeRowTests {
 
     /// A value a binding can write into and a test can read back.
