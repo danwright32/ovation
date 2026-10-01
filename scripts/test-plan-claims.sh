@@ -14,7 +14,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "plan claim tests" 49
+harness_begin "plan claim tests" 53
 
 TARGET="scripts/check-plan-claims.sh"
 require_target "$TARGET"
@@ -81,6 +81,28 @@ GOOD="$(estate good)"; furnish "$GOOD"
 plan "$GOOD" '| a claim | `Downbeat/scripts/run-tests.sh:3` | `LOCK_DIR="/tmp/one.lock"` |' >/dev/null
 check_exit "a citation whose literal is where the plan says holds" 0 status_on "$GOOD"
 check "and it is reported as held" "$(run_on "$GOOD" | grep -c '^  HELD')" "1"
+
+# ---------------------------------------------------------------------------
+# A CHECKOUT NESTED INSIDE A SIBLING IS NOT THAT SIBLING. On 2026-10-01 another
+# session's agent worktree at Overture/.claude/worktrees/agent-... held a second
+# copy of every Overture file, so every Overture citation resolved twice and was
+# refused as AMBIGUOUS, which refused every Ovation push on this Mac. A nested
+# checkout says what it is with its own `.git` (a file, for a worktree), so it is
+# left out. A plain folder holding a second copy is still a real ambiguity, and
+# the control below keeps it refused, so the skip cannot widen into hiding one.
+# ---------------------------------------------------------------------------
+NESTED="$(estate nested)"; furnish "$NESTED"
+mkdir -p "$NESTED/Overture/.claude/worktrees/agent-x/mac/Overture/Domain"
+cp "$NESTED/Overture/mac/Overture/Domain/ReplyDetection.swift" \
+    "$NESTED/Overture/.claude/worktrees/agent-x/mac/Overture/Domain/"
+printf 'gitdir: /elsewhere/.git/worktrees/agent-x\n' > "$NESTED/Overture/.claude/worktrees/agent-x/.git"
+plan "$NESTED" '| a claim | `mac/Overture/Domain/ReplyDetection.swift:7` | `static func labelIds(of message:` |' >/dev/null
+check_exit "a citation is not made ambiguous by a worktree nested inside its sibling" 0 status_on "$NESTED"
+check "and it is held in the sibling itself" "$(run_on "$NESTED" | grep -c '^  HELD')" "1"
+check "and nothing is reported ambiguous" "$(run_on "$NESTED" | grep -c '^  AMBIGUOUS')" "0"
+rm "$NESTED/Overture/.claude/worktrees/agent-x/.git"
+check "while a plain second copy with no .git of its own is still refused as ambiguous" \
+    "$(run_on "$NESTED" | grep -c '^  AMBIGUOUS')" "1"
 
 # ---------------------------------------------------------------------------
 # THE CASE THIS EXISTS FOR: the sibling moved and the plan did not.
