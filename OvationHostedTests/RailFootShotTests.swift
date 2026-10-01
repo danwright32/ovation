@@ -25,7 +25,7 @@ struct RailFootShotTests {
 
     /// The window at the height the shell refuses to go below, where the foot has
     /// least room.
-    private static let size = CGSize(width: 1064, height: 620)
+    private static let size = CGSize(width: 1064, height: OvationWindow.minimumHeight)
 
     private static func at(_ second: Int) -> Date {
         Date(timeIntervalSinceReferenceDate: TimeInterval(second))

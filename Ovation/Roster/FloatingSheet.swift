@@ -22,8 +22,9 @@ import SwiftUI
 struct FloatingSheet<Content: View>: View {
 
     /// What the card keeps clear of the title bar and of the window's foot. At the
-    /// smallest window, 620 high with a 38 point title bar, the review sheet gives up
-    /// height to keep it rather than touch either edge, as the design record draws.
+    /// smallest window, `OvationWindow.minimumHeight` high with a 38 point title bar,
+    /// the review sheet gives up height to keep it rather than touch either edge, as
+    /// the design record draws.
     static var margin: CGFloat { 18 }
     /// Every corner, the payment sheet's and the design records' 10.
     static var cornerRadius: CGFloat { 10 }

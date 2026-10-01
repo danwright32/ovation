@@ -108,7 +108,7 @@ struct ReviewSheetShotTests {
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var written = 0
-        for size in [CGSize(width: OvationWindow.minimumWidth, height: 620),
+        for size in [CGSize(width: OvationWindow.minimumWidth, height: OvationWindow.minimumHeight),
                      CGSize(width: 1064, height: 900)] {
             for scheme in [ColorScheme.light, .dark] {
                 let presenter = try ReviewSampleWorld.presenter(for: .ordinary)
