@@ -231,7 +231,13 @@ def index(root):
     """Every file under a checkout, by basename, ignoring build output."""
     by_name = {}
     for here, directories, files in os.walk(root):
-        directories[:] = [d for d in directories if d not in SKIP_DIRS]
+        # A FOLDER CARRYING ITS OWN `.git` IS ANOTHER CHECKOUT, not part of this
+        # one: an agent's worktree under Overture/.claude/worktrees held a second
+        # copy of every Overture file on 2026-10-01, and every Overture citation
+        # was refused as ambiguous (L234). A plain second copy has no `.git` and
+        # is still a real ambiguity, so only a checkout is left out.
+        directories[:] = [d for d in directories if d not in SKIP_DIRS
+                          and not os.path.exists(os.path.join(here, d, ".git"))]
         for name in files:
             by_name.setdefault(name, []).append(os.path.join(here, name))
     return by_name
