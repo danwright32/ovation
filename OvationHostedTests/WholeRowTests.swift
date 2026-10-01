@@ -173,10 +173,20 @@ struct WholeRowTests {
         let window = RealClick.host(view, size: CGSize(width: 1100, height: 1000))
         defer { window.close() }
 
+        // WHAT THE FIRST CLICK MEETS, read before any click changes it.
+        let x = ClientsView.namesWidth - 8
+        let firstPoint = NSPoint(x: x, y: (window.contentView?.bounds.height ?? 0) - 1)
+        let hit = window.contentView.flatMap { $0.hitTest($0.convert(firstPoint, from: nil)) }
+        let state = "hit view \(hit.map { "\(type(of: $0))" } ?? "none"), window key \(window.isKeyWindow), "
+            + "app active \(NSApp.isActive), first responder "
+            + (window.firstResponder.map { "\(type(of: $0))" } ?? "none")
+
+        let probe = ReleaseTakerProbe()
         var reached: Set<UUID> = []
-        let sent = RealClick.sweep(x: ClientsView.namesWidth - 8, in: window, step: 4) {
+        let sent = RealClick.sweep(x: x, in: window, step: 4) {
             if let id = chosen.value { reached.insert(id) }
         }
+        probe.remove()
 
         // Three of the 31 draw a held figure at that end, and a click on a figure
         // answered even before; the rest are the rows whose far end was dead.
@@ -187,7 +197,8 @@ struct WholeRowTests {
         #expect(reached.count >= 20, """
             only \(reached.count) names answered at the far end; \(sent.releasesTaken) of \
             \(sent.clicks) releases were taken before the click could deliver them, in a \
-            content area of \(window.contentView?.bounds.size ?? .zero)
+            content area of \(window.contentView?.bounds.size ?? .zero); \(state); the first \
+            release was taken by: \(probe.firstTaker)
             """)
     }
 
