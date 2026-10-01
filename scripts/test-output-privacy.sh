@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 147
+harness_begin "output privacy tests" 150
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -731,6 +731,43 @@ printf 'Invoice #,Invoice Status,Client Name,Item Name,Quantity,Line Subtotal,Di
     "$CLIENT" "$VENUE" > "$HISTORY"
 check "and none when it refuses because nothing was issued" \
     "$(leaks_in "$(./scripts/measure-invoice-history.py "$HISTORY" 2>&1)")" "clean"
+
+# The photographed receipt probe, ovation#74. It reads Dan's real receipts and
+# prints counts only. Reading needs Vision, which Linux does not have, so this
+# drives the half that SPEAKS, the summary, from a results file whose every
+# receipt field carries a name. The results are built by the probe's own
+# interpretation of a fabricated reading rather than written out here, so a
+# field the probe adds later is in the fixture without anybody remembering it
+# (L41).
+RECEIPT_RESULTS="$WORK/receipt-results.json"
+python3 - "$RECEIPT_RESULTS" "$CLIENT" "$VENUE" <<'PY'
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("probe", "scripts/measure-receipt-reads.py")
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+out, client, venue = sys.argv[1:4]
+def seen(text, x, y):
+    return {"candidates": [{"text": text, "confidence": 1.0}, {"text": text + " 2", "confidence": 0.3}],
+            "topLeft": [x, y + 0.05], "topRight": [x + 0.2, y + 0.05],
+            "bottomLeft": [x, y], "bottomRight": [x + 0.2, y]}
+raw = {"index": 1, "readable": True, "pixelWidth": 900, "pixelHeight": 900,
+       "barcodes": [{"symbology": "VNBarcodeSymbologyQR", "payload": client}],
+       "observations": [seen(client, 0.2, 0.9), seen("10/25/2026", 0.3, 0.8),
+                        seen(venue, 0.05, 0.6), seen("41.00", 0.75, 0.6),
+                        seen("TOTAL", 0.05, 0.5), seen("41.00", 0.75, 0.5)]}
+receipt = probe.interpret(raw, client + ".png", "0")
+assert receipt["vendor"]["value"] == client, "the fixture did not put the name where the vendor is read"
+json.dump({"folder": "/" + venue, "reader": {"osVersion": "Version 26.6.2", "textRecognitionRevision": 3,
+           "barcodeRevision": 4}, "receipts": [receipt]}, open(out, "w"))
+PY
+RECEIPT_OUT="$(./scripts/measure-receipt-reads.py --summarise "$RECEIPT_RESULTS" 2>&1)"
+check "the receipt probe's summary really spoke, so the next check judges output" \
+    "$(printf '%s\n' "$RECEIPT_OUT" | grep -c '^PILOT, n=1, NOT A VERDICT$')" "1"
+check "and it prints no vendor, filename or line from a receipt" "$(leaks_in "$RECEIPT_OUT")" "clean"
+mkdir -p "$WORK/receipts-none"
+printf 'x' > "$WORK/receipts-none/.$CLIENT.png"
+check "and none when it refuses an empty receipt folder" \
+    "$(leaks_in "$(./scripts/measure-receipt-reads.py --folder "$WORK/receipts-none" --results "$WORK/receipt-out" 2>&1)")" "clean"
 
 # The Downbeat export measurement, ovation#121. It opens the file that carries
 # every real client, shoot, venue and hosting site name in plain text, and
