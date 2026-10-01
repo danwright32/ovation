@@ -20,7 +20,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "photographed receipt probe tests" 75
+harness_begin "photographed receipt probe tests" 79
 
 TARGET="scripts/measure-receipt-reads.py"
 require_target "$TARGET"
@@ -480,6 +480,28 @@ check "while a genuine 3.14 is still an item and TOTAL 14.03 still the amount" \
 # "14.03.", is still an amount.
 check "and an amount followed by a full stop is still the amount" \
     "$(cut -d' ' -f3 <<< "$DOTS" | cut -d'|' -f4)" "14.03"
+
+# A READER THAT NEVER FINISHES IS REFUSED, NOT WAITED ON FOR EVER (L110). The
+# build and the read had no deadline, so a hung compiler or Vision call held the
+# probe and this suite indefinitely (review of ovation#636). The deadline is
+# injected so the case costs a second, not the real allowance (L524). The stand
+# in starts a child that keeps its output open, because killing only the reader
+# would leave that child holding the pipe and the wait would hang anyway (L235).
+stand_in hung-reader <<'SH'
+sleep 300 &
+sleep 300
+SH
+HUNG_START=$SECONDS
+HUNG="$(OVATION_RECEIPT_READ_DEADLINE=1 OVATION_RECEIPT_READER="$WORK/hung-reader" ./"$TARGET" --folder "$WORK/one" --results "$WORK/hung" 2>&1)"; HUNG_STATUS=$?
+HUNG_TOOK=$((SECONDS - HUNG_START))
+check "a reader past its deadline is refused by name, with no results and no traceback" \
+    "$HUNG_STATUS:$(grep -c '^REFUSED: the receipt reader did not finish within 1 seconds, so nothing was measured' <<< "$HUNG"):$(ls "$WORK/hung" 2>/dev/null | grep -c results-):$(grep -c Traceback <<< "$HUNG")" "1:1:0:0"
+check "and the refusal arrives at the deadline, not when the reader's children give up" \
+    "$([ "$HUNG_TOOK" -lt 30 ] && echo prompt || echo "took ${HUNG_TOOK}s")" "prompt"
+check "and nothing the reader started is left running" \
+    "$(pgrep -f "$WORK/hung-reader" | grep -c .)" "0"
+check "a deadline that is not a number of seconds is refused by name" \
+    "$(OVATION_RECEIPT_READ_DEADLINE=soon OVATION_RECEIPT_READER="$WORK/fine-reader" ./"$TARGET" --folder "$WORK/one" --results "$WORK/hung2" 2>&1 | grep -c '^REFUSED: OVATION_RECEIPT_READ_DEADLINE is not a number of seconds')" "1"
 
 # A LINE ITEM IS NOT A PAYMENT because a word inside it looks like one. The
 # payment words matched bare substrings, so Postcard, Cardstock, Author copy,

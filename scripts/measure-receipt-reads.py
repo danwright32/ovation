@@ -47,6 +47,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -562,6 +563,56 @@ def what_the_reader_said(ran, written):
     return "\n".join(lines)
 
 
+# DEADLINES, so a hung compiler or Vision call refuses rather than holding the
+# probe and its suite for ever (L110, review of ovation#636). Measured on Dan's
+# Mac (Apple silicon, macOS 26.6.2) on 2026-10-01: the build took 0.8 to 2.1 s
+# over three runs, and reading the 4 pilot receipts, both passes, 1.7 to 1.9 s.
+# The CI runner is a virtual machine reading on the CPU, and its whole receipt
+# suite, which builds this reader and reads four drawn receipts, took about 33 s.
+# The ceilings sit far above both, and the read grows with the receipts, since
+# the verdict sample will be 20 or more.
+BUILD_DEADLINE_SECONDS = 300
+READ_DEADLINE_BASE_SECONDS = 120
+READ_DEADLINE_PER_RECEIPT_SECONDS = 30
+
+
+def deadline(variable, default):
+    """A deadline in seconds: the measured default, or the one a test injects
+    so its case costs a second rather than the real allowance (L524)."""
+    raw = os.environ.get(variable, "")
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 0
+    if not value > 0:
+        raise Refusal(f"REFUSED: {variable} is not a number of seconds: {raw}")
+    return value
+
+
+def run_with_deadline(command, seconds, what):
+    """Runs a command and returns what it did, or refuses when it overruns.
+
+    It is started in its own process group and the WHOLE group is killed on
+    expiry: killing only the command leaves anything it started holding its
+    output open, and the wait for that output then hangs as long as they live
+    (L235, L321)."""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               start_new_session=True)
+    try:
+        stdout, stderr = process.communicate(timeout=seconds)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate()
+        shown = int(seconds) if float(seconds).is_integer() else seconds
+        raise Refusal(f"REFUSED: {what} within {shown} seconds, so nothing was measured.")
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 def read_with_vision(paths):
     # A STAND IN READER, for the suite alone, so it can drive the refusals below
     # on purpose, the UNMEASURED one included (L411). Empty is the real reader.
@@ -575,11 +626,12 @@ def read_with_vision(paths):
                       "a Mac with the Swift compiler (swiftc). Nothing was read.", 2)
     with tempfile.TemporaryDirectory() as work:
         reader = os.path.join(work, "receipt-reader")
-        built = subprocess.run(["swiftc", "-O", "-o", reader, READER_SOURCE],
-                               capture_output=True, text=True)
+        built = run_with_deadline(["swiftc", "-O", "-o", reader, READER_SOURCE],
+                                  deadline("OVATION_RECEIPT_BUILD_DEADLINE", BUILD_DEADLINE_SECONDS),
+                                  "the receipt reader did not compile")
         if built.returncode != 0:
             raise Refusal("REFUSED: the Vision reader did not compile, so nothing was read.\n"
-                          + "\n".join(built.stderr.splitlines()[:10]))
+                          + "\n".join(built.stderr.decode("utf-8", "replace").splitlines()[:10]))
         return run_reader(reader, paths)
 
 
@@ -617,7 +669,10 @@ def run_reader(reader, paths):
     the process, so it is carried in a file the reader alone writes."""
     with tempfile.TemporaryDirectory() as work:
         out = os.path.join(work, "readings.json")
-        ran = subprocess.run([reader, "--out", out] + paths, capture_output=True)
+        ran = run_with_deadline([reader, "--out", out] + paths,
+                                deadline("OVATION_RECEIPT_READ_DEADLINE",
+                                         READ_DEADLINE_BASE_SECONDS + READ_DEADLINE_PER_RECEIPT_SECONDS * len(paths)),
+                                "the receipt reader did not finish")
         written = None
         if os.path.exists(out):
             with open(out, "rb") as handle:
