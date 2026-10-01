@@ -44,6 +44,11 @@ enum RealClick {
                                                                 height: size.height))
         window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
         window.orderBack(nil)
+        // THE KEY WINDOW OF THE TEST APP, so a click in it is a click and never only
+        // the first click that brings a window forward. This does not activate the
+        // app or take the front window from anyone: on a Mac being worked on the
+        // test app is not the active one, and its key window stays behind.
+        window.makeKey()
         window.layoutIfNeeded()
         settle()
         return window
@@ -71,18 +76,21 @@ enum RealClick {
 
     /// One press and release of the left button at `point`, in window coordinates.
     ///
-    /// THE RELEASE IS QUEUED BEFORE THE PRESS IS SENT. A control that tracks a
-    /// press does it in a loop that waits on the event queue for the release, and
-    /// a release only sent once the press has returned never arrives there: on the
-    /// CI runner, where the test app is the active one, the Clients screen's names
-    /// waited on it with no deadline and the job hung for its hour, twice (run
-    /// 36801613438 named the case once a time limit was on it, L110). So the
-    /// release is on the queue first, where a tracking loop finds it; where nothing
-    /// tracked the press it is still there, and is taken off the queue and
-    /// delivered here, so no stray release reaches the next click.
+    /// BOTH HALVES GO ON THE EVENT QUEUE AND THE APPLICATION DISPATCHES THEM, the
+    /// way a real click arrives. Measured on the CI runner, where the test app is
+    /// the active one (review of #644): a release sent only after the press hung the
+    /// Clients names for the job's hour (run 36801613438, L110), and a press handed
+    /// straight to the window with its release queued behind it left the scroll
+    /// view's tracking loop taking 234 of 250 releases while not one name answered
+    /// (run 36884439109). So the press is dispatched by `NSApp.sendEvent`, which
+    /// does what the application does with a click in one of its windows before
+    /// the window sees it, and the release waits on the queue where a loop
+    /// tracking the press finds it. Handing the press to the view under it does not
+    /// work at all: SwiftUI takes clicks only through the window (measured, 0 of 20).
     ///
-    /// Returns whether the queued release was taken by something else before it
-    /// could be delivered here, which is what a loop tracking the press does.
+    /// Returns whether the release was taken by something else, a loop tracking the
+    /// press, before it could be dispatched here; a case that fails says how many,
+    /// because that count is what a regression would need to be diagnosed.
     @discardableResult
     static func click(at point: NSPoint, in window: NSWindow) -> Bool {
         func event(_ type: NSEvent.EventType) -> NSEvent? {
@@ -95,11 +103,16 @@ enum RealClick {
         guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else {
             preconditionFailure("AppKit made no mouse event for \(point)")
         }
+        NSApp.postEvent(down, atStart: false)
         NSApp.postEvent(up, atStart: false)
-        window.sendEvent(down)
-        if let unconsumed = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast,
-                                            inMode: .default, dequeue: true) {
-            window.sendEvent(unconsumed)
+        guard let press = NSApp.nextEvent(matching: .leftMouseDown, until: .distantPast,
+                                          inMode: .default, dequeue: true) else {
+            preconditionFailure("the press posted for \(point) never reached the queue")
+        }
+        NSApp.sendEvent(press)
+        if let release = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast,
+                                         inMode: .default, dequeue: true) {
+            NSApp.sendEvent(release)
             return false
         }
         return true
