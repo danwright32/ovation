@@ -60,6 +60,25 @@ struct ReleaseWaitTests {
         #expect(seen == 3, "the answer is the third look's, the last one the verdict was made on")
     }
 
+    /// A CANCELLED CASE STILL PAUSES BETWEEN LOOKS. A sleep that throws on
+    /// cancellation and is swallowed returns at once every time, so the wait spins
+    /// for its whole deadline, scanning every open file on each pass, and starves
+    /// the cases beside it, which is the harm the suspending pause exists to stop.
+    /// This runs the DEFAULT pause in a cancelled task over a 100ms deadline at
+    /// 10ms a pause: paused, that is about ten looks; spinning, it is thousands.
+    @Test("a cancelled async case still waits between looks rather than spinning")
+    func aCancelledWaitDoesNotSpin() async {
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            var looks = 0
+            _ = await ReleaseWait(deadline: .milliseconds(100), interval: .milliseconds(10))
+                .suspendingUntil(looking: { looks += 1 }, released: { _ in false })
+            return looks
+        }
+        let looks = await task.value
+        #expect(looks <= 30, "it looked \(looks) times in 100ms, which is spinning, not waiting")
+    }
+
     @Test("the last sleep stops at the deadline rather than overshooting it")
     func theLastSleepIsTrimmed() {
         let clock = FakeClock()

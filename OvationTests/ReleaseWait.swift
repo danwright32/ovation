@@ -46,11 +46,18 @@ struct ReleaseWait {
         let clock = ContinuousClock()
         let origin = clock.now
         self.elapsed = elapsed ?? { origin.duration(to: clock.now) }
-        self.sleep = sleep ?? { duration in
+        let blocking: (Duration) -> Void = { duration in
             let (seconds, attoseconds) = duration.components
             usleep(useconds_t(seconds * 1_000_000 + attoseconds / 1_000_000_000_000))
         }
-        self.suspend = suspend ?? { duration in try? await Task.sleep(for: duration) }
+        self.sleep = sleep ?? blocking
+        // A CANCELLED CASE CANNOT SUSPEND: Task.sleep throws at once, and swallowing
+        // that would return from every pause immediately and spin for the whole
+        // deadline, scanning every open file each pass. So a pause the task cannot
+        // suspend for is taken by blocking instead, which only a cancelled case pays.
+        self.suspend = suspend ?? { duration in
+            do { try await Task.sleep(for: duration) } catch { blocking(duration) }
+        }
     }
 
     /// Looks at `released` now and then every `interval`, and answers as soon as
