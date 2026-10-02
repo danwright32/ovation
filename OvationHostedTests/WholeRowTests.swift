@@ -164,41 +164,79 @@ struct WholeRowTests {
         #expect(reached.isSuperset(of: [.invoices, .clients]), "reached only \(reached)")
     }
 
-    @Test("a name on the Clients screen answers a click at the far end of its row")
-    func aclientNameAnswersAtItsFarEnd() throws {
+    /// The names column's own scroll view: the one at the window's leading edge,
+    /// as wide as the column.
+    private static func namesScrollView(in window: NSWindow) -> NSScrollView? {
+        func all(_ view: NSView) -> [NSScrollView] {
+            ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(all)
+        }
+        guard let content = window.contentView else { return nil }
+        return all(content).first { scroll in
+            let frame = scroll.convert(scroll.bounds, to: nil)
+            return abs(frame.minX) < 1 && abs(frame.width - ClientsView.namesWidth) < 2
+        }
+    }
+
+    /// A ROW'S FAR END IS WHERE ITS SCROLL BAR STARTS, wherever the Mac shows one
+    /// (review of #644). On the CI runner, which has no trackpad, macOS shows legacy
+    /// scroll bars that take the column's last points, and a sweep 8 points inside
+    /// the column landed on the scroll bar's knob track: `NSScroller trackKnob:`
+    /// took 234 of 250 releases and no name answered (run 37028281459). This Mac
+    /// shows overlay scroll bars, which take no room, so the same line was on the
+    /// rows here and the case passed. So the case runs under BOTH styles, set on the
+    /// column's own scroll view, and sweeps inside the scroll bar the style draws,
+    /// which makes the runner's condition reproducible on every Mac.
+    @Test("a name on the Clients screen answers a click at the far end of its row, beside an overlay scroll bar")
+    func aclientNameAnswersBesideAnOverlayScrollBar() throws {
+        try Self.clientNamesAnswerAtTheirFarEnd(beside: .overlay)
+    }
+
+    /// The runner's own condition, reproduced on every Mac.
+    @Test("and beside a legacy scroll bar, which takes the column's last points")
+    func aclientNameAnswersBesideALegacyScrollBar() throws {
+        try Self.clientNamesAnswerAtTheirFarEnd(beside: .legacy)
+    }
+
+    private static func clientNamesAnswerAtTheirFarEnd(beside style: NSScroller.Style) throws {
         let (clients, _) = try ClientsViewTests.population()
         let chosen = Box<UUID?>(try ClientsViewTests.id(of: "Harborlight Ballet", in: clients))
         let view = ClientsView(presenter: ClientsPresenter(clients: clients),
                                selected: chosen.binding)
         let window = RealClick.host(view, size: CGSize(width: 1100, height: 1000))
         defer { window.close() }
+        let scroll = try #require(namesScrollView(in: window),
+                                  "no scroll view at the names column, so the scroll bar it draws is unknown")
+        scroll.scrollerStyle = style
+        window.layoutIfNeeded()
+        #expect(scroll.scrollerStyle == style, "the names column did not keep the scroll bar style it was given")
 
-        // WHAT THE FIRST CLICK MEETS, read before any click changes it.
-        let x = ClientsView.namesWidth - 8
-        let firstPoint = NSPoint(x: x, y: (window.contentView?.bounds.height ?? 0) - 1)
-        let hit = window.contentView.flatMap { $0.hitTest($0.convert(firstPoint, from: nil)) }
-        let state = "hit view \(hit.map { "\(type(of: $0))" } ?? "none"), window key \(window.isKeyWindow), "
-            + "app active \(NSApp.isActive), first responder "
-            + (window.firstResponder.map { "\(type(of: $0))" } ?? "none")
+        let x = ClientsView.namesWidth
+            - NSScroller.scrollerWidth(for: .regular, scrollerStyle: scroll.scrollerStyle) - 8
 
-        let probe = ReleaseTakerProbe()
+        // THE LINE IS ON THE ROWS, NEVER THE SCROLL BAR, checked before any click: a
+        // sweep that lands on a scroll bar measures the scroll bar (L237).
+        let content = try #require(window.contentView)
+        let onTheScroller = stride(from: CGFloat(1), to: content.bounds.height, by: 4).filter { fromTop in
+            content.hitTest(content.convert(NSPoint(x: x, y: content.bounds.height - fromTop), from: nil))
+                is NSScroller
+        }
+        #expect(onTheScroller.isEmpty,
+                "the sweep at x \(x) lands on the scroll bar at \(onTheScroller.count) points")
+
         var reached: Set<UUID> = []
         let sent = RealClick.sweep(x: x, in: window, step: 4) {
             if let id = chosen.value { reached.insert(id) }
         }
-        probe.remove()
 
         // Three of the 31 draw a held figure at that end, and a click on a figure
-        // answered even before; the rest are the rows whose far end was dead.
-        // THE MESSAGE SAYS WHAT THE CLICKS MET (review of #644): on the CI runner
-        // not one landed while every other sweep did, and this is the only one
-        // through a scroll view, so a failure reports how many releases something
-        // else took and the size the window was really given.
+        // answered even before; the rest are the rows whose far end was dead. A
+        // failure says how many releases something else took, which is how the
+        // scroll bar was found, and what the clicks were given.
         #expect(reached.count >= 20, """
-            only \(reached.count) names answered at the far end; \(sent.releasesTaken) of \
-            \(sent.clicks) releases were taken before the click could deliver them, in a \
-            content area of \(window.contentView?.bounds.size ?? .zero); \(state); the first \
-            release was taken by: \(probe.firstTaker)
+            only \(reached.count) names answered at the far end at x \(x); \
+            \(sent.releasesTaken) of \(sent.clicks) releases were taken before the click \
+            could deliver them, in a content area of \(content.bounds.size), window key \
+            \(window.isKeyWindow), app active \(NSApp.isActive)
             """)
     }
 

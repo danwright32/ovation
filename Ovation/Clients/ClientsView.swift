@@ -572,9 +572,8 @@ struct SharedAddressNotice<Answer: View>: View {
                     ActionWord(word: named.sharer.name, size: Self.size,
                                press: { open(named.sharer.clientID) }, spoken: named.spoken)
                         .fixedSize()
-                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.space)) }) {
-                            placed?(named.sharer.name, $0)
-                        }
+                        .modifier(ReportsPlacement(key: named.sharer.name, in: Self.space,
+                                                   to: placed))
                     ForEach(Array(Self.words(after: named).enumerated()), id: \.offset) { _, word in
                         Text(word.text)
                             .font(.system(size: Self.size))
@@ -588,9 +587,7 @@ struct SharedAddressNotice<Answer: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             answer()
                 .fixedSize()
-                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.space)) }) {
-                    placed?(Self.answerKey, $0)
-                }
+                .modifier(ReportsPlacement(key: Self.answerKey, in: Self.space, to: placed))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
@@ -604,6 +601,32 @@ struct SharedAddressNotice<Answer: View>: View {
     static func words(after named: ClientsPresenter.SharedName) -> [(text: String, joins: Bool)] {
         let parts = named.after.split(separator: " ").map(String.init)
         return parts.map { part in (part, part == ",") }
+    }
+}
+
+/// Reports where a view was drawn, in a named space, to a test that asked; with
+/// nobody asking it adds nothing, so the app pays nothing for the test's seam
+/// (review of #644).
+private struct ReportsPlacement: ViewModifier {
+    let key: String
+    let space: String
+    let report: ((String, CGRect) -> Void)?
+
+    init(key: String, in space: String, to report: ((String, CGRect) -> Void)?) {
+        self.key = key
+        self.space = space
+        self.report = report
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let report {
+            content.onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(space)) }) {
+                report(key, $0)
+            }
+        } else {
+            content
+        }
     }
 }
 

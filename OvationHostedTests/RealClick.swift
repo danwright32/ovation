@@ -26,10 +26,23 @@
 // every display, which is enough for it to lay out and take events.
 import AppKit
 import SwiftUI
+import Testing
 @testable import Ovation
 
 @MainActor
 enum RealClick {
+
+    /// What became of one click.
+    enum Outcome: Equatable {
+        /// Both halves were dispatched here.
+        case delivered
+        /// Something else, a loop tracking the press, took the release first.
+        case releaseTaken
+        /// AppKit made no event or never queued it, so nothing was clicked. Recorded
+        /// as an issue against the case, by name, never a crash of the whole run
+        /// (L470).
+        case notSent
+    }
 
     /// A window holding `view` at `size`, laid out and able to take events. The
     /// caller closes it.
@@ -58,7 +71,8 @@ enum RealClick {
     /// `fromTop` and `toTop` points below the top of the window's content, calling
     /// `after` once each click has been answered. Returns how many clicks it sent
     /// and how many of their releases something else took off the queue (see
-    /// `click`), so a case that fails can say which of the two happened.
+    /// `click`), so a case that fails can say which of the two happened. A click
+    /// that was never sent is not counted as sent.
     @discardableResult
     static func sweep(x: CGFloat, in window: NSWindow, fromTop: CGFloat = 0, toTop: CGFloat? = nil,
                       step: CGFloat = 3, after: () -> Void) -> (clicks: Int, releasesTaken: Int) {
@@ -67,8 +81,11 @@ enum RealClick {
         var clicks = 0
         var taken = 0
         for fromTheTop in stride(from: fromTop + 1, to: bottom, by: step) {
-            if click(at: NSPoint(x: x, y: height - fromTheTop), in: window) { taken += 1 }
-            clicks += 1
+            switch click(at: NSPoint(x: x, y: height - fromTheTop), in: window) {
+            case .delivered: clicks += 1
+            case .releaseTaken: clicks += 1; taken += 1
+            case .notSent: break
+            }
             after()
         }
         return (clicks, taken)
@@ -90,9 +107,11 @@ enum RealClick {
     ///
     /// Returns whether the release was taken by something else, a loop tracking the
     /// press, before it could be dispatched here; a case that fails says how many,
-    /// because that count is what a regression would need to be diagnosed.
+    /// because that count is what a regression would need to be diagnosed. Taken
+    /// on the runner it was the names column's scroll bar (`NSScroller trackKnob:`,
+    /// run 37028281459), which a sweep now keeps clear of.
     @discardableResult
-    static func click(at point: NSPoint, in window: NSWindow) -> Bool {
+    static func click(at point: NSPoint, in window: NSWindow) -> Outcome {
         func event(_ type: NSEvent.EventType) -> NSEvent? {
             NSEvent.mouseEvent(
                 with: type, location: point, modifierFlags: [],
@@ -101,21 +120,23 @@ enum RealClick {
                 eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)
         }
         guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else {
-            preconditionFailure("AppKit made no mouse event for \(point)")
+            Issue.record("AppKit made no mouse event for \(point), so nothing was clicked")
+            return .notSent
         }
         NSApp.postEvent(down, atStart: false)
         NSApp.postEvent(up, atStart: false)
         guard let press = NSApp.nextEvent(matching: .leftMouseDown, until: .distantPast,
                                           inMode: .default, dequeue: true) else {
-            preconditionFailure("the press posted for \(point) never reached the queue")
+            Issue.record("the press posted for \(point) never reached the queue, so nothing was clicked")
+            return .notSent
         }
         NSApp.sendEvent(press)
         if let release = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast,
                                          inMode: .default, dequeue: true) {
             NSApp.sendEvent(release)
-            return false
+            return .delivered
         }
-        return true
+        return .releaseTaken
     }
 
     /// One pass of the run loop, so a view that finishes its layout

@@ -8,7 +8,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "whole target tests" 15
+harness_begin "whole target tests" 22
 
 TARGET="scripts/check-whole-target.sh"
 require_target "$TARGET"
@@ -68,6 +68,43 @@ printf 'Button("a") {}.buttonStyle(PlainButtonStyle())\n' > "$ROOT/Ovation/Roste
 OUT="$(run_check "$ROOT")"
 STATUS=$?
 check "the style named by its type is refused" "$STATUS" "1"
+
+# 3b. CALLS, NOT LINES (review of #644). The first version read one line at a
+#     time, and each of these passed it with the "every chromeless button" OK.
+ROOT="$(stage split)"
+printf 'Button("a") {}\n    .buttonStyle(\n        .plain)\n' > "$ROOT/Ovation/Roster/ShellView.swift"
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "a call split across lines is refused" "$STATUS" "1"
+check "and it is named at the line the call starts" "$(says "$OUT" "ShellView.swift:2")" "yes"
+
+ROOT="$(stage borderless)"
+printf 'Button("a") {}.buttonStyle(.borderless)\n' > "$ROOT/Ovation/Roster/ShellView.swift"
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "the borderless style, which hit tests the same way, is refused" "$STATUS" "1"
+
+ROOT="$(stage borderless-typed)"
+printf 'Button("a") {}.buttonStyle(BorderlessButtonStyle())\n' > "$ROOT/Ovation/Roster/ShellView.swift"
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "and so is its type" "$STATUS" "1"
+
+ROOT="$(stage plain-as)"
+printf 'let style = .plain as PlainButtonStyle\n' > "$ROOT/Ovation/Roster/ShellView.swift"
+printf 'let other = .borderless as BorderlessButtonStyle\n' > "$ROOT/Ovation/Roster/Other.swift"
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "the shorthand handed on as a value is refused" "$STATUS" "1"
+check "in both of its spellings" "$(says "$OUT" "Other.swift:1")" "yes"
+
+# A COMMENT OR A STRING ABOUT THE STYLE IS PROSE, even across lines (L673).
+ROOT="$(stage prose-block)"
+printf '/* never\n   .buttonStyle(.plain) here */\nlet why = "not .buttonStyle(.borderless)"\nText("a")\n' \
+    > "$ROOT/Ovation/Roster/ShellView.swift"
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "a block comment and a string naming the style are not refused" "$STATUS" "0"
 
 # ---------------------------------------------------------------------------
 # 4. MORE THAN ONE IS ALL REPORTED, not only the first.
