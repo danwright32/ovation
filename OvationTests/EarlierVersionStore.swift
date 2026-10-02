@@ -45,17 +45,20 @@ enum EarlierVersionStore {
         let version: Schema.Version
         /// How long it was waited for before being refused (ovation#651).
         let waited: Duration
-        /// WHICH OF THE TWO WAS HELD, read at the deadline (L11): a container
-        /// still alive and store files still open are different faults, so the
-        /// refusal names the one it measured rather than covering both.
+        /// WHICH OF THE TWO WAS HELD, as the wait's own last look saw it (L11):
+        /// a container still alive and store files still open are different
+        /// faults, so the refusal names each one it measured, and both when both
+        /// were held, never a second reading taken after the wait gave up.
         let containerAlive: Bool
         let openFiles: [String]
         var description: String {
-            let held = containerAlive
-                ? "container was still alive"
-                : "store still had \(openFiles.count) file(s) open (\(openFiles.joined(separator: ", ")))"
-            return "the version \(version) \(held) \(waited) after the call that opened it, "
-                + "so every earlier opened container of another version stays unsafe to write"
+            var held: [String] = []
+            if containerAlive { held.append("container was still alive") }
+            if !openFiles.isEmpty {
+                held.append("store still had \(openFiles.count) file(s) open (\(openFiles.joined(separator: ", ")))")
+            }
+            return "the version \(version) \(held.joined(separator: " and its ")) \(waited) after the call "
+                + "that opened it, so every earlier opened container of another version stays unsafe to write"
         }
     }
 
@@ -74,11 +77,16 @@ enum EarlierVersionStore {
             survivor = container
             return try body(container)
         }
-        let gone = release.until { survivor == nil && ScratchStore.descriptors(on: url).isEmpty }
+        var alive = true
+        var files: [String] = []
+        let gone = release.until {
+            alive = survivor != nil
+            files = ScratchStore.descriptors(on: url)
+            return !alive && files.isEmpty
+        }
         if case .stillHeld(let waited) = gone {
             throw StillOpen(version: version.versionIdentifier, waited: waited,
-                            containerAlive: survivor != nil,
-                            openFiles: ScratchStore.descriptors(on: url))
+                            containerAlive: alive, openFiles: files)
         }
         return result
     }

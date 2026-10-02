@@ -71,9 +71,12 @@ enum ScratchStore {
 
     /// A directory still held is recorded and LEFT, because deleting it would be
     /// the very fault being reported, and SQLite would say so all over again.
+    /// The files named are the ones the wait's last look saw, never a second
+    /// reading taken after it gave up, which could list others or none (L11).
     private static func finish(_ directory: URL, _ release: ReleaseWait) {
-        if case .stillHeld(let waited) = release.until({ descriptors(inside: directory).isEmpty }) {
-            Issue.record("the store is still open after the case released it, and was still open \(waited) later, so \(directory.path) is left in place: \(descriptors(inside: directory))")
+        var held: [String] = []
+        if case .stillHeld(let waited) = release.until({ held = descriptors(inside: directory); return held.isEmpty }) {
+            Issue.record("the store is still open after the case released it, and was still open \(waited) later, so \(directory.path) is left in place: \(held)")
             return
         }
         try? FileManager.default.removeItem(at: directory)

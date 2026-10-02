@@ -81,6 +81,19 @@ struct EarlierVersionStoreTests {
         }
     }
 
+    /// BOTH CAN BE HELD AT ONCE, and then the refusal names both, with the files
+    /// it saw: naming only the container would claim one fault where two were
+    /// measured (L11, L440).
+    @Test("a refusal holding the container and open files names both")
+    func aRefusalNamesBothWhenBothAreHeld() {
+        let refused = EarlierVersionStore.StillOpen(
+            version: Schema.Version(1, 0, 0), waited: .milliseconds(200),
+            containerAlive: true, openFiles: ["/tmp/x/store-wal"])
+        let said = String(describing: refused)
+        #expect(said.contains("container was still alive"))
+        #expect(said.contains("store still had 1 file(s) open (/tmp/x/store-wal)"))
+    }
+
     // MARK: every earlier version goes through it
 
     /// ONE WAY IN (L613). A fixture that builds an earlier version's schema, or a
