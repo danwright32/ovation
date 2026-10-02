@@ -60,6 +60,37 @@ struct ReleaseWaitTests {
         #expect(seen == 3, "the answer is the third look's, the last one the verdict was made on")
     }
 
+    /// THE TWO WAITS ARE ONE RULE. The blocking wait and the suspending wait differ
+    /// only in how they pause, so on the same looks and the same clock they reach
+    /// the same verdict, after the same time, from the same last look, and take
+    /// the same trimmed pauses. Run here released late, and never released.
+    @Test("the blocking and the suspending wait reach the same verdict on the same looks")
+    func bothWaitsShareOneRule() async {
+        for releasedAt in [4, Int.max] {
+            let blockingClock = FakeClock()
+            var blockingLooks = 0
+            let blocking = blockingClock.wait(deadline: .milliseconds(55)).until(
+                looking: { blockingLooks += 1; return blockingLooks },
+                released: { $0 >= releasedAt })
+
+            let suspendingClock = FakeClock()
+            var suspendingLooks = 0
+            var suspensions: [Duration] = []
+            let wait = ReleaseWait(
+                deadline: .milliseconds(55), interval: .milliseconds(10),
+                elapsed: { suspendingClock.elapsed },
+                sleep: { _ in Issue.record("the suspending wait blocked") },
+                suspend: { suspensions.append($0); suspendingClock.elapsed += $0 })
+            let suspending = await wait.suspendingUntil(
+                looking: { suspendingLooks += 1; return suspendingLooks },
+                released: { $0 >= releasedAt })
+
+            #expect(blocking.outcome == suspending.outcome)
+            #expect(blocking.seen == suspending.seen)
+            #expect(blockingClock.sleeps == suspensions, "the same pauses, the last one trimmed to the deadline")
+        }
+    }
+
     /// A CANCELLED CASE STILL PAUSES BETWEEN LOOKS. A sleep that throws on
     /// cancellation and is swallowed returns at once every time, so the wait spins
     /// for its whole deadline, scanning every open file on each pass, and starves
