@@ -72,11 +72,10 @@ struct ReleaseWait {
     func until<Seen>(looking look: () -> Seen, released: (Seen) -> Bool) -> (outcome: Outcome, seen: Seen) {
         let start = elapsed()
         while true {
-            let waited = elapsed() - start
-            let seen = look()
-            if released(seen) { return (.released(after: waited), seen) }
-            if waited >= deadline { return (.stillHeld(after: waited), seen) }
-            sleep(min(interval, deadline - waited))
+            switch step(since: start, look: look, released: released) {
+            case .answered(let outcome, let seen): return (outcome, seen)
+            case .pause(let duration): sleep(duration)
+            }
         }
     }
 
@@ -86,11 +85,28 @@ struct ReleaseWait {
                                released: (Seen) -> Bool) async -> (outcome: Outcome, seen: Seen) {
         let start = elapsed()
         while true {
-            let waited = elapsed() - start
-            let seen = look()
-            if released(seen) { return (.released(after: waited), seen) }
-            if waited >= deadline { return (.stillHeld(after: waited), seen) }
-            await suspend(min(interval, deadline - waited))
+            switch step(since: start, look: look, released: released) {
+            case .answered(let outcome, let seen): return (outcome, seen)
+            case .pause(let duration): await suspend(duration)
+            }
         }
+    }
+
+    private enum Step<Seen> {
+        case answered(Outcome, Seen)
+        case pause(Duration)
+    }
+
+    /// ONE LOOK AND ITS VERDICT, the rules both waits share: released ends it,
+    /// the deadline ends it, and otherwise the next pause is trimmed so it never
+    /// runs past the deadline. Only how the pause is taken differs between the
+    /// two, so the rules live here once rather than in two copies that can drift.
+    private func step<Seen>(since start: Duration, look: () -> Seen,
+                            released: (Seen) -> Bool) -> Step<Seen> {
+        let waited = elapsed() - start
+        let seen = look()
+        if released(seen) { return .answered(.released(after: waited), seen) }
+        if waited >= deadline { return .answered(.stillHeld(after: waited), seen) }
+        return .pause(min(interval, deadline - waited))
     }
 }
