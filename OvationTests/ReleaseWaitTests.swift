@@ -2,8 +2,12 @@ import Foundation
 import SwiftData
 import Testing
 
-/// ovation#651. The bounded wait both store checks use, measured on a clock the
-/// test owns, so no case here waits for real (L524, L290).
+/// ovation#651. The bounded wait both store checks use. TWO KINDS OF CASE LIVE
+/// HERE. The deadline arithmetic runs on a clock the test owns and never waits for
+/// real (L524, L290). The three under "the two checks wait for a late release"
+/// deliberately do: a real file handle closes on another thread about 300ms after
+/// the case returns, because what they prove is that a real late close is waited
+/// for, and a fake clock cannot close a real file.
 struct ReleaseWaitTests {
 
     /// A clock that only moves when the wait sleeps, and records every sleep.
