@@ -45,10 +45,17 @@ enum EarlierVersionStore {
         let version: Schema.Version
         /// How long it was waited for before being refused (ovation#651).
         let waited: Duration
+        /// WHICH OF THE TWO WAS HELD, read at the deadline (L11): a container
+        /// still alive and store files still open are different faults, so the
+        /// refusal names the one it measured rather than covering both.
+        let containerAlive: Bool
+        let openFiles: [String]
         var description: String {
-            "the version \(version) container or its store was still open \(waited) after "
-                + "the call that opened it, so every earlier opened container of another "
-                + "version stays unsafe to write"
+            let held = containerAlive
+                ? "container was still alive"
+                : "store still had \(openFiles.count) file(s) open (\(openFiles.joined(separator: ", ")))"
+            return "the version \(version) \(held) \(waited) after the call that opened it, "
+                + "so every earlier opened container of another version stays unsafe to write"
         }
     }
 
@@ -69,7 +76,9 @@ enum EarlierVersionStore {
         }
         let gone = release.until { survivor == nil && ScratchStore.descriptors(on: url).isEmpty }
         if case .stillHeld(let waited) = gone {
-            throw StillOpen(version: version.versionIdentifier, waited: waited)
+            throw StillOpen(version: version.versionIdentifier, waited: waited,
+                            containerAlive: survivor != nil,
+                            openFiles: ScratchStore.descriptors(on: url))
         }
         return result
     }

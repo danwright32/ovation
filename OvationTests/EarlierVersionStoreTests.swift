@@ -65,9 +65,16 @@ struct EarlierVersionStoreTests {
     func asurvivingContainerIsRefused() throws {
         try ScratchStore.with("earlier") { url in
             var kept: ModelContainer?
-            #expect(throws: EarlierVersionStore.StillOpen.self) {
+            // THE REFUSAL NAMES WHICH OF THE TWO WAS HELD (L11): a container
+            // still alive and store files still open are different faults, and
+            // a message covering both leaves the reader to guess.
+            do {
                 try EarlierVersionStore.open(OvationSchemaV1.self, at: url,
                                               release: ReleaseWait(deadline: .milliseconds(200))) { kept = $0 }
+                Issue.record("a kept container was not refused")
+            } catch let refused as EarlierVersionStore.StillOpen {
+                #expect(refused.containerAlive)
+                #expect(String(describing: refused).contains("container was still alive"))
             }
             #expect(kept != nil, "the fixture really did keep it, so the refusal is about that")
             kept = nil
