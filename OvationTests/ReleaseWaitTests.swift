@@ -39,6 +39,23 @@ struct ReleaseWaitTests {
         #expect(clock.sleeps.count == 20, "it looked again every interval, not once at the end")
     }
 
+    /// WHAT IS REPORTED IS WHAT THE WAIT LAST SAW (L11). Both store checks name
+    /// what was held, and a second reading after the wait gave up can differ from
+    /// the one the verdict was made on. Each look here sees a later number, so
+    /// the answer must be the number of the wait's own final look.
+    @Test("a wait that looks hands back what its last look saw")
+    func handsBackItsLastLook() {
+        let clock = FakeClock()
+        var looks = 0
+        let (outcome, seen) = clock.wait(deadline: .milliseconds(20)).until(looking: {
+            looks += 1
+            return looks
+        }, released: { _ in false })
+        #expect(outcome == .stillHeld(after: .milliseconds(20)))
+        #expect(looks == 3, "it looked at 0, 10 and 20 milliseconds")
+        #expect(seen == 3, "the answer is the third look's, the last one the verdict was made on")
+    }
+
     @Test("the last sleep stops at the deadline rather than overshooting it")
     func theLastSleepIsTrimmed() {
         let clock = FakeClock()

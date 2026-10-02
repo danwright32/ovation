@@ -81,6 +81,28 @@ struct EarlierVersionStoreTests {
         }
     }
 
+    /// THE REFUSAL CARRIES THE WAIT'S OWN LAST LOOK. A second reading taken
+    /// after the wait gave up can list other files, or none, and say "0 file(s)
+    /// open" about a store that was refused for being open (L11). The look here
+    /// answers held for every look the wait makes, then released for any read
+    /// after it, so a refusal that reads again reports the later answer and fails.
+    @Test("a refusal reports what the wait last saw, never a later reading")
+    func aRefusalReportsTheWaitsLastLook() {
+        let clock = ReleaseWaitTests.FakeClock()
+        var looks = 0
+        let waitLooks = 3
+        let refused = EarlierVersionStore.refusal(
+            of: Schema.Version(1, 0, 0),
+            release: clock.wait(deadline: .milliseconds(20), interval: .milliseconds(10))
+        ) {
+            looks += 1
+            return looks <= waitLooks ? (alive: true, files: ["/tmp/x/store-wal"]) : (alive: false, files: [])
+        }
+        #expect(looks == waitLooks, "the wait looked at 0, 10 and 20 milliseconds, and nothing looked after it")
+        #expect(refused?.containerAlive == true)
+        #expect(refused?.openFiles == ["/tmp/x/store-wal"])
+    }
+
     /// BOTH CAN BE HELD AT ONCE, and then the refusal names both, with the files
     /// it saw: naming only the container would claim one fault where two were
     /// measured (L11, L440).

@@ -62,6 +62,17 @@ enum EarlierVersionStore {
         }
     }
 
+    /// Waits for the container and its store files to be gone, and answers the
+    /// refusal if either is still held at the deadline, built from the wait's
+    /// own last `look` rather than a reading taken after it gave up (L11).
+    static func refusal(of version: Schema.Version, release: ReleaseWait,
+                        look: () -> (alive: Bool, files: [String])) -> StillOpen? {
+        let (gone, last) = release.until(looking: look, released: { !$0.alive && $0.files.isEmpty })
+        guard case .stillHeld(let waited) = gone else { return nil }
+        return StillOpen(version: version, waited: waited,
+                         containerAlive: last.alive, openFiles: last.files)
+    }
+
     /// Opens the store at `url` as `version` alone, with no plan, and hands the
     /// container to `body`. `body` must not keep it.
     @MainActor
@@ -77,16 +88,10 @@ enum EarlierVersionStore {
             survivor = container
             return try body(container)
         }
-        var alive = true
-        var files: [String] = []
-        let gone = release.until {
-            alive = survivor != nil
-            files = ScratchStore.descriptors(on: url)
-            return !alive && files.isEmpty
-        }
-        if case .stillHeld(let waited) = gone {
-            throw StillOpen(version: version.versionIdentifier, waited: waited,
-                            containerAlive: alive, openFiles: files)
+        if let refused = refusal(of: version.versionIdentifier, release: release, look: {
+            (alive: survivor != nil, files: ScratchStore.descriptors(on: url))
+        }) {
+            throw refused
         }
         return result
     }

@@ -50,11 +50,19 @@ struct ReleaseWait {
     /// Looks at `released` now and then every `interval`, and answers as soon as
     /// it is true, or with `stillHeld` once `deadline` has passed.
     func until(_ released: () -> Bool) -> Outcome {
+        until(looking: { () }, released: { released() }).outcome
+    }
+
+    /// The same wait, handing back what its LAST look saw, so a caller naming what
+    /// was held reports the reading the verdict was made on, never a second one
+    /// taken after the wait gave up, which can list other things or nothing (L11).
+    func until<Seen>(looking look: () -> Seen, released: (Seen) -> Bool) -> (outcome: Outcome, seen: Seen) {
         let start = elapsed()
         while true {
             let waited = elapsed() - start
-            if released() { return .released(after: waited) }
-            if waited >= deadline { return .stillHeld(after: waited) }
+            let seen = look()
+            if released(seen) { return (.released(after: waited), seen) }
+            if waited >= deadline { return (.stillHeld(after: waited), seen) }
             sleep(min(interval, deadline - waited))
         }
     }

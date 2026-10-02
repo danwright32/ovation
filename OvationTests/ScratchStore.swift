@@ -74,8 +74,8 @@ enum ScratchStore {
     /// The files named are the ones the wait's last look saw, never a second
     /// reading taken after it gave up, which could list others or none (L11).
     private static func finish(_ directory: URL, _ release: ReleaseWait) {
-        var held: [String] = []
-        if case .stillHeld(let waited) = release.until({ held = descriptors(inside: directory); return held.isEmpty }) {
+        let (gone, held) = release.until(looking: { descriptors(inside: directory) }, released: { $0.isEmpty })
+        if case .stillHeld(let waited) = gone {
             Issue.record("the store is still open after the case released it, and was still open \(waited) later, so \(directory.path) is left in place: \(held)")
             return
         }
