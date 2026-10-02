@@ -1,0 +1,186 @@
+import Foundation
+import SwiftData
+import Testing
+
+/// ovation#651. The bounded wait both store checks use. TWO KINDS OF CASE LIVE
+/// HERE. The deadline arithmetic runs on a clock the test owns and never waits for
+/// real (L524, L290). The three under "the two checks wait for a late release"
+/// deliberately do: a real file handle closes on another thread about 300ms after
+/// the case returns, because what they prove is that a real late close is waited
+/// for, and a fake clock cannot close a real file.
+struct ReleaseWaitTests {
+
+    /// A clock that only moves when the wait sleeps, and records every sleep.
+    final class FakeClock: @unchecked Sendable {
+        var elapsed: Duration = .zero
+        var sleeps: [Duration] = []
+        func wait(deadline: Duration, interval: Duration = .milliseconds(10)) -> ReleaseWait {
+            ReleaseWait(deadline: deadline, interval: interval,
+                        elapsed: { [unowned self] in self.elapsed },
+                        sleep: { [unowned self] in self.sleeps.append($0); self.elapsed += $0 })
+        }
+    }
+
+    @Test("something already released is answered at once, without sleeping")
+    func alreadyReleased() {
+        let clock = FakeClock()
+        #expect(clock.wait(deadline: .seconds(5)).until { true } == .released(after: .zero))
+        #expect(clock.sleeps.isEmpty)
+    }
+
+    @Test("something released late, inside the deadline, is released, and says after how long")
+    func releasedLate() {
+        let clock = FakeClock()
+        let outcome = clock.wait(deadline: .seconds(5)).until { clock.elapsed >= .milliseconds(1_150) }
+        #expect(outcome == .released(after: .milliseconds(1_150)))
+    }
+
+    @Test("something still held at the deadline is refused, and says how long it was given")
+    func stillHeldAtTheDeadline() {
+        let clock = FakeClock()
+        let outcome = clock.wait(deadline: .milliseconds(200)).until { false }
+        #expect(outcome == .stillHeld(after: .milliseconds(200)))
+        #expect(clock.sleeps.count == 20, "it looked again every interval, not once at the end")
+    }
+
+    /// WHAT IS REPORTED IS WHAT THE WAIT LAST SAW (L11). Both store checks name
+    /// what was held, and a second reading after the wait gave up can differ from
+    /// the one the verdict was made on. Each look here sees a later number, so
+    /// the answer must be the number of the wait's own final look.
+    @Test("a wait that looks hands back what its last look saw")
+    func handsBackItsLastLook() {
+        let clock = FakeClock()
+        var looks = 0
+        let (outcome, seen) = clock.wait(deadline: .milliseconds(20)).until(looking: {
+            looks += 1
+            return looks
+        }, released: { _ in false })
+        #expect(outcome == .stillHeld(after: .milliseconds(20)))
+        #expect(looks == 3, "it looked at 0, 10 and 20 milliseconds")
+        #expect(seen == 3, "the answer is the third look's, the last one the verdict was made on")
+    }
+
+    /// THE TWO WAITS ARE ONE RULE. The blocking wait and the suspending wait differ
+    /// only in how they pause, so on the same looks and the same clock they reach
+    /// the same verdict, after the same time, from the same last look, and take
+    /// the same trimmed pauses. Run here released late, and never released.
+    @Test("the blocking and the suspending wait reach the same verdict on the same looks")
+    func bothWaitsShareOneRule() async {
+        for releasedAt in [4, Int.max] {
+            let blockingClock = FakeClock()
+            var blockingLooks = 0
+            let blocking = blockingClock.wait(deadline: .milliseconds(55)).until(
+                looking: { blockingLooks += 1; return blockingLooks },
+                released: { $0 >= releasedAt })
+
+            let suspendingClock = FakeClock()
+            var suspendingLooks = 0
+            var suspensions: [Duration] = []
+            let wait = ReleaseWait(
+                deadline: .milliseconds(55), interval: .milliseconds(10),
+                elapsed: { suspendingClock.elapsed },
+                sleep: { _ in Issue.record("the suspending wait blocked") },
+                suspend: { suspensions.append($0); suspendingClock.elapsed += $0 })
+            let suspending = await wait.suspendingUntil(
+                looking: { suspendingLooks += 1; return suspendingLooks },
+                released: { $0 >= releasedAt })
+
+            #expect(blocking.outcome == suspending.outcome)
+            #expect(blocking.seen == suspending.seen)
+            #expect(blockingClock.sleeps == suspensions, "the same pauses, the last one trimmed to the deadline")
+        }
+    }
+
+    /// A CANCELLED CASE STILL PAUSES BETWEEN LOOKS. A sleep that throws on
+    /// cancellation and is swallowed returns at once every time, so the wait spins
+    /// for its whole deadline, scanning every open file on each pass, and starves
+    /// the cases beside it, which is the harm the suspending pause exists to stop.
+    /// This runs the DEFAULT pause in a cancelled task over a 100ms deadline at
+    /// 10ms a pause: paused, that is about ten looks; spinning, it is thousands.
+    @Test("a cancelled async case still waits between looks rather than spinning")
+    func aCancelledWaitDoesNotSpin() async {
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            var looks = 0
+            _ = await ReleaseWait(deadline: .milliseconds(100), interval: .milliseconds(10))
+                .suspendingUntil(looking: { looks += 1 }, released: { _ in false })
+            return looks
+        }
+        let looks = await task.value
+        #expect(looks <= 30, "it looked \(looks) times in 100ms, which is spinning, not waiting")
+    }
+
+    @Test("the last sleep stops at the deadline rather than overshooting it")
+    func theLastSleepIsTrimmed() {
+        let clock = FakeClock()
+        _ = clock.wait(deadline: .milliseconds(25), interval: .milliseconds(10)).until { false }
+        #expect(clock.sleeps == [.milliseconds(10), .milliseconds(10), .milliseconds(5)])
+    }
+
+    @Test("the deadline both checks use by default is a named constant, not inlined")
+    func theDefaultIsNamed() {
+        #expect(ReleaseWait.storeReleaseDeadline == .seconds(10))
+    }
+
+    // MARK: the two checks wait for a late release instead of failing on it
+
+    /// THE FLAKE ITSELF, made certain. Measured 2026-10-01 under load: a case's
+    /// store files stayed open 1146ms after the case returned, then closed on
+    /// their own, off the main thread. Here a descriptor inside the directory is
+    /// closed 300ms after the body returns, which is the same shape on demand.
+    @Test("a store that closes a moment after the case returns is not charged to it")
+    func aLateCloseIsNotAFailure() throws {
+        var seen: URL?
+        try ScratchStore.with("late-close") { url in
+            seen = url
+            let descriptor = open(url.path, O_CREAT | O_RDWR, 0o600)
+            try #require(descriptor >= 0)
+            DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(300)) {
+                close(descriptor)
+            }
+        }
+        let directory = try #require(seen).deletingLastPathComponent()
+        #expect(!FileManager.default.fileExists(atPath: directory.path), "and it was deleted once closed")
+    }
+
+    @Test("an earlier version's container released a moment late is not refused")
+    @MainActor
+    func aLateReleaseIsNotRefused() throws {
+        try ScratchStore.with("late-release") { url in
+            try EarlierVersionStore.open(OvationSchemaV1.self, at: url) { container in
+                // Something outside the call holds the container briefly, as
+                // SwiftData does under load, and lets go off the main thread.
+                let holder = Holder(container)
+                DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(300)) {
+                    holder.release()
+                }
+            }
+        }
+    }
+
+    /// THE THIRD FORM, measured 2026-10-01: `StoreCheckpoint.run` straight after a
+    /// version 2 fixture was written answered "database is locked", because the
+    /// released container's connection had not finished closing. So the call
+    /// returns only once the store's own files are closed. Here the store's log
+    /// file is held 300ms past the body, the same shape on demand.
+    @Test("an earlier version's store is closed by the time the call returns")
+    @MainActor
+    func theStoreIsClosedWhenTheCallReturns() throws {
+        try ScratchStore.with("late-store") { url in
+            try EarlierVersionStore.open(OvationSchemaV1.self, at: url) { _ in
+                let descriptor = open(url.path + "-wal", O_CREAT | O_RDWR, 0o600)
+                DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(300)) {
+                    close(descriptor)
+                }
+            }
+            #expect(ScratchStore.descriptors(on: url) == [])
+        }
+    }
+
+    final class Holder: @unchecked Sendable {
+        private var held: ModelContainer?
+        private let lock = NSLock()
+        init(_ held: ModelContainer) { self.held = held }
+        func release() { lock.lock(); held = nil; lock.unlock() }
+    }
+}

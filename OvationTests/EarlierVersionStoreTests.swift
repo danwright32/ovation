@@ -65,12 +65,55 @@ struct EarlierVersionStoreTests {
     func asurvivingContainerIsRefused() throws {
         try ScratchStore.with("earlier") { url in
             var kept: ModelContainer?
-            #expect(throws: EarlierVersionStore.StillOpen.self) {
-                try EarlierVersionStore.open(OvationSchemaV1.self, at: url) { kept = $0 }
+            // THE REFUSAL NAMES WHICH OF THE TWO WAS HELD (L11): a container
+            // still alive and store files still open are different faults, and
+            // a message covering both leaves the reader to guess.
+            do {
+                try EarlierVersionStore.open(OvationSchemaV1.self, at: url,
+                                              release: ReleaseWait(deadline: .milliseconds(200))) { kept = $0 }
+                Issue.record("a kept container was not refused")
+            } catch let refused as EarlierVersionStore.StillOpen {
+                #expect(refused.containerAlive)
+                #expect(String(describing: refused).contains("container was still alive"))
             }
             #expect(kept != nil, "the fixture really did keep it, so the refusal is about that")
             kept = nil
         }
+    }
+
+    /// THE REFUSAL CARRIES THE WAIT'S OWN LAST LOOK. A second reading taken
+    /// after the wait gave up can list other files, or none, and say "0 file(s)
+    /// open" about a store that was refused for being open (L11). The look here
+    /// answers held for every look the wait makes, then released for any read
+    /// after it, so a refusal that reads again reports the later answer and fails.
+    @Test("a refusal reports what the wait last saw, never a later reading")
+    func aRefusalReportsTheWaitsLastLook() {
+        let clock = ReleaseWaitTests.FakeClock()
+        var looks = 0
+        let waitLooks = 3
+        let refused = EarlierVersionStore.refusal(
+            of: Schema.Version(1, 0, 0),
+            release: clock.wait(deadline: .milliseconds(20), interval: .milliseconds(10))
+        ) {
+            looks += 1
+            return looks <= waitLooks ? (alive: true, files: ["/tmp/x/store-wal"]) : (alive: false, files: [])
+        }
+        #expect(looks == waitLooks, "the wait looked at 0, 10 and 20 milliseconds, and nothing looked after it")
+        #expect(refused?.containerAlive == true)
+        #expect(refused?.openFiles == ["/tmp/x/store-wal"])
+    }
+
+    /// BOTH CAN BE HELD AT ONCE, and then the refusal names both, with the files
+    /// it saw: naming only the container would claim one fault where two were
+    /// measured (L11, L440).
+    @Test("a refusal holding the container and open files names both")
+    func aRefusalNamesBothWhenBothAreHeld() {
+        let refused = EarlierVersionStore.StillOpen(
+            version: Schema.Version(1, 0, 0), waited: .milliseconds(200),
+            containerAlive: true, openFiles: ["/tmp/x/store-wal"])
+        let said = String(describing: refused)
+        #expect(said.contains("container was still alive"))
+        #expect(said.contains("store still had 1 file(s) open (/tmp/x/store-wal)"))
     }
 
     // MARK: every earlier version goes through it
