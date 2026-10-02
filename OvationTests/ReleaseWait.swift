@@ -33,9 +33,14 @@ struct ReleaseWait {
     let interval: Duration
     let elapsed: () -> Duration
     let sleep: (Duration) -> Void
+    /// The pause an ASYNC caller uses, which suspends rather than blocks (L241):
+    /// a blocking sleep inside an async case parks one of the cooperative pool's
+    /// few threads, three on CI, and stalls every async case beside it.
+    let suspend: (Duration) async -> Void
 
     init(deadline: Duration, interval: Duration = .milliseconds(10),
-         elapsed: (() -> Duration)? = nil, sleep: ((Duration) -> Void)? = nil) {
+         elapsed: (() -> Duration)? = nil, sleep: ((Duration) -> Void)? = nil,
+         suspend: ((Duration) async -> Void)? = nil) {
         self.deadline = deadline
         self.interval = interval
         let clock = ContinuousClock()
@@ -45,6 +50,7 @@ struct ReleaseWait {
             let (seconds, attoseconds) = duration.components
             usleep(useconds_t(seconds * 1_000_000 + attoseconds / 1_000_000_000_000))
         }
+        self.suspend = suspend ?? { duration in try? await Task.sleep(for: duration) }
     }
 
     /// Looks at `released` now and then every `interval`, and answers as soon as
@@ -64,6 +70,20 @@ struct ReleaseWait {
             if released(seen) { return (.released(after: waited), seen) }
             if waited >= deadline { return (.stillHeld(after: waited), seen) }
             sleep(min(interval, deadline - waited))
+        }
+    }
+
+    /// The same wait for an async caller, pausing by SUSPENDING between looks,
+    /// so it holds no thread while a store finishes closing (L241).
+    func suspendingUntil<Seen>(looking look: () -> Seen,
+                               released: (Seen) -> Bool) async -> (outcome: Outcome, seen: Seen) {
+        let start = elapsed()
+        while true {
+            let waited = elapsed() - start
+            let seen = look()
+            if released(seen) { return (.released(after: waited), seen) }
+            if waited >= deadline { return (.stillHeld(after: waited), seen) }
+            await suspend(min(interval, deadline - waited))
         }
     }
 }

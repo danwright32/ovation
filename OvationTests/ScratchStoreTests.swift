@@ -92,4 +92,31 @@ struct ScratchStoreTests {
         kept = nil
         if let seen { try? FileManager.default.removeItem(at: seen.deletingLastPathComponent()) }
     }
+
+    /// AN ASYNC CASE NEVER BLOCKS A THREAD WHILE IT WAITS (L241). The async
+    /// overload is used by 16 cases, the migration ones among them, which saw
+    /// stores close 2s late under load; a blocking sleep there parks one of the
+    /// cooperative pool's few threads (three on CI) and stalls every other async
+    /// case beside it. Here a real file is left open by the body and closed by
+    /// the wait's first suspension, so the wait has to pause once, and the
+    /// blocking sleep records itself if it is ever reached.
+    @Test("an async case waits for a late close by suspending, never by blocking a thread")
+    func anAsyncWaitSuspends() async throws {
+        let clock = ReleaseWaitTests.FakeClock()
+        var blocked = 0
+        var suspended = 0
+        var held: FileHandle?
+        let wait = ReleaseWait(
+            deadline: .seconds(5), interval: .milliseconds(10),
+            elapsed: { clock.elapsed },
+            sleep: { blocked += 1; clock.elapsed += $0 },
+            suspend: { suspended += 1; try? held?.close(); held = nil; clock.elapsed += $0 })
+        try await ScratchStore.with("async-wait", release: wait) { url in
+            FileManager.default.createFile(atPath: url.path, contents: Data("x".utf8))
+            held = try FileHandle(forReadingFrom: url)
+            await Task.yield()
+        }
+        #expect(blocked == 0, "the async case blocked a thread to wait")
+        #expect(suspended == 1, "it paused once, and the close it was waiting for happened")
+    }
 }
