@@ -62,7 +62,7 @@ struct ActionWord: View {
     var body: some View {
         if let press {
             Button(word, action: press)
-                .buttonStyle(.plain)
+                .buttonStyle(WholeTarget())
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(ground.ink)
                 .underline()

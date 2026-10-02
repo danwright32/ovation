@@ -1,0 +1,276 @@
+import AppKit
+import SwiftData
+import SwiftUI
+import Testing
+@testable import Ovation
+
+/// ovation#615. A row answers a click anywhere on it, not only on its words.
+///
+/// Dan, 2026-09-28: the rail's rows only responded with the pointer over the
+/// words. A plain style button hit tests only what its label paints, and a row
+/// whose background is clear paints nothing to the right of its title, so a click
+/// there went nowhere and said nothing.
+///
+/// EVERY CASE PRESSES WHERE THE WORDS ARE NOT, through a real window (`RealClick`),
+/// because a view tree `tap()` calls the action directly and passes whether the
+/// click would have landed or not. And the harness is shown to tell the two apart
+/// before any row is judged by it: a plain button's empty end must NOT answer, or
+/// a green here would mean only that every click lands (L1, L159).
+///
+/// EVERY CASE HAS A TIME LIMIT. On the CI runner this branch's macOS job went
+/// silent for its whole hour in the hosted suite, twice, and this is the only
+/// suite that sends mouse events. A real click that is never answered waits with
+/// no deadline (L110), and a suite that hangs says nothing about which case did.
+/// One minute is the smallest limit Swift Testing allows, and every case here
+/// takes well under a second.
+@MainActor
+@Suite(.timeLimit(.minutes(1)))
+struct WholeRowTests {
+
+    /// A value a binding can write into and a test can read back.
+    final class Box<Value> {
+        var value: Value
+        init(_ value: Value) { self.value = value }
+        var binding: Binding<Value> { Binding(get: { self.value }, set: { self.value = $0 }) }
+    }
+
+    /// A row the way the defect drew one: words at the leading edge, the rest of
+    /// its width clear.
+    private static func row(_ words: String) -> some View {
+        Text(words)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The one row's words and its clear end, in a 240 by 40 window.
+    private static let onTheWords = NSPoint(x: 14, y: 20)
+    private static let atTheClearEnd = NSPoint(x: 234, y: 20)
+
+    private static func hostRow(_ button: some View) -> NSWindow {
+        RealClick.host(button, size: CGSize(width: 240, height: 40))
+    }
+
+    // MARK: the harness can see the defect
+
+    @Test("a plain button's words answer a real click, so the harness delivers one")
+    func aplainButtonsWordsAnswer() {
+        var pressed = 0
+        let window = Self.hostRow(Button { pressed += 1 } label: { Self.row("Invoices") }
+            .buttonStyle(.plain))
+        defer { window.close() }
+
+        RealClick.click(at: Self.onTheWords, in: window)
+
+        #expect(pressed == 1, "a click on the words did nothing, so no case below can be believed")
+    }
+
+    @Test("and its clear end does not, which is the defect this suite exists to catch")
+    func aplainButtonsClearEndDoesNotAnswer() {
+        var pressed = 0
+        let window = Self.hostRow(Button { pressed += 1 } label: { Self.row("Invoices") }
+            .buttonStyle(.plain))
+        defer { window.close() }
+
+        RealClick.click(at: Self.atTheClearEnd, in: window)
+
+        #expect(pressed == 0, "the clear end answered, so this harness cannot see the defect")
+    }
+
+    /// BOTH HALVES OF A CLICK ARE DISPATCHED, NEVER LEFT BEHIND. The click is posted
+    /// to the event queue and the application dispatches it (review of #644), so a
+    /// half left on the queue would reach whatever the next click lands on.
+    @Test("a click leaves neither half of itself on the event queue")
+    func aclickLeavesNothingQueued() {
+        var pressed = 0
+        let window = Self.hostRow(Button { pressed += 1 } label: { Self.row("Invoices") }
+            .buttonStyle(.plain))
+        defer { window.close() }
+
+        RealClick.click(at: Self.onTheWords, in: window)
+        RealClick.click(at: Self.atTheClearEnd, in: window)
+
+        #expect(pressed == 1, "the click on the words was not answered, so nothing here was dispatched")
+        let left = NSApp.nextEvent(matching: [.leftMouseDown, .leftMouseUp], until: .distantPast,
+                                   inMode: .default, dequeue: false)
+        #expect(left == nil, "a \(left.map { "\($0.type)" } ?? "") was left on the queue")
+    }
+
+    // MARK: the component
+
+    @Test("a button styled WholeTarget answers on its clear end")
+    func wholeTargetAnswersOnItsClearEnd() {
+        var pressed = 0
+        let window = Self.hostRow(Button { pressed += 1 } label: { Self.row("Invoices") }
+            .buttonStyle(WholeTarget(RoundedRectangle(cornerRadius: 5))))
+        defer { window.close() }
+
+        RealClick.click(at: Self.atTheClearEnd, in: window)
+
+        #expect(pressed == 1)
+    }
+
+    /// WHAT THE ROW ALLOWS IS UNCHANGED (ovation#615): a disabled row takes a click
+    /// anywhere on it and does nothing, as it did on its words before.
+    @Test("and a disabled one still does nothing, wherever it is pressed")
+    func aDisabledWholeTargetDoesNothing() {
+        var pressed = 0
+        let window = Self.hostRow(Button { pressed += 1 } label: { Self.row("Expenses") }
+            .buttonStyle(WholeTarget()).disabled(true))
+        defer { window.close() }
+
+        RealClick.click(at: Self.atTheClearEnd, in: window)
+        RealClick.click(at: Self.onTheWords, in: window)
+
+        #expect(pressed == 0)
+    }
+
+    // MARK: the rows in the app
+
+    /// Where the rail's words start and where its rows end, from the rail's own
+    /// width and inset, so a change to either moves these with it.
+    private static let railWords = RailFoot.railInset + 16
+    private static let railRowEnd = OvationWindow.railWidth - RailFoot.railInset - 4
+
+    /// Every destination the rail's rows reach from clicks down one line.
+    private static func railReached(atX x: CGFloat) -> Set<Destination> {
+        let shell = ShellPresenter(selected: .roster, rosterHasWork: { true })
+        let roster = RosterPresenter(clients: [Client(name: "Client 0", taxStatus: .neverRecorded)],
+                                     write: { _, _ in })
+        let view = ShellView(shell: shell, roster: roster,
+                             problems: ProblemsStore(journal: InMemoryProblemsJournal()))
+        let window = RealClick.host(view, size: CGSize(width: 1100, height: 720))
+        defer { window.close() }
+        var reached: Set<Destination> = []
+        // The title bar, the card and the rows, and not the foot, whose words
+        // are controls of their own.
+        RealClick.sweep(x: x, in: window, toTop: 360) { reached.insert(shell.selected) }
+        return reached
+    }
+
+    /// The case Dan reported: a row that is not the current destination has a
+    /// clear background, and it did not answer beside its title.
+    @Test("the rail's rows answer a click at their far end")
+    func theRailRowsAnswerAtTheirFarEnd() {
+        let reached = Self.railReached(atX: Self.railRowEnd)
+
+        #expect(reached.isSuperset(of: [.invoices, .clients]), "reached only \(reached)")
+    }
+
+    @Test("and on their words, so the line the far end is swept on is the rows' line")
+    func theRailRowsAnswerOnTheirWords() {
+        let reached = Self.railReached(atX: Self.railWords)
+
+        #expect(reached.isSuperset(of: [.invoices, .clients]), "reached only \(reached)")
+    }
+
+    /// The names column's own scroll view: the one at the window's leading edge,
+    /// as wide as the column.
+    private static func namesScrollView(in window: NSWindow) -> NSScrollView? {
+        func all(_ view: NSView) -> [NSScrollView] {
+            ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(all)
+        }
+        guard let content = window.contentView else { return nil }
+        return all(content).first { scroll in
+            let frame = scroll.convert(scroll.bounds, to: nil)
+            return abs(frame.minX) < 1 && abs(frame.width - ClientsView.namesWidth) < 2
+        }
+    }
+
+    /// A ROW'S FAR END IS WHERE ITS SCROLL BAR STARTS, wherever the Mac shows one
+    /// (review of #644). On the CI runner, which has no trackpad, macOS shows legacy
+    /// scroll bars that take the column's last points, and a sweep 8 points inside
+    /// the column landed on the scroll bar's knob track: `NSScroller trackKnob:`
+    /// took 234 of 250 releases and no name answered (run 37028281459). This Mac
+    /// shows overlay scroll bars, which take no room, so the same line was on the
+    /// rows here and the case passed. So the case runs under BOTH styles, set on the
+    /// column's own scroll view, and sweeps inside the scroll bar the style draws,
+    /// which makes the runner's condition reproducible on every Mac.
+    @Test("a name on the Clients screen answers a click at the far end of its row, beside an overlay scroll bar")
+    func aclientNameAnswersBesideAnOverlayScrollBar() throws {
+        try Self.clientNamesAnswerAtTheirFarEnd(beside: .overlay)
+    }
+
+    /// The runner's own condition, reproduced on every Mac.
+    @Test("and beside a legacy scroll bar, which takes the column's last points")
+    func aclientNameAnswersBesideALegacyScrollBar() throws {
+        try Self.clientNamesAnswerAtTheirFarEnd(beside: .legacy)
+    }
+
+    private static func clientNamesAnswerAtTheirFarEnd(beside style: NSScroller.Style) throws {
+        let (clients, _) = try ClientsViewTests.population()
+        let chosen = Box<UUID?>(try ClientsViewTests.id(of: "Harborlight Ballet", in: clients))
+        let view = ClientsView(presenter: ClientsPresenter(clients: clients),
+                               selected: chosen.binding)
+        let window = RealClick.host(view, size: CGSize(width: 1100, height: 1000))
+        defer { window.close() }
+        let scroll = try #require(namesScrollView(in: window),
+                                  "no scroll view at the names column, so the scroll bar it draws is unknown")
+        scroll.scrollerStyle = style
+        window.layoutIfNeeded()
+        #expect(scroll.scrollerStyle == style, "the names column did not keep the scroll bar style it was given")
+
+        let x = ClientsView.namesWidth
+            - NSScroller.scrollerWidth(for: .regular, scrollerStyle: scroll.scrollerStyle) - 8
+
+        // THE LINE IS ON THE ROWS, NEVER THE SCROLL BAR, checked before any click: a
+        // sweep that lands on a scroll bar measures the scroll bar (L237).
+        let content = try #require(window.contentView)
+        let onTheScroller = stride(from: CGFloat(1), to: content.bounds.height, by: 4).filter { fromTop in
+            content.hitTest(content.convert(NSPoint(x: x, y: content.bounds.height - fromTop), from: nil))
+                is NSScroller
+        }
+        #expect(onTheScroller.isEmpty,
+                "the sweep at x \(x) lands on the scroll bar at \(onTheScroller.count) points")
+
+        var reached: Set<UUID> = []
+        let sent = RealClick.sweep(x: x, in: window, step: 4) {
+            if let id = chosen.value { reached.insert(id) }
+        }
+
+        // Three of the 31 draw a held figure at that end, and a click on a figure
+        // answered even before; the rest are the rows whose far end was dead. A
+        // failure says how many releases something else took, which is how the
+        // scroll bar was found, and what the clicks were given.
+        #expect(reached.count >= 20, """
+            only \(reached.count) names answered at the far end at x \(x); \
+            \(sent.releasesTaken) of \(sent.clicks) releases were taken before the click \
+            could deliver them, in a content area of \(content.bounds.size), window key \
+            \(window.isKeyWindow), app active \(NSApp.isActive)
+            """)
+    }
+
+    /// The list is as wide as its widest entry or its minimum, and a short entry
+    /// is a row of that list: a click to the right of its words is on it.
+    @Test("a popup list's short entries answer a click at the list's far edge")
+    func apopupsEntriesAnswerAtTheListsEdge() {
+        var taken: Set<String> = []
+        var asked = 0
+        let list = PopupList(choices: [PopupList.Choice(id: "rush", says: "Rush")],
+                             asks: "New type...", ask: { asked += 1 },
+                             choose: { taken.insert($0.id) })
+        let window = RealClick.host(list, size: CGSize(width: 186, height: 120))
+        defer { window.close() }
+
+        RealClick.sweep(x: 180, in: window, step: 2) {}
+
+        #expect(taken == ["rush"], "the choice did not answer at the list's edge")
+        #expect(asked > 0, "the trailing entry did not answer at the list's edge")
+    }
+
+    @Test("and on their words, so the edge is swept across the entries")
+    func apopupsEntriesAnswerOnTheirWords() {
+        var taken: Set<String> = []
+        var asked = 0
+        let list = PopupList(choices: [PopupList.Choice(id: "rush", says: "Rush")],
+                             asks: "New type...", ask: { asked += 1 },
+                             choose: { taken.insert($0.id) })
+        let window = RealClick.host(list, size: CGSize(width: 186, height: 120))
+        defer { window.close() }
+
+        RealClick.sweep(x: 22, in: window, step: 2) {}
+
+        #expect(taken == ["rush"])
+        #expect(asked > 0)
+    }
+}

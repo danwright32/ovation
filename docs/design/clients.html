@@ -484,7 +484,9 @@ color: var(--faint); }
     </div>
     <div><h3>A shared address asks rather than blocks</h3>
       <p>Two clients on one address gets a quiet line where the client is, with a way to say it
-      is correct. The answer is recorded <b>against that address</b>, so changing it asks again.</p>
+      is correct. The answer is recorded <b>against that address</b>, so changing it asks again.
+      The line <b>names the other client</b>, every one of them, and each name opens that client
+      (ovation#616).</p>
     </div>
     <div><h3>The figures tell the two balances apart</h3>
       <p>Money held is dollars and referral credit is hours, so inside these boxes the mono
@@ -999,10 +1001,24 @@ function detailFor(k) {
 
   if (TAX_ASKING) detail.append(taxAsk(k));
 
+  /* THE OTHER CLIENT IS NAMED, every one of them, and each name takes you to
+     that client (ovation#616, Dan 2026-09-28): "That is correct" is said about
+     somebody you can see, and a notice naming a record carries the way there. */
   if (k.shared) {
+    var others = CLIENTS.filter(function (o) { return o !== k && o.shared && o.m === k.m; });
+    var said = el("div", "wtext");
+    others.forEach(function (o, i) {
+      if (i > 0) said.append(i === others.length - 1 ? " and " : ", ");
+      var name = el("span", "act", o.c);
+      name.addEventListener("click", function () {
+        var row = document.querySelector('.nrow[data-client="' + o.c + '"]');
+        if (row) row.click();
+      });
+      said.append(name);
+    });
+    said.append(others.length === 1 ? " uses this address too." : " use this address too.");
     var warn = el("div", "warn");
-    warn.append(el("div", "wtext", "Another client uses this address too."),
-                el("span", "act", "That is correct"));
+    warn.append(said, el("span", "act", "That is correct"));
     detail.append(warn);
   }
 

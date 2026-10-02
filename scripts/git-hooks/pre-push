@@ -331,6 +331,14 @@ gate_check check-one-action-word.sh "a second hand rolled copy of the product's 
 # under Ovation/ and the design files' stylesheets.
 gate_check check-one-tax-chip.sh "a second chip treatment for the tax status question."
 
+# ovation#615. A plain style button hit tests only what its label paints, so a row
+# with a clear background answered a click on its words and nothing beside them,
+# which is what Dan met in the rail. `WholeTarget` gives the label its content
+# shape, and a behaviour every site has to remember cannot be enforced by reading
+# the sites (L621), so what is refused is the plain style named anywhere else.
+# Fast: one grep per Swift file under Ovation/.
+gate_check check-whole-target.sh "a plain style button outside WholeTarget, which answers only on its words."
+
 # ovation#119. `OvationMigrationPlan.stages` is empty and `schemas` names one
 # version. Both are correct today and exactly one of them is silently wrong the
 # moment a second version is added, because SwiftData does not refuse a missing

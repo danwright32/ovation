@@ -17,6 +17,7 @@
 // is in flight.
 //
 // IT NAMES CLIENTS ON SCREEN AND NOWHERE ELSE (docs/PRIVACY-FLOOR.md).
+import AppKit
 import SwiftData
 import SwiftUI
 
@@ -156,9 +157,8 @@ struct ClientsView: View {
             .overlay(alignment: .bottom) {
                 Rectangle().fill(OvationPalette.ruleSoft).frame(height: 1)
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WholeTarget())
         .accessibilityLabel(held.map { "\(row.name), holding \($0)" } ?? row.name)
         .accessibilityAddTraits(isHere ? [.isButton, .isSelected] : [.isButton])
     }
@@ -351,11 +351,7 @@ struct ClientsView: View {
     // MARK: a shared address (PRD 38c)
 
     private func sharedAddress(_ page: ClientsPresenter.Page) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("Another client uses this address too.")
-                .font(.system(size: 13))
-                .foregroundStyle(OvationPalette.soft)
-            Spacer(minLength: 0)
+        SharedAddressNotice(said: page.sharedSaid, open: { selected = $0 }) {
             if saving == .shared {
                 savingWord
             } else {
@@ -371,10 +367,6 @@ struct ClientsView: View {
                            })
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(OvationPalette.sunk)
-        .overlay(Rectangle().stroke(OvationPalette.rule))
     }
 
     // MARK: the two balances (PRD 14f, 14l)
@@ -538,6 +530,106 @@ struct ClientsView: View {
     }
 }
 
+/// The shared address notice (PRD 38c): who else is on the address, and the
+/// answer. Its own view so a test can draw it at the width the page gives it.
+///
+/// THE OTHER CLIENT IS NAMED, every one of them (ovation#616, L131), so "That is
+/// correct" is said about somebody Dan can see. Each name is the product's word
+/// that is a control and opens that client, because a notice naming a record so
+/// he can act on it carries the way there (L80).
+///
+/// THE SENTENCE WRAPS, AND THE ANSWER NEVER MOVES OFF THE NOTICE. The words are
+/// laid out by `WordFlow` in whatever width is left beside the answer, which keeps
+/// its own ideal size, so three long names at the 860 point window take more lines
+/// rather than cutting a name or pushing the answer out of view (review of
+/// ovation#616, L606).
+struct SharedAddressNotice<Answer: View>: View {
+    let said: [ClientsPresenter.SharedName]
+    let open: (UUID) -> Void
+    @ViewBuilder let answer: () -> Answer
+    /// Where each name and the answer were drawn, in the notice's own space, keyed
+    /// by the name or by `answerKey`. Nil in the app; a test reads it to prove no
+    /// name is cut short and the answer stays on the notice (L606).
+    var placed: ((String, CGRect) -> Void)?
+
+    static var answerKey: String { "the answer" }
+    private static var space: String { "shared address notice" }
+
+    /// The notice's type size, and the space between its words at that size.
+    static var size: CGFloat { 13 }
+    static var wordSpace: CGFloat {
+        (" " as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: size)]).width
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            WordFlow(wordSpacing: Self.wordSpace) {
+                ForEach(said) { named in
+                    // SPOKEN WITH ITS CLAUSE, and the plain words below hidden, so a
+                    // screen reader hears the sentence once, whole, instead of the
+                    // separate words it is laid out in (review of ovation#616, L20,
+                    // L577). Each name is still its own button.
+                    ActionWord(word: named.sharer.name, size: Self.size,
+                               press: { open(named.sharer.clientID) }, spoken: named.spoken)
+                        .fixedSize()
+                        .modifier(ReportsPlacement(key: named.sharer.name, in: Self.space,
+                                                   to: placed))
+                    ForEach(Array(Self.words(after: named).enumerated()), id: \.offset) { _, word in
+                        Text(word.text)
+                            .font(.system(size: Self.size))
+                            .foregroundStyle(OvationPalette.soft)
+                            .fixedSize()
+                            .accessibilityHidden(true)
+                            .joinsPreviousWord(word.joins)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            answer()
+                .fixedSize()
+                .modifier(ReportsPlacement(key: Self.answerKey, in: Self.space, to: placed))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(OvationPalette.sunk)
+        .overlay(Rectangle().stroke(OvationPalette.rule))
+        .coordinateSpace(name: Self.space)
+    }
+
+    /// The words after a name, each its own view so the sentence can wrap between
+    /// them. A comma belongs to the name before it.
+    static func words(after named: ClientsPresenter.SharedName) -> [(text: String, joins: Bool)] {
+        let parts = named.after.split(separator: " ").map(String.init)
+        return parts.map { part in (part, part == ",") }
+    }
+}
+
+/// Reports where a view was drawn, in a named space, to a test that asked; with
+/// nobody asking it adds nothing, so the app pays nothing for the test's seam
+/// (review of #644).
+private struct ReportsPlacement: ViewModifier {
+    let key: String
+    let space: String
+    let report: ((String, CGRect) -> Void)?
+
+    init(key: String, in space: String, to report: ((String, CGRect) -> Void)?) {
+        self.key = key
+        self.space = space
+        self.report = report
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let report {
+            content.onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(space)) }) {
+                report(key, $0)
+            }
+        } else {
+            content
+        }
+    }
+}
+
 /// Round D's treatment for a value that is a control: the value itself, in a
 /// quiet ruled box, drawn the same for the Sales tax and the Payment terms so the
 /// two read as one kind of thing (docs/design/clients.html `.termbtn, .taxval`).
@@ -562,9 +654,8 @@ private struct ValueButton: View {
                     .background(RoundedRectangle(cornerRadius: 4).fill(OvationPalette.sunk))
                     .overlay(RoundedRectangle(cornerRadius: 4)
                         .stroke(isOpen ? OvationPalette.accent : OvationPalette.rule))
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WholeTarget(RoundedRectangle(cornerRadius: 4)))
             .accessibilityLabel(spoken)
             // WHETHER IT IS OPEN, said (review of ovation#600, L20): the answers or
             // terms appearing beside it are otherwise silent to a screen reader.

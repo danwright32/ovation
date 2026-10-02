@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "Clients screen rendering checks" 53
+harness_begin "Clients screen rendering checks" 59
 
 TARGET="scripts/check-clients-screen-draws.sh"
 require_target "$TARGET"
@@ -70,7 +70,7 @@ check "the committed design file passes" "$?" "0"
 check "and it says how many claims it actually measured" \
     "$(grep -c 'claims about what this file draws held' "$WORK/healthy.txt")" "1"
 HEALTHY_CLAIMS="$(grep -c '^  ok  ' "$WORK/healthy.txt")"
-check "with every claim in it measured" "$([ "$HEALTHY_CLAIMS" -ge 14 ] && echo all)" "all"
+check "with every claim in it measured" "$([ "$HEALTHY_CLAIMS" -ge 15 ] && echo all)" "all"
 
 # ---------------------------------------------------------------------------
 # 1. THE RULE WRITTEN ONLY WHERE THE ROW IS BUILT. Taking the refill out of the
@@ -244,6 +244,22 @@ plant "roster-vanishes" \
     'if (rosterCount() > 0) items.push' \
     "a roster that leaves the rail while you stand on it is refused" \
     "standing on the roster as it empties keeps it, saying nothing is left;"
+
+# 17. A NAME THAT OPENS NOTHING (ovation#616). The notice names the other client
+#     and the name still reads as a control, but its press finds no row, which is
+#     the dead control L109 names: nothing happens and nothing says why.
+plant "dead-name" \
+    's/        if (row) row.click();/        if (false) row.click();/' \
+    'if (false) row.click();' \
+    "a shared address name that opens nothing is refused" \
+    "each name on the shared address notice opens that client;"
+
+# 18. A NOTICE THAT NAMES NOBODY, which is the sentence #616 replaced.
+plant "unnamed" \
+    's/var others = CLIENTS.filter(function (o) { return o !== k \&\& o.shared \&\& o.m === k.m; });/var others = [];/' \
+    'var others = \[\];' \
+    "a shared address notice naming nobody is refused" \
+    "each name on the shared address notice opens that client;"
 
 # ---------------------------------------------------------------------------
 # 5. A BROWSER THAT IS NOT THERE (ovation#214). The probe at the top of this file

@@ -132,9 +132,8 @@ struct PaymentSheet: View {
                             .stroke(chosen ? OvationPalette.accent : OvationPalette.rule,
                                     lineWidth: 1))
                 )
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WholeTarget(RoundedRectangle(cornerRadius: 5)))
         .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : [.isButton])
         .accessibilityValue(chosen ? "chosen" : "not chosen")
     }
@@ -153,11 +152,11 @@ struct PaymentSheet: View {
             }
             Spacer(minLength: 0)
             Button("Cancel", action: close)
-                .buttonStyle(.plain)
+                .buttonStyle(WholeTarget())
                 .font(.system(size: 13))
                 .foregroundStyle(OvationPalette.quiet)
             Button("Record", action: pressRecord)
-                .buttonStyle(.plain)
+                .buttonStyle(WholeTarget())
                 .font(.system(size: 14.5, weight: .semibold))
                 .foregroundStyle(mayRecord ? OvationPalette.accent : OvationPalette.faint)
                 .disabled(!mayRecord)
@@ -173,11 +172,11 @@ struct PaymentSheet: View {
             HStack(spacing: 16) {
                 Spacer(minLength: 0)
                 Button("Keep editing") { asking = false }
-                    .buttonStyle(.plain)
+                    .buttonStyle(WholeTarget())
                     .font(.system(size: 13))
                     .foregroundStyle(OvationPalette.quiet)
                 Button("Close", action: close)
-                    .buttonStyle(.plain)
+                    .buttonStyle(WholeTarget())
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundStyle(OvationPalette.accent)
             }

@@ -131,9 +131,8 @@ struct AddingLineRow: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 1)
             .background(face)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WholeTarget(RoundedRectangle(cornerRadius: 5)))
         .accessibilityLabel(line.chosen == nil ? "Choose a type" : "Type")
         .accessibilityValue(line.chosen?.name ?? "")
         .popover(isPresented: $line.listIsOpen, arrowEdge: .bottom) {

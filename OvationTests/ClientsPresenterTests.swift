@@ -190,6 +190,73 @@ struct ClientsPresenterTests {
         #expect(presenter.pages[eastvale.id]?.sharedAddressAsks == false)
     }
 
+    /// ovation#616. The notice names who else is on the address, so Dan can judge
+    /// "That is correct" without going to find out who it is.
+    @Test("the shared address names the other client, and says who it is by identity")
+    func thesharedAddressNamesTheOther() throws {
+        let context = try Self.store()
+        let drayton = Self.client(context, "Drayton Wind Ensemble", email: "office@draytonarts.example")
+        let eastvale = Self.client(context, "Eastvale Opera Workshop", email: "office@draytonarts.example")
+        Self.client(context, "Tobias Fenn")
+        let presenter = ClientsPresenter(clients: try context.fetch(FetchDescriptor<Client>()))
+
+        let page = try #require(presenter.pages[drayton.id])
+        #expect(page.sharesAddressWith == [.init(clientID: eastvale.id, name: "Eastvale Opera Workshop")])
+        #expect(page.sharedSaid == [.init(sharer: page.sharesAddressWith[0],
+                                          after: " uses this address too.")])
+    }
+
+    /// NEVER ONLY THE FIRST (L131): a notice naming one of two reads as the whole
+    /// answer, and "That is correct" would be said about a client nobody saw.
+    @Test("with two others on the address, both are named, in the names' order")
+    func twoOthersAreBothNamed() throws {
+        let context = try Self.store()
+        let drayton = Self.client(context, "Drayton Wind Ensemble", email: "office@draytonarts.example")
+        Self.client(context, "Zephyr Hall Concerts", email: "Office@DraytonArts.example")
+        Self.client(context, "Eastvale Opera Workshop", email: "office@draytonarts.example")
+        Self.client(context, "Tobias Fenn")
+        let presenter = ClientsPresenter(clients: try context.fetch(FetchDescriptor<Client>()))
+
+        let page = try #require(presenter.pages[drayton.id])
+        #expect(page.sharesAddressWith.map(\.name) == ["Eastvale Opera Workshop", "Zephyr Hall Concerts"])
+        #expect(page.sharedSaid.map(\.after) == [" and", " use this address too."])
+    }
+
+    @Test("with three, the names are listed and the last joined by and")
+    func threeOthersAreListed() throws {
+        let context = try Self.store()
+        let first = Self.client(context, "Ashgrove Chamber Players", email: "box@shared.example")
+        for name in ["Brackenridge Youth Orchestra", "Calder Street Theatre", "Drayton Wind Ensemble"] {
+            Self.client(context, name, email: "box@shared.example")
+        }
+        let presenter = ClientsPresenter(clients: try context.fetch(FetchDescriptor<Client>()))
+
+        let page = try #require(presenter.pages[first.id])
+        #expect(page.sharedSaid.map(\.after) == [",", " and", " use this address too."])
+        // SPOKEN AS ONE SENTENCE (review of ovation#616, L20): each name carries
+        // the words after it, so a screen reader reading the names in order
+        // hears the sentence once, whole.
+        #expect(page.sharedSaid.map(\.spoken).joined(separator: " ")
+                == "Brackenridge Youth Orchestra, Calder Street Theatre and Drayton Wind Ensemble use this address too.")
+    }
+
+    /// ONE LOOKUP (L16). Whether the notice shows and whom it names are the same
+    /// answer, so an answered share names nobody and asks nothing, and there is no
+    /// state in which the notice shows with no name or a name shows with no notice.
+    @Test("once the share is said to be correct, the notice names nobody and asks nothing")
+    func ananswerEmptiesTheNamesAndTheNotice() throws {
+        let context = try Self.store()
+        let drayton = Self.client(context, "Drayton Wind Ensemble", email: "office@draytonarts.example")
+        Self.client(context, "Eastvale Opera Workshop", email: "office@draytonarts.example")
+        drayton.acknowledgeSharedAddress(on: .stamping(Self.noon))
+        let presenter = ClientsPresenter(clients: try context.fetch(FetchDescriptor<Client>()))
+
+        let page = try #require(presenter.pages[drayton.id])
+        #expect(page.sharesAddressWith.isEmpty)
+        #expect(page.sharedSaid.isEmpty)
+        #expect(!page.sharedAddressAsks)
+    }
+
     @Test("the payment terms read the client's own, and the default where none is recorded")
     func thetermsAreTheClients() throws {
         let context = try Self.store()

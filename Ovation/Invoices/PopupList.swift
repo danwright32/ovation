@@ -49,19 +49,24 @@ struct PopupList: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(choices) { choice in
                 Button { choose(choice) } label: { row(choice) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(WholeTarget())
                     .accessibilityLabel(spoken(choice))
                     .accessibilityAddTraits(choice.isCurrent ? [.isButton, .isSelected]
                                                              : [.isButton])
             }
             if let asks, let ask {
                 Divider().overlay(OvationPalette.rule).padding(.vertical, 4)
-                Button(asks, action: ask)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 13))
-                    .foregroundStyle(OvationPalette.soft)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 5)
+                // AN ENTRY OF THE LIST, SO AS WIDE AS THE LIST (ovation#615): the
+                // padding is inside the label, where a click on it lands.
+                Button(action: ask) {
+                    Text(asks)
+                        .font(.system(size: 13))
+                        .foregroundStyle(OvationPalette.soft)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(WholeTarget())
             }
         }
         .padding(.vertical, 5)
@@ -86,7 +91,9 @@ struct PopupList: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
-        .contentShape(Rectangle())
+        // AS WIDE AS THE LIST, not as its words (ovation#615): a short entry is a
+        // row of a list its longest entry or its minimum sets the width of.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// One utterance for a row that draws as two, so a screen reader is not read

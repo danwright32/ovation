@@ -63,7 +63,7 @@ struct DiscountLine: View {
                     if wasFocused && !isFocused { commit() }
                 }
             Button("Remove", action: remove)
-                .buttonStyle(.plain)
+                .buttonStyle(WholeTarget())
                 .font(.system(size: 11.5))
                 .foregroundStyle(OvationPalette.faint)
         }
@@ -92,9 +92,8 @@ struct DiscountLine: View {
                             .stroke(inForce ? OvationPalette.accent : OvationPalette.rule,
                                     lineWidth: 1))
                 )
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WholeTarget(RoundedRectangle(cornerRadius: 5)))
         // SAID TWICE AND DERIVED ONCE. The trait is what VoiceOver reads as a
         // selection and the value is what it announces, and both come from the
         // one `inForce` above, so they cannot disagree (L544). The value is also

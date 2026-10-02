@@ -82,6 +82,25 @@ struct ClientsPresenter: Equatable {
         var keep: String { "Keep \(from.exportLabel)" }
     }
 
+    /// Another client on the same address, named so the page can take Dan to it
+    /// (ovation#616).
+    struct Sharer: Identifiable, Equatable {
+        let clientID: UUID
+        var id: UUID { clientID }
+        let name: String
+    }
+
+    /// One name in the shared address notice and the words that follow it.
+    struct SharedName: Identifiable, Equatable {
+        let sharer: Sharer
+        let after: String
+        var id: UUID { sharer.clientID }
+        /// What a screen reader hears for the name: the name and the words after
+        /// it, so the names read in order speak the sentence once, whole (review
+        /// of ovation#616, L20).
+        var spoken: String { sharer.name + after }
+    }
+
     /// One client's page.
     struct Page: Identifiable, Equatable {
         let clientID: UUID
@@ -103,9 +122,33 @@ struct ClientsPresenter: Equatable {
         let taxStatus: TaxStatus
         /// The standing payment terms (PRD 51j): the client's own, or the default.
         let paymentTerm: PaymentTerm
-        /// Whether another client's invoices go to the same address and nobody has
-        /// said that is correct for THIS address (PRD 38c).
-        let sharedAddressAsks: Bool
+        /// The other clients whose invoices go to the same address, while nobody
+        /// has said that is correct for THIS address (PRD 38c), in the names'
+        /// order. Empty when there is nothing to ask.
+        ///
+        /// THE NOTICE AND ITS NAMES ARE ONE ANSWER (ovation#616, L16): the notice
+        /// is drawn exactly when this names somebody.
+        let sharesAddressWith: [Sharer]
+
+        /// Whether the shared address notice is drawn.
+        var sharedAddressAsks: Bool { !sharesAddressWith.isEmpty }
+
+        /// The notice's sentence as each name and the words after it, so the view
+        /// can draw every name as a way to that client (L80) and still read as
+        /// one sentence: "A uses this address too.", "A and B use this address
+        /// too.", "A, B and C use this address too."
+        var sharedSaid: [SharedName] {
+            let last = sharesAddressWith.count - 1
+            return sharesAddressWith.enumerated().map { index, sharer in
+                let after: String
+                if index == last {
+                    after = last == 0 ? " uses this address too." : " use this address too."
+                } else {
+                    after = index == last - 1 ? " and" : ","
+                }
+                return SharedName(sharer: sharer, after: after)
+            }
+        }
 
         let held: String?
         /// Where held money came from: the sentence for none or one arrival, the
@@ -179,7 +222,8 @@ struct ClientsPresenter: Equatable {
         }
         var built: [UUID: Page] = [:]
         for client in ordered {
-            let others = ordered.filter { $0.id != client.id }.compactMap(\.emailForInvoices)
+            // In the names' order, so the notice names them the way the list does.
+            let others = ordered.filter { $0.id != client.id }
             built[client.id] = Self.page(for: client, sharingWith: others)
         }
         pages = built
@@ -212,7 +256,7 @@ struct ClientsPresenter: Equatable {
 
     // MARK: one page
 
-    private static func page(for client: Client, sharingWith others: [String]) -> Page {
+    private static func page(for client: Client, sharingWith others: [Client]) -> Page {
         let problem = client.contactProblems.isEmpty ? nil : "Not an address"
         let count = client.recipientsForInvoices.count
         let arrivals = arrivals(of: client)
@@ -237,7 +281,8 @@ struct ClientsPresenter: Equatable {
             bookedBy: client.passedOverForInvoices,
             taxStatus: client.taxStatus,
             paymentTerm: PaymentTerms.standing(days: client.paymentTermDays),
-            sharedAddressAsks: client.shareNeedsAnswering(against: others),
+            sharesAddressWith: client.sharersStillAsking(among: others, address: \.emailForInvoices)
+                .map { Sharer(clientID: $0.id, name: $0.name) },
             held: client.moneyHeld > .zero ? PDFText.money(client.moneyHeld) : nil,
             heldSaid: heldSaid,
             arrivals: arrivals.count > 1 ? arrivals : [],
