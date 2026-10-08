@@ -10,8 +10,8 @@
 #      roster. It must also have come from main, because a build from a branch
 #      is a build nobody can say the contents of.
 #
-#   2. The installed DOWNBEAT must be writing a version 3 export, which is the
-#      one that carries shoot times. Read from the export it produced rather
+#   2. The installed DOWNBEAT must be writing a version 3 export or newer, 3
+#      being the first that carries shoot times. Read from the export it produced rather
 #      than from Downbeat's own record of itself, because that is the artifact
 #      Ovation actually consumes (L58: two systems that must agree cannot be
 #      verified against records one of them wrote into the other).
@@ -177,9 +177,19 @@ VERSION="$(json_field "$EXPORT_FILE" version)" || VERSION=""
     "the Downbeat export has no 'version' field" \
     "it was written by a build older than the format itself; reinstall Downbeat"
 
-if [ "$VERSION" != "$WANT_VERSION" ]; then
-    blocked "the Downbeat export is version ${VERSION}, not ${WANT_VERSION}" \
-        "version ${WANT_VERSION} is the one carrying shoot times; reinstall Downbeat"
+# A MINIMUM, NOT AN EQUALITY, because that is how Ovation reads the export
+# (DownbeatExport.minimumVersion, HandoffRecord.minimumVersion). An exact match
+# refused Downbeat's additive bump to version 4 on 2026-10-08 and blocked every
+# push from this Mac, while Ovation itself read version 4 without complaint
+# (L255). A version that is not a whole number cannot be compared at all.
+case "$VERSION" in
+    ''|*[!0-9]*) cannot_measure \
+        "the Downbeat export's version '${VERSION}' is not a whole number" \
+        "it cannot be compared with the minimum ${WANT_VERSION}; reinstall Downbeat" ;;
+esac
+if [ "$VERSION" -lt "$WANT_VERSION" ]; then
+    blocked "the Downbeat export is version ${VERSION}, older than ${WANT_VERSION}" \
+        "version ${WANT_VERSION} is the first carrying shoot times; reinstall Downbeat"
 fi
 
 # The verdict NAMES WHAT IT MEASURED, so a reader can tell it apart from a run

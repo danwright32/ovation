@@ -31,7 +31,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "sibling install verdict tests" 18
+harness_begin "sibling install verdict tests" 21
 
 TARGET="scripts/check-sibling-installs.sh"
 require_target "$TARGET"
@@ -125,6 +125,21 @@ check "and it does not accuse the install of coming from a branch" \
 V2_EXPORT="$WORK/v2.json"; export_file "$V2_EXPORT" 2
 check_exit "an export that is still version 2 is BLOCKED" \
     1 status_of "$GOOD_RECORD" "$REPO" "$V2_EXPORT" "$OLD"
+
+# A NEWER VERSION IS A PASS. Ovation reads the export through a minimum
+# (DownbeatExport.minimumVersion, HandoffRecord.minimumVersion), so an exact
+# match here refused Downbeat's additive bump to version 4 on 2026-10-08 and
+# blocked every push from this Mac while Ovation itself read it fine (L255).
+V4_EXPORT="$WORK/v4.json"; export_file "$V4_EXPORT" 4
+check_exit "an export newer than the minimum is a pass" \
+    0 status_of "$GOOD_RECORD" "$REPO" "$V4_EXPORT" "$OLD"
+check "and it names the version it found" \
+    "$(says "$(run_check "$GOOD_RECORD" "$REPO" "$V4_EXPORT" "$OLD")" "version 4")" "yes"
+
+# A version that is not a whole number cannot be compared, so it is not a pass.
+ODD_EXPORT="$WORK/odd.json"; export_file "$ODD_EXPORT" '"4b"'
+check_exit "a version that is not a whole number cannot be measured" \
+    2 status_of "$GOOD_RECORD" "$REPO" "$ODD_EXPORT" "$OLD"
 
 # ---------------------------------------------------------------------------
 # 3. CANNOT MEASURE: the fact could not be read at all.
