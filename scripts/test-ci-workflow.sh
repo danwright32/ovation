@@ -18,7 +18,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "ci workflow tests" 35
+harness_begin "ci workflow tests" 50
 
 TARGET="scripts/check-ci-workflow.sh"
 require_target "$TARGET"
@@ -56,18 +56,18 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: bash scripts/select-xcode.sh
       - run: bash scripts/run-tests.sh
   build-and-test:
     runs-on: macos-26
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: bash scripts/select-xcode.sh
       - run: bash scripts/build-products.sh && bash scripts/run-tests.sh
   a-linux-job:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - run: bash scripts/run-tests.sh
@@ -96,7 +96,7 @@ check "and it names the job that has none" \
 
 # 4. An action on a moving tag rather than a commit.
 B2="$WORK/unpinned"; good_workflow "$B2"
-sed_in_place "$B2/ci.yml" 's|actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683|actions/checkout@v4|' 
+sed_in_place "$B2/ci.yml" 's|actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1|actions/checkout@v4|' 
 check_exit "an action pinned to a tag rather than a commit is refused" 1 status_of "$B2"
 # BOTH uses, not the first one. A guard that reports the first instance teaches
 # whoever fixes it that there was one (L30).
@@ -209,10 +209,10 @@ workflow_naming() {
 name: CI
 jobs:
   shell-suites:
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: bash scripts/select-xcode.sh
       - run: python3 scripts/$2
       - run: bash scripts/build-products.sh && bash scripts/run-tests.sh
@@ -337,5 +337,115 @@ twice_workflow "$T4" "on:
       - main
   pull_request:"
 check_exit "push to main written as a block list, beside pull requests, passes" 0 status_of "$T4"
+
+# ---------------------------------------------------------------------------
+# A RUNNER LABEL THAT NAMES A VERSION (ovation#663).
+#
+# `ubuntu-latest` is GitHub's choice of image, and GitHub announced it moves to
+# Ubuntu 26 on 2026-10-19. The Linux job runs the shell suites, which test real
+# shell behaviour, so a new bash, coreutils, git or flock would turn them red
+# overnight with no change here, and the red would read as a regression in
+# Ovation. A moving label is the same thing as a moving action tag (L25), so it
+# is refused the same way, in every workflow file, for every image.
+L1="$WORK/latest-runner"; good_workflow "$L1"
+sed_in_place "$L1/ci.yml" 's|runs-on: ubuntu-24.04|runs-on: ubuntu-latest|'
+check_exit "a job on a -latest runner label is refused" 1 status_of "$L1"
+check "and it names the job and the label it moves with" \
+    "$(run_check "$L1" | grep -c 'MOVING RUNNER IMAGE: a-linux-job in ci.yml runs on ubuntu-latest')" "1"
+# A COMMENT NAMING THE LABEL IS NOT A JOB RUNNING ON IT (L135): the ci.yml
+# comments explain why the label is not used, and must not refuse themselves.
+L2="$WORK/latest-in-comment"; good_workflow "$L2"
+# By awk, because a newline in a sed replacement is GNU only and BSD writes an n.
+awk '$0 == "    runs-on: ubuntu-24.04" { print "    # not ubuntu-latest, which moves on its own" } { print }' \
+    "$L2/ci.yml" > "$L2/ci.yml.tmp" && mv "$L2/ci.yml.tmp" "$L2/ci.yml"
+check "the fixture really names the label in a comment" "$(grep -c '# not ubuntu-latest' "$L2/ci.yml")" "1"
+check_exit "a -latest label named only in a comment passes" 0 status_of "$L2"
+
+# ---------------------------------------------------------------------------
+# A PIN SAYS WHICH RELEASE IT IS (ovation#663).
+#
+# The checkout pin was a bare commit for its whole life, so nothing on the line
+# said it was v4.2.2, and that release targets Node 20, which GitHub deprecated.
+# The first anyone knew was a warning in a run log. A pin is reviewed by reading
+# it, and a commit hash cannot be read, so every pin carries the release it is.
+V1="$WORK/pin-no-release"; good_workflow "$V1"
+sed_in_place "$V1/ci.yml" 's|  # v7.0.1$||'
+check_exit "a commit pin with no release beside it is refused" 1 status_of "$V1"
+check "and it names every such pin, not just the first" \
+    "$(run_check "$V1" | grep -c 'PIN NAMES NO RELEASE: actions/checkout@3d3c42e5')" "2"
+
+# ---------------------------------------------------------------------------
+# EVERY COMMIT MERGED TO MAIN GETS ITS OWN VERDICT (ovation#662).
+#
+# ci.yml ran in one concurrency group per ref with cancel-in-progress true, which
+# on main cancelled the run of a merge whenever the next merge landed: 42 main
+# runs in September 2026. Running on main after a squash merge exists to catch
+# two pull requests that were green alone and break together, and the cancelled
+# run is exactly the evidence needed to say which merge broke it.
+#
+# TURNING CANCELLATION OFF IS NOT ENOUGH. A group holds one running and ONE
+# pending run, and a newly queued run cancels the pending one whatever
+# cancel-in-progress says, so three merges in quick succession still lose the
+# middle verdict. On main the group has to be one per commit.
+#
+# THE RULE IS WRITTEN AS THE REASON (L362): a workflow that runs on pull requests
+# and again on push to main is a check whose main run is the verdict on the
+# merge. A writer that runs on main alone is not asked, because a superseded
+# write is redone by the next one. A check whose main run a newer one makes
+# redundant says so, with the reason, on a marker line.
+with_concurrency() {
+    # with_concurrency <dir> <lines placed before jobs:, as one string>
+    good_workflow "$1"
+    { sed '/^jobs:/,$d' "$1/ci.yml"; printf '%s\n' "$2"; sed -n '/^jobs:/,$p' "$1/ci.yml"; } \
+        > "$1/ci.yml.tmp" && mv "$1/ci.yml.tmp" "$1/ci.yml"
+}
+
+C1="$WORK/cancels-main"
+with_concurrency "$C1" "concurrency:
+  group: ci-\${{ github.ref }}
+  cancel-in-progress: true"
+check_exit "a pull request check that cancels its runs on main is refused" 1 status_of "$C1"
+check "and it says the merge loses its verdict, naming the file" \
+    "$(run_check "$C1" | grep -c 'MAIN RUNS CAN BE CANCELLED: ci.yml')" "1"
+
+C2="$WORK/one-group-on-main"
+with_concurrency "$C2" "concurrency:
+  group: ci-\${{ github.ref }}
+  cancel-in-progress: \${{ github.ref != 'refs/heads/main' }}"
+check_exit "cancellation off on main, but one group for all of main, is refused" 1 status_of "$C2"
+check "and it names the shared group as what still drops a pending run" \
+    "$(run_check "$C2" | grep -c 'ONE CONCURRENCY GROUP FOR ALL OF MAIN: ci.yml')" "1"
+
+C3="$WORK/per-commit-on-main"
+with_concurrency "$C3" "concurrency:
+  group: ci-\${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: \${{ github.ref != 'refs/heads/main' }}"
+check_exit "a group per commit on main, cancelling only elsewhere, passes" 0 status_of "$C3"
+
+C4="$WORK/superseded-with-reason"
+with_concurrency "$C4" "# ovation-main-runs-superseded: a newer run asks the same question of the newer main
+concurrency:
+  group: ci-\${{ github.ref }}
+  cancel-in-progress: true"
+check_exit "a check that declares, with a reason, why a newer main run supersedes passes" \
+    0 status_of "$C4"
+
+# AN ESCAPE HATCH WITH NO REASON IS NOT A DECISION (L675).
+C5="$WORK/superseded-no-reason"
+with_concurrency "$C5" "# ovation-main-runs-superseded:
+concurrency:
+  group: ci-\${{ github.ref }}
+  cancel-in-progress: true"
+check_exit "the same marker carrying no reason is refused" 1 status_of "$C5"
+
+# A WRITER ON MAIN ALONE IS NOT A PULL REQUEST CHECK, and the next run redoes
+# whatever a dropped one would have written, so it is not asked.
+C6="$WORK/writer-on-main"
+with_concurrency "$C6" "concurrency:
+  group: a-writer
+  cancel-in-progress: false"
+sed_in_place "$C6/ci.yml" '/^  pull_request:$/d'
+check "the writer fixture really runs on main only" "$(grep -c 'pull_request' "$C6/ci.yml")" "0"
+check_exit "a workflow on push to main only, in one group, passes" 0 status_of "$C6"
 
 harness_end

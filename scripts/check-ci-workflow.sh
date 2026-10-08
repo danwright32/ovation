@@ -22,6 +22,13 @@
 #   one run per commit       a workflow on pull requests AND on push to other
 #                            branches runs every pull request commit twice, and
 #                            nothing fails: it only queues and bills (ovation#304).
+#   a named runner image     `ubuntu-latest` is GitHub's choice of image, moved
+#                            under the jobs on a date they announce (ovation#663).
+#   a pin says its release   a bare commit hash cannot be read, so nobody saw the
+#                            checkout pin target a deprecated Node (ovation#663).
+#   a verdict per merge      a pull request check that cancels or queues over its
+#                            own runs on main loses the verdict on the merge whose
+#                            run was dropped (ovation#662).
 #
 # It prints paths, job names and counts. There is nothing here to redact.
 set -uo pipefail
@@ -82,9 +89,14 @@ saw_wanted_command=0
 # A spelling it does not recognise can only be refused too often, never waved
 # through, except a push filter it cannot read at all, which is why an
 # unfiltered push counts as every branch.
-runs_twice_per_pull_request_commit() {
+#
+# READ ONCE, ASKED TWICE (ovation#662). The same reading answers whether a
+# workflow runs twice per pull request commit and whether it runs again on main
+# after a merge, so the two questions cannot come to read the trigger block
+# differently (L370). It sets the TRIGGER_ globals below.
+read_triggers() {
   local line rest item in_on=0 in_push=0 in_branches=0
-  local has_pr=0 has_push=0 push_filtered=0 push_elsewhere=0
+  local has_pr=0 has_push=0 push_filtered=0 push_elsewhere=0 push_main=0
   while IFS= read -r line; do
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     [ -n "${line//[[:space:]]/}" ] || continue
@@ -118,7 +130,7 @@ runs_twice_per_pull_request_commit() {
       if [[ "$rest" == *"["* ]]; then
         rest="${rest//[\[\]\'\"]/}"
         for item in ${rest//,/ }; do
-          [ "$item" = "main" ] || push_elsewhere=1
+          if [ "$item" = "main" ]; then push_main=1; else push_elsewhere=1; fi
         done
       else
         in_branches=1
@@ -128,11 +140,73 @@ runs_twice_per_pull_request_commit() {
     elif [ "$in_branches" -eq 1 ]; then
       item="${line#*- }"
       item="${item//[\'\"[:space:]]/}"
-      [ "$item" = "main" ] || push_elsewhere=1
+      if [ "$item" = "main" ]; then push_main=1; else push_elsewhere=1; fi
     fi
   done < "$1"
-  [ "$has_pr" -eq 1 ] && [ "$has_push" -eq 1 ] \
-    && { [ "$push_filtered" -eq 0 ] || [ "$push_elsewhere" -eq 1 ]; }
+  TRIGGER_PR=$has_pr
+  TRIGGER_PUSH=$has_push
+  TRIGGER_PUSH_FILTERED=$push_filtered
+  TRIGGER_PUSH_ELSEWHERE=$push_elsewhere
+  TRIGGER_PUSH_MAIN=$push_main
+}
+
+runs_twice_per_pull_request_commit() {
+  read_triggers "$1"
+  [ "$TRIGGER_PR" -eq 1 ] && [ "$TRIGGER_PUSH" -eq 1 ] \
+    && { [ "$TRIGGER_PUSH_FILTERED" -eq 0 ] || [ "$TRIGGER_PUSH_ELSEWHERE" -eq 1 ]; }
+}
+
+# A PULL REQUEST CHECK THAT RUNS AGAIN ON MAIN (ovation#662): its main run is the
+# verdict on the merge, the one place two pull requests that were each green
+# alone are seen together. A push with no branch filter reaches main too.
+judges_each_merge_on_main() {
+  read_triggers "$1"
+  [ "$TRIGGER_PR" -eq 1 ] && [ "$TRIGGER_PUSH" -eq 1 ] \
+    && { [ "$TRIGGER_PUSH_FILTERED" -eq 0 ] || [ "$TRIGGER_PUSH_MAIN" -eq 1 ]; }
+}
+
+# THE TWO WAYS A MAIN RUN IS DROPPED, and the one declared exception.
+#
+# cancel-in-progress true cancels the running run when the next merge queues.
+# And a concurrency group holds one running and ONE pending run: a newly queued
+# run cancels the pending one whatever cancel-in-progress says, so with one
+# group for all of main, three merges in quick succession still lose the middle
+# verdict. GitHub's documentation says so: "any existing pending job or workflow
+# in the same concurrency group will be canceled". So on main the group must be
+# one per run, keyed on github.sha or github.run_id.
+#
+# LINE SHAPED, comment lines dropped, every `group:` and `cancel-in-progress:`
+# in the file, which covers a job level block as well as the workflow's. A
+# workflow with no concurrency block runs every push on its own and passes.
+#
+# THE EXCEPTION IS A REASON, NOT A NAME (L362, L675): a check whose main run a
+# newer one makes redundant, because the newer one asks the same question of a
+# newer main, says so on a line `# ovation-main-runs-superseded: <reason>`, and
+# the reason must begin with a word.
+MAIN_SUPERSEDED_MARKER='# ovation-main-runs-superseded:'
+main_runs_dropped() {
+  local file="$1" line value cancels=0 shared_group=0
+  grep -qE "^${MAIN_SUPERSEDED_MARKER}[[:space:]]+[A-Za-z]" "$file" && return 1
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    case "$line" in
+      *cancel-in-progress:*)
+        value="${line#*cancel-in-progress:}"
+        value="${value%%#*}"
+        value="${value//[[:space:]]/}"
+        [ "$value" = "true" ] && cancels=1
+        ;;
+      *" group:"*)
+        case "$line" in
+          *github.sha*|*github.run_id*) ;;
+          *) shared_group=1 ;;
+        esac
+        ;;
+    esac
+  done < "$file"
+  DROPPED_BY_CANCEL=$cancels
+  DROPPED_BY_SHARED_GROUP=$shared_group
+  [ "$cancels" -eq 1 ] || [ "$shared_group" -eq 1 ]
 }
 
 while IFS= read -r file; do
@@ -195,6 +269,23 @@ while IFS= read -r file; do
     case "$line" in
       *runs-on:*macos*) job_is_mac=1 ;;
     esac
+    # A NAMED IMAGE (ovation#663). A `-latest` label is GitHub's choice of image
+    # and moves on a date they announce, which turned ubuntu-latest into Ubuntu
+    # 26 on 2026-10-19. The Linux job tests real shell behaviour, so a new bash,
+    # coreutils, git or flock under it would read as a regression in Ovation. It
+    # is the runner's version of a moving action tag (L25), refused the same way.
+    case "$line" in
+      *runs-on:*latest*)
+        label="${line#*runs-on:}"
+        label="${label%%#*}"
+        label="${label//[[:space:]]/}"
+        echo "MOVING RUNNER IMAGE: $current_job in $(basename "$file") runs on $label"
+        echo "    a -latest label is GitHub's choice of image, moved under this job"
+        echo "    on a date they choose. Name the version, and move to a new one"
+        echo "    deliberately (ovation#663)."
+        problems=$((problems+1))
+        ;;
+    esac
     case "$line" in
       *"bash scripts/select-xcode.sh"*) job_selects_xcode=1 ;;
     esac
@@ -218,12 +309,50 @@ while IFS= read -r file; do
     fi
   done < <(grep -oE 'uses:[[:space:]]*[^[:space:]]+' "$file" | sed 's/uses:[[:space:]]*//')
 
+  # A PIN SAYS WHICH RELEASE IT IS (ovation#663). The checkout pin was a bare
+  # hash for its whole life, so nothing on the line said it was v4.2.2, a release
+  # that targets the Node 20 GitHub deprecated, and the first anyone knew was a
+  # warning in a run log. A pin is reviewed by reading it, and a hash cannot be
+  # read, so every commit pin carries `# v<release>` on its own line. The release
+  # is a claim beside the hash rather than proof of it: resolve the tag to its
+  # commit when bumping one (gh api repos/<owner>/<repo>/git/ref/tags/<tag>).
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if ! grep -qE '#[[:space:]]*v[0-9]' <<< "$line"; then
+      used="$(grep -oE 'uses:[[:space:]]*[^[:space:]]+' <<< "$line" | sed 's/uses:[[:space:]]*//')"
+      echo "PIN NAMES NO RELEASE: $used in $(basename "$file")"
+      echo "    a commit hash says nothing a reader can check, such as which release"
+      echo "    it is or which Node it targets. Add the release: \`  # vX.Y.Z\`."
+      problems=$((problems+1))
+    fi
+  done < <(grep -E '^[^#]*uses:[[:space:]]*[^[:space:]]+@[0-9a-f]{40}' "$file")
+
   if runs_twice_per_pull_request_commit "$file"; then
     echo "RUNS TWICE PER PULL REQUEST COMMIT: $(basename "$file")"
     echo "    it runs on pull requests and on push to branches other than main, so"
     echo "    every commit on a branch with an open pull request runs it twice, and"
     echo "    neither run cancels the other (ovation#304). Run on push to main only."
     problems=$((problems+1))
+  fi
+
+  if judges_each_merge_on_main "$file" && main_runs_dropped "$file"; then
+    if [ "$DROPPED_BY_CANCEL" -eq 1 ]; then
+      echo "MAIN RUNS CAN BE CANCELLED: $(basename "$file")"
+      echo "    it checks pull requests and runs again on main, and cancel-in-progress"
+      echo "    is true there, so the next merge cancels the run judging the one"
+      echo "    before and that merge gets no verdict (ovation#662). Cancel only off"
+      echo "    main: \${{ github.ref != 'refs/heads/main' }}"
+      problems=$((problems+1))
+    fi
+    if [ "$DROPPED_BY_SHARED_GROUP" -eq 1 ]; then
+      echo "ONE CONCURRENCY GROUP FOR ALL OF MAIN: $(basename "$file")"
+      echo "    a group holds one running and one pending run, and a newly queued run"
+      echo "    cancels the pending one whatever cancel-in-progress says, so three"
+      echo "    quick merges lose the middle verdict (ovation#662). Key the group on"
+      echo "    github.sha on main, or declare why a newer run supersedes with"
+      echo "    $MAIN_SUPERSEDED_MARKER <reason>"
+      problems=$((problems+1))
+    fi
   fi
 
   if grep -qF "$WANTED" "$file"; then
