@@ -434,14 +434,21 @@ extension OvationSchemaV8 {
         /// `InvoiceEditCommand.Open` is the menu's projection of this invoice and
         /// the menu has to know whether applying a credit could do anything.
         ///
-        /// IT ALSO HAS TO LIVE IN THIS FILE. Reading `client?.referralBalance`
-        /// from `Ovation/Invoices/InvoiceEditCommand.swift` makes the compiler
-        /// lose `Client`'s own `Hashable` conformance and fail three unrelated
-        /// lines of `InvoiceListPresenter`, reproducibly, from a clean build, at
-        /// every `-driver-batch-count` tried (measured 2026-09-23, Xcode 27.0).
-        /// Asking the question here compiles and is the better shape anyway, so
-        /// the workaround and the design agree; it is filed as ovation#497 so the
-        /// constraint is not rediscovered by the next reader.
+        /// IT READS THROUGH THE OPTIONAL CLIENT, WHICH IS SAFE IN THIS FILE ONLY.
+        /// A read of `invoice.client?.member` can make the compiler lose
+        /// `Client`'s own `Hashable` conformance and fail three untouched lines of
+        /// `InvoiceListPresenter`. It happens only when the reading file and
+        /// `InvoiceListPresenter` are compiled in one batched job, the reader
+        /// first, and this file is not in that job. So it is not a property of any
+        /// file: it comes and goes as app files are added or removed and the driver
+        /// moves its batch boundaries, at the pinned `-driver-batch-count` and
+        /// others, while a batch count of 1 or a whole module build never shows it
+        /// (measured 2026-09-25 on Xcode 26.6 and 27.0). This file declares the
+        /// relationship, so a read here is always compiled with it and is safe.
+        /// Everywhere else binds the client first, `let client = invoice.client`,
+        /// and `scripts/check-forbidden-constructs.sh` refuses `.client?.` so that
+        /// nobody has to remember. ovation#497 holds the measurement and a four
+        /// file reproduction; it was not reported to Apple.
         var clientHasReferralCreditBanked: Bool {
             (client?.referralBalance ?? .zero) > .zero
         }
