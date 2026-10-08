@@ -28,6 +28,7 @@ import Testing
 /// else this case measures: the height, style mask and missing toolbar still hold,
 /// and the cases below hold the title bar's appearance and what shows through it.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct MainWindowTitleTests {
 
     /// The one window, waited for on the condition rather than the clock (L290),

@@ -36,6 +36,7 @@ import ViewInspector
 extension Inspection: InspectionEmissary {}
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct WritersReachTheScreenTests {
 
     private static let noon = Date(timeIntervalSince1970: 1_794_531_600)

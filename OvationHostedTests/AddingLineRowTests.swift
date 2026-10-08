@@ -12,6 +12,7 @@ import ViewInspector
 /// `@State` did with it, so a row drawn from that state is a row nothing can
 /// check (L442). Every state of it is a case here instead.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct AddingLineRowTests {
 
     private static let columns: (hours: CGFloat, rate: CGFloat, amount: CGFloat,

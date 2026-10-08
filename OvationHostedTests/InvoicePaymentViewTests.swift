@@ -9,6 +9,7 @@ import ViewInspector
 /// them: the foot, the sheet's Record, and Mark cleared, each asserted by what it
 /// hands back rather than by what it draws alone (L442).
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct InvoicePaymentViewTests {
 
     private static let noon = Date(timeIntervalSince1970: 1_794_531_600)
