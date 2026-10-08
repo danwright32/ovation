@@ -27,6 +27,7 @@ import Testing
 @testable import Ovation
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct AppearanceParityTests {
 
     /// HELD FOR THE WHOLE CASE, not made inside the builder: releasing it deletes
