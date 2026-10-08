@@ -87,7 +87,9 @@ struct InvoiceSettingsPaneTests {
                 problems: ProblemsStore(journal: InMemoryProblemsJournal()),
                 now: Date.init,
                 askForAFolder: { nil }),
-            invoiceFooter: InvoiceFooterSetting(defaults: throwaway.defaults))
+            invoiceFooter: InvoiceFooterSetting(defaults: throwaway.defaults),
+            launchCutoff: LaunchCutoffSetting(defaults: throwaway.defaults),
+            today: { BusinessDate.stamping(Date()) })
 
         #expect(throws: Never.self) {
             try view.inspect().find(text: "Invoices")

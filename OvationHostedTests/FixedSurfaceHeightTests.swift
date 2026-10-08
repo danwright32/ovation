@@ -116,6 +116,24 @@ struct FixedSurfaceHeightTests {
         #expect(asked == ["Ovation-backup-2"])
     }
 
+    // MARK: the launch day pane (ovation#655)
+
+    /// ITS TALLEST STATE: the stored day could not be read, which is the longest
+    /// status it says, with the last press's outcome drawn under it.
+    @Test("the Settings window fits the launch day pane, at its tallest")
+    func theWindowFitsTheLaunchDayPane() throws {
+        let tallest = LaunchDaySettingsView(
+            cutoff: .unreadable(stored: "x"),
+            chosen: .constant(LaunchDay(dayKey: "2026-10-08")!),
+            outcome: "Launch day confirmed as 8 Oct 2026.", confirm: {})
+
+        let needed = Self.height(of: tallest, width: SettingsView.minimumWidth)
+
+        #expect(needed > 0, "the pane reported no height at all, so nothing was measured")
+        #expect(SettingsView.minimumHeight >= needed + SettingsView.chromeAllowance,
+                "the launch day pane needs \(needed) plus \(SettingsView.chromeAllowance) of chrome")
+    }
+
     // MARK: the review sheet, at its own size
 
     /// ITS TALLEST STATES, and there are two, because the warnings it carries exclude

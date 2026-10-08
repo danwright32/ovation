@@ -159,6 +159,9 @@ extension ProblemKind {
     /// they would stand in the foot for ever after he had read them.
     static let closingOnceRead: Set<ProblemKind> = [
         .clientImportBroughtClientsAcross, .exportWritten, .bookingsDrafted, .exportFoundNothing,
+        // ovation#655. Bookings QuickBooks billed, left to it: nothing for Dan to
+        // do. A DRAFT of one is not here, because that draft still needs him.
+        .bookingsLeftToQuickBooks,
     ]
 
     var closesOnceRead: Bool { Self.closingOnceRead.contains(self) }
@@ -216,6 +219,8 @@ extension ProblemKind {
         .bookingsDrafted: "Bookings drafted",
         .bookingDraftRefused: "No drafts made",
         .bookingRecordUnreadable: "Booking unreadable",
+        .bookingsLeftToQuickBooks: "Left to QuickBooks",
+        .bookingDraftAlsoBilledInQuickBooks: "Draft billed twice",
         .exportWritten: "Export written",
         .exportRefused: "Export held back",
         .exportFailed: "Export failed",
