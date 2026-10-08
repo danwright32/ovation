@@ -506,6 +506,15 @@ sheet's `Cancel` starts further in than `Send` ends (ovation#635). Each is exemp
 `scripts/design-inset-exemptions.tsv` under its issue, and the check refuses the line as stale the
 day its difference is gone.
 
+**The rail foot is fixed** (ovation#633, 2026-10-08). The name running long was the second one,
+`Backup 3 days behind`, not the first: nothing let a name shrink, so it pushed its `Read` 3.2px
+past the 21px the foot's other controls keep. The name now gives way with an ellipsis and `Read`
+does not shrink, which is "Shortened beside Read" (PRD 44c) as decided, in `shell/window.css` and
+so in every file that draws the rail, and the four exemption lines went with it. The app's rail
+does not have the fault, for a stronger reason: every short name it can draw is measured to fit
+whole beside `Read`, by `RailFootTests` in the foot's face against the column it really has and by
+`ShellViewTests`, which lays `RailFootLine` out for each name, so no name has to give way there.
+
 ## The page's theme stops at the screen, and something measures it
 
 **Each design file is a record page drawn around an app screen, and only the page follows the
