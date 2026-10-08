@@ -9,7 +9,7 @@
 # security defect in ovation#9. Then no CI existed: .github/workflows/ was
 # absent, `gh run list` returned nothing, and no workflow had ever run.
 #
-# THREE THINGS, EACH BECAUSE IT FAILS SILENTLY:
+# THESE RULES, EACH BECAUSE ITS FAILURE IS SILENT:
 #
 #   a timeout on every job   GitHub's default is six hours. A hung job is worse
 #                            than a failed one because it cannot be told from a
