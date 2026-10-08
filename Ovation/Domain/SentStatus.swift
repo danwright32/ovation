@@ -26,6 +26,12 @@ enum SentRoute: String, CaseIterable, Codable, Hashable, Sendable {
     /// Ovation found a message carrying this invoice number in the Sent folder,
     /// which is how an invoice sent from Spark stops claiming to be a draft.
     case foundInTheMailbox = "found-in-the-mailbox"
+    /// ovation#68. QuickBooks issued it, and the QuickBooks import read that from
+    /// QuickBooks' own record. An observation too, of the system that billed it
+    /// rather than of Ovation's mail: PRD 1d already records bookings committed
+    /// before launch as billed in QuickBooks. The moment it carries is the start of
+    /// the invoice's own date, because QuickBooks exports no time it was sent.
+    case billedInQuickBooks = "billed-in-quickbooks"
 }
 
 enum SentStatus: Equatable, Hashable, Codable, Sendable {

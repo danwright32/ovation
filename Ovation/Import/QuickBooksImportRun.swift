@@ -7,10 +7,15 @@
 // before the counts they qualify, and the TOTAL comparison says whether "read"
 // meant the whole file (ovation#72).
 //
-// NOTHING IS WRITTEN YET, AND THE REPORT SAYS SO IN WORDS. The store write, its
-// idempotency key and the already imported count are ovation#68 to ovation#70. A
-// "0 written" here would read exactly like a re-run where everything was already
-// imported, so the report states that this build does not write (L98).
+// A RUN THAT ONLY READ SAYS SO IN WORDS (`report`). A "0 written" there would
+// read exactly like a re-run where everything was already imported, so a run that
+// never reached the store says it did not write (L98).
+//
+// A RUN THAT WROTE COUNTS EVERY INVOICE ONCE (`report(after:)`, ovation#72): read,
+// written, already imported and refused are four numbers, and refused is what is
+// left of read once the other two are taken, so no invoice can be counted twice or
+// fall between them (L517). A run that wrote nothing says which of the two
+// legitimate reasons it was, because they need different sentences.
 //
 // THE PRIVACY FLOOR (docs/PRIVACY-FLOOR.md, L222). The report is what reaches a
 // terminal or a transcript, so it is built from row numbers, field names, counts
@@ -48,8 +53,17 @@ struct QuickBooksImportRun: Sendable {
             : nil
     }
 
-    /// The report, one line per string, in the privacy floor's vocabulary.
+    /// The report of a run that read and did not write, one line per string, in
+    /// the privacy floor's vocabulary.
     var report: [String] {
+        readReport + [
+            "written: nothing, this run read and reconciled the files and did not write",
+            "already imported: not checked, this run did not read the store",
+        ]
+    }
+
+    /// What reading the files found, which both reports open with.
+    private var readReport: [String] {
         var out: [String] = []
         out += Self.fileReport(QuickBooksCustodyFile.invoiceList.fileName, invoiceList)
         out += Self.fileReport(QuickBooksCustodyFile.payments.fileName, payments)
@@ -62,10 +76,57 @@ struct QuickBooksImportRun: Sendable {
             out.append("payments not matched to invoices: \(unnumbered) of \(payments.accepted.count) "
                        + "carry no invoice number")
         }
-        out.append("written: nothing, this build reads and reconciles only; "
-                   + "the store write is ovation#68 to ovation#70")
-        out.append("already imported: not checked, nothing reads the store yet")
         return out
+    }
+
+    /// The report once `write` has run over this run's candidates (ovation#72).
+    func report(after write: QuickBooksImportWrite) -> [String] {
+        var out = readReport
+        let read = invoiceList.rowsRead
+        let written = write.written.count
+        let already = write.alreadyImported.count
+        let refused = read - written - already
+        out.append("invoices: \(read) read, \(written) written, \(already) already imported, \(refused) refused")
+        if written > 0 {
+            let payments = write.paymentsWritten == 1 ? "1 payment" : "\(write.paymentsWritten) payments"
+            out.append("written: \(written) \(written == 1 ? "invoice" : "invoices") and \(payments), "
+                       + "as import batch \(write.batch.uuidString)")
+        } else if read == 0 {
+            out.append("written: nothing, the invoice list has no rows to import")
+        } else if refused == 0 {
+            out.append("written: nothing, every invoice was already imported")
+        } else if already == 0 {
+            out.append("written: nothing, every invoice was refused")
+        } else {
+            out.append("written: nothing, \(already) were already imported and \(refused) refused")
+        }
+        if !write.alreadyImported.isEmpty {
+            out.append("already imported: " + Self.rows("invoice list", write.alreadyImported))
+        }
+        if !write.refused.isEmpty {
+            out.append("refused at the write: \(write.refused.count)")
+            for refusal in write.refused {
+                out.append("  invoice list row \(refusal.invoiceRow): \(Self.sentence(for: refusal.reason))")
+            }
+        }
+        return out
+    }
+
+    /// Each write refusal in words, with nothing in it that the privacy floor keeps
+    /// off a terminal: the number a refusal carries stays in the run.
+    private static func sentence(for reason: QuickBooksImportWrite.Reason) -> String {
+        switch reason {
+        case .numberAlreadyHeld: return "another invoice in Ovation already holds its number"
+        case .numberIsNotPositive: return "its number is not above zero, which no invoice carries"
+        case .clientNotInOvation: return "no client in Ovation carries the name QuickBooks billed"
+        case .clientNameHeldBySeveral(let count):
+            return "\(count) clients in Ovation carry the name QuickBooks billed, so it belongs to no one of them"
+        case .paymentAlreadyImported(let row):
+            return "invoices and payments row \(row) was already written by an earlier import"
+        case .totalDiffers:
+            return "Ovation would total it differently from QuickBooks, so it would read as owing a figure "
+                + "QuickBooks never billed"
+        }
     }
 
     private var reconciliationReport: [String] {

@@ -104,6 +104,13 @@ struct SchemaFingerprintTests {
     /// ratchet on the shape in force, as version 7's was until today.
     static let whatVersionEightProducesToday = "I/x0AqLqs+4cO+sxza40XnBox3dtBxgUeU0919gnDDI="
 
+    /// What version 9 produces, recorded when ovation#68 and ovation#69 added it.
+    /// VERSION 8'S VALUE ABOVE DID NOT MOVE when its classes were frozen into
+    /// `OvationSchemaV8Shape.swift`, and that is the proof the frozen copy describes
+    /// the stores the installed app already wrote. This one is a ratchet on the
+    /// shape in force, as version 8's was until today.
+    static let whatVersionNineProducesToday = "S/xFSJmjUIdAHmkx7rrFoiU4E4LbvT2cAPiiB35p6ag="
+
     /// SPELLED OUT BECAUSE COCOA DOES NOT EXPORT IT TO SWIFT. `NSPersistentStore`
     /// declares this key in Objective-C only, so a Swift caller has to name the
     /// string. It is asserted against a real store's metadata below rather than
@@ -189,11 +196,17 @@ struct SchemaFingerprintTests {
         #expect(measured == Self.whatVersionEightProducesToday)
     }
 
+    @Test("version nine still has the shape it was pinned with")
+    func versionnineIsUnmoved() throws {
+        let measured = try Self.fingerprint(of: OvationSchemaV9.self)
+        #expect(measured == Self.whatVersionNineProducesToday)
+    }
+
     /// THEY ARE ACTUALLY DIFFERENT, which is what makes a stage between them mean
     /// anything. Identical values would satisfy every case above while describing
     /// one shape under several names.
-    @Test("the eight versions describe eight different shapes")
-    func theeightDiffer() throws {
+    @Test("the nine versions describe nine different shapes")
+    func thenineDiffer() throws {
         let all = [Self.whatVersionOneReallyWrote,
                    Self.whatVersionTwoProducesToday,
                    Self.whatVersionThreeProducesToday,
@@ -201,7 +214,8 @@ struct SchemaFingerprintTests {
                    Self.whatVersionFiveProducesToday,
                    Self.whatVersionSixProducesToday,
                    Self.whatVersionSevenProducesToday,
-                   Self.whatVersionEightProducesToday]
+                   Self.whatVersionEightProducesToday,
+                   Self.whatVersionNineProducesToday]
 
         #expect(Set(all).count == all.count)
     }
@@ -226,7 +240,7 @@ struct SchemaFingerprintTests {
     /// teach everybody to ignore it (L713, L339).
     @Test("the same version written twice fingerprints the same")
     func thesameVersionIsStable() throws {
-        #expect(try Self.fingerprint(of: OvationSchemaV8.self)
-                == (try Self.fingerprint(of: OvationSchemaV8.self)))
+        #expect(try Self.fingerprint(of: OvationSchemaV9.self)
+                == (try Self.fingerprint(of: OvationSchemaV9.self)))
     }
 }

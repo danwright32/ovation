@@ -46,9 +46,29 @@ struct VocabularyTests {
 
     // MARK: how money arrived (PRD 5.15)
 
-    @Test("the methods are the four Dan takes")
+    @Test("the methods are the four Dan takes, plus the one an import has to use")
     func theMethodsAreTheFour() {
-        #expect(Set(PaymentMethod.allCases) == [.check, .zelle, .venmo, .payPal])
+        #expect(Set(PaymentMethod.allCases) == [.check, .zelle, .venmo, .payPal, .notRecorded])
+    }
+
+    @Test("a payment sheet offers the four Dan takes, and never the absence of one")
+    func notRecordedIsNeverOffered() {
+        // ovation#68. QuickBooks exports where money was deposited, never how it
+        // arrived, so an imported payment's method is not recorded (the same rule as
+        // PRD 2b). Offering that to Dan would let a payment he records be filed under
+        // a gap rather than an answer (L611).
+        #expect(PaymentMethod.recordable == [.check, .zelle, .venmo, .payPal])
+        #expect(!PaymentMethod.notRecorded.gainsAClearedStep, "an imported payment would wait to clear forever")
+        #expect(PaymentMethod.notRecorded.exportLabel == "Not recorded")
+    }
+
+    @Test("an imported invoice was billed in QuickBooks, a route of its own")
+    func billedInQuickBooksIsItsOwnRoute() {
+        // ovation#68. The two routes before it are what Ovation observed itself; this
+        // one is QuickBooks' record, read from its export, and saying either of the
+        // others of an imported invoice would claim Ovation saw it go (L192).
+        #expect(Set(SentRoute.allCases) == [.ovationSentIt, .foundInTheMailbox, .billedInQuickBooks])
+        #expect(SentRoute.billedInQuickBooks.rawValue == "billed-in-quickbooks")
     }
 
     @Test("a check is the ONLY method that gains a cleared step")

@@ -34,7 +34,7 @@ enum SentMessageKind: String, Codable, Hashable, Sendable, CaseIterable {
     case copy
 }
 
-extension OvationSchemaV8 {
+extension OvationSchemaV9 {
     @Model
     final class SentMessage {
         var id: UUID = UUID()
@@ -79,4 +79,4 @@ extension SentMessageKind {
 
 // The typealias pointing the bare name at the version in force, as every domain
 // file carries.
-typealias SentMessage = OvationSchemaV8.SentMessage
+typealias SentMessage = OvationSchemaV9.SentMessage

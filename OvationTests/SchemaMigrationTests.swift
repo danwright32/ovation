@@ -43,7 +43,10 @@ struct SchemaMigrationTests {
         // money was taken back off an invoice. IT IS 6 SINCE ovation#482, which
         // added the tax status each invoice was sent under. IT IS 7 SINCE
         // ovation#596, which added a record of every message sent about an invoice.
-        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(8, 0, 0))
+        // IT IS 8 SINCE ovation#362, which recorded that a review holds a number,
+        // and 9 SINCE ovation#68 and ovation#69, which record where an imported row
+        // came from and which import wrote it.
+        #expect(OvationSchema.versionedSchema.versionIdentifier == Schema.Version(9, 0, 0))
     }
 
     @Test("the version's models are exactly the ones the store holds")
@@ -60,7 +63,8 @@ struct SchemaMigrationTests {
         let named = OvationMigrationPlan.schemas.map { $0.versionIdentifier }
         #expect(named == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0),
                           Schema.Version(4, 0, 0), Schema.Version(5, 0, 0),
-                          Schema.Version(6, 0, 0), Schema.Version(7, 0, 0), Schema.Version(8, 0, 0)])
+                          Schema.Version(6, 0, 0), Schema.Version(7, 0, 0), Schema.Version(8, 0, 0),
+                          Schema.Version(9, 0, 0)])
     }
 
     @Test("and every consecutive pair has a stage carrying a store across it")
@@ -98,6 +102,7 @@ struct SchemaMigrationTests {
             ("version 6", OvationSchemaV6.models),
             ("version 7", OvationSchemaV7.models),
             ("version 8", OvationSchemaV8.models),
+            ("version 9", OvationSchemaV9.models),
         ]
         for (name, models) in versions {
             #expect(Set(models.map(ObjectIdentifier.init)).count == models.count,
@@ -214,6 +219,28 @@ struct SchemaMigrationTests {
         #expect(OvationSchemaV7.models.contains { $0 == OvationSchemaV7.SentMessage.self })
         #expect(ObjectIdentifier(OvationSchemaV7.Invoice.self) != ObjectIdentifier(Invoice.self),
                 "version 8 is using version 7's class, so the two describe one shape")
+    }
+
+    /// The same statement for version 8, FROZEN WITHOUT the import provenance
+    /// version 9 records (ovation#68, ovation#69): its invoice is its own class, and
+    /// an imported invoice of the app's carries a batch its frozen copy cannot.
+    @Test("and version 8 is frozen without the import provenance version 9 added")
+    func theolderVersionHasNoImportProvenance() throws {
+        let frozen = OvationSchemaV8.Invoice()
+        frozen.numberHeldByAReview = true
+        let batch = UUID()
+        let client = Client(name: "Calder Street Theatre", taxStatus: .exempt)
+        let current = Invoice.imported(number: 1_041, key: QuickBooksImportKey(sources: [
+            .init(fileSHA256: "file", rawRowSHA256: "row"),
+        ]), batch: batch, client: client,
+            invoiceDate: try #require(BusinessCalendar.day(forKey: "2026-01-19")),
+            dueDate: try #require(BusinessCalendar.day(forKey: "2026-02-18")))
+
+        #expect(frozen.numberHeldByAReview)
+        #expect(current.importBatchID == batch)
+        #expect(ObjectIdentifier(OvationSchemaV8.Invoice.self) != ObjectIdentifier(Invoice.self),
+                "version 9 is using version 8's class, so the two describe one shape")
+        #expect(ObjectIdentifier(OvationSchemaV8.Payment.self) != ObjectIdentifier(Payment.self))
     }
 
     @Test("and version 1 still has the field version 2 dropped, which is what it is FOR")
@@ -745,6 +772,49 @@ struct SchemaMigrationTests {
             #expect(sweep.released.isEmpty, "a number taken before version 8 was given back on a guess")
             #expect(try ModelContext(container).fetch(FetchDescriptor<Invoice>()).compactMap(\.number).sorted()
                     == [1_131, 1_132])
+        }
+    }
+
+    /// ovation#68 and ovation#69. A real version 8 store, written through version 8's
+    /// own frozen classes, opens under version 9 with every row it held, and NOTHING
+    /// in it arrives looking imported. No row was ever written by an import before
+    /// version 9, so a batch or a key appearing on one would be invented provenance
+    /// (L192), and a revert keyed on it would delete Dan's own work.
+    @Test("a real version 8 store opens under version 9, and nothing in it is made to look imported")
+    func therealStoreMigratesFromVersionEight() async throws {
+        try await ScratchStore.with("real-8") { url in
+            try await EarlierVersionStore.write(OvationSchemaV8.self, at: url) { context in
+                let client = OvationSchemaV8.Client()
+                client.name = "Calder Street Theatre"
+                let invoice = OvationSchemaV8.Invoice()
+                invoice.number = 1_133
+                invoice.numberHeldByAReview = true
+                invoice.client = client
+                let payment = OvationSchemaV8.Payment()
+                payment.amount = Money(dollars: 250)
+                payment.client = client
+                let allocation = OvationSchemaV8.PaymentAllocation()
+                allocation.amount = Money(dollars: 250)
+                allocation.payment = payment
+                allocation.invoice = invoice
+                allocation.source = .recordedWithThePayment
+                for model in [client, invoice, payment, allocation] as [any PersistentModel] { context.insert(model) }
+            }
+            #expect(StoreCheckpoint.run(storeURL: url) == .checkpointed)
+
+            let container = try OvationSchema.container(at: url)
+            let context = ModelContext(container)
+            let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
+            #expect(invoice.number == 1_133)
+            #expect(invoice.numberHeldByAReview, "version 8's own field was lost on the way")
+            #expect(invoice.client?.name == "Calder Street Theatre")
+            #expect(invoice.importKey == nil && invoice.importBatchID == nil && invoice.importedFingerprint == nil)
+            let payment = try #require(try context.fetch(FetchDescriptor<Payment>()).first)
+            #expect(payment.amount == Money(dollars: 250))
+            #expect(payment.importKey == nil && payment.importBatchID == nil && payment.importedFingerprint == nil)
+            let allocation = try #require(try context.fetch(FetchDescriptor<PaymentAllocation>()).first)
+            #expect(allocation.invoice?.number == 1_133)
+            #expect(allocation.importBatchID == nil)
         }
     }
 
