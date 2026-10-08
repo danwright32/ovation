@@ -172,7 +172,8 @@ struct InvoiceListShotTests {
         all.append(invoice(cedar, "Autumn Evensong", on: day(0), hours: nil))
         all.append(invoice(ashgrove, "A rehearsal shoot", on: day(-2), hours: nil))
         all.append(invoice(marlowe, "Candlemas", on: day(-5), hours: nil))
-        // Drafts that are priced and ready to send.
+        // Cedar Hill's two priced drafts, drawn in the held money band offering
+        // `Use it here` (see the header), not among the drafts to send.
         for (index, name) in ["Winter Gala", "Advent Carols"].enumerated() {
             let ready = invoice(cedar, name, on: day(-8 - index), hours: Hours(whole: 2))
             ready.orderedShoots.first?.shotFrom = ClockTime("19:00")
