@@ -81,7 +81,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 353
+harness_begin "test runner lock tests" 356
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -868,6 +868,18 @@ check "and not one that had already started before it" \
     "$(hosted_run "${NAN_RUN}" | grep -c '^           a quiet test$')" "0"
 check_exit "a hosted run that FAILED keeps its own status rather than the NaN's" \
     65 hosted_status "${NAN_LINE}; echo 'Test run with 5 tests in 1 suite failed'; exit 65"
+# A TEST WITH NO DISPLAY NAME is printed by its function, unquoted, and is named
+# the same way (review of #702).
+NAN_BARE="echo '\u25c7 Test \"a quiet test\" started.'; echo '\u25c7 Test probeFloating() started.'; ${NAN_LINE}; echo 'Test run with 5 tests in 1 suite passed'"
+check "a test with no display name is named by its function" \
+    "$(hosted_run "${NAN_BARE}" | grep -c '^           probeFloating()$')" "1"
+# THE PURE SUITE DRAWS TOO, so its output is judged the same way, as the store
+# marker's is (review of #702).
+check_exit "a pure run that handed CoreGraphics a NaN is refused even though it exited 0" \
+    7 pure_status "${NAN_LINE}; echo 'Test run with 100 tests in 9 suites passed'" 100
+check "and the pure run is started with CoreGraphics asked to print the stack too" \
+    "$(pure_run 'echo "BACKTRACE=${TEST_RUNNER_CG_NUMERICS_SHOW_BACKTRACE:-unset}"; echo "Test run with 100 tests in 9 suites passed"' 100 \
+        | grep -c '^BACKTRACE=1$')" "1"
 check "the hosted run is started with CoreGraphics asked to print the stack of one" \
     "$(hosted_run 'echo "BACKTRACE=${TEST_RUNNER_CG_NUMERICS_SHOW_BACKTRACE:-unset}"; echo "Test run with 5 tests in 1 suite passed"' \
         | grep -c '^BACKTRACE=1$')" "1"

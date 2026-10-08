@@ -313,7 +313,7 @@ refuse_deleted_live_store() {
   grep -F "${VNODE_MARKER}" | sed 's/.*while in use: //' | sort -u | sed 's/^/           /' >&2
 }
 
-# A VALUE THAT IS NOT A NUMBER HANDED TO COREGRAPHICS (ovation#647). CoreGraphics
+# A VALUE THAT IS NOT A NUMBER HANDED TO COREGRAPHICS, in either suite (ovation#647). CoreGraphics
 # logs one line, substitutes a value of its own and carries on, so every case
 # passes while something was drawn from an undefined size or position. It appeared
 # in five of the twenty six CI runs read on 2026-10-08 and nothing read it, so it
@@ -323,17 +323,19 @@ refuse_deleted_live_store() {
 # it ends, but in the order it happened, and the line sits after the start of the
 # test that was running (measured against the CI clock: the warning's own time
 # stamp fell inside that test's span). So the refusal names the last test that had
-# started before the first warning. The stack, printed because the run asks for it
+# started before the first warning, by its display name when it has one and by its
+# function when it has none, which Swift Testing prints unquoted. The stack, printed because the run asks for it
 # (CG_NUMERICS_SHOW_BACKTRACE, below), is what names the code.
 NAN_MARKER="passed an invalid numeric value (NaN"
 refuse_nan_to_coregraphics() {
-  echo "Error: the hosted run handed CoreGraphics a value that is not a number, which" >&2
+  echo "Error: a test handed CoreGraphics a value that is not a number, which" >&2
   echo "       it reports as '${NAN_MARKER}, or not-a-number)'. Every case can pass" >&2
   echo "       while this happens, so the run is refused. The stack CoreGraphics printed" >&2
   echo "       is in the output above. It happened during:" >&2
   awk -v marker="${NAN_MARKER}" '
     index($0, marker) { print (last == "" ? "(no test had started)" : last); exit }
-    match($0, /Test "[^"]*" started\.$/) { last = substr($0, RSTART + 6, RLENGTH - 16) }
+    match($0, /Test "[^"]*" started\.$/) { last = substr($0, RSTART + 6, RLENGTH - 16); next }
+    match($0, /Test [A-Za-z_][A-Za-z0-9_]*\([^)]*\) started\.$/) { last = substr($0, RSTART + 5, RLENGTH - 14) }
   ' | sed 's/^/           /' >&2
 }
 
@@ -1205,6 +1207,12 @@ else
   # plain $(...) would hold three minutes of a real xcodebuild in a variable with
   # the terminal silent, so a person watching could not tell a slow run from a hung
   # one. PIPESTATUS[0] is the run's own status: the pipe's is tee's (L183, L184).
+  # COREGRAPHICS IS ASKED FOR THE STACK OF ANY VALUE THAT IS NOT A NUMBER
+  # (ovation#647), in both suites, since both draw. Without it the warning names
+  # nothing but itself, and the fault appeared on CI only, a few runs in twenty, so
+  # a run that meets it has to say where then rather than be reproduced later.
+  # TEST_RUNNER_ is the prefix xcodebuild passes into the test process.
+  export TEST_RUNNER_CG_NUMERICS_SHOW_BACKTRACE=1
   PURE_OUTPUT="$(mktemp)"
   if [ "${ONLY_TARGET}" = "OvationHostedTests" ]; then
     # A run narrowed to the hosted suite builds the pure scheme for nothing, so it
@@ -1375,6 +1383,10 @@ else
   fi
   if [ "${STATUS}" -eq 0 ] && grep -qF "${VNODE_MARKER}" "${PURE_OUTPUT}"; then
     refuse_deleted_live_store < "${PURE_OUTPUT}"
+    STATUS=7
+  fi
+  if [ "${STATUS}" -eq 0 ] && grep -qF "${NAN_MARKER}" "${PURE_OUTPUT}"; then
+    refuse_nan_to_coregraphics < "${PURE_OUTPUT}"
     STATUS=7
   fi
   rm -f "${PURE_OUTPUT}"
@@ -1713,12 +1725,6 @@ else
       SHOT_DIR_IS_TEMPORARY=1
     fi
     export TEST_RUNNER_OVATION_SHOT_DIR="${SHOT_DIR}"
-
-    # COREGRAPHICS IS ASKED FOR THE STACK OF ANY VALUE THAT IS NOT A NUMBER
-    # (ovation#647). Without it the warning names nothing but itself, and the fault
-    # appeared on CI only, a few runs in twenty, so a run that meets it has to say
-    # where then rather than be reproduced later. TEST_RUNNER_ for the reason above.
-    export TEST_RUNNER_CG_NUMERICS_SHOW_BACKTRACE=1
 
     # THE HOSTED SUITE IS STARTED WITH THE LOCK'S DESCRIPTOR CLOSED (ovation#492).
     # The lock IS descriptor 9, and a numbered descriptor opened by `exec` is
