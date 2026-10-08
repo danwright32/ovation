@@ -24,6 +24,7 @@ import ViewInspector
 /// you want to be" with the frame's own height, and a ScrollView with whatever it is
 /// given, so either would measure the window rather than what it holds (L63).
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct FixedSurfaceHeightTests {
 
     // MARK: the backups pane, captured directly

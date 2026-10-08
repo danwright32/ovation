@@ -10,6 +10,7 @@ import ViewInspector
 /// offer, each asserted by what it hands back rather than by what it draws alone
 /// (L442).
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct HeldMoneyViewTests {
 
     private static let noon = Date(timeIntervalSince1970: 1_794_531_600)
