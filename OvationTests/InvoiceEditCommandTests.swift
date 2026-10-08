@@ -212,4 +212,83 @@ struct InvoiceEditCommandTests {
         #expect(InvoiceEditCommand.whyTheReferralCreditCannotChange(open)
                 == InvoiceReferralCreditRefusal.invoiceWasSent.sentence)
     }
+
+    // MARK: an entry whose screen registered nothing to run (ovation#657)
+
+    /// A command with the invoice open and, unless asked otherwise, every writer
+    /// the screen registers. The writers do nothing: what is judged is only
+    /// whether each one is there.
+    private static func command(open invoice: Invoice?, discountWriter: Bool = true,
+                                applyWriter: Bool = true,
+                                removeWriter: Bool = true) -> InvoiceEditCommand {
+        let command = InvoiceEditCommand()
+        command.open = invoice.map(InvoiceEditCommand.Open.init)
+        if discountWriter { command.addDiscount = { _, _ in } }
+        if applyWriter { command.applyReferralCredit = { _ in } }
+        if removeWriter { command.removeReferralCredit = { _ in } }
+        return command
+    }
+
+    /// THE PRESS WOULD DO NOTHING, SO THE ENTRY SAYS SO. Before ovation#657 the
+    /// entry judged only the invoice, was enabled, and a press with no registered
+    /// writer returned silently: a control that looks pressable and does nothing
+    /// leaves pressing it again as the only diagnosis (L109, L148).
+    @Test("an open draft whose screen registered no discount writer greys the entry with a reason")
+    func noDiscountWriterGreysTheEntry() throws {
+        let command = Self.command(open: try Self.invoice(), discountWriter: false)
+
+        #expect(command.whyTheDiscountEntryIsDisabled == InvoiceEditCommand.nowhereToSave)
+    }
+
+    @Test("with the writer registered the same draft can have one added")
+    func withTheDiscountWriterTheEntryIsEnabled() throws {
+        let command = Self.command(open: try Self.invoice())
+
+        #expect(command.whyTheDiscountEntryIsDisabled == nil)
+    }
+
+    /// THE INVOICE'S OWN REASON COMES FIRST. With no writer AND a sent invoice,
+    /// the sent invoice is what would still stop it once a store was open, so
+    /// naming the store would send Dan after the wrong thing (L111).
+    @Test("the invoice's own refusal wins over the missing writer")
+    func theInvoicesOwnRefusalComesFirst() throws {
+        let command = Self.command(open: try Self.invoice(sent: true), discountWriter: false)
+
+        #expect(command.whyTheDiscountEntryIsDisabled
+                == InvoiceDiscountRefusal.invoiceWasSent.sentence)
+        #expect(Self.command(open: nil, discountWriter: false).whyTheDiscountEntryIsDisabled
+                == "No invoice is open.")
+    }
+
+    /// EACH DIRECTION NEEDS ITS OWN WRITER. The entry's word says which one a
+    /// press would run, so only that one's absence can make it do nothing.
+    @Test("a credit to apply with no apply writer greys the entry with a reason")
+    func noApplyWriterGreysTheCreditEntry() throws {
+        let command = Self.command(open: try Self.invoice(banked: Hours(whole: 2)),
+                                   applyWriter: false)
+
+        #expect(command.whyTheReferralCreditEntryIsDisabled == InvoiceEditCommand.nowhereToSave)
+    }
+
+    @Test("a credit to remove with no remove writer greys the entry with a reason")
+    func noRemoveWriterGreysTheCreditEntry() throws {
+        let command = Self.command(open: try Self.invoice(credited: true),
+                                   applyWriter: true, removeWriter: false)
+
+        #expect(command.whyTheReferralCreditEntryIsDisabled == InvoiceEditCommand.nowhereToSave)
+    }
+
+    @Test("a credit to remove does not need the apply writer")
+    func removingDoesNotNeedTheApplyWriter() throws {
+        let command = Self.command(open: try Self.invoice(credited: true), applyWriter: false)
+
+        #expect(command.whyTheReferralCreditEntryIsDisabled == nil)
+    }
+
+    /// SAID IN THE SAME WORDS AS THE MENU'S OTHER NO STORE REFUSALS, the export's
+    /// and the draft's, so one condition has one vocabulary (L118).
+    @Test("the no writer sentence names the store, as the menu's other entries do")
+    func theNoWriterSentenceNamesTheStore() {
+        #expect(InvoiceEditCommand.nowhereToSave.hasPrefix("There is no store open on this launch"))
+    }
 }

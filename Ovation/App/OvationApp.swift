@@ -850,9 +850,13 @@ struct OvationApp: App {
             // disabled, with its reason said out loud.
             CommandGroup(after: .pasteboard) {
                 if InvoiceEditCommand.offersToAddADiscount(edits.open) {
+                    // ovation#657. THE COMMAND'S OWN ANSWER, which also asks
+                    // whether the screen registered anything to run, so an entry
+                    // that would do nothing is greyed with its reason rather than
+                    // pressable and silent (L109).
                     Button(InvoiceEditCommand.addDiscountTitle) { addADiscount() }
-                        .disabled(InvoiceEditCommand.whyADiscountCannotBeAdded(edits.open) != nil)
-                    if let why = InvoiceEditCommand.whyADiscountCannotBeAdded(edits.open) {
+                        .disabled(edits.whyTheDiscountEntryIsDisabled != nil)
+                    if let why = edits.whyTheDiscountEntryIsDisabled {
                         Text(why).font(.footnote)
                     }
                 }
@@ -864,8 +868,8 @@ struct OvationApp: App {
                 Button(InvoiceEditCommand.referralCreditTitle(edits.open)) {
                     changeTheReferralCredit()
                 }
-                .disabled(InvoiceEditCommand.whyTheReferralCreditCannotChange(edits.open) != nil)
-                if let why = InvoiceEditCommand.whyTheReferralCreditCannotChange(edits.open) {
+                .disabled(edits.whyTheReferralCreditEntryIsDisabled != nil)
+                if let why = edits.whyTheReferralCreditEntryIsDisabled {
                     Text(why).font(.footnote)
                 }
             }
@@ -881,10 +885,16 @@ struct OvationApp: App {
 
     /// Adds the discount the menu offers, which is a tenth off: round 5's own
     /// measurement, the commonest of the five in the whole history.
+    ///
+    /// GATED ON THE SAME ANSWER THAT DISABLES THE ENTRY (ovation#657), which
+    /// also asks whether the writer read below is there, so a press can never
+    /// return silently where the entry looked pressable (L70, L109). READ HERE,
+    /// where the menu is declared, because that is the hop no test can drive and
+    /// `check-writers-wired.sh` judges it in this file (ovation#485).
     private func addADiscount() {
         guard let open = edits.open,
               InvoiceEditCommand.offersToAddADiscount(open),
-              InvoiceEditCommand.whyADiscountCannotBeAdded(open) == nil,
+              edits.whyTheDiscountEntryIsDisabled == nil,
               let add = edits.addDiscount else { return }
         add(open.id, InvoiceEditCommand.whatItAdds)
     }
@@ -893,10 +903,11 @@ struct OvationApp: App {
     ///
     /// THE STATE DECIDES, NEVER THE CALLER. The title and this both read
     /// `hasReferralCredit` off the same published facts, so the entry cannot say
-    /// Remove and apply one (L70).
+    /// Remove and apply one (L70). Gated like the discount, on the answer that
+    /// also asks whether the writer its word points at is there (ovation#657).
     private func changeTheReferralCredit() {
         guard let open = edits.open,
-              InvoiceEditCommand.whyTheReferralCreditCannotChange(open) == nil else { return }
+              edits.whyTheReferralCreditEntryIsDisabled == nil else { return }
         if open.hasReferralCredit {
             edits.removeReferralCredit?(open.id)
         } else {
