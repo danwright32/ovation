@@ -22,9 +22,33 @@
 # Only a DAILY schedule (`M H * * *`) is read; anything else is refused by name
 # rather than turned into a guessed period (L11).
 #
-# Exit codes: 0 every schedule ran within its period, 1 at least one stopped or is
-# disabled, 2 nothing could be judged (no schedules, a cron it cannot read, or gh
-# could not answer).
+# A SCHEDULE TOO NEW TO HAVE RUN IS NOT YET DUE, NOT STOPPED (ovation#661). On
+# 2026-09-29 backstage-release.yml and flaky-jobs.yml were added, and CI liveness
+# went red at least 15 times before either had its first scheduled run: "no run
+# on record at all" was true and meant nothing yet. An alarm red for a known
+# harmless reason is the one ignored on the day a schedule really stops (L36). So
+# a workflow with no scheduled run whose file GitHub first saw less than one
+# period plus GRACE_SECONDS ago is reported NOT YET DUE, and does not fail.
+#
+# KEYED ON THE WORKFLOW'S created_at FROM GITHUB'S API, not on the git history.
+# Measured 2026-10-08: backstage-release.yml's created_at is 19:44:24 UTC on
+# 09-29 and #623 merged at 19:44:22, flaky-jobs.yml's is 22:57:35 and #628 merged
+# at 22:57:34, so it is the moment the file reached main, which is when its
+# schedule starts. It needs no history in the checkout, so CI's shallow clone and
+# the post-merge run from a session both read the same thing.
+#
+# THE SAME GRACE AS A LATE RUN. GitHub's measured schedule delay was 6h18m and
+# 6h35m on those two workflows' first days (crons 06:41 and 08:37, runs at 12:59
+# and 15:12 UTC), inside the 12 hours already allowed a schedule that has run
+# before, so a new one is given that same allowance rather than a second notion
+# of late.
+#
+# A DATE IT CANNOT READ IS NO EVIDENCE THE SCHEDULE IS NEW, so a workflow with no
+# run whose created_at cannot be read is STOPPED as before, and says why (L42).
+#
+# Exit codes: 0 every schedule ran within its period or is not yet due, 1 at
+# least one stopped or is disabled, 2 nothing could be judged (no schedules, a
+# cron it cannot read, or gh could not answer).
 set -uo pipefail
 
 GH="${OVATION_GH:-gh}"
@@ -35,16 +59,21 @@ WF_DIR="${OVATION_WORKFLOW_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # tens of minutes and on a busy day hours.
 GRACE_SECONDS=$((12 * 3600))
 
+# EITHER SHAPE GITHUB USES: a run's createdAt is 2026-09-29T19:44:25Z, and a
+# workflow's created_at is 2026-09-29T15:44:24.000-04:00. A time with no zone is
+# refused rather than read as local, which would move it by hours.
 to_epoch() {
     python3 -c 'import sys,datetime
 try:
-    print(int(datetime.datetime.strptime(sys.argv[1].strip(), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()))
+    t = datetime.datetime.fromisoformat(sys.argv[1].strip().replace("Z", "+00:00"))
+    print(int(t.timestamp()) if t.tzinfo is not None else "")
 except Exception:
     print("")' "$1"
 }
 
 judged=0
 stopped=0
+not_yet_due=0
 unreadable=0
 for f in "$WF_DIR"/*.yml; do
     [ -f "$f" ] || continue
@@ -68,7 +97,23 @@ for f in "$WF_DIR"/*.yml; do
     last="$("$GH" run list --repo "$REPO" --workflow "$name" --event schedule --limit 1 --json createdAt --jq '.[0].createdAt' 2>/dev/null || true)"
     last_epoch="$(to_epoch "${last:-}")"
     if [ -z "$last_epoch" ]; then
-        echo "  STOPPED         $name: no scheduled run of it is on record at all."
+        created="$("$GH" api "repos/${REPO}/actions/workflows/${name}" --jq .created_at 2>/dev/null || true)"
+        created_epoch="$(to_epoch "${created:-}")"
+        if [ -z "$created_epoch" ]; then
+            echo "  STOPPED         $name: no scheduled run of it is on record at all, and when it was"
+            echo "                  added could not be read, so it is not assumed to be new."
+            stopped=$((stopped + 1))
+            continue
+        fi
+        added_age=$((NOW - created_epoch))
+        if [ "$added_age" -le $((period + GRACE_SECONDS)) ]; then
+            echo "  NOT YET DUE     $name: added $((added_age / 3600)) hours ago and has not had its first"
+            echo "                  scheduled run yet; it is due within $(((period + GRACE_SECONDS) / 3600)) hours of being added."
+            not_yet_due=$((not_yet_due + 1))
+            continue
+        fi
+        echo "  STOPPED         $name: no scheduled run of it is on record at all, and it was added"
+        echo "                  $((added_age / 3600)) hours ago, on a daily schedule."
         stopped=$((stopped + 1))
         continue
     fi
@@ -88,6 +133,10 @@ fi
 if [ "$unreadable" -gt 0 ] || [ "$judged" -eq 0 ]; then
     echo "CANNOT MEASURE: ${judged} scheduled workflow(s) judged, ${unreadable} schedule(s) unreadable."
     exit 2
+fi
+if [ "$not_yet_due" -gt 0 ]; then
+    echo "OK: $((judged - not_yet_due)) of ${judged} scheduled workflow(s) ran within their period, and ${not_yet_due} not yet due for a first run."
+    exit 0
 fi
 echo "OK: all ${judged} scheduled workflow(s) ran within their period."
 exit 0

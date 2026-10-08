@@ -17,7 +17,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "backstage release watch tests" 33
+harness_begin "backstage release watch tests" 49
 
 TARGET="scripts/check-backstage-release.sh"
 require_target "$TARGET"
@@ -54,7 +54,14 @@ cat > "$WORK/list" <<SH
 #!/bin/bash
 echo call >> "$CALLS"
 left="\$(cat "$FAILS_LEFT" 2>/dev/null || echo 0)"
-if [ "\$left" -gt 0 ]; then echo \$((left - 1)) > "$FAILS_LEFT"; exit 1; fi
+if [ "\$left" -gt 0 ]; then
+    echo \$((left - 1)) > "$FAILS_LEFT"
+    echo "remote: Repository not found." >&2
+    echo "fatal: repository 'https://x-access-token:ghs_FAKE0123456789abcdefFAKE@github.com/danwright32/backstage/' not found" >&2
+    echo "trace: AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46RkFLRWhlYWRlcg==" >&2
+    echo "token in passing: \${BACKSTAGE_READ_TOKEN:-}" >&2
+    exit 1
+fi
 [ -f "$TAGS" ] || exit 1
 cat "$TAGS"
 SH
@@ -149,6 +156,20 @@ check "a listing that cannot be read is CANNOT MEASURE" "$ST" "2"
 check "after three attempts" "$(count_of "$CALLS")" "3"
 check "with a wait between them and none after the last" "$(count_of "$SLEPT")" "2"
 check "and it says how many attempts it made" "$(says "$OUT" "3 attempts")" "yes"
+
+# 7b. WHAT THE LISTING SAID IS SHOWN, WITH EVERY CREDENTIAL MASKED (ovation#660).
+#     The listing's error stream was discarded, so the watcher failed every run
+#     for a week saying only that it could not list, and the cause had to be
+#     inferred. The log is public, so the token in a rewritten URL, an
+#     Authorization header and the token's own value are each masked (L222).
+echo 99 > "$FAILS_LEFT"
+OUT="$(BACKSTAGE_READ_TOKEN=plainTokenValue42xyz run_watch)"; ST=$?
+check "a failed listing shows what it said" "$(says "$OUT" "Repository not found")" "yes"
+check "and the repository it was refused" "$(says "$OUT" "github.com/danwright32/backstage")" "yes"
+check "but not the token inside a rewritten URL" "$(says "$OUT" "ghs_FAKE0123456789abcdefFAKE")" "no"
+check "nor an Authorization header's value" "$(says "$OUT" "eC1hY2Nlc3MtdG9rZW46RkFLRWhlYWRlcg")" "no"
+check "nor the read token's own value wherever it appears" "$(says "$OUT" "plainTokenValue42xyz")" "no"
+check "and it is still CANNOT MEASURE" "$ST" "2"
 rm -f "$FAILS_LEFT"
 
 # 8. ONE FAILED ATTEMPT THEN A GOOD ONE is the healthy answer, read on the retry.
@@ -200,6 +221,69 @@ OUT="$(SPEC_OVERRIDE="$PWD/project.yml" run_watch)"; ST=$?
 check "the real project.yml pins the version Package.resolved records, and it is read" \
     "$ST:$(says "$OUT" "$RESOLVED_VERSION")" "0:yes"
 
+# 12b. THE DEFAULT LISTING IGNORES A CREDENTIAL THE CHECKOUT PERSISTED
+#      (ovation#660). actions/checkout leaves the workflow's own GITHUB_TOKEN in
+#      the checkout's git config as an http extraheader, and git sends that header
+#      in place of the BACKSTAGE_READ_TOKEN the URL rewrite carries, so every
+#      listing run from inside the checkout was refused (reproduced on Dan's Mac
+#      2026-10-08). The real git cannot reach github.com from a suite (L2), so a
+#      stand in for it answers as github.com did: it resolves the header with the
+#      REAL git, from the -c options it was handed and the directory it runs in,
+#      and refuses when one would be sent.
+REAL_GIT="$(command -v git)"
+mkdir -p "$WORK/fakebin" "$WORK/checkout"
+"$REAL_GIT" init -q "$WORK/checkout"
+"$REAL_GIT" -C "$WORK/checkout" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic d29ya2Zsb3ctdG9rZW4="
+cat > "$WORK/fakebin/git" <<'SH'
+#!/bin/bash
+cfg=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -c) cfg+=(-c "$2"); shift 2 ;;
+        ls-remote) break ;;
+        *) shift ;;
+    esac
+done
+echo "ls-remote" >> "$OVATION_TEST_GIT_CALLS"
+header="$("$OVATION_TEST_REAL_GIT" ${cfg[@]+"${cfg[@]}"} config --get-all http.https://github.com/.extraheader | tail -n 1)"
+if [ -n "$header" ]; then
+    echo "remote: Repository not found." >&2
+    echo "fatal: repository 'https://github.com/danwright32/backstage/' not found" >&2
+    exit 128
+fi
+cat "$OVATION_TEST_TAGS"
+SH
+chmod +x "$WORK/fakebin/git"
+tags_are 0.5.0
+listed_from_checkout() {
+    rm -f "$WORK/git-calls"
+    (cd "$WORK/checkout" && PATH="$WORK/fakebin:$PATH" \
+        OVATION_TEST_REAL_GIT="$REAL_GIT" OVATION_TEST_TAGS="$TAGS" OVATION_TEST_GIT_CALLS="$WORK/git-calls" \
+        OVATION_PROJECT_SPEC="$SPEC" OVATION_BACKSTAGE_FETCH_SLEEP="$WORK/sleep" \
+        "$OLDPWD/$TARGET" 2>&1)
+}
+OUT="$(listed_from_checkout)"; ST=$?
+check "run from a checkout holding a persisted header, the default listing is read" "$ST" "0"
+check "and it went through git, so the stand in was really asked" "$(count_of "$WORK/git-calls")" "1"
+# THE STAND IN IS SEEN TO REFUSE, or the case above proves nothing (L1, L159):
+# the same header, read the way git reads it, with no reset, is refused.
+check "and the stand in does refuse a call carrying that header" \
+    "$(cd "$WORK/checkout" && OVATION_TEST_REAL_GIT="$REAL_GIT" OVATION_TEST_TAGS="$TAGS" \
+        OVATION_TEST_GIT_CALLS="$WORK/git-calls" "$WORK/fakebin/git" ls-remote --tags x >/dev/null 2>&1; echo $?)" "128"
+
+# 12c. THE WORKFLOW'S CHECKOUT PERSISTS NO CREDENTIAL, so no later step's git
+#      call can send the workflow's token where another was meant (ovation#660).
+checkout_persists() {
+    awk '
+        /^      - uses: actions\/checkout@/ { inside = 1; next }
+        inside && /^      - / { exit }
+        inside && /persist-credentials:[[:space:]]*false/ { found = 1 }
+        END { print (found ? "no" : "yes") }
+    ' "$1"
+}
+check "the watcher's checkout persists no credential" \
+    "$(checkout_persists .github/workflows/backstage-release.yml)" "no"
+
 # 13. THE WIRING THE REPORTING PATH RUNS THROUGH, as test-check-runner-xcode.sh
 #     asserts for its own workflow (ovation#379, L151). Every outcome the check
 #     documents is handled by exactly one step, and every step's condition names
@@ -224,27 +308,28 @@ check "and the check documents four outcomes, so the comparison has something to
     "$(documented_codes | grep -c .)" "4"
 
 
-# 14. THE FINDING'S TITLE IS WRITTEN ONCE. report-finding.sh finds the open issue
-#     by its exact title, so a close step carrying its own copy that drifted from
-#     the filing step's would match nothing and exit 3, which is the ordinary
+# 14. EACH FINDING'S TITLE IS WRITTEN ONCE. report-finding.sh finds the open
+#     issue by its exact title, so a close step carrying its own copy that drifted
+#     from the filing step's would match nothing and exit 3, which is the ordinary
 #     "none was open" state: the finding would stay open for ever with every run
-#     green (L41). So the title is one workflow level variable, it is the only
-#     place the words appear, and every report-finding call passes that variable.
+#     green (L41). So each title is one workflow level variable, it is the only
+#     place the words appear, and every report-finding call passes one of them.
+TITLE_VARS="FINDING_TITLE CANNOT_COMPARE_TITLE"
 title_gaps() {
-    local wf="$1" defined titles
-    defined="$(grep -cE '^  FINDING_TITLE: ' "$wf")"
-    [ "$defined" -eq 1 ] || echo "FINDING_TITLE defined $defined time(s) at workflow level"
+    local wf="$1" var defined words titles
+    for var in $TITLE_VARS; do
+        defined="$(grep -cE "^  ${var}: " "$wf")"
+        [ "$defined" -eq 1 ] || echo "$var defined $defined time(s) at workflow level"
+        words="$(sed -nE "s/^  ${var}: (.*)\$/\1/p" "$wf")"
+        [ -z "$words" ] || [ "$(grep -cF -- "$words" "$wf")" -eq 1 ] || echo "the words of $var are written more than once"
+    done
     titles="$(grep -E -- '--title ' "$wf")"
     [ -n "$titles" ] || echo "no report-finding call passes a title"
-    grep -vF -- '--title "${FINDING_TITLE}"' <<< "$titles" | grep -q . && echo "a call passes a title other than FINDING_TITLE"
-    local words
-    words="$(sed -nE 's/^  FINDING_TITLE: (.*)$/\1/p' "$wf")"
-    [ -z "$words" ] || [ "$(grep -cF -- "$words" "$wf")" -eq 1 ] || echo "the title's words are written more than once"
+    grep -vE -- '--title "\$\{(FINDING_TITLE|CANNOT_COMPARE_TITLE)\}"' <<< "$titles" | grep -q . \
+        && echo "a call passes a title other than one of the title variables"
 }
-check "the finding's title is defined once and every report-finding call passes it" \
+check "each finding's title is defined once and every report-finding call passes one" \
     "$(title_gaps .github/workflows/backstage-release.yml)" ""
-check "and there are two calls passing it, the filing and the close" \
-    "$(grep -cF -- '--title "${FINDING_TITLE}"' .github/workflows/backstage-release.yml)" "2"
 # The SECOND call only, by awk rather than sed's 0,/re/ address, which BSD sed on
 # this Mac does not have and GNU sed on the Linux job does (L434).
 awk -v copy='--title "backstage has a release newer than the one Ovation pins"' '
@@ -253,5 +338,81 @@ awk -v copy='--title "backstage has a release newer than the one Ovation pins"' 
 ' .github/workflows/backstage-release.yml > "$WORK/second-copy.yml"
 check "and a close step carrying its own copy of the words is caught" \
     "$(title_gaps "$WORK/second-copy.yml" | grep -c .)" "2"
+
+# 15. WHAT EACH OUTCOME FILES AND CLOSES (ovation#660). A comparison that could
+#     not be made failed the job and opened nothing, so the watcher was red for a
+#     week with nobody told. Now it files its own finding, under its own title
+#     because its remedy is in this repository's CI rather than in backstage's
+#     release notes (L53), and EVERY outcome that did compare closes it, the
+#     newer release one included, or a fixed watcher's finding would stay open
+#     until the pin next moved (L269). Read as a table of
+#     "<outcomes> <mode> <title>", one row per report-finding call, with the step
+#     each call sits in supplying the outcomes.
+report_table() {
+    awk '
+        /^      - / { codes = "" }
+        /^        if: / {
+            line = $0; codes = ""
+            while (match(line, /status == \x27[0-9]\x27/)) {
+                codes = codes substr(line, RSTART + 11, 1); line = substr(line, RSTART + RLENGTH)
+            }
+        }
+        /report-finding\.sh (stands|cleared|recurred)/ {
+            mode = $0; sub(/.*report-finding\.sh /, "", mode); sub(/[[:space:]].*/, "", mode)
+        }
+        /--title "\$\{[A-Z_]+\}"/ {
+            var = $0; sub(/.*--title "\$\{/, "", var); sub(/\}".*/, "", var)
+            print codes, mode, var
+        }
+    ' "$1"
+}
+EXPECTED_TABLE="3 stands FINDING_TITLE
+3 cleared CANNOT_COMPARE_TITLE
+0 cleared FINDING_TITLE
+0 cleared CANNOT_COMPARE_TITLE
+12 stands CANNOT_COMPARE_TITLE"
+check "each outcome files and closes exactly the findings it should" \
+    "$(report_table .github/workflows/backstage-release.yml)" "$EXPECTED_TABLE"
+sed "/report-finding.sh stands/,/--title/ s/CANNOT_COMPARE_TITLE/FINDING_TITLE/" \
+    .github/workflows/backstage-release.yml > "$WORK/misfiled.yml"
+check "and a cannot compare step filing under the wrong title is caught" \
+    "$(report_table "$WORK/misfiled.yml" | grep -c '^12 stands FINDING_TITLE$')" "1"
+
+# 16. THE CANNOT COMPARE STEP, RUN. It is cut out of the workflow and run against
+#     a stub reporter, so what it does is asserted rather than what its text
+#     contains (L135). It files the finding with its verdict, and still fails the
+#     job, because a watcher that could not watch is a red run as well as an
+#     issue; a refusal from the reporter fails it with the reporter's own code.
+step_script() {
+    awk -v want="      - name: $2" '
+        $0 == want { inside = 1; next }
+        inside && /^      - / { exit }
+        inside && /^        run: \|/ { body = 1; next }
+        inside && body { print }
+    ' "$1" | sed 's/^          //'
+}
+STEP_DIR="$WORK/step"; mkdir -p "$STEP_DIR/scripts"
+cat > "$STEP_DIR/scripts/report-finding.sh" <<'REPORTER'
+    for a in "$@"; do printf '%s\n' "$a" >> args.log; done
+    exit "${REPORTER_EXIT:?}"
+REPORTER
+printf 'CANNOT MEASURE: could not list backstage tags.\n' > "$STEP_DIR/verdict.txt"
+CANNOT_STEP="Say so when the pin could not be compared"
+step_script .github/workflows/backstage-release.yml "$CANNOT_STEP" > "$STEP_DIR/step.sh"
+run_cannot_step() {
+    : > "$STEP_DIR/args.log"
+    (cd "$STEP_DIR" && env GH_TOKEN=unused CANNOT_COMPARE_TITLE="The title" REPORTER_EXIT="$1" \
+        bash step.sh > said.txt 2>&1)
+}
+check "the cannot compare step is in the workflow, with a script to run" \
+    "$(if [ -s "$STEP_DIR/step.sh" ]; then echo yes; else echo no; fi)" "yes"
+run_cannot_step 0; ST=$?
+check "having filed the finding, it still fails the job" "$ST" "1"
+check "and it filed it as a standing finding under its own title" \
+    "$(head -n 3 "$STEP_DIR/args.log" | tr '\n' ' ')" "stands --title The title "
+check "with its verdict, so it is commented on only when the verdict changes" \
+    "$(grep -A1 -x -- '--verdict-file' "$STEP_DIR/args.log" | tail -n 1)" "verdict.txt"
+run_cannot_step 5; ST=$?
+check "and a refusal from the reporter fails it with the reporter's code" "$ST" "5"
 
 harness_end

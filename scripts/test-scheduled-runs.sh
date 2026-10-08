@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "scheduled run tests" 10
+harness_begin "scheduled run tests" 19
 
 TARGET="scripts/check-scheduled-runs.sh"
 require_target "$TARGET"
@@ -20,13 +20,18 @@ daily() { printf 'name: %s\non:\n  schedule:\n    - cron: %s\n' "$1" "'17 13 * *
 printf 'name: pushed\non:\n  push:\n    branches: [main]\n' > "$WF/pushed.yml"
 
 # A STAND IN FOR gh, answering from files by workflow file name (L2). `last-<f>`
-# holds the newest scheduled run's time, `state-<f>` the workflow's state.
+# holds the newest scheduled run's time, `state-<f>` the workflow's state, and
+# `created-<f>` when GitHub first saw the workflow, in the shape its API gives it.
 cat > "$WORK/gh" <<'SH'
 #!/bin/bash
 for a in "$@"; do case "$a" in *.yml) f="${a##*/}" ;; esac; done
 case "$1" in
   run) cat "$FAKE/last-$f" 2>/dev/null ;;
-  api) cat "$FAKE/state-$f" 2>/dev/null || echo active ;;
+  api)
+    case " $* " in
+      *created_at*) cat "$FAKE/created-$f" 2>/dev/null ;;
+      *) cat "$FAKE/state-$f" 2>/dev/null || echo active ;;
+    esac ;;
 esac
 SH
 chmod +x "$WORK/gh"
@@ -58,10 +63,45 @@ check "a schedule GitHub disabled is reported" "$ST" "1"
 check "and it says GitHub disabled it" "$(says "$OUT" "disabled_inactivity")" "yes"
 rm -f "$WORK/state-recorder.yml"
 
-# 4. NEVER RAN AT ALL is stopped too, never "nothing to judge" (L557).
+# 4. NEVER RAN AT ALL is stopped too, never "nothing to judge" (L557), once it
+#    has been there long enough that it should have run.
 rm -f "$WORK/last-recorder.yml"
 OUT="$(run_check)"; ST=$?
 check "a schedule with no run on record is reported" "$ST" "1"
+
+# 4b. A SCHEDULE TOO NEW TO HAVE RUN YET (ovation#661). On 2026-09-29 two new
+#     daily workflows each turned CI liveness red for most of a day before their
+#     first scheduled run, which is the alarm firing on a normal event. Until the
+#     workflow is older than one period plus the grace for GitHub's lateness, no
+#     run on record is NOT YET DUE, its own outcome. The window is read from the
+#     script rather than written here, so moving the grace moves both sides of
+#     these fixtures with it (L401).
+GRACE_HOURS="$(sed -nE 's/^GRACE_SECONDS=\$\(\(([0-9]+) \* 3600\)\)$/\1/p' "$TARGET")"
+check "the grace this reads from the script is a number of hours" \
+    "$(grep -cE '^[0-9]+$' <<< "${GRACE_HOURS:-}")" "1"
+WINDOW=$((86400 + ${GRACE_HOURS:-0} * 3600))
+# THE SHAPE GITHUB'S WORKFLOW API RETURNS, measured 2026-10-08: milliseconds and
+# an offset, not the Z form runs carry, so the parse is driven by the real one.
+api_time() { python3 -c 'import sys,datetime; print(datetime.datetime.fromtimestamp(int(sys.argv[1]), datetime.timezone(datetime.timedelta(hours=-4))).strftime("%Y-%m-%dT%H:%M:%S.000-04:00"))' "$1"; }
+api_time $((NOW - WINDOW + 3600)) > "$WORK/created-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "a schedule added inside its first window with no run yet does not fail the check" "$ST" "0"
+check "and it is reported as not yet due, its own outcome" "$(says "$OUT" "NOT YET DUE")" "yes"
+check "and not as stopped" "$(says "$OUT" "STOPPED")" "no"
+check "and the summary does not claim every schedule ran" "$(says "$OUT" "not yet due")" "yes"
+
+api_time $((NOW - WINDOW - 3600)) > "$WORK/created-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "the same schedule an hour past its first window with still no run is stopped" "$ST" "1"
+check "and it says how long ago it was added" "$(says "$OUT" "added")" "yes"
+
+# 4c. WHEN IT WAS ADDED CANNOT BE READ: stopped, as before, and said so, because
+#     an unreadable date is no evidence the schedule is new (L42, L11).
+echo "not a date" > "$WORK/created-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "a schedule with no run whose added date cannot be read is still stopped" "$ST" "1"
+check "and it says the date could not be read" "$(says "$OUT" "could not be read")" "yes"
+rm -f "$WORK/created-recorder.yml"
 iso $((NOW - 3600)) > "$WORK/last-recorder.yml"
 
 # 5. A SCHEDULE THIS CANNOT READ is refused rather than guessed at.
