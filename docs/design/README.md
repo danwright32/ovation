@@ -515,6 +515,14 @@ does not have the fault, for a stronger reason: every short name it can draw is 
 whole beside `Read`, by `RailFootTests` in the foot's face against the column it really has and by
 `ShellViewTests`, which lays `RailFootLine` out for each name, so no name has to give way there.
 
+**The review sheet's page fits its column** (ovation#634, 2026-10-08). The page is 380px, 816 at
+47% (PRD 52b), in a 402px column with a 1px rule on its right, and the column's 18px sides left it
+365px, so it ran 14px into the right padding. The page was not shrunk and the column was not
+widened, since both numbers were settled: the column's sides are now what the page leaves,
+10.5px each, which is where the app already puts it, a 380 point page centred in its 402 point
+stage (`ReviewSheet`, `measured 2026-10-08` by reading its frame, not by a rendering). Its
+exemption line went with it.
+
 ## The page's theme stops at the screen, and something measures it
 
 **Each design file is a record page drawn around an app screen, and only the page follows the
