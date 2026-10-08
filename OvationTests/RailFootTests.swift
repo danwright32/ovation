@@ -308,6 +308,24 @@ struct RailFootTests {
                     == "c.json cannot be read.\n\nb.json cannot be read.\n\na.json cannot be read.")
     }
 
+    /// ovation#655. Each draft of a booking QuickBooks billed is raised by its
+    /// queue file, so several would otherwise stand as identical lines. They share
+    /// one, named for what was measured: a draft duplicating a QuickBooks invoice,
+    /// not a client billed twice, since the draft has not been sent.
+    @Test("two drafts of bookings QuickBooks billed stand as one Duplicate draft line")
+    func duplicateDraftsShareALine() throws {
+        let store = ProblemsStore(journal: InMemoryProblemsJournal())
+        for (index, file) in ["a.json", "b.json"].enumerated() {
+            store.raise(kind: .bookingDraftAlsoBilledInQuickBooks, subject: file,
+                        sentence: "\(file) has a draft.", now: at(index + 1))
+        }
+
+        let lines = RailFoot.lines(for: store.open)
+        #expect(lines.shown.map { lines.grouping.name(of: $0) } == ["Duplicate draft"])
+        let members = RailFoot.members(of: try #require(lines.shown.first), among: store.open)
+        #expect(members.count == 2)
+    }
+
     @Test("a kind that does not share a line keeps one line per problem")
     func otherKindsDoNotShare() {
         let store = ProblemsStore(journal: InMemoryProblemsJournal())

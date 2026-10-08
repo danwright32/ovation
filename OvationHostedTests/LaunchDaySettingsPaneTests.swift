@@ -80,6 +80,25 @@ struct LaunchDaySettingsPaneTests {
         #expect(try picker.accessibilityLabel().string() == "Launch day")
     }
 
+    /// THE OUTCOME OF A PRESS IS ABOUT THE DAY THAT WAS PRESSED. Once the control
+    /// is moved off it, "confirmed as 8 Oct" beside "Confirm 1 Oct" reads as the new
+    /// day being confirmed, so it is not drawn (L680).
+    @Test("the last press's outcome goes once the control is moved to another day")
+    func theOutcomeGoesWhenTheDayMoves() throws {
+        let confirmed = try #require(LaunchDay(dayKey: "2026-10-08"))
+        let said = "Launch day confirmed as 8 Oct 2026."
+        let moved = LaunchDaySettingsView(
+            cutoff: .confirmed(confirmed),
+            chosen: .constant(try #require(LaunchDay(dayKey: "2026-10-01"))),
+            outcome: said, confirm: {})
+        let stayed = LaunchDaySettingsView(cutoff: .confirmed(confirmed),
+                                           chosen: .constant(confirmed),
+                                           outcome: said, confirm: {})
+
+        #expect(throws: (any Error).self) { try moved.inspect().find(text: said) }
+        #expect(throws: Never.self) { try stayed.inspect().find(text: said) }
+    }
+
     /// THE PANE IS REACHABLE, which is the other half of being wired.
     @Test("Settings presents a Bookings pane")
     func settingsPresentsThePane() throws {

@@ -60,7 +60,10 @@ struct LaunchDaySettingsView: View {
                     status
                 }
             }
-            if let outcome {
+            // ONLY WHILE THE CONTROL SHOWS THE DAY IT IS ABOUT. Moved to another
+            // day, "confirmed as 8 Oct" beside "Confirm 1 Oct" reads as the new day
+            // being confirmed (L680).
+            if let outcome, chosen == cutoff.confirmed {
                 Text(outcome).font(.callout).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)

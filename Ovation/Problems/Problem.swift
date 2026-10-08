@@ -220,7 +220,9 @@ extension ProblemKind {
         .bookingDraftRefused: "No drafts made",
         .bookingRecordUnreadable: "Booking unreadable",
         .bookingsLeftToQuickBooks: "Left to QuickBooks",
-        .bookingDraftAlsoBilledInQuickBooks: "Draft billed twice",
+        // WHAT WAS MEASURED: a draft duplicating a QuickBooks invoice. Not
+        // "billed twice", since the draft has not been sent (L440).
+        .bookingDraftAlsoBilledInQuickBooks: "Duplicate draft",
         .exportWritten: "Export written",
         .exportRefused: "Export held back",
         .exportFailed: "Export failed",
@@ -264,7 +266,11 @@ extension ProblemKind {
     /// unreadable booking file is one "Booking unreadable" line, however many there
     /// are, and Read lists each file. Dan kept the singular because the plural,
     /// "Bookings unreadable", is 131.5 points against the 127.3 beside Read.
-    static let sharingOneLine: Set<ProblemKind> = [.archiveNoLongerVerifies, .bookingRecordUnreadable]
+    /// Each duplicate draft is raised by its queue file too, and shares one line
+    /// for the same reason (ovation#655).
+    static let sharingOneLine: Set<ProblemKind> = [
+        .archiveNoLongerVerifies, .bookingRecordUnreadable, .bookingDraftAlsoBilledInQuickBooks,
+    ]
 
     /// "21:00", the time in a broken backup's archive name, which is what tells two
     /// backups of one day apart where Read lists them (Dan, 2026-09-30), or nil.
