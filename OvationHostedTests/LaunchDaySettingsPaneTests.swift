@@ -14,6 +14,7 @@ import ViewInspector
 @testable import Ovation
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct LaunchDaySettingsPaneTests {
 
     private static let today = BusinessDate.stamping(

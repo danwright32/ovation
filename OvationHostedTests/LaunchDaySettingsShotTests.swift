@@ -8,6 +8,7 @@ import Testing
 @testable import Ovation
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct LaunchDaySettingsShotTests {
 
     private static var outputDirectory: URL? {
