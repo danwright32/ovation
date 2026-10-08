@@ -17,7 +17,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "backstage release watch tests" 49
+harness_begin "backstage release watch tests" 50
 
 TARGET="scripts/check-backstage-release.sh"
 require_target "$TARGET"
@@ -267,9 +267,13 @@ check "run from a checkout holding a persisted header, the default listing is re
 check "and it went through git, so the stand in was really asked" "$(count_of "$WORK/git-calls")" "1"
 # THE STAND IN IS SEEN TO REFUSE, or the case above proves nothing (L1, L159):
 # the same header, read the way git reads it, with no reset, is refused.
-check "and the stand in does refuse a call carrying that header" \
-    "$(cd "$WORK/checkout" && OVATION_TEST_REAL_GIT="$REAL_GIT" OVATION_TEST_TAGS="$TAGS" \
-        OVATION_TEST_GIT_CALLS="$WORK/git-calls" "$WORK/fakebin/git" ls-remote --tags x >/dev/null 2>&1; echo $?)" "128"
+REFUSED_OUT="$(cd "$WORK/checkout" && OVATION_TEST_REAL_GIT="$REAL_GIT" OVATION_TEST_TAGS="$TAGS" \
+    OVATION_TEST_GIT_CALLS="$WORK/git-calls" "$WORK/fakebin/git" ls-remote --tags x 2>&1)"; REFUSED_ST=$?
+check "and the stand in does refuse a call carrying that header" "$REFUSED_ST" "128"
+# Judged by WHY it refused as well as its status, so an unrelated failure of the
+# stand in cannot pass for the refusal this case exists to show (L140).
+check "and it refuses for the reason git gives a token that cannot see the repository" \
+    "$(grep -c "Repository not found" <<< "$REFUSED_OUT")" "1"
 
 # 12c. THE WORKFLOW'S CHECKOUT PERSISTS NO CREDENTIAL, so no later step's git
 #      call can send the workflow's token where another was meant (ovation#660).
