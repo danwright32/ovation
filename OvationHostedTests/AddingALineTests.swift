@@ -19,6 +19,7 @@ import ViewInspector
 /// the platform reports; and Escape is the platform's exit command, driven as
 /// that command. Both reach exactly the handlers the platform calls.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct AddingALineTests {
 
     private static let noon = Date(timeIntervalSince1970: 1_794_531_600)

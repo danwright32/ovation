@@ -9,6 +9,7 @@ import ViewInspector
 /// ovation#548 and ovation#556. The invoice screen's second foot word and its history
 /// pane, pressed the way Dan presses them and asserted by what each hands back (L442).
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct InvoiceFootAndHistoryViewTests {
 
     private static let noon = Date(timeIntervalSince1970: 1_794_531_600)

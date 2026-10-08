@@ -10,6 +10,7 @@ import ViewInspector
 /// buttons, and EVERY MODEL LEVEL TEST PASSED while it was happening. These
 /// render the real view and read what is on it.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct RootViewTests {
 
     @Test("the notice shows the sentence of the condition the presenter is showing")
