@@ -34,6 +34,7 @@ import Testing
 /// variable carries the TEST_RUNNER_ prefix because the shell's environment does
 /// not otherwise reach the test process.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct ReviewSheetShotTests {
 
     /// BOTH SPELLINGS, and that is not belt and braces. `xcodebuild` forwards only
@@ -265,6 +266,7 @@ struct ReviewSheetShotTests {
 // suite that depends on it are read together.
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct OffscreenShotPageTests {
 
     @Test("the review sheet's picture shows the page, marked as the camera's drawing")

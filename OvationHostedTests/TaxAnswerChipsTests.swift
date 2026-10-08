@@ -7,6 +7,7 @@ import ViewInspector
 /// wherever it is asked. Hosted for the reason `RosterPassViewTests` give: what
 /// these assert lives in the binding, so they render the real view.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct TaxAnswerChipsTests {
 
     /// A CONTROL WIRED TO THE WRONG VALUE is the defect no rendering can show:
