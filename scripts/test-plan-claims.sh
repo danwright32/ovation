@@ -14,7 +14,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "plan claim tests" 53
+harness_begin "plan claim tests" 55
 
 TARGET="scripts/check-plan-claims.sh"
 require_target "$TARGET"
@@ -205,6 +205,14 @@ check_exit "an install check that refuses is carried through rather than swallow
     1 status_on "$INST"
 check "and its own verdict line is what gets printed, not its last line" \
     "$(run_on "$INST" | grep -c 'INSTALLS   BLOCKED:')" "1"
+# THE SUMMARY NAMES THE CHECK THAT REFUSED. On 2026-10-08 a refused install
+# check was summed into "1 absent, ambiguous or past the end of the file", so
+# the push it blocked was told a plan citation had gone missing when every
+# citation was there, and nothing in the report named the one that had (L11).
+check "a refused install check is not counted as a missing citation" \
+    "$(run_on "$INST" | grep -c '0 absent, ambiguous or past the end of the file')" "1"
+check "and the summary says the install check refused" \
+    "$(run_on "$INST" | grep -c 'the install check refused')" "1"
 
 # ---------------------------------------------------------------------------
 # THE FIELDS THE RECORD SAYS THE EXPORT CARRIES, AND LACKS (ovation#215). The

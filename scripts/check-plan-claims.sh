@@ -705,10 +705,23 @@ def main(argv=()):
     unanchored = len(verdicts.get("UNANCHORED", []))
     held = len(verdicts.get("HELD", []))
     refused = broken or (strict and moved)
+    # EACH CAUSE IS COUNTED UNDER ITS OWN NAME. The citations' count once also
+    # summed the commit, install and export checks, so on 2026-10-08 a refused
+    # install check read as "1 absent, ambiguous or past the end of the file"
+    # and sent a blocked push looking for a missing citation that did not exist
+    # (L11).
+    missing = sum(len(verdicts.get(k, [])) for k in ("ABSENT", "AMBIGUOUS", "SHORT"))
     print("%s: %d citation(s) checked. %d held where the plan says, %d moved, "
           "%d unanchored, %d absent, ambiguous or past the end of the file."
           % ("DRIFTED" if refused else "OK",
-             len(claims), held, moved, unanchored, broken - fields_bad))
+             len(claims), held, moved, unanchored, missing))
+    if commits_bad:
+        print("%d cited commit(s) are not on their main, see the UNMERGED lines above."
+              % commits_bad)
+    if installs_bad:
+        print("And the install check refused, see its INSTALLS line above.")
+    if export_bad:
+        print("And the export disagrees with the plan, see its EXPORT line above.")
     if field_claims:
         print("%d claim(s) about the fields the export carries, %d refused as "
               "derivable or uncarried." % (field_claims, fields_bad))
