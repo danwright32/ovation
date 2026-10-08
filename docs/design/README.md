@@ -847,6 +847,23 @@ ovation#172, which is why this paragraph sits ABOVE the heading rather than insi
 runs in CI rather than on every push, because it asks GitHub and a gate that refuses on every
 machine without a network is one people learn to skip.
 
+## A decision of 2026-10-08, and where it is drawn
+
+**Both ends of the review sheet's foot sit 24px in** (`ovation#635`, PRD 48c). The control inset
+check found `Cancel`'s letters 24px from the foot's left edge and `Send`'s edge 20px from its right,
+and which way it resolved was a look, so it was Dan's. Three options, only the foot moving between
+them, rendered at 1330 and 868 wide: "Both at 20", where Cancel's letters move out; "Both at 24",
+where the foot's right padding grows so Send's edge comes in; and "As today", the control. **Dan
+chose both at 24.** Cancel does not move, which also leaves `Start over` alone, since the outcome
+draws it with the same class. It is drawn in `review-send.html`'s `.rs-foot`, with the question
+beside the rule, and `check-design-control-inset.sh` now holds the two ends equal, its exemption
+line gone (`asserted by check-design-control-inset.sh`).
+
+**The app has no such foot yet.** The shipping `ReviewSheet` puts `Send` under the message in its
+right column, 20 points in like the rest of that column, and has `Close` in its head rather than
+`Cancel` in a foot, so there was nothing there to move without first building the foot this file
+draws, which is ovation#695.
+
 ## Two decisions of 2026-09-29, and where each is drawn
 
 **Both were made by Dan from a rendered round moving one variable**, and each is now in

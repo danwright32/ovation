@@ -267,7 +267,14 @@ color: var(--faint); }
 .rs-stagearea { background: var(--sunk); border-right: 1px solid var(--rule);
                 padding: 18px 10.5px; }
 .rs-rail { padding: 16px 20px; }
-.rs-foot { display: flex; align-items: center; gap: 8px; padding: 12px 20px;
+/* BOTH ENDS OF THE FOOT AT 24 (Dan, 2026-10-08, ovation#635, PRD 48c), from a
+   rendered round of three options moving only the foot: "Both at 20", "Both at
+   24" and "As today". Cancel is a plain word and Send a filled button, so the eye
+   lines up Cancel's first letter against Send's edge; they sat 24px and 20px
+   from the foot's two edges. Dan chose both at 24: the right padding grows so
+   Send's edge comes in to 24px, and Cancel does not move, since .rs-cancel is
+   also Start over in the outcome. */
+.rs-foot { display: flex; align-items: center; gap: 8px; padding: 12px 24px 12px 20px;
            border-top: 1px solid var(--rule); background: var(--chrome); }
 
 .rs-bar { display: flex; align-items: baseline; gap: 14px; padding: 14px 24px 12px;

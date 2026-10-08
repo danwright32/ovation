@@ -6,4 +6,3 @@
 # tag.class.class, the issue, and the reason. A line naming no issue or no reason is
 # refused, a line that covers nothing in a file the check measured is refused as
 # stale, and no line excuses a control sitting at its container's edge.
-review-send.html	div.rs-foot	button.rs-cancel	ovation#635	Cancel's letters sit 4px further in than Send's edge; which way it resolves is a look for Dan.
