@@ -81,7 +81,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 348
+harness_begin "test runner lock tests" 353
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -851,6 +851,26 @@ check_exit "a hosted run that deleted a store still in use is refused too" \
     7 hosted_status "echo 'Test run with 5 tests in 1 suite passed'; ${VNODE_LINE}"
 check_exit "a pure run that FAILED keeps its own status rather than the store's" \
     65 pure_status "echo 'Test run with 100 tests in 9 suites failed'; ${VNODE_LINE}; exit 65" 100
+
+# A VALUE THAT IS NOT A NUMBER HANDED TO COREGRAPHICS FAILS THE HOSTED RUN
+# (ovation#647). CoreGraphics substitutes a value of its own and logs one line, so
+# every case passes while something is drawn from an undefined size; on CI it
+# appeared in five of twenty six runs and nothing read it. The run is started with
+# the variable that makes CoreGraphics print the stack, so the refusal can point at
+# the code, and it names the test that was running, read from the output's order.
+NAN_LINE='echo "2026-10-02 14:55:11.954397+0000 Ovation[20606:61485] [com.danwright.ovation.debug] Error: this application, or a library it uses, has passed an invalid numeric value (NaN, or not-a-number) to CoreGraphics API and this value is being ignored. Please fix this problem."'
+NAN_RUN="echo '\u25c7 Test \"a quiet test\" started.'; echo '\u25c7 Test \"the sheet floats\" started.'; ${NAN_LINE}; echo 'Test run with 5 tests in 1 suite passed'"
+check_exit "a hosted run that handed CoreGraphics a NaN is refused even though it exited 0" \
+    7 hosted_status "${NAN_RUN}"
+check "and the refusal names the test that was running when it happened" \
+    "$(hosted_run "${NAN_RUN}" | grep -c '^           the sheet floats$')" "1"
+check "and not one that had already started before it" \
+    "$(hosted_run "${NAN_RUN}" | grep -c '^           a quiet test$')" "0"
+check_exit "a hosted run that FAILED keeps its own status rather than the NaN's" \
+    65 hosted_status "${NAN_LINE}; echo 'Test run with 5 tests in 1 suite failed'; exit 65"
+check "the hosted run is started with CoreGraphics asked to print the stack of one" \
+    "$(hosted_run 'echo "BACKTRACE=${TEST_RUNNER_CG_NUMERICS_SHOW_BACKTRACE:-unset}"; echo "Test run with 5 tests in 1 suite passed"' \
+        | grep -c '^BACKTRACE=1$')" "1"
 
 check "an injected command with no floor announces the skip rather than passing quietly" \
     "$(OVATION_UNLOCKED_COMMAND=true \
