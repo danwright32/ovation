@@ -18,6 +18,7 @@ import ViewInspector
 /// invoices across five bands, plus the shapes ovation#49's sweep proved exist and
 /// no design fixture holds.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct InvoiceListViewTests {
 
     private static func store() throws -> ModelContext {
