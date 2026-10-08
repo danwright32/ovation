@@ -717,10 +717,16 @@ def main(argv=()):
     # and sent a blocked push looking for a missing citation that did not exist
     # (L11).
     missing = sum(len(verdicts.get(k, [])) for k in ("ABSENT", "AMBIGUOUS", "SHORT"))
+    # DRIFTED IS SAID ONLY OF A CLAIM THAT DRIFTED. An install check that could
+    # not measure leaves part of the plan unchecked, so the run still refuses,
+    # but nothing in it was found to have drifted and the verdict word must not
+    # claim that it was (L11, L440).
+    unmeasured_only = installs_why == "could not measure"
+    drifted = broken - (installs_bad if unmeasured_only else 0) or (strict and moved)
+    verdict = "DRIFTED" if drifted else ("INCOMPLETE" if refused else "OK")
     print("%s: %d citation(s) checked. %d held where the plan says, %d moved, "
           "%d unanchored, %d absent, ambiguous or past the end of the file."
-          % ("DRIFTED" if refused else "OK",
-             len(claims), held, moved, unanchored, missing))
+          % (verdict, len(claims), held, moved, unanchored, missing))
     if commits_bad:
         print("%d cited commit(s) are not on their main, see the UNMERGED lines above."
               % commits_bad)
@@ -731,7 +737,7 @@ def main(argv=()):
     if field_claims:
         print("%d claim(s) about the fields the export carries, %d refused as "
               "derivable or uncarried." % (field_claims, fields_bad))
-    if broken:
+    if drifted:
         print("The plan is corrected by a PERSON, not by this check: a claim that "
               "has drifted may mean the plan is wrong or the sibling has "
               "regressed, and only a reader can tell which.")
