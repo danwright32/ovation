@@ -14,7 +14,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "plan claim tests" 55
+harness_begin "plan claim tests" 58
 
 TARGET="scripts/check-plan-claims.sh"
 require_target "$TARGET"
@@ -213,6 +213,16 @@ check "a refused install check is not counted as a missing citation" \
     "$(run_on "$INST" | grep -c '0 absent, ambiguous or past the end of the file')" "1"
 check "and the summary says the install check refused" \
     "$(run_on "$INST" | grep -c 'the install check refused')" "1"
+# AN INSTALL CHECK THAT COULD NOT MEASURE did not refuse anything, so the summary
+# must not say it did (L11, L260): it says it could not measure.
+printf '#!/bin/bash\necho "CANNOT MEASURE: there is no Downbeat export"\nexit 2\n' > "$INST/installs.sh"
+check "an install check that could not measure is not called a refusal" \
+    "$(run_on "$INST" | grep -c 'the install check refused')" "0"
+check "and the summary says it could not measure" \
+    "$(run_on "$INST" | grep -c 'the install check could not measure')" "1"
+rm -f "$INST/installs.sh"
+check "a missing install check is also said to have measured nothing" \
+    "$(run_on "$INST" | grep -c 'the install check could not measure')" "1"
 
 # ---------------------------------------------------------------------------
 # THE FIELDS THE RECORD SAYS THE EXPORT CARRIES, AND LACKS (ovation#215). The
