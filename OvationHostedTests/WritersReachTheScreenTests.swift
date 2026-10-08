@@ -373,8 +373,8 @@ struct WritersReachTheScreenTests {
 
         let reread = InvoiceListPresenter(invoices: [draft.invoice], heldMoney: [:], today: Self.today)
         try await shell.inspection.inspect { view in
-            try view.hStack().callOnChange(oldValue: ObjectIdentifier?.none,
-                                           newValue: Optional(ObjectIdentifier(reread)))
+            try view.hStack().callOnChange(oldValue: UUID?.none,
+                                           newValue: Optional(reread.reading))
         }
 
         #expect(openings.names.count == before + 1, "a new list did not read the open invoice again")
