@@ -558,10 +558,10 @@ var CATEGORIES = ["Gear", "Software", "Travel", "Insurance", "Contract labour",
    on every screen. The filed expenses are counted by no line: they need
    nothing. */
 var CARD_LINES = [
-  { label: "To send",          fixed: "4" },
+  { label: "To send",          fixed: "3" },
   { label: "To chase",         fixed: "2" },
   { label: "To confirm",       fixed: "2" },
-  { label: "To place",         fixed: "2" },
+  { label: "To place",         fixed: "3" },
   { label: "Receipts to file", rows: RECEIPTS }
 ];
 function cardFigure(line) { return line.rows ? String(line.rows.length) : line.fixed; }

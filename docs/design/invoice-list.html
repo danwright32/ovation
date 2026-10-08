@@ -445,8 +445,8 @@ color: var(--faint); }
       one whose client has no tax status. Each says what is missing, <i>Add date</i>, <i>Add
       hours</i>, <i>Add tax status</i>, so the reader meets one situation three times rather than
       three kinds of row.</p>
-      <p><b>The card does not move for any of them.</b> It still reads To send 4 with all three
-      present. Its lines count things you can act on from here, and pressing the action on a blocked
+      <p><b>The card does not move for any of them.</b> None of the three is in its To send
+      figure. Its lines count things you can act on from here, and pressing the action on a blocked
       draft does nothing. That is PRD 46a applied rather than extended, and it is now PRD 46f.</p>
       <p>Dan, 2026-09-19 (ovation#129), with <i>Add tax status</i> and <i>Open client</i> drawn side
       by side on the real screen. Naming the destination rather than the missing thing would make
@@ -581,10 +581,18 @@ function groupsFor() { return [
        ovation#190. PRD 14j is about exactly that client: the money they are
        holding could settle either invoice and not both, so Ovation applies it to
        neither and asks. A branch no fixture can reach is the branch that ships
-       untested, and this one could not be drawn here at all. */
+       untested, and this one could not be drawn here at all.
+       It has THREE since ovation#453: the draft to send further down is Cedar
+       Hill's too, and a draft counts as an open invoice (Dan, 2026-09-23, PRD
+       14j), so the waiting band moves all three. */
     { c: "Cedar Hill Youth Orchestra", s: "Family concert", d: "12 Aug 2026", n: "1026", a: "620.00", age: "29d", act: "Remind" },
     { c: "Cedar Hill Youth Orchestra", s: "Autumn Gala", d: "24 Aug 2026", n: "1044", a: "1,400.00", age: "17d", act: "Remind" }]},
   { sum: "2,180.00", rows: [
+    /* CEDAR HILL'S THIRD OPEN INVOICE, AND A DRAFT (ovation#453). Its own action
+       would be Send, and it is written so, because the row is what its dates make
+       it; the waiting band takes it out of this group and draws it with `Use it
+       here`, as it does the two sent invoices above. Since ovation#595 an UNPRICED
+       draft stays out of the band, and this one is priced. */
     { c: "Cedar Hill Youth Orchestra", s: "Side by Side concert", d: "29 Aug 2026", n: "draft", a: "1,400.00", act: "Send" },
     /* AN INVOICE THAT TOOK A NUMBER AND WAS NEVER SENT (ovation#364). PRD 10c
        numbers an invoice when Review is pressed, because the number is printed on
@@ -599,8 +607,8 @@ function groupsFor() { return [
        cannot occur.
        IT IS A STATE ON AN EXISTING ROW RATHER THAN A ROW OF ITS OWN, because it
        is still an invoice waiting to be sent and the rail is chrome shared with
-       three other design files: a sixth sendable invoice here would make this
-       file say To send 5 while they say 4.
+       three other design files: a further sendable invoice here would make this
+       file say To send 4 while they say 3.
        THE COLUMN SAYS `draft` ANYWAY (Dan, 2026-09-19, PRD 46g), with 1041 and the
        word drawn side by side on this screen. The Invoice column means the client
        has this number, not that a number was reserved, so the row reads like every
@@ -621,10 +629,17 @@ function groupsFor() { return [
   { sum: "1,320.00", rows: [
     { c: "Alder Street Opera", s: "La Boheme, act three", d: "24 Aug 2026", n: "1037", a: "1,320.00", act: "Mark unsent" }]}
 ]; }
-/* The invoices that client's money could settle, named by NUMBER so the group
-   moves them rather than holding a second copy of them, and the balance itself,
-   which is the same $500.00 the invoice screen's fixture holds. */
-var WAITING = ["1026", "1044"];
+/* The invoices that client's money could settle, NAMED so the group moves them
+   rather than holding a second copy of them, and the balance itself, which is the
+   same $500.00 the invoice screen's fixture holds.
+   NAMED BY CLIENT AND SHOOT, NOT BY NUMBER. They were named by number, and a
+   draft has none, so a list of numbers could never name Cedar Hill's draft: the
+   fixture drew it outside the band for that reason alone, and ovation#453 found
+   the product's rule had been read off that accident rather than decided. */
+var WAITING = ["Cedar Hill Youth Orchestra / Family concert",
+               "Cedar Hill Youth Orchestra / Autumn Gala",
+               "Cedar Hill Youth Orchestra / Side by Side concert"];
+function isWaiting(r) { return WAITING.indexOf(r.c + " / " + r.s) !== -1; }
 var HELD_ON_CLIENT = "500.00";
 
 /* THE CARD IS A ROLLUP, AND ITS FIGURES ARE COUNTED RATHER THAN TYPED (PRD 46a,
@@ -661,7 +676,7 @@ var CARD_LINES = [
    count and the stamp have to read it the same way the list does. Deriving it
    here, once, is what stops the card counting a row in the group it was taken
    out of. */
-function actOf(r) { return WAITING.indexOf(r.n) !== -1 ? "Use it here" : r.act; }
+function actOf(r) { return isWaiting(r) ? "Use it here" : r.act; }
 
 function cardLineFor(act) {
   for (var i = 0; i < CARD_LINES.length; i++) {
@@ -1022,7 +1037,7 @@ function windowFor(layout) {
      once and read twice. */
   var waiting = [];
   groupsFor().forEach(function (g) {
-    g.rows.forEach(function (r) { if (WAITING.indexOf(r.n) !== -1) waiting.push(r); });
+    g.rows.forEach(function (r) { if (isWaiting(r)) waiting.push(r); });
   });
   if (waiting.length) {
     var band = el("div", "disc open");
@@ -1056,7 +1071,7 @@ function windowFor(layout) {
       scroll.append(b);
     }
     g.rows.forEach(function (r, i) {
-      if (WAITING.indexOf(r.n) !== -1) return;
+      if (isWaiting(r)) return;
       var n = rowEl(r, i === 0);
       if (r.c === "Westfield Choral Society") n.classList.add("sel");
       if (closeNext) { n.classList.add("afterwaiting"); closeNext = false; }
@@ -1093,7 +1108,8 @@ function windowFor(layout) {
    THE CARD IS NOT NARROWED: it counts what needs you, and the round held it
    identical in both options.
    The SEARCH control below steps through no search, the round's own search
-   (Cedar Hill, 6 invoices: 2 waiting on held money, 1 draft to send, 3 paid)
+   (Cedar Hill, 6 invoices: 3 waiting on held money, its draft among them since
+   ovation#453, and 3 paid)
    and a search matching nothing, whose sentence was drafted with the app. */
 var SEARCHES = [null, "Cedar Hill", "Linden Park"];
 var SEARCH = null;

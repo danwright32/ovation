@@ -101,6 +101,16 @@ at all: PRD 14h is about OPEN invoices. The fixture now carries one client with 
 invoices, which this list had none of, because a branch no fixture can reach is the branch that
 ships untested.
 
+**That reading was reversed on 2026-09-23, and the fixture now draws the reversal** (ovation#453,
+ovation#656, PRD 14j). Dan decided a draft counts as an open invoice for 14j: a client with money
+on account and more than one open invoice, drafts included, has it applied to none of them, and
+their drafts join this group. The built list moved Cedar Hill's draft, `Side by Side concert`, into
+the group from then on, while this file went on drawing it below as a draft to send, because the
+file named its waiting rows by invoice number and a draft has none. It now names them by client
+and shoot, the group holds three, and the card follows from the same rows: `To place 3` and
+`To send 3` on all five screens that draw the rail. An unpriced draft still stays out (ovation#595),
+and one whose send could not be settled is neither a draft nor sent and is not counted.
+
 **Money held against a client with NO open invoice gets nothing here, and that is a decision**
 (second round, same day, PRD 46e). It has no invoice to group, so the candidates were different:
 nothing at all, a second quiet line under the rail's `Money held` figure naming the part with no
