@@ -63,20 +63,111 @@ CHROMELESS = re.compile(
     r"|\.(?:plain|borderless)\s+as\b")
 PLAIN_IN_OWNER = re.compile(r"buttonStyle\(\s*\.plain\b|\bPlainButtonStyle\b")
 
-# Comments and string literals, in one alternation so a `//` inside a string is
-# the string's and a quote inside a comment is the comment's. Multi line strings
-# come first, because `"""` would otherwise read as an empty string and a quote.
-PROSE = re.compile(r'"""[\s\S]*?"""|"(?:\\.|[^"\\\n])*"|/\*[\s\S]*?\*/|//[^\n]*')
+# COMMENTS AND STRING LITERALS ARE READ BY A SCANNER, NOT ONE PATTERN
+# (ovation#665). A pattern reading a string as running to the next unescaped
+# quote ends it at the quote that opens a string NESTED in an interpolation,
+# `"\(open ? "a" : "b")"`, and reads the nested string's words as code. So a
+# literal is walked: an interpolation is followed to its closing parenthesis,
+# strings inside it are walked the same way, and a raw string `#"..."#` ends only
+# at a quote carrying its own number of `#`. Swift's block comments nest, so they
+# are counted too. A `//` inside a string is the string's, and a quote inside a
+# comment is the comment's, because whichever opens first is read to its end.
 
 
-def blank(match):
-    """Spaces for everything a match covered, line breaks kept, so offsets and
+def _string_end(text, at):
+    """The offset just past the string literal starting at `at`, which is a
+    run of `#` (possibly empty) and then `"` or `\"\"\"`. A literal never
+    closed runs to the end of the text."""
+    hashes = 0
+    while text.startswith("#", at + hashes):
+        hashes += 1
+    i = at + hashes
+    multi = text.startswith('"""', i)
+    i += 3 if multi else 1
+    closing = ('"""' if multi else '"') + "#" * hashes
+    escape = "\\" + "#" * hashes
+    while i < len(text):
+        if text.startswith(escape, i):
+            i += len(escape)
+            if i < len(text) and text[i] == "(":
+                i = _interpolation_end(text, i + 1)
+            else:
+                i += 1
+            continue
+        if text.startswith(closing, i):
+            return i + len(closing)
+        if not multi and text[i] == "\n":
+            return i
+        i += 1
+    return len(text)
+
+
+def _interpolation_end(text, i):
+    """The offset just past the parenthesis closing an interpolation whose
+    body starts at `i`, walking any string or comment inside it whole."""
+    depth = 1
+    while i < len(text) and depth:
+        opened = _prose_at(text, i)
+        if opened is not None:
+            i = opened
+            continue
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+        i += 1
+    return i
+
+
+def _comment_end(text, at):
+    """The offset just past the comment starting at `at`."""
+    if text.startswith("//", at):
+        end = text.find("\n", at)
+        return len(text) if end < 0 else end
+    depth, i = 0, at
+    while i < len(text):
+        if text.startswith("/*", i):
+            depth, i = depth + 1, i + 2
+        elif text.startswith("*/", i):
+            depth, i = depth - 1, i + 2
+            if not depth:
+                return i
+        else:
+            i += 1
+    return len(text)
+
+
+def _prose_at(text, i):
+    """Where the comment or string starting at `i` ends, or None if neither
+    starts there."""
+    if text.startswith("//", i) or text.startswith("/*", i):
+        return _comment_end(text, i)
+    j = i
+    while j < len(text) and text[j] == "#":
+        j += 1
+    if j < len(text) and text[j] == '"':
+        return _string_end(text, i)
+    return None
+
+
+def blank(span):
+    """Spaces for everything a span covered, line breaks kept, so offsets and
     line numbers stay where they were."""
-    return re.sub(r"[^\n]", " ", match.group(0))
+    return re.sub(r"[^\n]", " ", span)
 
 
 def code_of(text):
-    return PROSE.sub(blank, text)
+    out, i, start = [], 0, 0
+    while i < len(text):
+        end = _prose_at(text, i)
+        if end is None:
+            i += 1
+            continue
+        out.append(text[start:i])
+        out.append(blank(text[i:end]))
+        i = start = end
+    out.append(text[start:])
+    return "".join(out)
 
 
 def line_of(text, offset):
