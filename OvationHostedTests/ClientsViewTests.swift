@@ -14,6 +14,7 @@ import ViewInspector
 /// address. What the rules decide is `ClientsPresenterTests`; this is what a
 /// person sees (L442, L606).
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct ClientsViewTests {
 
     static let noon = Date(timeIntervalSince1970: 1_794_531_600)
@@ -264,6 +265,7 @@ struct ClientsViewTests {
 /// Review of ovation#616, L606. The shared address notice drawn at the width the
 /// page gives it in the 860 point window, with three long real-length names.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct SharedAddressNoticeLayoutTests {
 
     /// The notice's width at the smallest window: the window, less the rail, the
@@ -355,6 +357,7 @@ struct SharedAddressNoticeLayoutTests {
 /// dark capture is compared byte for byte, for the reason `InvoiceListShotTests`
 /// gives: OvationPalette has no dark half, by Dan's decision.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct ClientsShotTests {
 
     private static var outputDirectory: URL? {

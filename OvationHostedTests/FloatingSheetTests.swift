@@ -14,6 +14,7 @@ import ViewInspector
 /// (L442). So the floating sheet is drawn in a window of the sizes the design checks
 /// measure, and the card is found by its colour and measured.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct FloatingSheetTests {
 
     /// A colour the palette uses nowhere, so the card is found by it alone.

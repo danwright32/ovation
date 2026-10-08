@@ -36,6 +36,7 @@ import Testing
 @testable import Ovation
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct InvoiceListShotTests {
 
     private static var outputDirectory: URL? {

@@ -12,8 +12,37 @@
 #
 # THE PUSH GATE CANNOT SEE A DESCRIPTION, so this is run by
 # .github/workflows/pr-description.yml on every event that can change one, and
-# the description is handed to it as a file. It never asks GitHub itself, so its
-# suite drives every outcome with a file rather than a real pull request (L2).
+# the description is handed to it as a file. The commit messages are asked of
+# GitHub through OVATION_GH, so its suite drives every outcome with a file and a
+# stand in for gh rather than a real pull request (L2).
+#
+# A CLOSING KEYWORD GITHUB READS CLOSES THE ISSUE WHATEVER ITS SENTENCE SAYS
+# (ovation#683, L1018). GitHub's parser does no negation handling: "does not
+# close #12", "does not yet close #12" and "a later pull request will resolve
+# #12" all close #12 on merge (it closed Overture #897 on a pull request saying
+# it did not). The first version of this refused only a negation DIRECTLY before
+# the keyword, which passed "does not yet close", "doesn't fully fix", "not
+# meant to close" and "cannot fix", because recognising negation is recognising
+# English and never ends. So the rule is the shape of what GitHub does instead: a
+# reference GitHub reads (#N or owner/repo#N after a keyword) must stand in a
+# sentence holding nothing but closing references, which is the one spelling
+# whose meaning and GitHub's reading cannot differ. A sentence runs across a
+# wrapped line, because commit messages are wrapped and the line after the wrap
+# ("close #12.") looks exactly like a closing line on its own. Measured before it
+# shipped against all 203 pull request descriptions here and every commit message
+# on main: no description is refused by it, "Closes #424. Also ..." included, and
+# the one commit it refuses is b3d9f8d, whose three references (#95, #12 twice)
+# are all prose GitHub read as closing.
+#
+# THE COMMIT MESSAGES TOO, because this repository squash merges with the commit
+# messages as the squash body (squash_merge_commit_message COMMIT_MESSAGES), so
+# every branch commit message lands on main, where GitHub reads its keywords as
+# well: b3d9f8d put "does not close #12" on main. Only the sentence rule applies
+# to them. The ovation#N rule below is about a description meant to close an
+# issue and failing to, and a commit message is not where closing is decided.
+# The number of messages read is compared with the number of commits GitHub says
+# the pull request has, so a partial read is refused rather than passed (L288);
+# GitHub lists at most 250, which a pull request here has never come near.
 #
 # WHAT IT REFUSES is a closing keyword GitHub documents (close, closes, closed,
 # fix, fixes, fixed, resolve, resolves, resolved, in any case, with or without a
@@ -29,12 +58,23 @@
 #
 # Outcomes:
 #
-#   0  every closing reference is one GitHub reads, or there are none
-#   1  at least one closes as ovation#N, which GitHub does not read
-#   2  CANNOT MEASURE: no description was handed to it
+#   0  every closing reference is one GitHub reads, standing in a sentence of its
+#      own, or there are none
+#   1  at least one closes as ovation#N, which GitHub does not read, or one GitHub
+#      reads sits in a sentence saying something else
+#   2  CANNOT MEASURE: no description was handed to it, or the commit messages
+#      could not be read in full
+#
+# OVATION_PR_NUMBER names the pull request whose commit messages are read. With
+# none, only the description is read, and the verdict says so rather than
+# claiming the commits (L440); the workflow always passes it, and its suite
+# asserts that.
 set -uo pipefail
 
 BODY_FILE="${OVATION_PR_BODY_FILE:-}"
+PR_NUMBER="${OVATION_PR_NUMBER:-}"
+GH="${OVATION_GH:-gh}"
+REPO="${OVATION_REPO:-${GITHUB_REPOSITORY:-danwright32/ovation}}"
 
 if [ -z "$BODY_FILE" ]; then
     echo "CANNOT MEASURE: no pull request description was given."
@@ -65,22 +105,117 @@ READABLE="$(perl -pe 's/(\bnot|\bnever|\bnor|n(?:\x27|\xE2\x80\x99)t)(\s+)(close
     echo "CANNOT MEASURE: perl could not read $BODY_FILE, so nothing was checked."
     exit 2
 }
-# AND THE OTHER WAY ROUND: A NEGATION BESIDE A REFERENCE GITHUB READS CLOSES IT.
-# GitHub's parser does no negation handling, so "does not close #12" closes #12 on
-# merge (it closed Overture #897 on a pull request saying it did not). The bare
-# short name is harmless because GitHub reads none of it; #N and owner/repo#N are
-# read, "not" and all, so those are refused here rather than ignored.
-NEGATED_READ="$(perl -ne 'while (/(?:\bnot|\bnever|\bnor|n(?:\x27|\xE2\x80\x99)t)\s+(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\b:?\s+((?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+)/gi) { print "$1 $2\n" }' "$BODY_FILE")" || NEGATED_READ=""
-negated_refused=0
-while IFS= read -r negated; do
-    [ -n "$negated" ] || continue
-    echo "  REFUSED  not ${negated}: GitHub ignores the negation and CLOSES that issue on merge. Keep the keyword away from the number, for example \"${negated##* }, which stays open\""
-    negated_refused=$((negated_refused+1))
-done <<< "$NEGATED_READ"
+# THE SENTENCE RULE, ONE IMPLEMENTATION FOR THE DESCRIPTION AND EVERY COMMIT
+# MESSAGE (L16). It reads the text on stdin and prints one line per reference
+# GitHub reads: `ok<TAB>keyword ref` when its sentence holds nothing else, and
+# `refused<TAB>keyword ref` when it does. A paragraph is split into sentences at
+# a terminator, a list item or heading, or a line that is itself only closing
+# references; any other line break continues the sentence, which is how a
+# wrapped "does not\nclose #12." is read as the one sentence it is.
+SENTENCE_RULE='
+my $t = do { local $/; <STDIN> }; $t = "" unless defined $t;
+$t =~ s/\r\n?/\n/g;
+my $K = qr/(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)/i;
+my $R = qr/(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+/;
+my $C = qr/(?<![A-Za-z0-9_])($K):?\s+($R)(?![A-Za-z0-9_])/;
+sub plain {
+    my $s = shift;
+    return 0 unless $s =~ $C;
+    $s =~ s/^\s*(?:[-*+]|\d+[.)])\s+//;
+    $s =~ s/$C//g;
+    $s =~ s/\band\b//gi;
+    return $s !~ /[A-Za-z0-9]/;
+}
+for my $para (split /\n[ \t]*\n/, $t) {
+    my @units; my $cur; my $split_next = 1;
+    for my $line (split /\n/, $para) {
+        my $block = $line =~ /^\s*(?:[-*+]\s|\d+[.)]\s|#{1,6}\s|>)/;
+        if (!defined $cur || $split_next || $block) {
+            push @units, $cur if defined $cur;
+            $cur = $line;
+        } else {
+            $cur .= " $line";
+        }
+        $split_next = ($line =~ /[.!?;][)"*_`\x27]*\s*$/ || plain($line)) ? 1 : 0;
+    }
+    push @units, $cur if defined $cur;
+    for my $u (@units) {
+        for my $sentence (split /(?<=[.!?;])\s+/, $u) {
+            next unless $sentence =~ $C;
+            my $verdict = plain($sentence) ? "ok" : "refused";
+            while ($sentence =~ /$C/g) { print "$verdict\t$1 $2\n"; }
+        }
+    }
+}
+'
+
+# sentence_refusals <where> <verdicts>: print a refusal for every refused line,
+# naming the reference and where it is, never the sentence around it (L222).
+sentence_refusals() {
+    local where="$1" verdicts="$2" verdict ref number
+    while IFS=$'\t' read -r verdict ref; do
+        [ "$verdict" = "refused" ] || continue
+        number="${ref##* }"
+        echo "  REFUSED  ${ref} in ${where}: GitHub closes that issue on merge whatever the rest of the sentence says, a \"not\" included (L1018). To close it, give it a sentence of its own: Closes ${number}. To leave it open, write: Part of ${number}"
+    done <<< "$verdicts"
+}
+
+if ! BODY_VERDICTS="$(perl -e "$SENTENCE_RULE" < "$BODY_FILE")"; then
+    echo "CANNOT MEASURE: perl could not read $BODY_FILE, so nothing was checked."
+    exit 2
+fi
+BODY_READ_COUNT="$(printf '%s' "$BODY_VERDICTS" | grep -c . || true)"
+sentence_refused="$(printf '%s' "$BODY_VERDICTS" | grep -c '^refused' || true)"
+sentence_refusals "the description" "$BODY_VERDICTS"
+
+# THE COMMIT MESSAGES, read only when the pull request is named.
+COMMITS_READ=""
+COMMIT_REF_COUNT=0
+commit_refused=0
+if [ -n "$PR_NUMBER" ]; then
+    if ! EXPECTED="$("$GH" api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .commits 2>&1)" \
+        || ! grep -qE '^[0-9]+$' <<< "$EXPECTED"; then
+        echo "CANNOT MEASURE: GitHub did not say how many commits pull request ${PR_NUMBER} has:"
+        echo "    $(printf '%s' "$EXPECTED" | head -1)"
+        echo "    Its commit messages were not read, and that is not a pass (L98)."
+        exit 2
+    fi
+    if ! COMMITS="$("$GH" api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/commits?per_page=100" \
+        --jq '.[] | .sha[0:7] + " " + (.commit.message | @base64)' 2>&1)"; then
+        echo "CANNOT MEASURE: GitHub did not list the commits of pull request ${PR_NUMBER}:"
+        echo "    $(printf '%s' "$COMMITS" | head -1)"
+        echo "    Its commit messages were not read, and that is not a pass (L98)."
+        exit 2
+    fi
+    COMMITS_READ="$(printf '%s' "$COMMITS" | grep -c . || true)"
+    if [ "$COMMITS_READ" != "$EXPECTED" ] || [ "$COMMITS_READ" -eq 0 ]; then
+        echo "CANNOT MEASURE: read ${COMMITS_READ} commit message(s), but pull request ${PR_NUMBER}"
+        echo "    has ${EXPECTED} commit(s). A partial read is not a pass (L288). GitHub lists"
+        echo "    at most 250 commits of a pull request."
+        exit 2
+    fi
+    while read -r sha encoded; do
+        [ -n "$sha" ] || continue
+        if ! verdicts="$(printf '%s' "$encoded" \
+            | perl -MMIME::Base64 -e 'local $/; print decode_base64(<STDIN>)' \
+            | perl -e "$SENTENCE_RULE")"; then
+            echo "CANNOT MEASURE: commit ${sha}'s message could not be decoded and read."
+            exit 2
+        fi
+        [ -n "$verdicts" ] || continue
+        COMMIT_REF_COUNT=$((COMMIT_REF_COUNT + $(printf '%s\n' "$verdicts" | grep -c .)))
+        commit_refused=$((commit_refused + $(printf '%s\n' "$verdicts" | grep -c '^refused' || true)))
+        sentence_refusals "commit ${sha}" "$verdicts"
+    done <<< "$COMMITS"
+fi
 
 REFS="$(printf '%s\n' "$READABLE" | grep -oiE "(^|[^A-Za-z0-9_])${KEYWORD}:?[[:space:]]+${REFERENCE}" \
     | sed -E 's/^[^A-Za-z]+//')"
-REF_COUNT="$(printf '%s' "$REFS" | grep -c . || true)"
+# The count is every reference GitHub reads, from the sentence rule, plus every
+# bare short name a keyword precedes, which GitHub reads none of but this check
+# does. A negated short name is neither, which is what ovation#486 asked for.
+SHORT_COUNT="$(printf '%s\n' "$REFS" | sed -E 's/^[A-Za-z]+:?[[:space:]]+//' | grep -cE '^[A-Za-z0-9_.-]+#[0-9]+$' || true)"
+REF_COUNT=$((BODY_READ_COUNT + SHORT_COUNT))
 
 refused=0
 while IFS= read -r ref; do
@@ -98,18 +233,36 @@ while IFS= read -r ref; do
 done <<< "$REFS"
 
 echo "read ${REF_COUNT} closing reference(s) in the description"
-if [ "$negated_refused" -gt 0 ]; then
-    echo "REFUSED: ${negated_refused} negated closing keyword(s) sit next to a reference GitHub reads,"
-    echo "    so the issue it says stays open would be closed by the merge. Edit the"
-    echo "    description; this check runs again when it is edited."
-    exit 1
+if [ -n "$COMMITS_READ" ]; then
+    echo "read ${COMMIT_REF_COUNT} closing reference(s) GitHub reads across ${COMMITS_READ} commit message(s)"
+else
+    echo "commit messages not read: no pull request number was given, so only the description was checked"
+fi
+status=0
+if [ "$sentence_refused" -gt 0 ]; then
+    echo "REFUSED: ${sentence_refused} closing reference(s) in the description sit in a sentence"
+    echo "    saying something else, and GitHub closes them on merge whatever it says."
+    echo "    Edit the description; this check runs again when it is edited."
+    status=1
+fi
+if [ "$commit_refused" -gt 0 ]; then
+    echo "REFUSED: ${commit_refused} closing reference(s) in commit messages sit in a sentence saying"
+    echo "    something else. The squash merge copies every commit message onto main, where"
+    echo "    GitHub closes them, so reword those commits (git commit --amend for the newest,"
+    echo "    git rebase -i for an older one) and push again."
+    status=1
 fi
 if [ "$refused" -gt 0 ]; then
     echo "REFUSED: ${refused} closing reference(s) name the issue as ovation#N, which"
     echo "    GitHub does not read, so the issue would stay open after the merge with"
     echo "    nothing saying so (ovation#261). Edit the description; this check runs"
     echo "    again when it is edited."
-    exit 1
+    status=1
 fi
-echo "OK: every closing reference is one GitHub reads."
+[ "$status" -eq 0 ] || exit 1
+if [ -n "$COMMITS_READ" ]; then
+    echo "OK: every closing reference in the description and the commit messages is one GitHub reads, in a sentence of its own."
+else
+    echo "OK: every closing reference in the description is one GitHub reads, in a sentence of its own."
+fi
 exit 0
