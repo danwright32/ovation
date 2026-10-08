@@ -215,6 +215,7 @@ final class BookingDraftCommand {
         var drafted = 0
         var already = 0
         var leftToQuickBooks = 0
+        var draftedThoughBilled = 0
         for queued in reading.records {
             do {
                 switch try await drafter.draft(from: queued.record,
@@ -227,10 +228,11 @@ final class BookingDraftCommand {
                 case .billedInQuickBooks:
                     leftToQuickBooks += 1
                 case .draftedThoughBilledInQuickBooks(_, let committedOn):
-                    // COUNTED WITH THE OTHERS LEFT TO QUICKBOOKS, and raised on
-                    // its own by file, because the draft is the part Dan has to
+                    // COUNTED APART FROM THOSE LEFT TO QUICKBOOKS, whose sentence
+                    // says Ovation made no draft, which is false here (L11). Raised
+                    // on its own by file, because the draft is the part Dan has to
                     // act on: sent, it bills the client a second time.
-                    leftToQuickBooks += 1
+                    draftedThoughBilled += 1
                     let day = BusinessCalendar.day(forKey: committedOn)
                         .flatMap(BusinessCalendar.shortDate) ?? committedOn
                     said.append(Report.Said(
@@ -270,6 +272,7 @@ final class BookingDraftCommand {
         }
         let summary = "Read \(reading.records.count), drafted \(drafted), "
             + "\(already) already drafted, \(leftToQuickBooks) left to QuickBooks, "
+            + "\(draftedThoughBilled) drafted though QuickBooks billed it, "
             + "\(reading.unreadable.count) unreadable."
         return Report(summary: summary, sentences: said)
     }

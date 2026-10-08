@@ -342,4 +342,29 @@ struct BookingDraftCommandTests {
         #expect(!ProblemKind.closingOnceRead.contains(.bookingDraftAlsoBilledInQuickBooks),
                 "a duplicate invoice still needs Dan, so it must stay open once read")
     }
+
+    /// AND IT IS NOT COUNTED AS LEFT TO QUICKBOOKS. That sentence says Ovation
+    /// made no draft, which is false for a booking holding one, and it closes once
+    /// read beside the notice that must stay open (L11).
+    @Test("a booking that already has a draft is not counted among those given no draft")
+    func anearlierDraftIsNotCountedAsLeftToQuickBooks() async throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let queue = try Self.directory(holding: [Self.fixtureFile: try Self.fixtureData()])
+        await Self.press(BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: queue),
+                         container: container, problems: Self.problems())
+        let problems = Self.problems()
+        let command = BookingDraftCommand(launchCutoff: try Self.launchedEarlier("2026-09-07"),
+                                          queue: queue)
+
+        await Self.press(command, container: container, problems: problems)
+
+        #expect(!problems.open.contains { $0.kind == .bookingsLeftToQuickBooks },
+                "a booking holding a draft was reported as given no draft")
+        guard case .finished(_, let said) = command.progress else {
+            Issue.record("the press did not finish: \(command.progress)")
+            return
+        }
+        #expect(said.contains("0 left to QuickBooks"), "the press said \(said)")
+        #expect(said.contains("1 drafted though QuickBooks billed it"), "the press said \(said)")
+    }
 }
