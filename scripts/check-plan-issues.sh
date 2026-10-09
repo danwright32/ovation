@@ -46,6 +46,18 @@ matched whole, so plan 4.10 does not cover 4.1. An issue that cites only numbers
 the plan does not have is STRAY rather than UNMAPPED, because the remedy differs:
 the plan may have been renumbered under it.
 
+A FINDING A WORKFLOW FILED CITES NOTHING (ovation#641). This check's own
+workflow files its verdict as an issue, and the verdict tells a reader to "File
+one that says `Plan 4.1`", which reads exactly like a citation. Counted, the
+report that a sub-step had no issue was itself its issue: on 2026-10-08 it was
+the only thing issuing 4.0 to 4.3, 5.1 and 5.2, and since a closed issue still
+counts in that direction it would have gone on issuing them after the workflow
+closed it. A finding is known by the verdict stamp the finding reporter writes
+on every body it is given a verdict for, which plan-issues.yml always gives (the
+comment at FINDING names the reporter), so its words are read as no citation at
+all and it is named as NOT COUNTED. This script only reads that stamp: it does
+not call the reporter.
+
 IT REPORTS, IT DOES NOT FILE. A sub-step with no issue may be one the plan should
 drop, and an issue that maps to nothing may be one the plan should gain; only a
 reader can tell which.
@@ -65,6 +77,8 @@ Outcomes, each said differently because each needs different work (L11):
     STRAY              one cites only sub-steps the plan does not number
     NO SUCH MILESTONE  the plan names a milestone the tracker does not have
     NOT OWED           a sub-step or phase with no milestone, or a closed one
+    NOT COUNTED        an issue a workflow filed as a finding, whose quoted
+                       citations are not citations
 
 Exit codes:
 
@@ -107,6 +121,11 @@ TABLE_ROW = re.compile(r"^\|\s*(" + NUMBER + r")(?![\w.])[^|]*\|\s*`([^`]+)`")
 # A CITATION IS A WHOLE NUMBER: the pattern takes every digit and the letter
 # after them, so plan 4.10 and plan 4.1a do not cite 4.1.
 CITES = re.compile(r"(?i)\b(?:plan|phase)\s+(" + NUMBER + r")")
+# The stamp scripts/report-finding.sh puts on a finding it was given a verdict
+# for (its STAMP), which test-plan-issues.sh builds from that script's own format.
+# Named only in comments here, because test-report-finding.sh counts any other
+# line naming that script as a caller of it, and this one only reads its stamp.
+FINDING = re.compile(r"<!-- report-finding verdict [0-9a-f]{64} -->")
 
 
 def read_plan(text):
@@ -223,6 +242,12 @@ def main(argv):
     for issue in issues:
         text = "%s\n%s" % (issue.get("title") or "", issue.get("body") or "")
         numbers = set(CITES.findall(text))
+        if numbers and FINDING.search(issue.get("body") or ""):
+            # Named only where it changes the answer, so the findings that quote
+            # no sub-step add nothing to read.
+            print("  NOT COUNTED ovation#%d is a finding filed by a workflow, so the "
+                  "sub-steps it quotes are not cited by it" % issue["number"])
+            numbers = set()
         cites[issue["number"]] = numbers
         for number in numbers:
             cited_by.setdefault(number, []).append(issue["number"])
