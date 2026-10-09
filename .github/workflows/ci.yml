@@ -44,13 +44,27 @@ on:
     branches: [main]
   pull_request:
 
-# A second push supersedes the first. Nothing downstream reads a cancelled run,
-# and on a shared runner pool a superseded run delays every other repository's.
-# github.ref is the pull request's merge ref for a pull request run and main for
-# a push, so each pull request and main have one group apiece.
+# ON A PULL REQUEST a second push supersedes the first. Nothing downstream reads
+# a cancelled pull request run, and on a shared runner pool a superseded run
+# delays every other repository's. github.ref is the pull request's merge ref, so
+# each pull request has one group.
+#
+# ON MAIN EVERY MERGE GETS ITS OWN VERDICT (ovation#662). Main shared one group
+# and cancelled too, so the next merge cancelled the run judging the one before:
+# 42 main runs in September 2026. The main run is what catches two pull requests
+# that were each green alone and break together, and the cancelled run was the
+# evidence needed to say which merge broke it. Turning cancellation off is not
+# enough by itself: a group holds one running and ONE pending run, and a newly
+# queued run cancels the pending one whatever cancel-in-progress says, so three
+# quick merges would still lose the middle verdict. So on main the group is the
+# commit, and runs of different merges proceed side by side. CI writes nothing,
+# so two main runs at once cannot collide; while the repository is public they
+# cost nothing, and after ovation#15 each extra main run bills its macOS minutes.
+#
+# scripts/check-ci-workflow.sh refuses either half coming back.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # THREE JOB NAMES ARE LOAD BEARING (ovation#378). The ruleset "main requires CI"
 # requires `Build both configurations and run everything` and `Shell suites on
@@ -83,7 +97,11 @@ jobs:
   # macOS: allowed, and NAMED, never called green.
   shell-suites-linux:
     name: Shell suites on Linux
-    runs-on: ubuntu-latest
+    # A NAMED IMAGE, NOT ubuntu-latest (ovation#663). These suites test real shell
+    # behaviour, so a new bash, coreutils, git or flock would turn them red with no
+    # change here, and GitHub moves the moving label to Ubuntu 26 on 2026-10-19.
+    # The move to 26 is made here, deliberately, as its own change.
+    runs-on: ubuntu-24.04
     # 45 MINUTES, AND WHY IT GREW. It was 20 until 2026-09-30, when this job ran 17
     # to 19 minutes on main and the three rendering checks of ovation#625, #197 and
     # the window theme check added about 8 (each renders every state a press
@@ -105,7 +123,7 @@ jobs:
     env:
       OVATION_RENDER_RESTART_LOG: ${{ github.workspace }}/browser-restarts.tsv
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       # ONE SUITE NEEDS Pillow AND NOTHING ELSE DOES. Without it the app icon
       # currency check answers CANNOT MEASURE, which is honest and measures
@@ -129,7 +147,7 @@ jobs:
       # is a log line rather than a saving (L303, L3).
       - name: Cache the headless browser
         id: browser-cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-1.63.0-chromium-${{ runner.os }}
@@ -176,7 +194,7 @@ jobs:
       # does not expire.
       - name: Keep any browser restart this run recorded
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: browser-restarts
           path: browser-restarts.tsv
@@ -189,7 +207,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       # FIRST, before anything is installed or built, so a pin the image does not
       # carry costs seconds rather than a build (ovation#270). A NAMED IMAGE AND A NAMED
@@ -282,7 +300,7 @@ jobs:
       # now, so an empty folder is itself worth seeing.
       - name: Keep the screenshots this run captured
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: screenshots
           path: ${{ runner.temp }}/shots
