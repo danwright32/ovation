@@ -64,7 +64,7 @@ concurrency:
 jobs:
   watch:
     name: The pinned backstage is still its newest release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       # NO CREDENTIAL IS LEFT IN THE CHECKOUT (ovation#660). By default checkout
@@ -72,7 +72,7 @@ jobs:
       # git then sends in place of BACKSTAGE_READ_TOKEN, and that token cannot
       # see the private backstage repository. Nothing here pushes or fetches with
       # it: the reporting steps use GH_TOKEN through gh.
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 

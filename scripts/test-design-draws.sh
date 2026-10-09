@@ -169,7 +169,7 @@ check "and the claim that fired names the right edge" \
 # ---------------------------------------------------------------------------
 TWICE="$WORK/twice.html"
 check "the line that MOVES the waiting rows is where the mutation expects it" \
-    "$(mutate "$TWICE" 's|      if (WAITING.indexOf(r.n) !== -1) return;|      if (false) return;|' 'if (false) return;' invoice-list.html)" "1"
+    "$(mutate "$TWICE" 's|      if (isWaiting(r)) return;|      if (false) return;|' 'if (false) return;' invoice-list.html)" "1"
 judge "$TWICE"
 check_rendered_status "a list drawing one invoice twice is refused" "$(case_of "$TWICE")" "1"
 check "and the claim that fired names the invoice drawn twice" \
