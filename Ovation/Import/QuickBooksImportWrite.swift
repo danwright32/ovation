@@ -76,8 +76,13 @@ struct QuickBooksImportWrite: Equatable, Sendable {
 }
 
 /// The write went in and the store did not hold what was written.
+///
+/// THE SAVE HAS ALREADY COMMITTED by the time this is thrown, so it names the batch
+/// (review of 3e4df93): whatever did land carries that id, and reverting it by that
+/// id is how it is found again. Without it the rows would be found only by a re-run
+/// calling them already imported (L12).
 enum QuickBooksImportWriteFailure: Error, Equatable {
-    case readBackDisagreed(wrote: Int, found: Int)
+    case readBackDisagreed(batch: UUID, wrote: Int, found: Int)
 }
 
 extension QuickBooksImportRun {

@@ -260,6 +260,33 @@ struct QuickBooksImportWriterTests {
         #expect(write.batch == batch)
     }
 
+    @Test("a write the store does not read back in full says which batch it was, so it can be found and reverted")
+    func aShortReadBackNamesItsBatch() async throws {
+        // REVIEW OF 3e4df93: the save has already committed when the read back
+        // disagrees, so a failure that did not say which batch wrote the rows left
+        // them in the store with nothing to find them by but a re-run that would
+        // call them already imported (L12).
+        let container = try Fixture.store()
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let batch = UUID()
+        await allocator.setAfterImportSave {
+            // Something removes one written invoice between the save and the read
+            // back, which is what a store that did not keep the whole save looks like.
+            let context = ModelContext(container)
+            if let one = try? context.fetch(FetchDescriptor<Invoice>()).first(where: { $0.number == 1_042 }) {
+                context.delete(one)
+                try? context.save()
+            }
+        }
+
+        await #expect(throws: QuickBooksImportWriteFailure.readBackDisagreed(batch: batch, wrote: 2, found: 1)) {
+            _ = try await allocator.importInvoices(Fixture.run([Spec(number: "1041"), Spec(number: "1042")]).candidates(),
+                                                   batch: batch)
+        }
+        #expect(try Fixture.invoices(in: container).allSatisfy { $0.importBatchID == batch },
+                "what did land carries the batch the failure names")
+    }
+
     // MARK: helpers
 
     private static func newDraft(in container: ModelContainer) throws -> PersistentIdentifier {
