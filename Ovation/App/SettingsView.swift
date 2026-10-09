@@ -68,6 +68,15 @@ struct SettingsView: View {
     /// test would otherwise overwrite Dan's real footer (L201).
     var invoiceFooter: InvoiceFooterSetting
 
+    /// The launch day the draft from the queue command waits on (ovation#655, PRD
+    /// 1d). The SAME object the command reads, passed in rather than built here,
+    /// so confirming it re-enables the menu entry at once (L14) and a rendered
+    /// pane in a test cannot write Dan's real setting (L196, L201).
+    var launchCutoff: LaunchCutoffSetting
+    /// Today, for the day the launch control starts on when none is confirmed.
+    /// A seam rather than a clock read in here.
+    var today: () -> BusinessDate
+
     /// What the last press said, kept so an action SAYS it happened rather than
     /// leaving the pane looking unchanged (L608, L12).
     @State private var lastOutcome: String?
@@ -101,6 +110,11 @@ struct SettingsView: View {
             // backups pane is where he goes once, to choose a folder (L609).
             InvoiceSettingsPane(setting: invoiceFooter)
                 .tabItem { Label("Invoices", systemImage: "doc.text") }
+            // BOOKINGS SECOND: opened to confirm the launch day once, and again
+            // only to correct it, which is still more often than the backups
+            // folder is chosen (L609).
+            LaunchDaySettingsPane(setting: launchCutoff, today: today())
+                .tabItem { Label("Bookings", systemImage: "calendar") }
             backupsPane
                 .tabItem { Label("Backups", systemImage: "externaldrive") }
         }
