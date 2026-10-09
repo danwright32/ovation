@@ -484,18 +484,18 @@ extension OvationSchemaV9 {
         /// `InvoiceEditCommand.Open` is the menu's projection of this invoice and
         /// the menu has to know whether applying a credit could do anything.
         ///
-        /// THE CLIENT IS BOUND FIRST, as everywhere else, including the two tax
-        /// readings below. Reading a member straight through the optional client
-        /// can make the compiler lose `Client`'s own `Hashable` conformance and
-        /// fail three untouched lines of `InvoiceListPresenter`. It happens only
-        /// when the reading file and `InvoiceListPresenter` are compiled in one
-        /// batched job, the reader first, so it is not a property of any file: it
-        /// comes and goes as app files are added or removed and the driver moves its
-        /// batch boundaries, at the pinned `-driver-batch-count` and others, while a
-        /// batch count of 1 or a whole module build never shows it (measured
-        /// 2026-09-25 on Xcode 26.6 and 27.0). `scripts/check-forbidden-constructs.sh`
-        /// refuses that form so that nobody has to remember. ovation#497 holds the
-        /// measurement and a four file reproduction; it was not reported to Apple.
+        /// THE CLIENT IS BOUND FIRST, as in the two tax readings below. Reading a
+        /// member straight through the optional client can make the compiler lose
+        /// `Client`'s own `Hashable` conformance and fail three untouched lines of
+        /// `InvoiceListPresenter`, whenever the reading file and
+        /// `InvoiceListPresenter` land in one batched compile job without this
+        /// file, and which files share a job moves as app files are added or
+        /// removed (measured 2026-09-25 on Xcode 26.6 and 27.0).
+        /// `scripts/check-forbidden-constructs.sh` refuses that form in every
+        /// other file, where it is written with a leading dot; inside this file it
+        /// is written without one, so nothing checks it here and it is bound first
+        /// by hand. ovation#497 holds the measurement and a four file
+        /// reproduction; it was not reported to Apple.
         var clientHasReferralCreditBanked: Bool {
             let client = self.client
             return (client?.referralBalance ?? .zero) > .zero
