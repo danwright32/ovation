@@ -64,6 +64,23 @@ struct InvoiceListPresenterTests {
         InvoiceListPresenter(invoices: invoices, heldMoney: held, today: today)
     }
 
+    // MARK: which reading this is
+
+    /// ovation#685 (L1019). The open invoice is read again when the list's reading
+    /// changes, and the old list is gone by the time the next one is built in the
+    /// cases that matter, so a key taken from the object's address can be handed
+    /// straight to its successor and the refresh is skipped. Each list here is
+    /// freed before the next is made, which is what lets an address repeat.
+    @Test("a list built after the last one was freed never carries its reading")
+    func everyListIsADifferentReading() {
+        var seen = Set<UUID>()
+        let lists = 64
+        for _ in 0..<lists {
+            seen.insert(Self.present([]).reading)
+        }
+        #expect(seen.count == lists, "two lists, one after the other, read as the same reading")
+    }
+
     // MARK: the bands and their order
 
     @Test("the bands come back in the order the list draws them, and empty ones are not there")

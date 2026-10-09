@@ -12,6 +12,13 @@
 // kept: `elapsed` is a measurement from a clock the caller passes, so a view can
 // say how long a press has been going rather than only that it is going.
 //
+// IT WAITS ON THE LAUNCH DAY (ovation#655, PRD 1d). Until the day Ovation took
+// over billing is confirmed in Settings, every queued booking may also have been
+// invoiced in QuickBooks, so the command is refused by name and says where that
+// is fixed. Once it is, a booking committed before that day is reported as left
+// to QuickBooks and never drafted, through `LaunchDay.whoBills`, the one rule
+// ovation#32's drain uses too.
+//
 // IT IS NEVER HIDDEN, only disabled with the reason said out loud, because a
 // control that is not there cannot be asked why (L49, L109).
 //
@@ -34,6 +41,15 @@ extension ProblemKind {
     /// A record is in the queue and Ovation cannot read it, which is a booking
     /// that may never be invoiced (PRD 1).
     static let bookingRecordUnreadable = ProblemKind("booking-queue.unreadable")
+    /// Bookings committed before launch day were left to QuickBooks, which billed
+    /// them, and no draft was made (PRD 1d, ovation#655). Said out loud because a
+    /// press that read records and drafted none of them is otherwise
+    /// indistinguishable from one that failed (L98).
+    static let bookingsLeftToQuickBooks = ProblemKind("booking-queue.left-to-quickbooks")
+    /// A booking committed before launch day ALREADY has an Ovation draft, made by
+    /// a build that did not yet know the cutoff. That draft is a second invoice to
+    /// a client QuickBooks already billed, so it stays open until dealt with.
+    static let bookingDraftAlsoBilledInQuickBooks = ProblemKind("booking-queue.drafted-and-billed-in-quickbooks")
 }
 
 @Observable
@@ -57,7 +73,16 @@ final class BookingDraftCommand {
     /// and not the other (L544).
     let queue: URL?
 
-    init(queue: URL?) { self.queue = queue }
+    /// The launch day Settings confirms (ovation#655, PRD 1d). The same object
+    /// the Settings pane writes, so confirming there opens this command at once.
+    /// Required, with no default, because a command built without one would
+    /// draft bookings QuickBooks already billed (L168).
+    let launchCutoff: LaunchCutoffSetting
+
+    init(launchCutoff: LaunchCutoffSetting, queue: URL?) {
+        self.launchCutoff = launchCutoff
+        self.queue = queue
+    }
 
     /// The command for THIS launch.
     ///
@@ -71,12 +96,13 @@ final class BookingDraftCommand {
     /// NOT CALLED `live...`, because in this codebase that prefix names a
     /// resolver returning a URL and `check-isolation-floor.sh` requires every one
     /// of them in the floor. This composes one that is already there.
-    static func forThisLaunch() -> BookingDraftCommand {
-        BookingDraftCommand(queue: StoreLocation.liveBookingQueueDirectory())
+    static func forThisLaunch(launchCutoff: LaunchCutoffSetting) -> BookingDraftCommand {
+        BookingDraftCommand(launchCutoff: launchCutoff,
+                            queue: StoreLocation.liveBookingQueueDirectory())
     }
 
     var mayRun: Bool {
-        guard queue != nil else { return false }
+        guard queue != nil, launchCutoff.cutoff.confirmed != nil else { return false }
         if case .running = progress { return false }
         return true
     }
@@ -95,7 +121,9 @@ final class BookingDraftCommand {
             return "This launch has no booking queue to read. It is a throwaway run, "
                 + "kept away from the real records on purpose."
         }
-        return nil
+        // LAST, because it is the one Dan can fix, and the others say there is
+        // nothing to draft from at all (ovation#655).
+        return launchCutoff.cutoff.whyDraftingWaits
     }
 
     func elapsed(now: Date) -> TimeInterval? {
@@ -107,7 +135,8 @@ final class BookingDraftCommand {
     /// on every path including the ones that drafted nothing.
     func press(now: Date, container: ModelContainer?, problems: ProblemsStore,
                afterwards: @escaping @MainActor () -> Void = {}) {
-        guard let container, mayRun, let queue else {
+        guard let container, mayRun, let queue,
+              let launchDay = launchCutoff.cutoff.confirmed else {
             // ALWAYS SAYS SOMETHING, and the fallback is a sentence rather than
             // silence: the guard and the reasons are meant to cover the same
             // cases, and if they stop agreeing Dan hears about THAT (L109, L622).
@@ -122,7 +151,7 @@ final class BookingDraftCommand {
         progress = .running(since: now)
         Task { @MainActor in
             let report = await Self.offTheMainActor(queue: queue, container: container,
-                                                    today: .stamping(now))
+                                                    today: .stamping(now), launchDay: launchDay)
             let finished = Date()
             for said in report.sentences {
                 _ = problems.raise(kind: said.kind, subject: said.subject,
@@ -151,8 +180,9 @@ final class BookingDraftCommand {
     /// L241).
     /// `today` is the day of the press, which each drafted invoice is created on
     /// (ovation#510). Passed rather than read here, so no clock is hidden inside.
+    /// `launchDay` is read once, at the press, so one run cannot apply two days.
     private static func offTheMainActor(queue: URL, container: ModelContainer,
-                                        today: BusinessDate) async -> Report {
+                                        today: BusinessDate, launchDay: LaunchDay) async -> Report {
         let reading = BookingQueue.read(directory: queue)
         var said: [Report.Said] = []
 
@@ -183,14 +213,34 @@ final class BookingDraftCommand {
         let drafter = BookingDrafter(modelContainer: container)
         var drafted = 0
         var already = 0
+        var leftToQuickBooks = 0
+        var draftedThoughBilled = 0
         for queued in reading.records {
             do {
                 switch try await drafter.draft(from: queued.record,
-                                               at: Pricing.standardHourlyRate, on: today) {
+                                               at: Pricing.standardHourlyRate, on: today,
+                                               launchDay: launchDay) {
                 case .drafted:
                     drafted += 1
                 case .alreadyDrafted:
                     already += 1
+                case .billedInQuickBooks:
+                    leftToQuickBooks += 1
+                case .draftedThoughBilledInQuickBooks(_, let committedOn):
+                    // COUNTED APART FROM THOSE LEFT TO QUICKBOOKS, whose sentence
+                    // says Ovation made no draft, which is false here (L11). Raised
+                    // on its own by file, because the draft is the part Dan has to
+                    // act on: sent, it bills the client a second time.
+                    draftedThoughBilled += 1
+                    let day = BusinessCalendar.day(forKey: committedOn)
+                        .flatMap(BusinessCalendar.shortDate) ?? committedOn
+                    said.append(Report.Said(
+                        kind: .bookingDraftAlsoBilledInQuickBooks, subject: queued.file,
+                        sentence: "\(queued.file) was committed on \(day), before launch "
+                                + "day (\(launchDay.written)), so QuickBooks invoiced it, "
+                                + "and it also has a draft in Ovation made by an earlier "
+                                + "build. Do not send that draft: it would bill the "
+                                + "client twice."))
                 case .refused(let refusal):
                     said.append(Report.Said(
                         kind: .bookingDraftRefused, subject: queued.file,
@@ -212,8 +262,17 @@ final class BookingDraftCommand {
                 sentence: "\(drafted) booking(s) from the queue are now drafts, waiting on "
                         + "the shoot times before they can be sent."))
         }
+        if leftToQuickBooks > 0 {
+            said.append(Report.Said(
+                kind: .bookingsLeftToQuickBooks, subject: "booking-queue",
+                sentence: "\(leftToQuickBooks) booking(s) in the queue were committed "
+                        + "before launch day (\(launchDay.written)), so QuickBooks "
+                        + "invoiced them and Ovation made no draft."))
+        }
         let summary = "Read \(reading.records.count), drafted \(drafted), "
-            + "\(already) already drafted, \(reading.unreadable.count) unreadable."
+            + "\(already) already drafted, \(leftToQuickBooks) left to QuickBooks, "
+            + "\(draftedThoughBilled) drafted though QuickBooks billed it, "
+            + "\(reading.unreadable.count) unreadable."
         return Report(summary: summary, sentences: said)
     }
 }

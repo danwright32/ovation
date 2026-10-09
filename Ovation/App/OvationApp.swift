@@ -23,6 +23,9 @@ struct OvationApp: App {
     /// ovation#461. The control that turns what Downbeat has queued into drafts,
     /// which is the shortcut ovation#32's drain replaces.
     @State private var draftCommand: BookingDraftCommand
+    /// ovation#655. The launch day, ONE object read by the draft command and
+    /// written by Settings, so confirming it there opens the menu entry at once.
+    @State private var launchCutoff: LaunchCutoffSetting
     /// The store the launch sequence opened, handed on rather than opened again:
     /// two containers over one file are two writers (ovation#84).
     @State private var opened: ModelContainer?
@@ -149,7 +152,9 @@ struct OvationApp: App {
         // launch teaches nothing; one that is there and says what is missing is
         // the difference between a dead control and a refusal (L109).
         _exportCommand = State(initialValue: YearEndExportCommand.forThisLaunch())
-        _draftCommand = State(initialValue: BookingDraftCommand.forThisLaunch())
+        let launchCutoff = LaunchCutoffSetting(defaults: .standard)
+        _launchCutoff = State(initialValue: launchCutoff)
+        _draftCommand = State(initialValue: BookingDraftCommand.forThisLaunch(launchCutoff: launchCutoff))
     }
 
 
@@ -806,7 +811,9 @@ struct OvationApp: App {
             // was none when this window was made (ovation#247).
             SettingsView(backups: backupSettings,
                          makeRestore: { Self.restorePresenter(for: store) },
-                         invoiceFooter: InvoiceFooterSetting(defaults: .standard))
+                         invoiceFooter: InvoiceFooterSetting(defaults: .standard),
+                         launchCutoff: launchCutoff,
+                         today: { BusinessDate.stamping(Date()) })
         }
         // ovation#162. THE CONTROL THE STALENESS NOTICE NAMES. Until this existed
         // `YearEndExport.run` was called by nothing, so that notice named a
