@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "pull request closing keyword tests" 30
+harness_begin "pull request closing keyword tests" 54
 
 TARGET="scripts/check-pr-closing-keywords.sh"
 require_target "$TARGET"
@@ -111,10 +111,62 @@ check_exit "a negated keyword before #N is refused, because GitHub closes it any
     1 status_on "$(body 'It does not close #457, which still owes the line item control.')"
 check_exit "and so is one before owner/repo#N" \
     1 status_on "$(body 'This never fixes danwright32/ovation#3.')"
-check "and the refusal says GitHub ignores the negation and how to write it instead" \
-    "$(says "$(run_on "$(body 'It does not close #457.')")" "stays open")" "yes"
+check "and the refusal says how to leave it open instead (L1018)" \
+    "$(says "$(run_on "$(body 'It does not close #457.')")" "Part of #457")" "yes"
 check "a description with no closing reference at all passes, and says it read none" \
     "$(says "$(run_on "$(body 'A change with nothing to close.')")" "0 closing reference")" "yes"
+
+# ---------------------------------------------------------------------------
+# 3a. A CLOSING KEYWORD GITHUB READS CLOSES WHATEVER ITS SENTENCE SAYS (ovation#683,
+#     L1018). GitHub closes the issue for any keyword directly before #N or
+#     owner/repo#N, so a negation further back in the sentence closes it just as
+#     surely as one right before the keyword. Recognising negation cannot keep up
+#     with English, so the rule is the shape GitHub's own reading gives: a
+#     reference it reads stands in a sentence that holds nothing else.
+# ---------------------------------------------------------------------------
+for phrase in \
+    'This does not yet close #12.' \
+    "It doesn't fully fix #12." \
+    'This is not meant to close #12.' \
+    'Nothing here can fix #12, which needs the export.' \
+    'A later pull request will resolve #12.' \
+    'The work that will not by itself resolve danwright32/ovation#12 is here.'; do
+    f="$(body "$phrase")"
+    run_on "$f" > /dev/null; [ "$?" = "1" ] || WIDE_MISSED="${WIDE_MISSED:-}[$phrase] "
+done
+check "a closing keyword before #N inside a sentence saying something else is refused" \
+    "${WIDE_MISSED:-}" ""
+# A SENTENCE WRAPPED ACROSS LINES IS ONE SENTENCE. Commit messages are wrapped,
+# and the line after the wrap looks exactly like a closing line on its own.
+check_exit "a negation on the line before a wrapped keyword is still read with it" \
+    1 status_on "$(body 'This change does not
+close #12.')"
+check_exit "and so is a keyword at the end of a line with its number on the next" \
+    1 status_on "$(body 'This change does not close
+#12 yet.')"
+OUT_WIDE="$(run_on "$(body 'This does not yet close #12.')")"
+check "the refusal names the reference" "$(says "$OUT_WIDE" "close #12")" "yes"
+check "and gives both ways to write it: a closing line, or Part of" \
+    "$(says "$OUT_WIDE" "Closes #12")$(says "$OUT_WIDE" "Part of #12")" "yesyes"
+
+# THE FORMS THAT CLOSE ON PURPOSE, each produced, so the refusals above are not a
+# check that refuses every keyword (L159). Each is a shape taken from this
+# repository's own descriptions and commit messages.
+check_exit "a closing sentence followed by prose on the same line passes" \
+    0 status_on "$(body 'Closes #424. Also closes out the measurement #420 asked for.')"
+check_exit "a negation in the next sentence does not touch the closing one" \
+    0 status_on "$(body 'Fixes #12. This does not change the export.')"
+check_exit "Part of #N passes, because it closes nothing" \
+    0 status_on "$(body 'Part of #12, which still owes the line item control.')"
+check_exit "closing lines in a list pass" \
+    0 status_on "$(body '- Closes #1
+- Fixes #2')"
+check_exit "closing lines straight above unpunctuated prose pass" \
+    0 status_on "$(body 'Closes #1
+Closes #2
+Adds the export')"
+check_exit "a colon after the keyword on a closing line passes" \
+    0 status_on "$(body 'Resolves: #7')"
 
 # ---------------------------------------------------------------------------
 # 4. CANNOT MEASURE. No description to read proves nothing about one (L98).
@@ -138,5 +190,76 @@ WF=".github/workflows/pr-description.yml"
 check "a workflow runs the check" "$(grep -c 'scripts/check-pr-closing-keywords.sh' "$WF" 2>/dev/null)" "1"
 check "and it runs again when the description is edited" \
     "$(grep -cE 'types:.*edited' "$WF" 2>/dev/null)" "1"
+check "and it hands the check the pull request number, so the commit messages are read" \
+    "$(grep -c 'OVATION_PR_NUMBER="${PR_NUMBER}"' "$WF" 2>/dev/null)" "1"
+check "with a token that may read the pull request" \
+    "$(grep -c 'GH_TOKEN: ${{ github.token }}' "$WF" 2>/dev/null)$(grep -cE '^ *pull-requests: read' "$WF" 2>/dev/null)" "11"
+
+# ---------------------------------------------------------------------------
+# 6. THE COMMIT MESSAGES (ovation#683). This repository squash merges with the
+#    commit messages as the squash body, so every branch commit message lands on
+#    main, where GitHub reads its closing keywords too: commit b3d9f8d put "does
+#    not close #12" on main. They are asked of GitHub through a stand in here, so
+#    no case reaches it (L2).
+# ---------------------------------------------------------------------------
+FAKE="$WORK/gh"
+cat > "$FAKE" <<'SH'
+#!/bin/bash
+echo "$*" >> "$FAKE_DIR/calls"
+[ -f "$FAKE_DIR/fail" ] && { echo "HTTP 502" >&2; exit 1; }
+case "$*" in
+  *"/commits"*) cat "$FAKE_DIR/commits" ;;
+  *"repos/danwright32/ovation/pulls/"*) cat "$FAKE_DIR/count" ;;
+  *) echo "unexpected: $*" >&2; exit 1 ;;
+esac
+SH
+chmod +x "$FAKE"
+# commits <message>...: the fake pull request carries exactly these commits.
+commits() {
+    : > "$WORK/commits"; rm -f "$WORK/fail"
+    local i=0 m
+    for m in "$@"; do
+        i=$((i+1))
+        printf 'abc%04d %s\n' "$i" "$(printf '%s' "$m" | perl -MMIME::Base64 -0777 -ne 'print encode_base64($_, "")')" >> "$WORK/commits"
+    done
+    printf '%s\n' "$i" > "$WORK/count"
+}
+run_pr() { FAKE_DIR="$WORK" OVATION_GH="$FAKE" OVATION_REPO=danwright32/ovation \
+    OVATION_PR_NUMBER=7 OVATION_PR_BODY_FILE="$1" "./$TARGET" 2>&1; }
+CLEAN_BODY="$(body 'Closes #683.')"
+
+commits 'Add the export' 'Round the totals
+
+Closes #683'
+check_exit "clean commit messages pass" 0 run_pr "$CLEAN_BODY"
+check "and it says how many commit messages it read" \
+    "$(says "$(run_pr "$CLEAN_BODY")" "2 commit message")" "yes"
+
+commits 'Add the export' 'Quote the lesson
+
+GitHub reads "does not close #12" as closing it.'
+OUT_COMMIT="$(run_pr "$CLEAN_BODY")"
+check_exit "a commit message whose sentence holds a closing keyword is refused" 1 run_pr "$CLEAN_BODY"
+check "and the refusal names the commit and the reference" \
+    "$(says "$OUT_COMMIT" "abc0002")$(says "$OUT_COMMIT" "close #12")" "yesyes"
+check "and says the squash merge carries it onto main and to reword it" \
+    "$(says "$OUT_COMMIT" "reword")" "yes"
+commits 'The booking for Hartwell at the Lyceum does not fix #12.'
+check_exit "a refused commit naming a client is refused" 1 run_pr "$CLEAN_BODY"
+check "and never prints the sentence around it (L222)" \
+    "$(run_pr "$CLEAN_BODY" | grep -ciE 'Hartwell|Lyceum')" "0"
+
+# FEWER MESSAGES THAN COMMITS is a partial read, not a pass (L288).
+commits 'Add the export'; printf '3\n' > "$WORK/count"
+check_exit "fewer messages read than the pull request has commits cannot be measured" \
+    2 run_pr "$CLEAN_BODY"
+commits 'Add the export'; : > "$WORK/fail"
+OUT_FAIL="$(run_pr "$CLEAN_BODY")"
+check_exit "GitHub failing to answer cannot be measured, rather than passing" 2 run_pr "$CLEAN_BODY"
+check "and it says so" "$(says "$OUT_FAIL" "CANNOT MEASURE")" "yes"
+# WITHOUT A NUMBER the commit messages are not read, and the verdict says so
+# rather than claiming them (L440).
+check "a run given no number says it did not read the commit messages" \
+    "$(says "$(run_on "$CLEAN_BODY")" "commit messages not read")" "yes"
 
 harness_end

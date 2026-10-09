@@ -221,9 +221,11 @@ struct ShellView: View {
         // (ovation#185). The list is read again after every committed write, and
         // some of those change the invoice on screen without it having asked: the
         // held money pass puts money on a draft the moment its times price it,
-        // after this screen has already read it back. Keyed on the list's identity
-        // because a new list is exactly what a write produces (L14).
-        .onChange(of: invoices.map(ObjectIdentifier.init)) { _, _ in
+        // after this screen has already read it back. Keyed on the list's reading,
+        // because a new list is exactly what a write produces (L14), and on a
+        // stored value rather than the list's address, which the next list can be
+        // handed once this one is freed (ovation#685, L1019).
+        .onChange(of: invoices?.reading) { _, _ in
             if let openedInvoiceID { openedInvoice = openInvoice?(openedInvoiceID) }
         }
         .onReceive(inspection.notice) { inspection.visit(self, $0) }

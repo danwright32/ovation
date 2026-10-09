@@ -15,6 +15,7 @@ import ViewInspector
 /// the presenter's terms are covered in `InvoiceScreenPresenterTests`, and this
 /// is the other half.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct DueDateControlTests {
 
     private static let noon = Date(timeIntervalSince1970: 1_794_531_600)

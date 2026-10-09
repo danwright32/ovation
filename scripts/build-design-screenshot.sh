@@ -47,6 +47,7 @@ Seams: OVATION_DESIGN_ROOT, OVATION_HEADLESS_BROWSER.
 import hashlib
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import tempfile
@@ -132,7 +133,11 @@ def capture(browser, path, rect, into):
          "--virtual-time-budget=6000",
          "--force-device-scale-factor=%d" % SCALE,
          "--window-size=%d,%d" % WINDOW,
-         "--screenshot=" + whole, "file://" + os.path.abspath(path)]
+         # ENCODED, NOT PASTED after "file://": a "#" or "?" in any folder name
+         # would cut the URL there and the browser would draw something else,
+         # while the crop, measured through a correctly built URL, still
+         # succeeds (ovation#666, L740).
+         "--screenshot=" + whole, pathlib.Path(os.path.abspath(path)).as_uri()]
         + (["--no-sandbox", "--disable-dev-shm-usage"]
            if sys.platform.startswith("linux") else []),
         capture_output=True, text=True, timeout=120)

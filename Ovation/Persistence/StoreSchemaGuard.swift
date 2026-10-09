@@ -152,6 +152,22 @@ enum StoreSchemaGuard {
         Set(schema.entities.map { tableName(forEntityNamed: $0.name) })
     }
 
+    /// The sqlite URI that opens the main file alone, read only, ignoring any log.
+    ///
+    /// THE PATH IS ENCODED, NOT PASTED after `file:` (ovation#666, L740). In a URI
+    /// "?" starts the options, "#" ends the path and "%" starts an escape, so a
+    /// backup in a folder named "Ovation #2" was looked for only as far as "Ovation "
+    /// and a good copy read as unreadable. Everything but the unreserved characters
+    /// and the separators is escaped, which sqlite decodes back to the same path.
+    /// Nil only for a path that is not valid text, where no URI can name it.
+    nonisolated static func immutableURI(for storeURL: URL) -> String? {
+        let unreserved = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/")
+        guard let path = storeURL.path.addingPercentEncoding(withAllowedCharacters: unreserved)
+        else { return nil }
+        return "file:\(path)?immutable=1"
+    }
+
     /// Read only, and it creates nothing: asking the question must never bring a
     /// store into existence, nor modify one.
     ///
@@ -208,9 +224,9 @@ enum StoreSchemaGuard {
             return true
         }
 
-        if !attempt(storeURL.path, flags: SQLITE_OPEN_READONLY) {
-            _ = attempt("file:\(storeURL.path)?immutable=1",
-                        flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_URI)
+        if !attempt(storeURL.path, flags: SQLITE_OPEN_READONLY),
+           let immutable = Self.immutableURI(for: storeURL) {
+            _ = attempt(immutable, flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_URI)
         }
 
         guard let database else {

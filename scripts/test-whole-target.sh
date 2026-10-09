@@ -8,7 +8,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "whole target tests" 22
+harness_begin "whole target tests" 26
 
 TARGET="scripts/check-whole-target.sh"
 require_target "$TARGET"
@@ -105,6 +105,38 @@ printf '/* never\n   .buttonStyle(.plain) here */\nlet why = "not .buttonStyle(.
 OUT="$(run_check "$ROOT")"
 STATUS=$?
 check "a block comment and a string naming the style are not refused" "$STATUS" "0"
+
+# A STRING INSIDE AN INTERPOLATION IS STILL INSIDE THE STRING (ovation#665).
+# A literal read as running to the next quote ends at the quote that opens the
+# nested string, so the nested string's words were read as code.
+ROOT="$(stage nested)"
+cat > "$ROOT/Ovation/Roster/ShellView.swift" <<'SWIFT'
+Text("\(open ? "not .buttonStyle(.plain)" : "")")
+Text("\(label("\(inner ? "PlainButtonStyle" : "")"))")
+SWIFT
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "a style named in a string nested in an interpolation is not refused" "$STATUS" "0"
+
+ROOT="$(stage raw)"
+cat > "$ROOT/Ovation/Roster/ShellView.swift" <<'SWIFT'
+let why = #"a "quoted" .buttonStyle(.borderless) note"#
+SWIFT
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "nor one in a raw string carrying its own quotes" "$STATUS" "0"
+
+# And blanking a whole literal must not swallow the code after it.
+ROOT="$(stage nested-then-code)"
+cat > "$ROOT/Ovation/Roster/ShellView.swift" <<'SWIFT'
+Button("\(open ? "a" : "b")") {}
+    .buttonStyle(.plain)
+let after = #"x"# ; Button("c") {}.buttonStyle(.borderless)
+SWIFT
+OUT="$(run_check "$ROOT")"
+STATUS=$?
+check "a real style after an interpolated string is still refused" "$STATUS" "1"
+check "and so is one after a raw string, at its own line" "$(says "$OUT" "ShellView.swift:3")" "yes"
 
 # ---------------------------------------------------------------------------
 # 4. MORE THAN ONE IS ALL REPORTED, not only the first.

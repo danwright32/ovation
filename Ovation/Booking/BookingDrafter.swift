@@ -107,6 +107,14 @@ enum BookingDraftOutcome: Equatable, Sendable {
     case drafted(invoice: PersistentIdentifier)
     /// This booking, or the booking it reruns, already has an invoice.
     case alreadyDrafted(bookingKey: String)
+    /// Committed before launch day, so QuickBooks invoiced it and no draft is
+    /// made (PRD 1d, ovation#655). Carries the day it was committed on.
+    case billedInQuickBooks(committedOn: String)
+    /// Committed before launch day AND already holding an Ovation draft, which an
+    /// earlier build could make before it knew the cutoff. Its own case because
+    /// "already drafted" hides that the draft is a second invoice, and "billed in
+    /// QuickBooks, no draft made" would be false (L11).
+    case draftedThoughBilledInQuickBooks(bookingKey: String, committedOn: String)
     case refused(BookingDraftRefusal)
 }
 
@@ -117,8 +125,14 @@ actor BookingDrafter {
     /// `day` is the day the draft is made on, which the invoice records as the day
     /// it was created (ovation#510, PRD 51d). It is not the shoot's day, which
     /// dates the invoice below.
+    ///
+    /// `launchDay` IS REQUIRED AND HAS NO DEFAULT (ovation#655, PRD 1d). Only a
+    /// CONFIRMED launch day can be passed, so nothing can draft from a booking
+    /// without first having been told which ones QuickBooks billed (L168).
     func draft(from record: HandoffRecord, at rate: Money,
-               on day: BusinessDate) throws -> BookingDraftOutcome {
+               on day: BusinessDate, launchDay: LaunchDay) throws -> BookingDraftOutcome {
+        let whoBills = launchDay.whoBills(bookingCommittedAt: record.committedAt)
+
         // ALREADY DRAFTED IS ASKED FIRST, of the shoots, which is where the key
         // lives. Both this booking's id and the one it reruns, because a rerun
         // arrives with a new id for a shoot that already has an invoice.
@@ -129,7 +143,17 @@ actor BookingDrafter {
             guard let key = shoot.bookingKey else { return false }
             return keys.contains(key)
         }) {
-            return .alreadyDrafted(bookingKey: already.bookingKey ?? keys[0])
+            let key = already.bookingKey ?? keys[0]
+            if case .quickBooks(let committedOn) = whoBills {
+                return .draftedThoughBilledInQuickBooks(bookingKey: key, committedOn: committedOn)
+            }
+            return .alreadyDrafted(bookingKey: key)
+        }
+
+        // BEFORE ANY CLIENT IS MATCHED OR CREATED. A booking QuickBooks billed is
+        // not Ovation's, so the roster must not grow from it either.
+        if case .quickBooks(let committedOn) = whoBills {
+            return .billedInQuickBooks(committedOn: committedOn)
         }
 
         var held = try modelContext.fetch(FetchDescriptor<Client>())

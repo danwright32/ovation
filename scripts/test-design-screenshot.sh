@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design screenshot tests" 18
+harness_begin "design screenshot tests" 21
 
 TARGET="scripts/build-design-screenshot.sh"
 require_target "$TARGET"
@@ -129,6 +129,34 @@ PYEOF
 check_exit "a narrower screen renders a narrower picture" 0 status_in "$NARROW"
 check "at twice the width the page reported, with nothing typed" \
     "$(run_in "$NARROW" | sed -n 's/.*at \([0-9]*\)x.*/\1/p')" "1800"
+
+# ---------------------------------------------------------------------------
+# A FOLDER NAME THE BROWSER WOULD READ AS PART OF A URL (ovation#666, L740).
+# The picture is taken by handing the browser a file URL, and a path pasted
+# after "file://" unencoded lets a "#" in any folder name cut the rest off as a
+# fragment, so the browser loads the folder above instead. The crop still comes
+# from the page measured correctly elsewhere, so the run would SUCCEED and
+# commit a picture of a directory listing. Compared against the same file
+# rendered from a plain folder in the same run, so nothing machine dependent
+# enters the comparison.
+# ---------------------------------------------------------------------------
+PLAIN="$(fresh plain)"
+ODD="$(fresh 'odd name #1 50% ?')"
+check_exit "a design root under a plain folder renders" 0 status_in "$PLAIN"
+check_exit "a design root under a folder with a space, a hash, a percent and a question mark renders" \
+    0 status_in "$ODD"
+check "and it is a picture of the same screen, not of whatever the URL was cut to" \
+    "$(python3 - "$PLAIN/invoice-list.png" "$ODD/invoice-list.png" <<'PYEOF'
+import sys
+from PIL import Image, ImageChops
+with Image.open(sys.argv[1]) as a, Image.open(sys.argv[2]) as b:
+    if a.size != b.size:
+        print("sizes differ: %s and %s" % (a.size, b.size))
+    else:
+        box = ImageChops.difference(a.convert("RGB"), b.convert("RGB")).getbbox()
+        print("same" if box is None else "differs within %s" % (box,))
+PYEOF
+)" "same"
 
 # ---------------------------------------------------------------------------
 # NOTHING TO RENDER IS NOT A PASS (L98).
