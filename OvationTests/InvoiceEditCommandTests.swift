@@ -329,7 +329,11 @@ struct InvoiceEditCommandTests {
     @Test("every menu entry with no store open says the one shared sentence")
     func everyEntryWithNoStoreSaysTheSharedSentence() throws {
         let export = YearEndExportCommand(directory: nil, runRecord: nil)
-        let draft = BookingDraftCommand(queue: nil)
+        // The store is judged before the launch day (ovation#655), so an
+        // unconfirmed day in throwaway defaults reaches the same sentence.
+        let throwaway = try ThrowawayDefaults()
+        let draft = BookingDraftCommand(
+            launchCutoff: LaunchCutoffSetting(defaults: throwaway.defaults), queue: nil)
         let discount = Self.command(open: try Self.invoice(), discountWriter: false)
         let credit = Self.command(open: try Self.invoice(banked: Hours(whole: 2)),
                                   applyWriter: false)
