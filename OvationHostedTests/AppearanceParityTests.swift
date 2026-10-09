@@ -68,6 +68,8 @@ struct AppearanceParityTests {
         case theInvoiceAddingALine
         case theInvoiceList
         case theInvoiceSettings
+        /// ovation#655. Its date control is a native one, which paints its own.
+        case theLaunchDaySettings
         case theSettingsWindow
         case theReviewSheet
         case theReviewSheetReadyToSend
@@ -122,6 +124,10 @@ struct AppearanceParityTests {
                             selected: .constant(nil), open: { _ in })
         case .theInvoiceSettings:
             InvoiceSettingsView(footer: .constant(.fixed))
+        case .theLaunchDaySettings:
+            LaunchDaySettingsView(cutoff: .notConfirmed,
+                                  chosen: .constant(LaunchDay(containing: Self.noon)),
+                                  outcome: nil, confirm: {})
         case .theSettingsWindow:
             settings()
         case .theReviewSheet:
@@ -188,7 +194,9 @@ struct AppearanceParityTests {
                 problems: ProblemsStore(journal: InMemoryProblemsJournal()),
                 now: Date.init,
                 askForAFolder: { nil }),
-            invoiceFooter: InvoiceFooterSetting(defaults: throwaway.defaults))
+            invoiceFooter: InvoiceFooterSetting(defaults: throwaway.defaults),
+            launchCutoff: LaunchCutoffSetting(defaults: throwaway.defaults),
+            today: { Self.today })
     }
 
     private static func list() throws -> InvoiceListPresenter {
