@@ -94,10 +94,22 @@ for f in "$WF_DIR"/*.yml; do
         stopped=$((stopped + 1))
         continue
     fi
-    last="$("$GH" run list --repo "$REPO" --workflow "$name" --event schedule --limit 1 --json createdAt --jq '.[0].createdAt' 2>/dev/null || true)"
+    # GH COULD NOT ANSWER IS NOT AN EMPTY ANSWER (L215). Read as empty, a failed
+    # run list made a schedule added in the last day and a half NOT YET DUE, so
+    # an outage or an expired token passed as healthy; it is CANNOT MEASURE.
+    if ! last="$("$GH" run list --repo "$REPO" --workflow "$name" --event schedule --limit 1 --json createdAt --jq '.[0].createdAt' 2>/dev/null)"; then
+        echo "  CANNOT MEASURE  $name: gh could not answer for its scheduled runs, so nothing was judged."
+        unreadable=$((unreadable + 1))
+        continue
+    fi
     last_epoch="$(to_epoch "${last:-}")"
     if [ -z "$last_epoch" ]; then
-        created="$("$GH" api "repos/${REPO}/actions/workflows/${name}" --jq .created_at 2>/dev/null || true)"
+        if ! created="$("$GH" api "repos/${REPO}/actions/workflows/${name}" --jq .created_at 2>/dev/null)"; then
+            echo "  CANNOT MEASURE  $name: no scheduled run is on record, and gh could not answer for"
+            echo "                  when it was added, so it was not judged new or stopped."
+            unreadable=$((unreadable + 1))
+            continue
+        fi
         created_epoch="$(to_epoch "${created:-}")"
         if [ -z "$created_epoch" ]; then
             echo "  STOPPED         $name: no scheduled run of it is on record at all, and when it was"
@@ -131,7 +143,7 @@ if [ "$stopped" -gt 0 ]; then
     exit 1
 fi
 if [ "$unreadable" -gt 0 ] || [ "$judged" -eq 0 ]; then
-    echo "CANNOT MEASURE: ${judged} scheduled workflow(s) judged, ${unreadable} schedule(s) unreadable."
+    echo "CANNOT MEASURE: ${judged} scheduled workflow(s) judged, ${unreadable} could not be read or answered for."
     exit 2
 fi
 if [ "$not_yet_due" -gt 0 ]; then

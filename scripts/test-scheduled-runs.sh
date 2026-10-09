@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "scheduled run tests" 20
+harness_begin "scheduled run tests" 25
 
 TARGET="scripts/check-scheduled-runs.sh"
 require_target "$TARGET"
@@ -19,17 +19,21 @@ WF="$WORK/workflows"; mkdir -p "$WF"
 daily() { printf 'name: %s\non:\n  schedule:\n    - cron: %s\n' "$1" "'17 13 * * *'" > "$WF/$1.yml"; }
 printf 'name: pushed\non:\n  push:\n    branches: [main]\n' > "$WF/pushed.yml"
 
-# A STAND IN FOR gh, answering from files by workflow file name (L2). `last-<f>`
+# A STAND IN FOR gh, answering from files by workflow file name (L2). A missing
+# file is an EMPTY answer with exit 0, which is what the real gh gives for a
+# workflow with no runs; only a `fail-` marker makes it fail, as an outage does. `last-<f>`
 # holds the newest scheduled run's time, `state-<f>` the workflow's state, and
 # `created-<f>` when GitHub first saw the workflow, in the shape its API gives it.
 cat > "$WORK/gh" <<'SH'
 #!/bin/bash
 for a in "$@"; do case "$a" in *.yml) f="${a##*/}" ;; esac; done
 case "$1" in
-  run) cat "$FAKE/last-$f" 2>/dev/null ;;
+  run) [ -e "$FAKE/fail-run-$f" ] && { echo "HTTP 502" >&2; exit 1; }
+       cat "$FAKE/last-$f" 2>/dev/null; exit 0 ;;
   api)
     case " $* " in
-      *created_at*) cat "$FAKE/created-$f" 2>/dev/null ;;
+      *created_at*) [ -e "$FAKE/fail-created-$f" ] && { echo "HTTP 401" >&2; exit 1; }
+                    cat "$FAKE/created-$f" 2>/dev/null; exit 0 ;;
       *) cat "$FAKE/state-$f" 2>/dev/null || echo active ;;
     esac ;;
 esac
@@ -100,6 +104,23 @@ api_time $((NOW - WINDOW - 3600)) > "$WORK/created-recorder.yml"
 OUT="$(run_check)"; ST=$?
 check "the same schedule an hour past its first window with still no run is stopped" "$ST" "1"
 check "and it says how long ago it was added" "$(says "$OUT" "added")" "yes"
+
+# 4d. GH COULD NOT ANSWER is not "no run on record" (L215). A failed run list
+#     read as empty made a schedule added in the last day and a half NOT YET
+#     DUE, so an outage or an expired token passed as healthy; and a failed read
+#     of when it was added read as an unreadable date. Both are CANNOT MEASURE.
+api_time $((NOW - WINDOW + 3600)) > "$WORK/created-recorder.yml"
+touch "$WORK/fail-run-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "a run list gh could not answer cannot be measured" "$ST" "2"
+check "and it is not reported as not yet due" "$(says "$OUT" "NOT YET DUE")" "no"
+check "and it says gh could not answer" "$(says "$OUT" "could not answer")" "yes"
+rm -f "$WORK/fail-run-recorder.yml"
+touch "$WORK/fail-created-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "a creation date gh could not answer for cannot be measured, not stopped" "$ST" "2"
+check "and it says gh could not answer" "$(says "$OUT" "could not answer")" "yes"
+rm -f "$WORK/fail-created-recorder.yml" "$WORK/created-recorder.yml"
 
 # 4c. WHEN IT WAS ADDED CANNOT BE READ: stopped, as before, and said so, because
 #     an unreadable date is no evidence the schedule is new (L42, L11).
