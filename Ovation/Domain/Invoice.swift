@@ -484,18 +484,17 @@ extension OvationSchemaV9 {
         /// `InvoiceEditCommand.Open` is the menu's projection of this invoice and
         /// the menu has to know whether applying a credit could do anything.
         ///
-        /// THE CLIENT IS BOUND FIRST, as in the two tax readings below. Reading a
-        /// member straight through the optional client can make the compiler lose
-        /// `Client`'s own `Hashable` conformance and fail three untouched lines of
-        /// `InvoiceListPresenter`, whenever the reading file and
-        /// `InvoiceListPresenter` land in one batched compile job without this
-        /// file, and which files share a job moves as app files are added or
-        /// removed (measured 2026-09-25 on Xcode 26.6 and 27.0).
-        /// `scripts/check-forbidden-constructs.sh` refuses that form in every
-        /// other file, where it is written with a leading dot; inside this file it
-        /// is written without one, so nothing checks it here and it is bound first
-        /// by hand. ovation#497 holds the measurement and a four file
-        /// reproduction; it was not reported to Apple.
+        /// THE CLIENT IS BOUND FIRST, as in `clientTaxStatus` below, so the file
+        /// has one pattern. Reading a member straight through the optional client
+        /// can make the compiler lose `Client`'s own `Hashable` conformance and
+        /// fail three untouched lines of `InvoiceListPresenter`, but only when the
+        /// reading file and `InvoiceListPresenter` land in one batched compile job
+        /// WITHOUT this file (measured 2026-09-25 on Xcode 26.6 and 27.0). A read
+        /// in this file is always compiled with this file, so here the direct form
+        /// is safe and binding first is consistency, not a guard; that is why
+        /// `scripts/check-forbidden-constructs.sh`, which refuses the form in every
+        /// other file, need not see this one. ovation#497 holds the measurement and
+        /// a four file reproduction; it was not reported to Apple.
         var clientHasReferralCreditBanked: Bool {
             let client = self.client
             return (client?.referralBalance ?? .zero) > .zero
@@ -550,11 +549,7 @@ extension OvationSchemaV9 {
         /// different statuses (L544, L370).
         var taxStatusCharged: TaxStatus? {
             if let sentUnder = taxStatusWhenSent { return sentUnder }
-            // Bound first rather than read through the optional client: that form
-            // trips a compiler fault that depends on how files are batched
-            // (ovation#497).
-            let client = self.client
-            return client?.taxStatus
+            return clientTaxStatus
         }
 
         /// Records what a send established, and with it the tax status the invoice
