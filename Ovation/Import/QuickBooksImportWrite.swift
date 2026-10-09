@@ -76,8 +76,13 @@ struct QuickBooksImportWrite: Equatable, Sendable {
 }
 
 /// The write went in and the store did not hold what was written.
+///
+/// THE SAVE HAS ALREADY COMMITTED by the time this is thrown, so it names the batch
+/// (review of 3e4df93): whatever did land carries that id, and reverting it by that
+/// id is how it is found again. Without it the rows would be found only by a re-run
+/// calling them already imported (L12).
 enum QuickBooksImportWriteFailure: Error, Equatable {
-    case readBackDisagreed(wrote: Int, found: Int)
+    case readBackDisagreed(batch: UUID, wrote: Int, found: Int)
 }
 
 extension QuickBooksImportRun {
@@ -93,14 +98,14 @@ extension QuickBooksImportRun {
             let paymentKeys = payments.payments.map { row in
                 QuickBooksImportCandidate.Payment(
                     key: QuickBooksImportKey(version: version, sources: [
-                        .init(fileSHA256: invoicesAndPayments.fileSHA256, rawRowSHA256: row.rawRowSHA256),
+                        .init(fileSHA256: invoicesAndPayments.fileSHA256, row: row.row, rawRowSHA256: row.rawRowSHA256),
                     ]),
                     row: row)
             }
-            let sources = [QuickBooksImportKey.Source(fileSHA256: invoiceList.fileSHA256,
+            let sources = [QuickBooksImportKey.Source(fileSHA256: invoiceList.fileSHA256, row: agreed.invoice.row,
                                                       rawRowSHA256: agreed.invoice.rawRowSHA256)]
-                + agreed.lines.map { .init(fileSHA256: salesLines.fileSHA256, rawRowSHA256: $0.rawRowSHA256) }
-                + payments.payments.map { .init(fileSHA256: invoicesAndPayments.fileSHA256,
+                + agreed.lines.map { .init(fileSHA256: salesLines.fileSHA256, row: $0.row, rawRowSHA256: $0.rawRowSHA256) }
+                + payments.payments.map { .init(fileSHA256: invoicesAndPayments.fileSHA256, row: $0.row,
                                                 rawRowSHA256: $0.rawRowSHA256) }
             return QuickBooksImportCandidate(key: QuickBooksImportKey(version: version, sources: sources),
                                              invoice: agreed.invoice, lines: agreed.lines, payments: paymentKeys)

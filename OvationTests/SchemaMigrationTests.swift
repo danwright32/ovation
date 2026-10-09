@@ -231,7 +231,7 @@ struct SchemaMigrationTests {
         let batch = UUID()
         let client = Client(name: "Calder Street Theatre", taxStatus: .exempt)
         let current = Invoice.imported(number: 1_041, key: QuickBooksImportKey(sources: [
-            .init(fileSHA256: "file", rawRowSHA256: "row"),
+            .init(fileSHA256: "file", row: 6, rawRowSHA256: "row"),
         ]), batch: batch, client: client,
             invoiceDate: try #require(BusinessCalendar.day(forKey: "2026-01-19")),
             dueDate: try #require(BusinessCalendar.day(forKey: "2026-02-18")))

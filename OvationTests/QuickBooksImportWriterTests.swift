@@ -106,15 +106,40 @@ struct QuickBooksImportWriterTests {
         let run = Fixture.run([Spec(number: "1041", paidCents: 4_000)])
         let candidate = try #require(run.candidates().first)
         let sources = [
-            QuickBooksImportKey.Source(fileSHA256: run.invoiceList.fileSHA256,
+            QuickBooksImportKey.Source(fileSHA256: run.invoiceList.fileSHA256, row: candidate.invoice.row,
                                        rawRowSHA256: candidate.invoice.rawRowSHA256),
         ] + candidate.lines.map {
-            QuickBooksImportKey.Source(fileSHA256: run.salesLines.fileSHA256, rawRowSHA256: $0.rawRowSHA256)
+            QuickBooksImportKey.Source(fileSHA256: run.salesLines.fileSHA256, row: $0.row, rawRowSHA256: $0.rawRowSHA256)
         } + candidate.payments.map {
-            QuickBooksImportKey.Source(fileSHA256: run.invoicesAndPayments.fileSHA256, rawRowSHA256: $0.row.rawRowSHA256)
+            QuickBooksImportKey.Source(fileSHA256: run.invoicesAndPayments.fileSHA256, row: $0.row.row,
+                                       rawRowSHA256: $0.row.rawRowSHA256)
         }
         #expect(candidate.key == QuickBooksImportKey(sources: sources))
         #expect(candidate.payments.first?.key == QuickBooksImportKey(sources: [sources[2]]))
+    }
+
+    @Test("two payments written alike under two clients are two payments, and the second still comes in later")
+    func identicalPaymentRowsAreTwoPayments() async throws {
+        // REVIEW OF 1e824ef (L186): the same date and amount under two clients is the
+        // same text twice. The second client is missing on the first run, added, and
+        // the second run must write its invoice and its payment, not refuse the
+        // payment as one an earlier batch already wrote.
+        let container = try Fixture.store()
+        let run = Fixture.run([Spec(number: "1041"), Spec(number: "1042", client: "Twin Ensemble")])
+        let candidates = run.candidates()
+        #expect(Set(candidates.flatMap(\.payments).map(\.key)).count == 2, "two payments, one key")
+
+        let first = try await Fixture.write(run, into: container)
+        #expect(first.refused == [.init(invoiceRow: 7, reason: .clientNotInOvation)])
+        let context = ModelContext(container)
+        context.insert(Client(name: "Twin Ensemble", taxStatus: .exempt))
+        try context.save()
+
+        let second = try await Fixture.write(run, into: container)
+
+        #expect(second.written == [7])
+        #expect(second.alreadyImported == [6])
+        #expect(try Fixture.payments(in: container).count == 2)
     }
 
     @Test("the same import run twice writes nothing the second time, and says each was already imported")
@@ -233,6 +258,33 @@ struct QuickBooksImportWriterTests {
             .filter { $0.importBatchID == batch }
         #expect(stored.count == write.written.count)
         #expect(write.batch == batch)
+    }
+
+    @Test("a write the store does not read back in full says which batch it was, so it can be found and reverted")
+    func aShortReadBackNamesItsBatch() async throws {
+        // REVIEW OF 3e4df93: the save has already committed when the read back
+        // disagrees, so a failure that did not say which batch wrote the rows left
+        // them in the store with nothing to find them by but a re-run that would
+        // call them already imported (L12).
+        let container = try Fixture.store()
+        let allocator = InvoiceNumberAllocator(modelContainer: container)
+        let batch = UUID()
+        await allocator.setAfterImportSave {
+            // Something removes one written invoice between the save and the read
+            // back, which is what a store that did not keep the whole save looks like.
+            let context = ModelContext(container)
+            if let one = try? context.fetch(FetchDescriptor<Invoice>()).first(where: { $0.number == 1_042 }) {
+                context.delete(one)
+                try? context.save()
+            }
+        }
+
+        await #expect(throws: QuickBooksImportWriteFailure.readBackDisagreed(batch: batch, wrote: 2, found: 1)) {
+            _ = try await allocator.importInvoices(Fixture.run([Spec(number: "1041"), Spec(number: "1042")]).candidates(),
+                                                   batch: batch)
+        }
+        #expect(try Fixture.invoices(in: container).allSatisfy { $0.importBatchID == batch },
+                "what did land carries the batch the failure names")
     }
 
     // MARK: helpers

@@ -19,7 +19,8 @@
 // negative rate before anything is built on it are ovation#41 and ovation#45.
 import Foundation
 
-/// The two ways a send can be established. Both are observations.
+/// The ways a send can be established, each an observation of a record rather
+/// than anybody's word. `allCases` is the list; nothing here repeats its count.
 enum SentRoute: String, CaseIterable, Codable, Hashable, Sendable {
     /// Ovation built the message and sent it.
     case ovationSentIt = "ovation-sent-it"
@@ -39,8 +40,9 @@ enum SentStatus: Equatable, Hashable, Codable, Sendable {
     case notSent
 
     /// A send was established, by which route and when. The route is recorded
-    /// because the two carry different confidence and ovation#45 has to be able
-    /// to report on the derived one separately.
+    /// because the routes carry different confidence: ovation#45 has to be able to
+    /// report on the derived mailbox match separately, and an invoice billed in
+    /// QuickBooks carries the invoice's date rather than a moment anybody saw it go.
     case sent(route: SentRoute, at: Date)
 
     /// The match ran and could not answer. Carries when it looked, so a stale

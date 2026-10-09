@@ -147,6 +147,22 @@ struct QuickBooksImportReportTests {
         #expect(text.contains("written: nothing, every invoice was refused"))
     }
 
+    @Test("an invoice list refused as a whole is said as refused, never as a file with nothing in it")
+    func aRefusedListIsNotAnEmptyOne() async throws {
+        // REVIEW OF 3a6ef9e (L11): a refused file reads zero rows, and "no rows to
+        // import" would describe it as empty, which nothing measured.
+        let container = try QuickBooksImportFixture.store()
+        let good = QuickBooksImportFixture.run([Spec(number: "1041")])
+        let run = QuickBooksImportRun(invoiceList: QuickBooksExport.invoiceList("not the measured report\r\n"),
+                                      payments: good.payments, salesLines: good.salesLines,
+                                      invoicesAndPayments: good.invoicesAndPayments)
+        let write = try await QuickBooksImportFixture.write(run, into: container)
+
+        let text = run.report(after: write).joined(separator: "\n")
+        #expect(text.contains("written: nothing, the invoice list was refused as a whole, so none of it was imported"))
+        #expect(!text.contains("no rows to import"))
+    }
+
     @Test("a number already held is named by its row, and the number itself stays off the report")
     func aHeldNumberIsReportedByRow() async throws {
         let container = try QuickBooksImportFixture.store()

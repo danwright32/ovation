@@ -81,7 +81,6 @@ enum InvoiceNumberRefusal: Error, Equatable {
     /// Renumbering an invoice that already has one would break the link to every
     /// record outside Ovation, so it is refused and the existing number is named.
     case alreadyNumbered(existing: Int64)
-    case numberIsNotPositive(asked: Int64)
     /// The write went in and came back as something else. It has never been seen
     /// and it is not ignorable: it means the store did not hold what this actor
     /// believes, which is the one assumption everything above rests on.
@@ -133,7 +132,7 @@ extension InvoiceNumberRefusal {
     var keptByRule: Bool {
         switch self {
         case .readBackDisagreed: return false
-        case .noSuchInvoice, .alreadyNumbered, .numberIsNotPositive,
+        case .noSuchInvoice, .alreadyNumbered,
              .notTheNumberHeld, .notTheHighest, .invoiceWasSent, .sendCouldNotBeDetermined,
              .sendIsInFlight, .importedNumber, .invoiceIsClosed, .notHeldByAReview:
             return true
@@ -158,6 +157,15 @@ actor InvoiceNumberAllocator {
 
     func setBeforeDeletingImport(_ hook: (@Sendable () async -> Void)?) {
         beforeDeletingImport = hook
+    }
+
+    /// Run by an import after its save and before its read back, by nothing but
+    /// the suite, so a read back that disagrees can be produced on purpose rather
+    /// than waited for (L1). Nil in the app.
+    var afterImportSave: (@Sendable () async -> Void)?
+
+    func setAfterImportSave(_ hook: (@Sendable () async -> Void)?) {
+        afterImportSave = hook
     }
 
     /// Issues the next number in the sequence to a draft, recording in the same
@@ -262,11 +270,13 @@ actor InvoiceNumberAllocator {
             throw error
         }
 
+        if let afterImportSave { await afterImportSave() }
+
         // READ BACK (L127). A batch the store does not hold in full is one the
         // report would describe as written while it is not.
         let stored = try allInvoices().filter { $0.importBatchID == batch }.count
         guard stored == written.count else {
-            throw QuickBooksImportWriteFailure.readBackDisagreed(wrote: written.count, found: stored)
+            throw QuickBooksImportWriteFailure.readBackDisagreed(batch: batch, wrote: written.count, found: stored)
         }
         return QuickBooksImportWrite(batch: batch, written: written, paymentsWritten: payments.count,
                                      alreadyImported: already, refused: refused)
