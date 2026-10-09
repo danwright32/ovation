@@ -17,7 +17,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "backstage release watch tests" 50
+harness_begin "backstage release watch tests" 54
 
 TARGET="scripts/check-backstage-release.sh"
 require_target "$TARGET"
@@ -418,5 +418,34 @@ check "with its verdict, so it is commented on only when the verdict changes" \
     "$(grep -A1 -x -- '--verdict-file' "$STEP_DIR/args.log" | tail -n 1)" "verdict.txt"
 run_cannot_step 5; ST=$?
 check "and a refusal from the reporter fails it with the reporter's code" "$ST" "5"
+
+# 17. THE CLOSE STEP CLOSES BOTH, whatever the first close answers. It closes two
+#     findings in one script, and a refusal on the first used to exit before the
+#     second was asked, leaving the could-not-compare finding open on a day the
+#     pin compared fine. Both are asked; the step then fails with the first
+#     refusal's code, so a refusal is still a red run.
+CLOSE_DIR="$WORK/close"; mkdir -p "$CLOSE_DIR/scripts"
+cat > "$CLOSE_DIR/scripts/report-finding.sh" <<'REPORTER'
+    title=""; prev=""
+    for a in "$@"; do [ "$prev" = "--title" ] && title="$a"; prev="$a"; done
+    printf '%s\n' "$title" >> titles.log
+    if [ "$title" = "First title" ]; then exit "${FIRST_EXIT:?}"; fi
+    exit "${SECOND_EXIT:?}"
+REPORTER
+printf 'OK: the pin is current.\n' > "$CLOSE_DIR/verdict.txt"
+step_script .github/workflows/backstage-release.yml "Close them once the pin is current again" > "$CLOSE_DIR/step.sh"
+run_close_step() {
+    : > "$CLOSE_DIR/titles.log"
+    (cd "$CLOSE_DIR" && env GH_TOKEN=unused FINDING_TITLE="First title" CANNOT_COMPARE_TITLE="Second title" \
+        FIRST_EXIT="$1" SECOND_EXIT="$2" bash step.sh > said.txt 2>&1)
+}
+check "the close step is in the workflow, with a script to run" \
+    "$(if [ -s "$CLOSE_DIR/step.sh" ]; then echo yes; else echo no; fi)" "yes"
+run_close_step 7 2; ST=$?
+check "a refused first close still asks for the second" "$(grep -c -x "Second title" "$CLOSE_DIR/titles.log")" "1"
+check "and the step fails with the first refusal's code" "$ST" "7"
+run_close_step 3 2; ST=$?
+check "with nothing refused, both are asked and the step passes" \
+    "$ST $(wc -l < "$CLOSE_DIR/titles.log" | tr -d ' ')" "0 2"
 
 harness_end

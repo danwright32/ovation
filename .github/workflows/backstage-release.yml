@@ -178,27 +178,25 @@ jobs:
             echo
             sed 's/^/    /' verdict.txt
           } > compared-body.md
+          # BOTH ARE ASKED, whatever the first answers: a refusal on the first
+          # once skipped the second and left the could-not-compare finding open
+          # on a day the pin compared fine. The step then fails with the first
+          # refusal's code, so a refusal is still a red run.
+          # 2 closed it, 3 means none was open, the ordinary state on a current day.
+          failed=0
           set +e
           bash scripts/report-finding.sh cleared \
             --title "${FINDING_TITLE}" \
             --comment-file close-body.md
           reported=$?
-          set -e
-          # 2 closed it, 3 means none was open, the ordinary state on a current day.
-          case "${reported}" in
-            2|3) ;;
-            *) exit "${reported}" ;;
-          esac
-          set +e
+          case "${reported}" in 2|3) ;; *) failed="${reported}" ;; esac
           bash scripts/report-finding.sh cleared \
             --title "${CANNOT_COMPARE_TITLE}" \
             --comment-file compared-body.md
           reported=$?
+          case "${reported}" in 2|3) ;; *) [ "${failed}" -ne 0 ] || failed="${reported}" ;; esac
           set -e
-          case "${reported}" in
-            2|3) ;;
-            *) exit "${reported}" ;;
-          esac
+          exit "${failed}"
 
       # A FAILURE TO MEASURE, OR A PIN NAMING NO TAG, FILES A FINDING AND FAILS
       # THE JOB (ovation#660). It used to only fail the job, on the reasoning
