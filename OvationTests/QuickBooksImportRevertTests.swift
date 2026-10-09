@@ -46,6 +46,10 @@ struct QuickBooksImportRevertTests {
         func markParked(_ parked: Bool) { lock.withLock { _parked = parked } }
     }
 
+    /// How long the window case waits for its writer to queue on the gate before
+    /// calling the window untested. Named so it is one decision, read in one place.
+    private static let writerReachesTheGate: Duration = .seconds(30)
+
     private static func allocator(_ container: ModelContainer) -> InvoiceNumberAllocator {
         InvoiceNumberAllocator(modelContainer: container)
     }
@@ -182,11 +186,15 @@ struct QuickBooksImportRevertTests {
                     id, reason: "the show was cancelled", money: nil, on: day,
                     now: Date(timeIntervalSince1970: 1_772_553_600))
             })
-            // BOUNDED BY A COUNT, never a clock (L290): a revert that does not hold
-            // the gate lets the writer straight through, and this then gives up
-            // rather than spinning, so the case fails instead of hanging.
-            var yields = 0
-            while gate.waiting == 0 && yields < 100_000 { await Task.yield(); yields += 1 }
+            // WAITS ON THE CONDITION ITSELF (L290), the writer being queued on the
+            // gate, and the deadline exists only so a revert that does not hold the
+            // gate (which lets the writer straight through) fails here instead of
+            // hanging. It is generous because a starved runner can take a long time
+            // to start a task, and reaching it means something is wrong, not slow.
+            let deadline = ContinuousClock.now + Self.writerReachesTheGate
+            while gate.waiting == 0 && ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(1))
+            }
             started.markParked(gate.waiting > 0)
         }
 
