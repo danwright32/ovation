@@ -48,10 +48,10 @@ concurrency:
 jobs:
   count:
     name: A browser restart is counted where it cannot expire
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       # THE STEP OWNS NOTHING BUT THE CALL (ovation#352). Whether the run kept a
       # record, whether it could be read, how many restarts it holds and what the
