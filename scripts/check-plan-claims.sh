@@ -68,8 +68,12 @@ than passing as health (L98).
 Exit codes:
 
     0  every citation was checked and none is absent, short or ambiguous
-    1  at least one is absent, short or ambiguous, a field claim is derivable or
-       uncarried, or --strict and something moved
+    1  refused, under one of two verdicts. DRIFTED: a citation is absent,
+       short or ambiguous, a field claim is derivable or uncarried, a cited
+       commit is not on its main, the install check refused, the export
+       disagrees with the plan, or --strict and something moved. INCOMPLETE:
+       nothing drifted, but the install check could not measure, so what it
+       covers went unchecked
     2  nothing could be compared, which is not a pass
     3  a sibling repository is not on this machine, so most of the plan's
        claims could not be looked at either way
