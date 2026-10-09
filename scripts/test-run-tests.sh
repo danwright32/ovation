@@ -81,7 +81,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 348
+harness_begin "test runner lock tests" 368
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -851,6 +851,82 @@ check_exit "a hosted run that deleted a store still in use is refused too" \
     7 hosted_status "echo 'Test run with 5 tests in 1 suite passed'; ${VNODE_LINE}"
 check_exit "a pure run that FAILED keeps its own status rather than the store's" \
     65 pure_status "echo 'Test run with 100 tests in 9 suites failed'; ${VNODE_LINE}; exit 65" 100
+
+# A VALUE THAT IS NOT A NUMBER HANDED TO COREGRAPHICS FAILS THE HOSTED RUN
+# (ovation#647). CoreGraphics substitutes a value of its own and logs one line, so
+# every case passes while something is drawn from an undefined size; on CI it
+# appeared in five of twenty six runs and nothing read it. The run is started with
+# the variable that makes CoreGraphics print the stack, so the refusal can point at
+# the code, and it names the test that was running, read from the output's order.
+NAN_LINE='echo "2026-10-02 14:55:11.954397+0000 Ovation[20606:61485] [com.danwright.ovation.debug] Error: this application, or a library it uses, has passed an invalid numeric value (NaN, or not-a-number) to CoreGraphics API and this value is being ignored. Please fix this problem."'
+NAN_RUN="echo '\u25c7 Test \"a quiet test\" started.'; echo '\u25c7 Test \"the sheet floats\" started.'; ${NAN_LINE}; echo 'Test run with 5 tests in 1 suite passed'"
+check_exit "a hosted run that handed CoreGraphics a NaN is refused even though it exited 0" \
+    7 hosted_status "${NAN_RUN}"
+check "and the refusal names the test that was running, and that it printed no stack" \
+    "$(hosted_run "${NAN_RUN}" | grep -c '^           the sheet floats: no readable stack$')" "1"
+check "and not one that had already started before it" \
+    "$(hosted_run "${NAN_RUN}" | grep -c '^           a quiet test')" "0"
+check_exit "a hosted run that FAILED keeps its own status rather than the NaN's" \
+    65 hosted_status "${NAN_LINE}; echo 'Test run with 5 tests in 1 suite failed'; exit 65"
+# A TEST WITH NO DISPLAY NAME is printed by its function, unquoted, and is named
+# the same way (review of #702).
+NAN_BARE="echo '\u25c7 Test \"a quiet test\" started.'; echo '\u25c7 Test probeFloating() started.'; ${NAN_LINE}; echo 'Test run with 5 tests in 1 suite passed'"
+check "a test with no display name is named by its function" \
+    "$(hosted_run "${NAN_BARE}" | grep -c '^           probeFloating(): ')" "1"
+# THE PURE SUITE DRAWS TOO, so its output is judged the same way, as the store
+# marker's is (review of #702).
+check_exit "a pure run that handed CoreGraphics a NaN is refused even though it exited 0" \
+    7 pure_status "${NAN_LINE}; echo 'Test run with 100 tests in 9 suites passed'" 100
+check "and the pure run is started with CoreGraphics asked to print the stack too" \
+    "$(pure_run 'echo "BACKTRACE=${TEST_RUNNER_CG_NUMERICS_SHOW_BACKTRACE:-unset}"; echo "Test run with 100 tests in 9 suites passed"' 100 \
+        | grep -c '^BACKTRACE=1$')" "1"
+# A STACK WHOLLY INSIDE PDFKIT'S TILE RENDERER IS LET THROUGH, AND SAID (Dan,
+# 2026-10-08, option C on #702). CI met the warning in about one run in four on one
+# runner image, every time from PDFKit's background tile renderer drawing a tile of
+# the review sheet's page, with no Ovation frame on the stack. A warning with an
+# Ovation frame, a stack from anywhere else, or no readable stack still refuses.
+NAN_HEAD='echo "2026-10-09 00:43:31.884808+0000 Ovation[26637:76362] [com.danwright.ovation.debug] Error: this application, or a library it uses, has passed an invalid numeric value (NaN, or not-a-number) to CoreGraphics API and this value is being ignored. Please fix this problem."; echo "2026-10-09 00:43:31.897118+0000 Ovation[26637:76362] [com.danwright.ovation.debug] Backtrace:"'
+NAN_TILE_TOP='echo "  <_ZN12_GLOBAL__N_118transform_is_validEPK17CGAffineTransform+140>"; echo "   <CGPathCreateWithRect+36>"; echo "    <CGContextClipToRect+120>"; echo "     <-[PDFPage drawWithBox:inContext:withOptions:]+648>"; echo "      <-[PDFPage drawWithBox:toContext:]+124>"'
+NAN_TILE_FOOT='echo "       <__37-[PDFTilePool _renderTileForRequest:]_block_invoke+188>"; echo "        <-[PDFTilePool _renderTileForRequest:]+628>"; echo "         <_dispatch_call_block_and_release+32>"; echo "          <_pthread_wqthread+292>                    <start_wqthread+8>"'
+NAN_STARTED="echo '◇ Test \"the sheet floats\" started.'"
+NAN_PASSED="echo 'Test run with 5 tests in 1 suite passed'"
+NAN_PDFKIT="${NAN_STARTED}; ${NAN_HEAD}; ${NAN_TILE_TOP}; ${NAN_TILE_FOOT}; ${NAN_HEAD}; ${NAN_TILE_TOP}; ${NAN_TILE_FOOT}; ${NAN_PASSED}"
+check_exit "a NaN whose stack lies wholly in PDFKit's tile renderer does not refuse the run" \
+    0 hosted_status "${NAN_PDFKIT}"
+check "and the run says it let them through, and how many" \
+    "$(hosted_run "${NAN_PDFKIT}" | grep -c "2 CoreGraphics NaN warning(s) let through")" "1"
+NAN_OVATION="${NAN_STARTED}; ${NAN_HEAD}; ${NAN_TILE_TOP}; echo '       <\$s7Ovation15InvoicePageViewV12updateNSView_7contextySo7PDFViewC_tF+44>'; ${NAN_TILE_FOOT}; ${NAN_PASSED}"
+check_exit "the same stack with an Ovation frame on it refuses the run" \
+    7 hosted_status "${NAN_OVATION}"
+check "and the refusal says an Ovation frame is on the stack" \
+    "$(hosted_run "${NAN_OVATION}" | grep -c '^           the sheet floats: an Ovation frame on its stack$')" "1"
+NAN_EMPTY="${NAN_STARTED}; ${NAN_HEAD}; echo 'CGContextAddCurveToPoint: no current point.'; ${NAN_PASSED}"
+check_exit "a warning whose stack has no readable frame refuses the run" \
+    7 hosted_status "${NAN_EMPTY}"
+check "and the refusal says the stack could not be read" \
+    "$(hosted_run "${NAN_EMPTY}" | grep -c '^           the sheet floats: no readable stack$')" "1"
+NAN_ELSEWHERE="${NAN_STARTED}; ${NAN_HEAD}; echo '  <_ZN12_GLOBAL__N_118transform_is_validEPK17CGAffineTransform+140>'; echo '   <CGContextAddRect+220>'; echo '    <-[NSView _drawRect:clip:]+1200>'; echo '     <-[NSView displayIfNeeded]+80>'; ${NAN_PASSED}"
+check_exit "a stack from anywhere but PDFKit's tile renderer refuses the run" \
+    7 hosted_status "${NAN_ELSEWHERE}"
+check "and the refusal says the stack is outside the tile renderer" \
+    "$(hosted_run "${NAN_ELSEWHERE}" | grep -c "^           the sheet floats: a stack outside PDFKit's tile renderer$")" "1"
+# NO STRANGER FRAME, NOT ONLY NO OVATION FRAME (L324). The exemption is the one
+# measured stack, so a frame that is in none of it, whatever library it names,
+# makes the stack someone else's and refuses the run, even with the tile pool,
+# the page draw and the worker thread all present.
+NAN_STRANGER="${NAN_STARTED}; ${NAN_HEAD}; ${NAN_TILE_TOP}; echo '       <-[SomePackageRenderer drawOverlay:]+52>'; ${NAN_TILE_FOOT}; ${NAN_PASSED}"
+check_exit "the tile renderer's stack with a frame from anywhere else refuses the run" \
+    7 hosted_status "${NAN_STRANGER}"
+check "and the refusal says a frame is outside PDFKit's tile renderer" \
+    "$(hosted_run "${NAN_STRANGER}" | grep -c "^           the sheet floats: a frame outside PDFKit's tile renderer$")" "1"
+NAN_MIXED="${NAN_STARTED}; ${NAN_HEAD}; ${NAN_TILE_TOP}; ${NAN_TILE_FOOT}; ${NAN_HEAD}; echo '  <-[NSView displayIfNeeded]+80>'; ${NAN_PASSED}"
+check_exit "one PDFKit warning beside one from elsewhere still refuses the run" \
+    7 hosted_status "${NAN_MIXED}"
+check_exit "the pure suite lets a PDFKit tile stack through by the same rule" \
+    0 pure_status "${NAN_HEAD}; ${NAN_TILE_TOP}; ${NAN_TILE_FOOT}; echo 'Test run with 100 tests in 9 suites passed'" 100
+check "the hosted run is started with CoreGraphics asked to print the stack of one" \
+    "$(hosted_run 'echo "BACKTRACE=${TEST_RUNNER_CG_NUMERICS_SHOW_BACKTRACE:-unset}"; echo "Test run with 5 tests in 1 suite passed"' \
+        | grep -c '^BACKTRACE=1$')" "1"
 
 check "an injected command with no floor announces the skip rather than passing quietly" \
     "$(OVATION_UNLOCKED_COMMAND=true \
