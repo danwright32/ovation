@@ -34,7 +34,7 @@ VIEWSTORE="$([ -x "./$TARGET" ] && "./$TARGET" --list-view-store 2>/dev/null)"
 VIEWSTORE_COUNT="$(printf '%s\n' "$VIEWSTORE" | grep -c .)"
 
 harness_begin "forbidden construct tests" \
-    $((36 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT + 7 + 3 * VIEWSTORE_COUNT))
+    $((37 + FORBIDDEN_COUNT + 16 + 2 * DRAWING_COUNT + 7 + 3 * VIEWSTORE_COUNT))
 require_target "$TARGET"
 harness_temp_dir WORK
 
@@ -245,6 +245,8 @@ check "the send gate rule is still declared" \
     "$(printf '%s\n' "$FORBIDDEN" | grep -c '^maySend$')" "1"
 check "the batched client read rule is still declared (ovation#497)" \
     "$(printf '%s\n' "$FORBIDDEN" | grep -c -F -x '.client?.')" "1"
+check "the memory address key rule is still declared (ovation#685)" \
+    "$(printf '%s\n' "$FORBIDDEN" | grep -c -F -x 'ObjectIdentifier')" "1"
 
 check_exit "a tree with no floating point types passes" 0 status_on "$CLEAN"
 check "and it says how many files it actually looked at" \
