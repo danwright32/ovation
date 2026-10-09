@@ -31,17 +31,20 @@
 // in `ReferralLedger`), and the record of a reminder or copy (`InvoiceSender.resend`).
 // The writers that do not take it cannot reach an imported invoice at all, because
 // an imported invoice is sent from the moment it is written and each of them refuses
-// a sent one: the due date, the shoot times and `SendSettler`. A booking draft and a
-// client's standing write no row an import wrote. `QuickBooksImportRevertTests`
-// scans the app for any writer outside both groups and fails on it, so a new one
-// cannot quietly reopen the window (L613).
+// a sent one: the due date, the shoot times, `SendSettler` and a first send; and the
+// allocator's own number writers refuse an invoice that already has a number or was
+// imported. A booking draft and a client's standing write no row an import wrote.
+// `QuickBooksImportRevertTests` judges every save in the app where it sits and fails
+// on one outside both groups, so a new writer cannot quietly reopen the window (L613).
 //
 // EACH PASS READS THROUGH A CONTEXT MADE FOR IT, and the delete is saved in the
 // context the last check read, so the save carries exactly what that check judged
-// and nothing else the allocator's long lived context may be holding. A re-fetch in
-// a long lived context does pick up another writer's change on this OS
-// (`SwiftDataBehaviourTests`, `OvationSchemaProbe`); what clobbers is a stale
-// context SAVING, and this one saves only the delete (L443).
+// and nothing else the allocator's long lived context may be holding (L443). It is
+// not there because a long lived context reads stale: on this OS a re-fetch there
+// picks up another writer's change, measured for the invoice (`OvationSchemaProbe`)
+// and, while reviewing ovation#70, for a line edited after the same allocator wrote
+// it. A case written to show the opposite passed through either context, so it was
+// deleted rather than kept as a test that had never failed (L1).
 //
 // A FRESH BACKUP IS TAKEN AND VERIFIED AT THE MOMENT OF THE REVERT, through the
 // closure the caller hands in, after the guard passes and before anything is

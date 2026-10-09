@@ -76,7 +76,8 @@ struct InvoiceResendTests {
                                chargedUnder: TaxStatus?? = nil,
                                readiness: InvoiceSenderTests.Readiness = .init(),
                                sender: InvoiceSender? = nil,
-                               saveRecord: @escaping InvoiceSender.RecordSave = InvoiceSender.savingRecord)
+                               saveRecord: @escaping InvoiceSender.RecordSave = InvoiceSender.savingRecord,
+                               findTarget: @escaping InvoiceSender.RecordFind = InvoiceSender.findingRecordTarget)
         async -> InvoiceSendOutcome {
         let answeredAt = later
         // BY DEFAULT THE PAGE WAS DRAWN UNDER WHAT THE INVOICE WAS CHARGED UNDER, as a
@@ -85,7 +86,8 @@ struct InvoiceResendTests {
         return await (sender ?? InvoiceSender(modelContainer: container)).resend(
             id, as: kind, render: render(chargedUnder: chargedUnder ?? charged), message: "Hello,\n\nA reminder.\n\nThank you,\nDan",
             settings: settings, footer: footer, approvedRecipients: approved,
-            through: readiness.route(gmail), clock: { answeredAt }, saveRecord: saveRecord)
+            through: readiness.route(gmail), clock: { answeredAt }, saveRecord: saveRecord,
+            findTarget: findTarget)
     }
 
     // MARK: the sender
@@ -486,6 +488,45 @@ struct InvoiceResendTests {
         #expect(try ModelContext(container).fetch(FetchDescriptor<SentMessage>()).isEmpty,
                 "no record was left behind, attached or loose")
         #expect(try Self.invoice(id, in: container).sentStatus == .sent(route: .ovationSentIt, at: Self.firstSent))
+    }
+
+    /// ovation#70. The invoice can go while Gmail has the message: a QuickBooks
+    /// import revert removes it. The reminder went, and there is nothing left to
+    /// record it against, which is said as exactly that.
+    @Test("a reminder whose invoice was removed while it went says so, and records nothing")
+    func aremovedInvoiceIsSaid() async throws {
+        let (container, id) = try Self.sent()
+        let gmail = InvoiceSenderTests.FakeGmail()
+        gmail.whileSending = {
+            let context = ModelContext(container)
+            if let invoice = try? context.fetch(FetchDescriptor<Invoice>()).first(where: { $0.persistentModelID == id }) {
+                context.delete(invoice)
+                try? context.save()
+            }
+        }
+
+        let outcome = await Self.resend(.reminder, id, in: container, gmail: gmail)
+
+        #expect(outcome == .sent(at: Self.later, to: ["booker@client.example"],
+                                 notRecorded: InvoiceMail.notRecorded("reminder", "the invoice was removed while it was going")))
+        #expect(try ModelContext(container).fetch(FetchDescriptor<SentMessage>()).isEmpty,
+                "a record was saved against an invoice that is gone")
+    }
+
+    /// AND A READ THAT FAILED IS NOT AN INVOICE THAT IS GONE (L11): the reason it
+    /// gives is the failure, never a removal nothing measured.
+    @Test("a reminder whose invoice could not be read back says the read failed, not that it was removed")
+    func afailedReadIsNotARemoval() async throws {
+        let (container, id) = try Self.sent()
+        let gmail = InvoiceSenderTests.FakeGmail()
+
+        let outcome = await Self.resend(.reminder, id, in: container, gmail: gmail,
+                                        findTarget: { _, _ in throw DiskFull() })
+
+        #expect(outcome == .sent(at: Self.later, to: ["booker@client.example"],
+                                 notRecorded: InvoiceMail.notRecorded(
+                                    "reminder", "Ovation could not read the invoice back: the disk is full")))
+        #expect(try Self.invoice(id, in: container).sentMessages.isEmpty)
     }
 
     /// THE FAILED RECORD IS ROLLED BACK, not merely left unsaved: the same sender's next

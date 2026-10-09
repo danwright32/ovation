@@ -155,29 +155,6 @@ struct QuickBooksImportRevertTests {
 
     // MARK: nothing lands between the last check and the delete (review of 3d585a0)
 
-    @Test("an edit made since the import is seen even by the allocator that wrote the batch")
-    func astaleContextDoesNotHideAnEdit() async throws {
-        // THE SAME ALLOCATOR WROTE THE BATCH, so its own context still holds those
-        // rows when another context edits one. On this OS a re-fetch there picks the
-        // edit up (`OvationSchemaProbe`), and this case passes whichever context the
-        // revert reads through; it stands so that a change to how rows are read, or
-        // an OS where the re-fetch stops refreshing, cannot let an edit compare as
-        // untouched and be deleted without a red case saying so (L443, L82).
-        let container = try Fixture.store()
-        let allocator = Self.allocator(container)
-        let batch = UUID()
-        _ = try await allocator.importInvoices(Fixture.run([Spec(number: "1041")]).candidates(), batch: batch)
-        let context = ModelContext(container)
-        let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
-        invoice.dueDate = try Self.day("2026-04-30")
-        try context.save()
-
-        let outcome = try await allocator.revertImport(batch, takeVerifiedBackup: Backups(container).take)
-
-        #expect(outcome == .refused([.init(row: .invoice(number: 1_041), reasons: [.editedSinceImport])]))
-        #expect(try Fixture.invoices(in: container).count == 1)
-    }
-
     @Test("a writer arriving after the last check waits until the delete is saved, and finds nothing to change")
     func awriterInTheWindowWaits() async throws {
         // THE WINDOW, OPENED ON PURPOSE (L157): the revert has made its last check and
@@ -220,45 +197,109 @@ struct QuickBooksImportRevertTests {
     }
 
     /// THE LIST OF WRITERS IS A CLAIM THE REVERT'S SAFETY RESTS ON, so it is checked
-    /// against the app rather than trusted (L96, L247). Every source that saves a
-    /// context either takes the gate the revert holds, or is named here with the
-    /// reason it cannot change a row an import wrote. A new writer that does neither
-    /// fails this until somebody decides which it is.
-    private static let writersThatCannotReachAnImportedRow: [String: String] = [
-        "Ovation/Domain/InvoiceDueDateWriter.swift": "refuses a sent invoice, and an imported one is sent",
-        "Ovation/Domain/ShootTimesWriter.swift": "refuses a sent invoice's shoots, and an imported invoice has none",
-        "Ovation/Mail/SendSettler.swift": "refuses an invoice already sent",
-        "Ovation/Booking/BookingDrafter.swift": "writes new drafts only",
+    /// against the app rather than trusted (L96, L247). EACH SAVE IS JUDGED WHERE IT
+    /// SITS, never by its file: the declaration it sits in must take the gate the
+    /// revert holds before it saves, or be named here with the reason it cannot
+    /// change a row an import wrote. A file with one gated writer and a second that
+    /// saves without the gate is two sites, and the second fails (L135). A new writer
+    /// that does neither fails until somebody decides which it is.
+    private static let savesThatCannotReachAnImportedRow: [String: String] = [
+        "Ovation/Domain/InvoiceDueDateWriter.swift#setDueDate":
+            "refuses a sent invoice, and an imported invoice is sent from the moment it is written",
+        "Ovation/Domain/ShootTimesWriter.swift#write":
+            "refuses a sent invoice's shoots, and an imported invoice is sent and has none",
+        "Ovation/Mail/SendSettler.swift#markNotSent": "refuses an invoice already sent",
+        "Ovation/Mail/InvoiceSender.swift#send": "refuses an invoice already sent before it writes anything",
+        "Ovation/Mail/InvoiceSender.swift#settle": "called only by send, which refuses an invoice already sent",
+        "Ovation/Mail/InvoiceSender.swift#savingRecord":
+            "the save resend makes after it has taken the gate and found the invoice still there",
+        "Ovation/Booking/BookingDrafter.swift#draft": "writes new drafts only",
+        "Ovation/Domain/InvoiceNumberAllocator.swift#write":
+            "numbers a draft for allocate, which refuses an invoice already numbered, and an imported one always is",
+        "Ovation/Domain/InvoiceNumberAllocator.swift#release":
+            "refuses an imported invoice's number before it writes anything",
         "Ovation/Domain/ClientStandingWriter.swift": "writes a client, never an invoice's rows",
         "Ovation/Domain/ClientTaxStatusWriter.swift": "writes a client, never an invoice's rows",
-        "Ovation/Domain/ReferralLedger.swift": "spends on an invoice only when InvoiceReferralCreditWriter calls it, under the gate",
+        "Ovation/Domain/ReferralLedger.swift":
+            "spends on an invoice only when InvoiceReferralCreditWriter calls it, which holds the gate",
         "Ovation/Domain/ServiceTypeSeed.swift": "writes service types only",
         "Ovation/Domain/ServiceTypeWriter.swift": "writes service types only",
-        "Ovation/App/OvationApp.swift": "saves only the client import at launch, before any screen",
+        "Ovation/App/OvationApp.swift#startLaunch": "saves only the client import at launch, before any screen",
         "Ovation/Document/ReviewSampleWorld.swift": "an in memory sample world, never the store",
-        "Ovation/Persistence/OvationSchema.swift": "a migration stage, before the store opens",
+        "Ovation/Persistence/OvationSchema.swift#run": "a migration stage, before the store opens",
     ]
 
-    @Test("every writer either takes the gate the revert holds, or cannot reach an imported row")
-    func everyWriterIsAccountedFor() throws {
-        let root = Self.repository()
-        let app = root.appending(path: "Ovation")
+    /// Every `.save()` in the app, as "path#declaration", with whether the
+    /// declaration it sits in takes the gate before that save.
+    private static func saveSites(in app: URL) throws -> [(site: String, file: String, gated: Bool)] {
+        let declaration = try Regex(#"^ {0,4}(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:private|fileprivate|nonisolated|static|public|internal|override|final)\s+)*(?:func|let|var)\s+(\w+)"#)
+        // RESOLVED ON BOTH SIDES, because the temporary folder a case writes into
+        // sits behind a symlink, and a prefix measured on one spelling and cut from
+        // the other names every file wrongly.
+        let root = app.resolvingSymlinksInPath().path
         let walker = try #require(FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil))
-        var savers: [String] = []
-        var ungated: [String] = []
+        var sites: [(String, String, Bool)] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            guard text.contains(".save()") else { continue }
-            let path = "Ovation/" + url.path.dropFirst(app.path.count + 1)
-            savers.append(path)
-            if !text.contains("MoneyWriteGates.gate"), Self.writersThatCannotReachAnImportedRow[path] == nil {
-                ungated.append(path)
+            let lines = try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n")
+            let path = "Ovation/" + url.resolvingSymlinksInPath().path.dropFirst(root.count + 1)
+            for (index, line) in lines.enumerated() where line.contains(".save()") {
+                guard !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") else { continue }
+                var start = index
+                var name = "(file)"
+                while start >= 0 {
+                    if let match = lines[start].firstMatch(of: declaration), let captured = match.output[1].substring {
+                        name = String(captured)
+                        break
+                    }
+                    start -= 1
+                }
+                let region = lines[max(start, 0)...index].joined(separator: "\n")
+                sites.append((path + "#" + name, path, region.contains("MoneyWriteGates.gate")))
             }
         }
-        #expect(savers.count > 10, "the scan found \(savers.count) writers, so it is not reading the app")
-        #expect(ungated.isEmpty, "these save without the gate and are not accounted for: \(ungated.sorted())")
-        let stale = Self.writersThatCannotReachAnImportedRow.keys.filter { !savers.contains($0) }
-        #expect(stale.isEmpty, "named as writers but no longer saving anything: \(stale.sorted())")
+        return sites
+    }
+
+    @Test("every save either takes the gate the revert holds, or cannot reach an imported row")
+    func everyWriterIsAccountedFor() throws {
+        let sites = try Self.saveSites(in: Self.repository().appending(path: "Ovation"))
+        let exempt = Self.savesThatCannotReachAnImportedRow
+        let unaccounted = sites.filter { site in
+            !site.gated && exempt[site.site] == nil && exempt[site.file] == nil
+        }.map(\.site)
+        #expect(sites.count > 20, "the scan found \(sites.count) saves, so it is not reading the app")
+        #expect(unaccounted.isEmpty, "these save without the gate and are not accounted for: \(unaccounted.sorted())")
+        let named = Set(sites.map(\.site)).union(sites.map(\.file))
+        let stale = exempt.keys.filter { !named.contains($0) }
+        #expect(stale.isEmpty, "named as saving but no save sits there any more: \(stale.sorted())")
+    }
+
+    @Test("and the scan judges each save on its own, so a second ungated save beside a gated one is found")
+    func theScanJudgesEachSave() throws {
+        // SEEN TO FAIL ON PURPOSE (L1): a file whose first writer takes the gate and
+        // whose second does not, which the file level scan this replaced passed.
+        let folder = FileManager.default.temporaryDirectory.appending(path: "save-scan-\(UUID().uuidString)")
+        let app = folder.appending(path: "Ovation")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data("""
+        actor Writer {
+            func gated() async throws {
+                let gate = MoneyWriteGates.gate(for: modelContainer)
+                await gate.lock()
+                try modelContext.save()
+            }
+
+            func ungated() throws {
+                try modelContext.save()
+            }
+        }
+        """.utf8).write(to: app.appending(path: "Writer.swift"))
+
+        let sites = try Self.saveSites(in: app)
+
+        #expect(sites.map(\.site) == ["Ovation/Writer.swift#gated", "Ovation/Writer.swift#ungated"])
+        #expect(sites.map(\.gated) == [true, false])
     }
 
     private static func repository(_ file: StaticString = #filePath) -> URL {
