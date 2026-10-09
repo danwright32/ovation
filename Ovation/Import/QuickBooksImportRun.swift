@@ -91,6 +91,10 @@ struct QuickBooksImportRun: Sendable {
             let payments = write.paymentsWritten == 1 ? "1 payment" : "\(write.paymentsWritten) payments"
             out.append("written: \(written) \(written == 1 ? "invoice" : "invoices") and \(payments), "
                        + "as import batch \(write.batch.uuidString)")
+        } else if !invoiceList.isAccepted && read == 0 {
+            // A REFUSED FILE IS NOT AN EMPTY ONE (L11): it reads no rows because it
+            // was not believed, and its refusal is said above.
+            out.append("written: nothing, the invoice list was refused as a whole, so none of it was imported")
         } else if read == 0 {
             out.append("written: nothing, the invoice list has no rows to import")
         } else if refused == 0 {
