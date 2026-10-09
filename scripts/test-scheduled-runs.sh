@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "scheduled run tests" 19
+harness_begin "scheduled run tests" 20
 
 TARGET="scripts/check-scheduled-runs.sh"
 require_target "$TARGET"
@@ -63,11 +63,20 @@ check "a schedule GitHub disabled is reported" "$ST" "1"
 check "and it says GitHub disabled it" "$(says "$OUT" "disabled_inactivity")" "yes"
 rm -f "$WORK/state-recorder.yml"
 
+# THE SHAPE GITHUB'S WORKFLOW API RETURNS, measured 2026-10-08: milliseconds and
+# an offset, not the Z form runs carry, so the parse is driven by the real one.
+api_time() { python3 -c 'import sys,datetime; print(datetime.datetime.fromtimestamp(int(sys.argv[1]), datetime.timezone(datetime.timedelta(hours=-4))).strftime("%Y-%m-%dT%H:%M:%S.000-04:00"))' "$1"; }
+
 # 4. NEVER RAN AT ALL is stopped too, never "nothing to judge" (L557), once it
-#    has been there long enough that it should have run.
+#    has been there long enough that it should have run: here, added a month
+#    ago, so it is the old schedule that is judged and not an unreadable date
+#    (4c covers that path).
 rm -f "$WORK/last-recorder.yml"
+api_time $((NOW - 30 * 86400)) > "$WORK/created-recorder.yml"
 OUT="$(run_check)"; ST=$?
-check "a schedule with no run on record is reported" "$ST" "1"
+check "a schedule added a month ago with no run on record is reported" "$ST" "1"
+check "and it is stopped for having been added long ago, not for an unreadable date" \
+    "$(says "$OUT" "could not be read")" "no"
 
 # 4b. A SCHEDULE TOO NEW TO HAVE RUN YET (ovation#661). On 2026-09-29 two new
 #     daily workflows each turned CI liveness red for most of a day before their
@@ -80,9 +89,6 @@ GRACE_HOURS="$(sed -nE 's/^GRACE_SECONDS=\$\(\(([0-9]+) \* 3600\)\)$/\1/p' "$TAR
 check "the grace this reads from the script is a number of hours" \
     "$(grep -cE '^[0-9]+$' <<< "${GRACE_HOURS:-}")" "1"
 WINDOW=$((86400 + ${GRACE_HOURS:-0} * 3600))
-# THE SHAPE GITHUB'S WORKFLOW API RETURNS, measured 2026-10-08: milliseconds and
-# an offset, not the Z form runs carry, so the parse is driven by the real one.
-api_time() { python3 -c 'import sys,datetime; print(datetime.datetime.fromtimestamp(int(sys.argv[1]), datetime.timezone(datetime.timedelta(hours=-4))).strftime("%Y-%m-%dT%H:%M:%S.000-04:00"))' "$1"; }
 api_time $((NOW - WINDOW + 3600)) > "$WORK/created-recorder.yml"
 OUT="$(run_check)"; ST=$?
 check "a schedule added inside its first window with no run yet does not fail the check" "$ST" "0"
