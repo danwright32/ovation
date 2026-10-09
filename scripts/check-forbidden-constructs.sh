@@ -179,6 +179,19 @@ RULES = (
         ),
     },
     {
+        "name": "a key taken from a memory address",
+        "tokens": ("ObjectIdentifier",),
+        "because": (
+            "ovation#685 (L1019): an address names an object only while it lives, "
+            "and the allocator hands it to the next object once the first is freed, "
+            "which then inherits whatever was keyed on it. The invoice screen's "
+            "refresh was keyed on the list's address, so a list built after a write "
+            "could compare equal to the one before it and the refresh was skipped. "
+            "Key on a value the object stores, a `let id = UUID()` or a counter, "
+            "never on where it happens to sit in memory."
+        ),
+    },
+    {
         "name": "a member read through an optional client",
         "tokens": (".client?.",),
         "because": (
