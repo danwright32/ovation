@@ -69,6 +69,20 @@ enum ImportedState {
         return agree(stored: stored, computed: fingerprint(of: payment, version: version))
     }
 
+    /// The fields each entity's stamp covers, by the names the model stores them
+    /// under, read off the snapshots themselves so the answer cannot drift from what
+    /// is stamped. `ImportedStateTests` holds it against the schema, so a field added
+    /// to a model later fails there until it is stamped or deliberately left out.
+    static func coverage(of invoice: Invoice, and payment: Payment) -> [String: Set<String>] {
+        func labels(_ value: Any) -> Set<String> {
+            Set(Mirror(reflecting: value).children.compactMap(\.label))
+        }
+        var found = ["Invoice": labels(InvoiceSnapshot(invoice)), "Payment": labels(PaymentSnapshot(payment))]
+        if let line = invoice.lineItems.first { found["LineItem"] = labels(LineSnapshot(line)) }
+        if let shoot = invoice.shoots.first { found["Shoot"] = labels(ShootSnapshot(shoot)) }
+        return found
+    }
+
     /// The one rule for whether a stored stamp and a recomputed one agree: both
     /// must exist and be equal. Two missing answers do not agree with each other.
     static func agree(stored: String?, computed: String?) -> Bool {
@@ -93,6 +107,28 @@ enum ImportedState {
         return "v\(version):\(digest)"
     }
 
+    private struct ShootSnapshot: Encodable {
+        let id: UUID
+        let name: String
+        let when: ShootWhen?
+        let venue: String?
+        let bookingKey: String?
+        let sortIndex: Int
+        let shotFrom: ClockTime?
+        let shotUntil: ClockTime?
+
+        init(_ shoot: Shoot) {
+            id = shoot.id
+            name = shoot.name
+            when = shoot.when
+            venue = shoot.venue
+            bookingKey = shoot.bookingKey
+            sortIndex = shoot.sortIndex
+            shotFrom = shoot.shotFrom
+            shotUntil = shoot.shotUntil
+        }
+    }
+
     private struct LineSnapshot: Encodable {
         let id: UUID
         let sortIndex: Int
@@ -101,6 +137,16 @@ enum ImportedState {
         let unitAmount: Money
         let serviceType: UUID?
         let shoot: UUID?
+
+        init(_ line: LineItem) {
+            id = line.id
+            sortIndex = line.sortIndex
+            summary = line.summary
+            hours = line.hours
+            unitAmount = line.unitAmount
+            serviceType = line.serviceType?.id
+            shoot = line.shoot?.id
+        }
     }
 
     private struct InvoiceSnapshot: Encodable {
@@ -120,8 +166,8 @@ enum ImportedState {
         let bookingKey: String?
         let createdOn: String?
         let heldMoneyRemovedOn: String?
-        let shoots: [UUID]
-        let lines: [LineSnapshot]
+        let shoots: [ShootSnapshot]
+        let lineItems: [LineSnapshot]
 
         init(_ invoice: Invoice) {
             number = invoice.number
@@ -143,14 +189,14 @@ enum ImportedState {
             heldMoneyRemovedOn = invoice.heldMoneyRemovedOn?.dayKey
             // IN A DECLARED ORDER, never the store's (L343), so the same invoice
             // read twice stamps the same value.
-            shoots = invoice.shoots.map(\.id).sorted { $0.uuidString < $1.uuidString }
-            lines = invoice.lineItems
+            // EVERY FIELD OF EVERY SHOOT, not its id alone (review of 42fdc47): a shoot
+            // whose times or venue changed is an edit as much as a changed line.
+            shoots = invoice.shoots
+                .sorted { $0.id.uuidString < $1.id.uuidString }
+                .map(ShootSnapshot.init)
+            lineItems = invoice.lineItems
                 .sorted { ($0.sortIndex, $0.id.uuidString) < ($1.sortIndex, $1.id.uuidString) }
-                .map { line in
-                    LineSnapshot(id: line.id, sortIndex: line.sortIndex, summary: line.summary,
-                                 hours: line.hours, unitAmount: line.unitAmount,
-                                 serviceType: line.serviceType?.id, shoot: line.shoot?.id)
-                }
+                .map(LineSnapshot.init)
         }
     }
 
