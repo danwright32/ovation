@@ -16,14 +16,17 @@
 // claim real in a way two identical filed pictures never could (L1).
 //
 // AT THE REAL POPULATION, thirteen rows rather than two: drafts waiting on their
-// times, drafts priced and ready to send, an invoice whose send could not be
-// settled, sent invoices still open, and two checks waiting to clear, one of
-// them late (ovation#546), with Cedar Hill holding 500.00 against several open
-// invoices so the held money band leads. It does NOT carry every one of the eight
-// action words, and that is stated rather than implied: `Remind` needs an overdue
-// invoice and none is in this fixture. What it does carry is one word of each
-// KIND, a live one and two with nowhere to go, which is what this picture is for
-// (L11).
+// times, two priced drafts, an invoice whose send could not be settled, sent
+// invoices still open, and two checks waiting to clear, one of them late
+// (ovation#546), with Cedar Hill holding 500.00 against four open invoices so the
+// held money band leads. TWO OF THOSE FOUR ARE THE PRICED DRAFTS, which are Cedar
+// Hill's: since ovation#453 a draft counts as an open invoice (PRD 14j), so they
+// are drawn in the band offering `Use it here`, not among the drafts to send.
+// It does NOT carry every one of the eight action words, and that is stated
+// rather than implied, and asserted below: `Remind` needs an overdue invoice and
+// none is in this fixture, and `Send` needs a priced draft whose client holds no
+// money, and none is either. What it does carry is one word of each KIND, a live
+// one and two with nowhere to go, which is what this picture is for (L11).
 //
 // OPT IN, AND IT SAYS WHEN IT DID NOTHING (L98).
 import AppKit
@@ -33,6 +36,7 @@ import Testing
 @testable import Ovation
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct InvoiceListShotTests {
 
     private static var outputDirectory: URL? {
@@ -86,6 +90,14 @@ struct InvoiceListShotTests {
         #expect(Array(presenter.bands.map(\.band).prefix(2))
                 == [.toPlace, .checkNotClearedAfterSevenDays])
         #expect(presenter.bands.contains { $0.band == .checkNotCleared })
+        // ovation#453, ovation#656: what the header says this picture holds, held
+        // here rather than only written. It said the priced drafts were drawn as
+        // drafts to send after they had joined the held money band.
+        let place = try #require(presenter.bands.first { $0.band == .toPlace })
+        #expect(Set(place.rows.map(\.shoot))
+                == ["Winter Gala", "Advent Carols", "Spring Series", "Summer Proms"])
+        #expect(!rows.contains { $0.action == InvoiceListPresenter.Action.send })
+        #expect(!rows.contains { $0.action == InvoiceListPresenter.Action.remind })
 
         // ovation#449: A SEARCH, and a search that finds nothing, each in both
         // appearances, dark asserted to draw the same as light.
@@ -160,14 +172,15 @@ struct InvoiceListShotTests {
         all.append(invoice(cedar, "Autumn Evensong", on: day(0), hours: nil))
         all.append(invoice(ashgrove, "A rehearsal shoot", on: day(-2), hours: nil))
         all.append(invoice(marlowe, "Candlemas", on: day(-5), hours: nil))
-        // Drafts that are priced and ready to send.
+        // Cedar Hill's two priced drafts, drawn in the held money band offering
+        // `Use it here` (see the header), not among the drafts to send.
         for (index, name) in ["Winter Gala", "Advent Carols"].enumerated() {
             let ready = invoice(cedar, name, on: day(-8 - index), hours: Hours(whole: 2))
             ready.orderedShoots.first?.shotFrom = ClockTime("19:00")
             ready.orderedShoots.first?.shotUntil = ClockTime("21:00")
             all.append(ready)
         }
-        // Sent and overdue.
+        // Sent 40 days ago, and NOT overdue: every invoice here is due on day 14.
         for (index, name) in ["Epiphany Recital", "New Year Concert"].enumerated() {
             let sent = invoice(ashgrove, name, on: day(-40 - index), hours: Hours(whole: 3),
                                number: Int64(1_030 + index))

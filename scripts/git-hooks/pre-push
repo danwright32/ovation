@@ -339,6 +339,14 @@ gate_check check-one-tax-chip.sh "a second chip treatment for the tax status que
 # Fast: one grep per Swift file under Ovation/.
 gate_check check-whole-target.sh "a plain style button outside WholeTarget, which answers only on its words."
 
+# ovation#652. The hosted suite prints its results only when the run ends, so a
+# hosted test that hangs holds CI silent until the job is cancelled and never
+# says which test it was. A time limit on every hosted suite turns that hang into
+# a failure that names it, and a limit each new suite has to remember is kept by
+# nothing unless something reads the suites (L613). Fast: one pass over the
+# Swift files under OvationHostedTests/.
+gate_check check-hosted-time-limits.sh "a hosted test with no time limit, which a hang would hold silent until CI gives up."
+
 # ovation#119. `OvationMigrationPlan.stages` is empty and `schemas` names one
 # version. Both are correct today and exactly one of them is silently wrong the
 # moment a second version is added, because SwiftData does not refuse a missing

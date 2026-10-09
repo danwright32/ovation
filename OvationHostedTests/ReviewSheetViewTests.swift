@@ -16,6 +16,7 @@ import ViewInspector
 /// full size" above the page, "Going to" over the recipients, and "not <address>,
 /// who booked it" where somebody was passed over.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct ReviewSheetViewTests {
 
     @Test("the sheet carries the title and names the invoice it is about")

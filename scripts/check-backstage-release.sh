@@ -38,6 +38,27 @@
 # What it prints is version numbers and tag names, which project.yml already
 # publishes, never a line of any listing and never a credential (L222).
 #
+# WHEN THE LISTING FAILS, WHAT IT SAID IS PRINTED, MASKED (ovation#660). Its
+# error stream was discarded, and the watcher failed every run from 2026-09-29
+# saying only that it could not list, so the cause had to be inferred. The last
+# attempt's error stream is printed now with every credential shape masked: the
+# user part of a URL, the value of an Authorization or extraheader line, a
+# GitHub token's shape, and the literal value of each token variable the job
+# might carry. The log is public, so masking is done here, not left to GitHub's
+# own secret masking, which knows only the secrets the step was handed.
+#
+# THE LISTING SENDS NO HEADER A CHECKOUT PERSISTED (ovation#660). actions/checkout
+# leaves the workflow's own GITHUB_TOKEN in the checkout's git config as
+# http.https://github.com/.extraheader, and git sends that header in place of
+# the BACKSTAGE_READ_TOKEN that configure-private-package-access.sh puts in the
+# URL. The workflow's token cannot see the private backstage repository, so the
+# listing, run from inside the checkout, was refused on every run. Reproduced on
+# Dan's Mac on 2026-10-08: a repository holding such a header was refused the
+# listing that succeeded outside it, and an empty value for the key, which git
+# documents as resetting the header list, made it succeed again. The workflow
+# also checks out with persist-credentials: false; the reset here keeps the
+# script right from any directory, whoever runs it.
+#
 # FOUR OUTCOMES, one per exit code, each with its own sentence (L11, L184):
 #
 #   0  the pin is the newest release backstage has published. Nothing to do
@@ -53,7 +74,9 @@
 #   OVATION_BACKSTAGE_TAGS_COMMAND  a command printing what `git ls-remote --tags`
 #                                   prints. Defaults to asking github.com, which
 #                                   in CI is authenticated by
-#                                   scripts/configure-private-package-access.sh
+#                                   scripts/configure-private-package-access.sh.
+#                                   Its error stream is printed, masked, when
+#                                   every attempt fails
 #   OVATION_BACKSTAGE_FETCH_SLEEP   what waits between attempts, given the seconds
 set -uo pipefail
 
@@ -114,13 +137,38 @@ fi
 # A FEW ATTEMPTS, NOT ONE, for check-runner-xcode.sh's reason (ovation#380): a
 # single dropped request would otherwise read exactly like backstage being gone.
 FETCH_TRIES=3
+FETCH_ERR="$(mktemp "${TMPDIR:-/tmp}/backstage-ls-remote.XXXXXX")" || {
+    echo "CANNOT MEASURE: could not create a temporary file for the listing's error stream."
+    exit 2
+}
+trap 'rm -f "$FETCH_ERR"' EXIT
+
+# EVERY CREDENTIAL SHAPE MASKED, read from standard input. The token variables'
+# literal values go first, by bash's own substitution, so a value holding a
+# character sed treats specially is still masked whole.
+mask_credentials() {
+    local text var value
+    text="$(cat)"
+    for var in BACKSTAGE_READ_TOKEN GITHUB_TOKEN GH_TOKEN; do
+        value="${!var:-}"
+        [ -n "$value" ] && text="${text//"$value"/***}"
+    done
+    printf '%s\n' "$text" | sed -E \
+        -e 's#(://)[^/@[:space:]]+@#\1***@#g' \
+        -e 's#([Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]|[Ee][Xx][Tt][Rr][Aa][Hh][Ee][Aa][Dd][Ee][Rr])([^[:alnum:]]).*#\1\2***#' \
+        -e 's#(gh[pousr]_|github_pat_)[A-Za-z0-9_]+#\1***#g'
+}
+
 listing=""
 attempt=1
 while [ "$attempt" -le "$FETCH_TRIES" ]; do
     if [ -n "$TAGS_COMMAND" ]; then
-        listing="$("$TAGS_COMMAND" 2>/dev/null)"; fetched=$?
+        listing="$("$TAGS_COMMAND" 2>"$FETCH_ERR")"; fetched=$?
     else
-        listing="$(git ls-remote --tags "$REMOTE" 2>/dev/null)"; fetched=$?
+        # An empty extraheader resets any header a checkout persisted, and no
+        # prompt is allowed to wait for a person who is not there (L110).
+        listing="$(GIT_TERMINAL_PROMPT=0 git -c http.https://github.com/.extraheader= \
+            ls-remote --tags "$REMOTE" 2>"$FETCH_ERR")"; fetched=$?
     fi
     [ "$fetched" -eq 0 ] && [ -n "$listing" ] && break
     listing=""
@@ -131,9 +179,16 @@ done
 if [ -z "$listing" ]; then
     echo "CANNOT MEASURE: could not list backstage's tags, after ${FETCH_TRIES} attempts."
     echo "    Nothing was compared. A listing that failed is not backstage having"
-    echo "    published nothing (L98). In CI the repository is read with"
-    echo "    BACKSTAGE_READ_TOKEN, so a refused listing there usually means that"
-    echo "    token has expired or lost access to danwright32/backstage."
+    echo "    published nothing (L98)."
+    if [ -s "$FETCH_ERR" ]; then
+        echo "    The last attempt said, with any credential masked:"
+        tail -n 20 "$FETCH_ERR" | mask_credentials | sed 's/^/        /'
+    else
+        echo "    The last attempt printed nothing on its error stream."
+    fi
+    echo "    In CI the repository is read with BACKSTAGE_READ_TOKEN, so a refused"
+    echo "    listing there means that token has expired or lost access to"
+    echo "    danwright32/backstage, or another credential was sent in its place."
     exit 2
 fi
 

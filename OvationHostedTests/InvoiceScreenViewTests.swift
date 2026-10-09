@@ -11,6 +11,7 @@ import ViewInspector
 /// the second: that a sentence reaches the window, that a missing time is not drawn
 /// as a time, and that a control which cannot be pressed is not drawn as one.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct InvoiceScreenViewTests {
 
     private static let noon = Date(timeIntervalSince1970: 1_794_531_600)

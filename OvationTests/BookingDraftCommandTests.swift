@@ -33,6 +33,18 @@ struct BookingDraftCommandTests {
         ProblemsStore(journal: InMemoryProblemsJournal())
     }
 
+    /// A launch day confirmed in a throwaway defaults suite, never Dan's (L201).
+    /// The default is a day before the fixture was committed (2026-09-06 in New
+    /// York), so the cases that are not about the cutoff draft as they always did.
+    private static func launchedEarlier(_ day: String = "2026-09-01") throws -> LaunchCutoffSetting {
+        let throwaway = try ThrowawayDefaults()
+        let setting = LaunchCutoffSetting(defaults: throwaway.defaults)
+        setting.confirm(try #require(LaunchDay(dayKey: day)))
+        return setting
+    }
+
+    private static let fixtureFile = "5FEBD76A-2685-4967-8C39-8D40B7151D34.json"
+
     /// Presses and waits for the press to FINISH, on the condition itself rather
     /// than on a duration, because a fixed wait asserts about the machine's load
     /// (L290).
@@ -50,7 +62,7 @@ struct BookingDraftCommandTests {
     @Test("a press over a queue holding one record leaves one draft in the store, and says so")
     func apressDraftsWhatIsThere() async throws {
         let container = try OvationSchema.container(inMemory: true)
-        let command = BookingDraftCommand(queue: try Self.directory(holding: [
+        let command = BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: try Self.directory(holding: [
             "5FEBD76A-2685-4967-8C39-8D40B7151D34.json": try Self.fixtureData(),
         ]))
         let problems = Self.problems()
@@ -72,7 +84,7 @@ struct BookingDraftCommandTests {
     @Test("pressing twice over the same queue still leaves one draft")
     func pressingTwiceLeavesOneDraft() async throws {
         let container = try OvationSchema.container(inMemory: true)
-        let command = BookingDraftCommand(queue: try Self.directory(holding: [
+        let command = BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: try Self.directory(holding: [
             "5FEBD76A-2685-4967-8C39-8D40B7151D34.json": try Self.fixtureData(),
         ]))
         let problems = Self.problems()
@@ -103,7 +115,7 @@ struct BookingDraftCommandTests {
         let written = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate]
             as? Date
 
-        await Self.press(BookingDraftCommand(queue: queue), container: container,
+        await Self.press(BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: queue), container: container,
                          problems: Self.problems())
 
         let after = try Data(contentsOf: file)
@@ -124,7 +136,7 @@ struct BookingDraftCommandTests {
             .appending(path: "ovation-never-\(UUID().uuidString)", directoryHint: .isDirectory)
         let problems = Self.problems()
 
-        await Self.press(BookingDraftCommand(queue: missing), container: container,
+        await Self.press(BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: missing), container: container,
                          problems: problems)
 
         let raised = try #require(problems.open.first { $0.kind == .bookingDraftRefused })
@@ -136,7 +148,7 @@ struct BookingDraftCommandTests {
         let container = try OvationSchema.container(inMemory: true)
         let problems = Self.problems()
 
-        await Self.press(BookingDraftCommand(queue: try Self.directory(holding: [:])),
+        await Self.press(BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: try Self.directory(holding: [:])),
                          container: container, problems: problems)
 
         let raised = try #require(problems.open.first { $0.kind == .bookingDraftRefused })
@@ -155,7 +167,7 @@ struct BookingDraftCommandTests {
             "damaged.json": Data("{ not json".utf8),
         ])
 
-        await Self.press(BookingDraftCommand(queue: queue), container: container,
+        await Self.press(BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: queue), container: container,
                          problems: problems)
 
         let raised = try #require(problems.open.first { $0.kind == .bookingRecordUnreadable })
@@ -170,7 +182,7 @@ struct BookingDraftCommandTests {
     /// that cannot run still SAYS so rather than doing nothing quietly.
     @Test("a launch with no store open refuses by name rather than doing nothing")
     func nostoreRefusesByName() async throws {
-        let command = BookingDraftCommand(queue: try Self.directory(holding: [:]))
+        let command = BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: try Self.directory(holding: [:]))
         let problems = Self.problems()
         #expect(command.whyItCannotRun(container: nil)?.contains("no store open") == true)
 
@@ -183,7 +195,7 @@ struct BookingDraftCommandTests {
     /// its job rather than a fault, and it is said in those words.
     @Test("a launch with nowhere real to read from says that, and is not offered")
     func athrowawayLaunchSaysSo() async throws {
-        let command = BookingDraftCommand(queue: nil)
+        let command = BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: nil)
         let problems = Self.problems()
 
         #expect(command.mayRun == false)
@@ -207,11 +219,11 @@ struct BookingDraftCommandTests {
     /// path: a case that saw a real directory here would mean the floor had
     /// stopped holding.
     @Test("the command built for this launch inherits the floor's refusal")
-    func thecommandInheritsTheFloorsRefusal() {
+    func thecommandInheritsTheFloorsRefusal() throws {
         #expect(AppEnvironment.isDisposableLaunch(),
                 "the suite is not running disposable, so the floor is not in force")
 
-        let command = BookingDraftCommand.forThisLaunch()
+        let command = BookingDraftCommand.forThisLaunch(launchCutoff: try Self.launchedEarlier())
 
         #expect(command.queue == nil)
         #expect(command.mayRun == false)
@@ -222,7 +234,7 @@ struct BookingDraftCommandTests {
     /// spinner, so a view can say how long a press has been going.
     @Test("a press in flight reports how long it has been going, and a finished one does not")
     func apressInFlightReportsItsAge() async throws {
-        let command = BookingDraftCommand(queue: try Self.directory(holding: [:]))
+        let command = BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: try Self.directory(holding: [:]))
         let started = Date(timeIntervalSince1970: 1_794_531_600)
         #expect(command.elapsed(now: started) == nil)
 
@@ -234,5 +246,125 @@ struct BookingDraftCommandTests {
         #expect(command.mayRun == false)
         #expect(command.whyItCannotRun(container: try OvationSchema.container(inMemory: true))?
                     .contains("has not finished") == true)
+    }
+
+    // MARK: the launch cutoff (ovation#655, PRD 1d)
+
+    /// THE DRAFT COMMAND WAITS ON THE LAUNCH DAY. The cutoff is recorded as a
+    /// placeholder, and a placeholder nothing forces anybody to move drafts a
+    /// second invoice for every booking QuickBooks billed in between. So the
+    /// command is not offered, it says why and where that is fixed (L111), and a
+    /// press anyway drafts nothing and says the same in the rail.
+    @Test("with the launch day not confirmed the command refuses by name and drafts nothing")
+    func anunconfirmedLaunchDayRefuses() async throws {
+        let throwaway = try ThrowawayDefaults()
+        let unconfirmed = LaunchCutoffSetting(defaults: throwaway.defaults)
+        let container = try OvationSchema.container(inMemory: true)
+        let command = BookingDraftCommand(launchCutoff: unconfirmed, queue: try Self.directory(holding: [
+            Self.fixtureFile: try Self.fixtureData(),
+        ]))
+        let problems = Self.problems()
+
+        #expect(command.mayRun == false)
+        let why = try #require(command.whyItCannotRun(container: container))
+        #expect(why == LaunchCutoff.notConfirmed.whyDraftingWaits)
+
+        await Self.press(command, container: container, problems: problems)
+
+        let raised = try #require(problems.open.first { $0.kind == .bookingDraftRefused })
+        #expect(raised.sentence == why)
+        let invoices = try ModelContext(container).fetch(FetchDescriptor<Invoice>())
+        #expect(invoices.isEmpty, "a draft was made with the launch day unconfirmed")
+    }
+
+    /// CONFIRMING IN SETTINGS OPENS THE COMMAND WITHOUT A RELAUNCH. The menu reads
+    /// the same setting object Settings writes, so the reason goes the moment the
+    /// day is confirmed rather than at the next launch (L14, L175).
+    @Test("confirming the launch day lets the same command run")
+    func confirmingOpensTheCommand() async throws {
+        let throwaway = try ThrowawayDefaults()
+        let setting = LaunchCutoffSetting(defaults: throwaway.defaults)
+        let command = BookingDraftCommand(launchCutoff: setting,
+                                          queue: try Self.directory(holding: [:]))
+        let container = try OvationSchema.container(inMemory: true)
+        #expect(command.whyItCannotRun(container: container) != nil)
+
+        setting.confirm(try #require(LaunchDay(dayKey: "2026-10-08")))
+
+        #expect(command.whyItCannotRun(container: container) == nil)
+        #expect(command.mayRun)
+    }
+
+    /// The measured record was committed on 2026-09-06; with launch day the 7th it
+    /// was billed in QuickBooks, so the press makes no draft and SAYS so, rather
+    /// than drafting nothing in silence (L98, L12).
+    @Test("a booking from before launch day is left to QuickBooks, and the press says so")
+    func abookingBeforeLaunchIsLeftToQuickBooks() async throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let command = BookingDraftCommand(launchCutoff: try Self.launchedEarlier("2026-09-07"),
+                                          queue: try Self.directory(holding: [
+                                            Self.fixtureFile: try Self.fixtureData(),
+                                          ]))
+        let problems = Self.problems()
+
+        await Self.press(command, container: container, problems: problems)
+
+        let invoices = try ModelContext(container).fetch(FetchDescriptor<Invoice>())
+        #expect(invoices.isEmpty, "a draft was made for a booking QuickBooks billed")
+        let raised = try #require(problems.open.first { $0.kind == .bookingsLeftToQuickBooks })
+        #expect(raised.sentence.contains("QuickBooks"), "it said \(raised.sentence)")
+        #expect(raised.sentence.contains("7 Sep 2026"), "it does not name launch day: \(raised.sentence)")
+        guard case .finished(_, let said) = command.progress else {
+            Issue.record("the press did not finish: \(command.progress)")
+            return
+        }
+        #expect(said.contains("1 left to QuickBooks"), "the press said \(said)")
+    }
+
+    /// A draft the earlier build made for a booking QuickBooks billed is a second
+    /// invoice waiting to be sent, and it is named by file so Dan can find it.
+    @Test("a draft that already exists for a booking from before launch is raised by name")
+    func anearlierDraftOfAQuickBooksBookingIsRaised() async throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let queue = try Self.directory(holding: [Self.fixtureFile: try Self.fixtureData()])
+        await Self.press(BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: queue),
+                         container: container, problems: Self.problems())
+        let problems = Self.problems()
+
+        await Self.press(BookingDraftCommand(launchCutoff: try Self.launchedEarlier("2026-09-07"),
+                                             queue: queue),
+                         container: container, problems: problems)
+
+        let raised = try #require(problems.open.first {
+            $0.kind == .bookingDraftAlsoBilledInQuickBooks
+        })
+        #expect(raised.sentence.contains(Self.fixtureFile), "it said \(raised.sentence)")
+        #expect(!ProblemKind.closingOnceRead.contains(.bookingDraftAlsoBilledInQuickBooks),
+                "a duplicate invoice still needs Dan, so it must stay open once read")
+    }
+
+    /// AND IT IS NOT COUNTED AS LEFT TO QUICKBOOKS. That sentence says Ovation
+    /// made no draft, which is false for a booking holding one, and it closes once
+    /// read beside the notice that must stay open (L11).
+    @Test("a booking that already has a draft is not counted among those given no draft")
+    func anearlierDraftIsNotCountedAsLeftToQuickBooks() async throws {
+        let container = try OvationSchema.container(inMemory: true)
+        let queue = try Self.directory(holding: [Self.fixtureFile: try Self.fixtureData()])
+        await Self.press(BookingDraftCommand(launchCutoff: try Self.launchedEarlier(), queue: queue),
+                         container: container, problems: Self.problems())
+        let problems = Self.problems()
+        let command = BookingDraftCommand(launchCutoff: try Self.launchedEarlier("2026-09-07"),
+                                          queue: queue)
+
+        await Self.press(command, container: container, problems: problems)
+
+        #expect(!problems.open.contains { $0.kind == .bookingsLeftToQuickBooks },
+                "a booking holding a draft was reported as given no draft")
+        guard case .finished(_, let said) = command.progress else {
+            Issue.record("the press did not finish: \(command.progress)")
+            return
+        }
+        #expect(said.contains("0 left to QuickBooks"), "the press said \(said)")
+        #expect(said.contains("1 drafted though QuickBooks billed it"), "the press said \(said)")
     }
 }

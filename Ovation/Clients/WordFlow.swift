@@ -15,7 +15,12 @@
 // NOTHING IS SHRUNK. Every word is placed at its own ideal size, so no name is
 // ever cut short; a single word wider than the whole width sits on a line of its
 // own rather than being truncated, because a cut client's name is the one thing
-// this notice exists to say.
+// this notice exists to say. And the flow REPORTS that word's width, wider than
+// it was offered, so the parent is told something runs past rather than being
+// told everything fits (ovation#665).
+//
+// A LINE STARTS AT A WORD'S INDEX ON IT, never at an x of zero, so a first word
+// that happens to draw nothing still has its space after it (ovation#665).
 import SwiftUI
 
 struct WordFlow: Layout {
@@ -36,20 +41,23 @@ struct WordFlow: Layout {
                         wordSpacing: CGFloat, lineSpacing: CGFloat) -> (origins: [CGPoint], size: CGSize) {
         var origins: [CGPoint] = []
         var x: CGFloat = 0
+        var onLine = 0
         var lineTop: CGFloat = 0
         var lineHeight: CGFloat = 0
         var widest: CGFloat = 0
         for (index, size) in sizes.enumerated() {
             let joined = index < joins.count && joins[index] && index > 0
-            let gap = x == 0 || joined ? 0 : wordSpacing
-            if let width, x > 0, !joined, x + gap + size.width > width {
+            let gap = onLine == 0 || joined ? 0 : wordSpacing
+            if let width, onLine > 0, !joined, x + gap + size.width > width {
                 lineTop += lineHeight + lineSpacing
                 x = 0
                 lineHeight = 0
+                onLine = 0
             }
-            let lead = x == 0 ? 0 : (joined ? 0 : wordSpacing)
+            let lead = onLine == 0 || joined ? 0 : wordSpacing
             origins.append(CGPoint(x: x + lead, y: lineTop))
             x += lead + size.width
+            onLine += 1
             lineHeight = max(lineHeight, size.height)
             widest = max(widest, x)
         }
@@ -65,7 +73,10 @@ struct WordFlow: Layout {
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
         let laid = Self.arrange(sizes, joins: joins, width: width,
                                 wordSpacing: wordSpacing, lineSpacing: lineSpacing)
-        return CGSize(width: width.map { max($0, 0) } ?? laid.size.width, height: laid.size.height)
+        // THE WIDER OF THE TWO: a word that cannot fit is placed whole and runs
+        // past, and the parent has to be told it did.
+        return CGSize(width: max(width.map { max($0, 0) } ?? 0, laid.size.width),
+                      height: laid.size.height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,

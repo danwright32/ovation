@@ -33,6 +33,7 @@ import csv
 import hashlib
 import json
 import os
+import pathlib
 import re
 import subprocess
 import shutil
@@ -265,7 +266,11 @@ def needles_from_store_copy(path, source_name, problems):
     """
     out = set()
     try:
-        connection = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
+        # ENCODED, NOT PASTED after "file:": in a URI "#" ends the path and "?"
+        # starts the options, so a store named with either opened a different,
+        # empty file and its names were never read (ovation#666, L740).
+        connection = sqlite3.connect(pathlib.Path(os.path.abspath(path)).as_uri() + "?mode=ro",
+                                     uri=True)
     except Exception as exc:
         problems.append("%s could not be opened (%s)" % (source_name, type(exc).__name__))
         return out

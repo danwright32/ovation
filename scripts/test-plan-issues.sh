@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "plan issue mapping tests" 44
+harness_begin "plan issue mapping tests" 51
 
 TARGET="scripts/check-plan-issues.sh"
 require_target "$TARGET"
@@ -221,6 +221,49 @@ print(json.dumps(d))'; } > "$ISSUES.new" && mv "$ISSUES.new" "$ISSUES"
 check_exit "an issue citing only a sub-step the plan does not number is refused" 1 run_it
 check "and it is told apart from one citing nothing" \
     "$(said 'STRAY      ovation#73 in `Expenses` cites plan 4.9, which the plan does not number')" "1"
+
+# ---------------------------------------------------------------------------
+# A FINDING THIS CHECK'S OWN WORKFLOW FILED CITES NOTHING (ovation#641). The
+# workflow's issue quotes the verdict, and the verdict tells a reader to "File
+# one that says `Plan 4.1`", which reads exactly like a citation. Counted, the
+# report of an unissued sub-step issued it, and since a closed issue still counts
+# in that direction it went on issuing it after the workflow closed the report.
+# A finding is known by the stamp scripts/report-finding.sh writes on every body
+# given a verdict, which plan-issues.yml always gives; the stamp here is built
+# from that script's own format, so a change to it fails this case.
+# ---------------------------------------------------------------------------
+STAMP="$(python3 -c 'import re,sys
+src=open("scripts/report-finding.sh",encoding="utf-8").read()
+fmt=re.search(r"^STAMP = \"(.*)\"$",src,re.M).group(1)
+print(fmt % ("ab"*32))')"
+finding_body="UNISSUED   plan 4.1 (line 30, milestone \`Expenses\`): no issue cites it. File one that says \`Plan 4.1\`, or take the step out of the plan"
+with_finding() {
+    # state of the finding, and whether its body carries the stamp
+    local body="$finding_body"
+    [ "$2" = stamped ] && body="$body
+
+$STAMP"
+    {
+        issue 51 CLOSED "Year end" "Plan 1.1."
+        issue 37 OPEN "Invoicing" "Plan 1.2."
+        issue 60 OPEN "Expenses" "Plan 4.0."
+        issue 641 "$1" "Plan currency" "$body"
+    } | issues
+}
+with_finding OPEN unstamped
+check_exit "control: the same words with no stamp are a citation like any other" 0 run_it
+with_finding OPEN stamped
+check_exit "an open finding quoting a citation does not issue the sub-step" 1 run_it
+check "so the sub-step is named as unissued" \
+    "$(said 'UNISSUED   plan 4.1 (line')" "1"
+check "and the finding is named as not counted, once" \
+    "$(said 'NOT COUNTED ovation#641 is a finding filed by a workflow')" "1"
+check "and is credited with nothing" \
+    "$(run_it | grep -c 'ISSUED .*ovation#641')" "0"
+with_finding CLOSED stamped
+check_exit "a closed finding quoting a citation does not issue it either" 1 run_it
+check "and the sub-step is still named as unissued" \
+    "$(said 'UNISSUED   plan 4.1 (line')" "1"
 
 # ---------------------------------------------------------------------------
 # NO SUCH MILESTONE: the plan names a milestone the tracker does not have, so

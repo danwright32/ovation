@@ -62,6 +62,11 @@ struct BookingDrafterTests {
     /// belongs is caught rather than agreeing by coincidence.
     private static let draftedOn = BusinessDate.stamping(Date(timeIntervalSince1970: 1_790_352_000))
 
+    /// A launch day before the fixture was committed (13:28 in New York on
+    /// 2026-09-06), so every case not about the cutoff is Ovation's to draft
+    /// (ovation#655, PRD 1d).
+    private static let launchedEarlier = LaunchDay(dayKey: "2026-09-01")!
+
     private static func store() throws -> ModelContainer {
         try OvationSchema.container(inMemory: true)
     }
@@ -97,7 +102,7 @@ struct BookingDrafterTests {
         try Self.knownClient(in: container, downbeatID: record.client.id)
 
         let outcome = try await BookingDrafter(modelContainer: container)
-            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         guard case .drafted = outcome else {
             Issue.record("the booking was not drafted: \(outcome)")
@@ -122,7 +127,7 @@ struct BookingDrafterTests {
         try Self.knownClient(in: container, downbeatID: record.client.id)
 
         _ = try await BookingDrafter(modelContainer: container)
-            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         let invoice = try #require(try Self.invoices(in: container).first)
         #expect(invoice.createdOn?.dayKey == Self.draftedOn.dayKey)
@@ -141,7 +146,7 @@ struct BookingDrafterTests {
         try Self.knownClient(in: container, downbeatID: record.client.id)
 
         _ = try await BookingDrafter(modelContainer: container)
-            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         let invoice = try #require(try Self.invoices(in: container).first)
         let shoot = try #require(invoice.orderedShoots.first)
@@ -165,7 +170,7 @@ struct BookingDrafterTests {
         try Self.knownClient(in: container, downbeatID: record.client.id)
 
         _ = try await BookingDrafter(modelContainer: container)
-            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         let invoice = try #require(try Self.invoices(in: container).first)
         let line = try #require(invoice.orderedLineItems.first)
@@ -186,7 +191,7 @@ struct BookingDrafterTests {
         try Self.knownClient(in: container, downbeatID: record.client.id)
 
         _ = try await BookingDrafter(modelContainer: container)
-            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         let invoice = try #require(try Self.invoices(in: container).first)
         #expect(invoice.invoiceDate?.dayKey == "2026-09-06")
@@ -203,7 +208,7 @@ struct BookingDrafterTests {
             .setPaymentTerm(try #require(PaymentTerms.all.last), on: client.persistentModelID)
 
         _ = try await BookingDrafter(modelContainer: container)
-            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         let invoice = try #require(try Self.invoices(in: container).first)
         #expect(invoice.dueDate?.dayKey == "2026-10-06")
@@ -229,8 +234,8 @@ struct BookingDrafterTests {
         try Self.knownClient(in: container, downbeatID: record.client.id)
         let drafter = BookingDrafter(modelContainer: container)
 
-        async let first = drafter.draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
-        async let second = drafter.draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+        async let first = drafter.draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
+        async let second = drafter.draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
         let outcomes = try await [first, second]
 
         let drafted = try Self.invoices(in: container).count
@@ -247,9 +252,9 @@ struct BookingDrafterTests {
         let record = try Self.record()
         try Self.knownClient(in: container, downbeatID: record.client.id)
         let drafter = BookingDrafter(modelContainer: container)
-        _ = try await drafter.draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+        _ = try await drafter.draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
-        let again = try await drafter.draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+        let again = try await drafter.draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         #expect(again == .alreadyDrafted(bookingKey: record.booking.id.uuidString))
         let count = try Self.invoices(in: container).count
@@ -266,13 +271,13 @@ struct BookingDrafterTests {
         let original = try Self.record()
         try Self.knownClient(in: container, downbeatID: original.client.id)
         let drafter = BookingDrafter(modelContainer: container)
-        _ = try await drafter.draft(from: original, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+        _ = try await drafter.draft(from: original, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         let rerun = try Self.record(booking: [
             "id": UUID().uuidString,
             "isRerunOf": original.booking.id.uuidString,
         ])
-        let outcome = try await drafter.draft(from: rerun, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+        let outcome = try await drafter.draft(from: rerun, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         #expect(outcome == .alreadyDrafted(bookingKey: original.booking.id.uuidString))
         let count = try Self.invoices(in: container).count
@@ -287,12 +292,12 @@ struct BookingDrafterTests {
         let first = try Self.record()
         try Self.knownClient(in: container, downbeatID: first.client.id)
         let drafter = BookingDrafter(modelContainer: container)
-        _ = try await drafter.draft(from: first, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+        _ = try await drafter.draft(from: first, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         let second = try Self.record(booking: ["id": UUID().uuidString,
                                                "startDate": "2026-10-04",
                                                "endDate": "2026-10-04"])
-        let outcome = try await drafter.draft(from: second, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+        let outcome = try await drafter.draft(from: second, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         guard case .drafted = outcome else {
             Issue.record("a second booking was not drafted: \(outcome)")
@@ -300,6 +305,85 @@ struct BookingDrafterTests {
         }
         let count = try Self.invoices(in: container).count
         #expect(count == 2)
+    }
+
+    // MARK: the launch cutoff (ovation#655, PRD 1d)
+
+    /// THE MEASURED RECORD, committed 2026-09-06 in New York, with launch day the
+    /// day after. Until launch every committed booking was also invoiced in
+    /// QuickBooks, so a draft here is a second invoice to a real client.
+    @Test("a booking committed the day before launch is left to QuickBooks, and no draft is made")
+    func thedayBeforeLaunchIsNotDrafted() async throws {
+        let container = try Self.store()
+        let record = try Self.record()
+        try Self.knownClient(in: container, downbeatID: record.client.id)
+
+        let outcome = try await BookingDrafter(modelContainer: container)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn,
+                   launchDay: LaunchDay(dayKey: "2026-09-07")!)
+
+        #expect(outcome == .billedInQuickBooks(committedOn: "2026-09-06"))
+        let drafts = try Self.invoices(in: container)
+        #expect(drafts.isEmpty, "a draft was made for a booking QuickBooks billed")
+    }
+
+    /// No client is created for it either: the booking is not Ovation's, so the
+    /// roster must not grow from it.
+    @Test("and a booking left to QuickBooks creates no client")
+    func aquickBooksBookingCreatesNoClient() async throws {
+        let container = try Self.store()
+        let record = try Self.record()
+
+        _ = try await BookingDrafter(modelContainer: container)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn,
+                   launchDay: LaunchDay(dayKey: "2026-09-07")!)
+
+        let made = try Self.clients(in: container)
+        #expect(made.isEmpty, "a client was created from a booking QuickBooks billed")
+    }
+
+    /// THE POSITIVE CONTROL for the case above, on the same record: a drafter
+    /// that refused everything would pass that one (L159).
+    @Test("the same booking with launch day on the day it was committed is drafted")
+    func launchDayItselfIsDrafted() async throws {
+        let container = try Self.store()
+        let record = try Self.record()
+        try Self.knownClient(in: container, downbeatID: record.client.id)
+
+        let outcome = try await BookingDrafter(modelContainer: container)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn,
+                   launchDay: LaunchDay(dayKey: "2026-09-06")!)
+
+        guard case .drafted = outcome else {
+            Issue.record("a booking committed on launch day was not drafted: \(outcome)")
+            return
+        }
+        let count = try Self.invoices(in: container).count
+        #expect(count == 1)
+    }
+
+    /// A DRAFT MADE BEFORE THE CUTOFF EXISTED. The installed build already had the
+    /// draft command, so a booking QuickBooks billed can already hold an Ovation
+    /// draft. Saying "already drafted" would hide that it is a duplicate, and
+    /// saying "left to QuickBooks, no draft made" would be false, so it is its own
+    /// outcome (L11).
+    @Test("a booking from before launch that already has a draft is named as billed twice")
+    func anearlierDraftOfAQuickBooksBookingIsNamed() async throws {
+        let container = try Self.store()
+        let record = try Self.record()
+        try Self.knownClient(in: container, downbeatID: record.client.id)
+        let drafter = BookingDrafter(modelContainer: container)
+        _ = try await drafter.draft(from: record, at: Pricing.standardHourlyRate,
+                                    on: Self.draftedOn, launchDay: Self.launchedEarlier)
+
+        let outcome = try await drafter.draft(from: record, at: Pricing.standardHourlyRate,
+                                              on: Self.draftedOn,
+                                              launchDay: LaunchDay(dayKey: "2026-09-07")!)
+
+        #expect(outcome == .draftedThoughBilledInQuickBooks(
+            bookingKey: record.booking.id.uuidString, committedOn: "2026-09-06"))
+        let count = try Self.invoices(in: container).count
+        #expect(count == 1)
     }
 
     // MARK: which client, and every answer to it
@@ -321,7 +405,7 @@ struct BookingDrafterTests {
         let record = try Self.record(client: ["isTaxExempt": false])
 
         let outcome = try await BookingDrafter(modelContainer: container)
-            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         guard case .drafted = outcome else {
             Issue.record("an unknown client was not drafted for: \(outcome)")
@@ -346,7 +430,7 @@ struct BookingDrafterTests {
         let record = try Self.record()
 
         _ = try await BookingDrafter(modelContainer: container)
-            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         let status = try Self.clients(in: container).first?.taxStatus
         #expect(status == .neverRecorded)
@@ -369,7 +453,7 @@ struct BookingDrafterTests {
         try context.save()
 
         let outcome = try await BookingDrafter(modelContainer: container)
-            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         #expect(outcome == .refused(.clientNeedsConfirming(named: record.client.displayName)))
         let leftBehind = try Self.invoices(in: container)
@@ -389,7 +473,7 @@ struct BookingDrafterTests {
         try Self.knownClient(in: container, downbeatID: record.client.id)
 
         let outcome = try await BookingDrafter(modelContainer: container)
-            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn)
+            .draft(from: record, at: Pricing.standardHourlyRate, on: Self.draftedOn, launchDay: Self.launchedEarlier)
 
         #expect(outcome == .refused(.clientIsAmbiguous(count: 2)))
         let leftBehind = try Self.invoices(in: container)

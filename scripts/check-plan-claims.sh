@@ -68,8 +68,12 @@ than passing as health (L98).
 Exit codes:
 
     0  every citation was checked and none is absent, short or ambiguous
-    1  at least one is absent, short or ambiguous, a field claim is derivable or
-       uncarried, or --strict and something moved
+    1  refused, under one of two verdicts. DRIFTED: a citation is absent,
+       short or ambiguous, a field claim is derivable or uncarried, a cited
+       commit is not on its main, the install check refused, the export
+       disagrees with the plan, or --strict and something moved. INCOMPLETE:
+       nothing drifted, but the install check could not measure, so what it
+       covers went unchecked
     2  nothing could be compared, which is not a pass
     3  a sibling repository is not on this machine, so most of the plan's
        claims could not be looked at either way
@@ -614,7 +618,7 @@ def main(argv=()):
     # ---------------------------------------------------------------- installs
     installs = os.environ.get("OVATION_SIBLING_INSTALL_CHECK") or os.path.join(
         REPO, "scripts", "check-sibling-installs.sh")
-    installs_bad = 0
+    installs_bad, installs_why = 0, ""
     if os.path.isfile(installs):
         done = subprocess.run(["bash", installs], capture_output=True, text=True)
         said = [l.strip() for l in (done.stdout + done.stderr).strip().splitlines()]
@@ -626,12 +630,18 @@ def main(argv=()):
                         if l.split(":")[0] in ("PASS", "BLOCKED", "CANNOT MEASURE",
                                                "REFUSED", "FAIL")), None)
         print("  INSTALLS   %s" % (verdict or (said[-1] if said else "said nothing")))
-        if done.returncode not in (0,):
-            installs_bad = 1
+        # A REFUSAL AND A MISSING MEASUREMENT ARE TOLD APART in the summary,
+        # because only the first says something is wrong with an install
+        # (L11, L260). The install check exits 1 to refuse and 2 when it could
+        # not measure; anything else is read as not measured either.
+        if done.returncode == 1:
+            installs_bad, installs_why = 1, "refused"
+        elif done.returncode != 0:
+            installs_bad, installs_why = 1, "could not measure"
     else:
         print("  INSTALLS   CANNOT MEASURE: %s is not there, so what is actually "
               "installed was not looked at" % installs)
-        installs_bad = 1
+        installs_bad, installs_why = 1, "could not measure"
 
     # ------------------------------------------------------------------ export
     export_bad = 0
@@ -711,21 +721,27 @@ def main(argv=()):
     # and sent a blocked push looking for a missing citation that did not exist
     # (L11).
     missing = sum(len(verdicts.get(k, [])) for k in ("ABSENT", "AMBIGUOUS", "SHORT"))
+    # DRIFTED IS SAID ONLY OF A CLAIM THAT DRIFTED. An install check that could
+    # not measure leaves part of the plan unchecked, so the run still refuses,
+    # but nothing in it was found to have drifted and the verdict word must not
+    # claim that it was (L11, L440).
+    unmeasured_only = installs_why == "could not measure"
+    drifted = broken - (installs_bad if unmeasured_only else 0) or (strict and moved)
+    verdict = "DRIFTED" if drifted else ("INCOMPLETE" if refused else "OK")
     print("%s: %d citation(s) checked. %d held where the plan says, %d moved, "
           "%d unanchored, %d absent, ambiguous or past the end of the file."
-          % ("DRIFTED" if refused else "OK",
-             len(claims), held, moved, unanchored, missing))
+          % (verdict, len(claims), held, moved, unanchored, missing))
     if commits_bad:
         print("%d cited commit(s) are not on their main, see the UNMERGED lines above."
               % commits_bad)
     if installs_bad:
-        print("And the install check refused, see its INSTALLS line above.")
+        print("And the install check %s, see its INSTALLS line above." % installs_why)
     if export_bad:
         print("And the export disagrees with the plan, see its EXPORT line above.")
     if field_claims:
         print("%d claim(s) about the fields the export carries, %d refused as "
               "derivable or uncarried." % (field_claims, fields_bad))
-    if broken:
+    if drifted:
         print("The plan is corrected by a PERSON, not by this check: a claim that "
               "has drifted may mean the plan is wrong or the sibling has "
               "regressed, and only a reader can tell which.")
