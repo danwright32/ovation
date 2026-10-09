@@ -31,8 +31,11 @@ concurrency:
   group: pr-description-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# pull-requests: read is for the commit messages, which the check asks GitHub
+# for (ovation#683). The job writes nothing.
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   closing-keywords:
@@ -46,9 +49,16 @@ jobs:
       # interpolated into the script. A description is text anybody opening a
       # pull request writes, and `${{ }}` inside `run:` is pasted into the shell
       # before it runs, so a backtick in a description would be executed.
-      - name: Refuse a closing keyword GitHub does not read
+      #
+      # THE COMMIT MESSAGES ARE READ TOO (ovation#683). This repository squash
+      # merges with the commit messages as the squash body, so each one lands on
+      # main, where GitHub acts on its closing keywords exactly as it does on the
+      # description's. The check asks GitHub for them by the pull request number.
+      - name: Refuse a closing keyword that does not do what its sentence says
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           printf '%s' "${PR_BODY}" > "${RUNNER_TEMP}/pr-body.md"
-          OVATION_PR_BODY_FILE="${RUNNER_TEMP}/pr-body.md" bash scripts/check-pr-closing-keywords.sh
+          OVATION_PR_BODY_FILE="${RUNNER_TEMP}/pr-body.md" OVATION_PR_NUMBER="${PR_NUMBER}" bash scripts/check-pr-closing-keywords.sh
