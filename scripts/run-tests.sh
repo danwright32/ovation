@@ -322,21 +322,87 @@ refuse_deleted_live_store() {
 # WHICH TEST, READ FROM THE OUTPUT'S ORDER. The hosted run prints everything when
 # it ends, but in the order it happened, and the line sits after the start of the
 # test that was running (measured against the CI clock: the warning's own time
-# stamp fell inside that test's span). So the refusal names the last test that had
-# started before the first warning, by its display name when it has one and by its
-# function when it has none, which Swift Testing prints unquoted. The stack, printed because the run asks for it
-# (CG_NUMERICS_SHOW_BACKTRACE, below), is what names the code.
+# stamp fell inside that test's span). So each refused warning is named by the last
+# test that had started before it, by its display name when it has one and by its
+# function when it has none, which Swift Testing prints unquoted. The stack, printed
+# because the run asks for it (CG_NUMERICS_SHOW_BACKTRACE, below), is what names
+# the code, and each warning is judged by its own stack.
+#
+# ONE STACK IS LET THROUGH, AND SAID (Dan, 2026-10-08, option C on #702): a stack
+# lying wholly inside PDFKit's own background tile renderer. CI met the warning in
+# about one run in four, only on the macOS runner image 20260828.587, every time
+# with PDFKit's tile pool (`PDFTilePool _renderTileForRequest:`) drawing a tile of
+# the review sheet's page (`PDFPage drawWithBox:toContext:`) through a transform it
+# had computed itself, on one of its own dispatch worker threads, with no Ovation
+# frame anywhere; the values Ovation hands the page view are constants. It never
+# happened on this Mac in about 150 captures, so no change here can be seen to
+# fix it, and refusing it would make CI red for a fault in Apple's framework.
+#
+# WHAT STILL REFUSES, so the exemption is no broader than its reason (L324, L362):
+# a warning with ANY frame naming Ovation, whatever else is on the stack; a stack
+# that does not run from a dispatch worker through the tile pool to the page's
+# draw; and a warning with no readable stack at all, which is what a run without
+# the variable, or an output that cut the stack off, looks like. Unreadable is a
+# refusal, never a pass (L42).
 NAN_MARKER="passed an invalid numeric value (NaN"
-refuse_nan_to_coregraphics() {
-  echo "Error: a test handed CoreGraphics a value that is not a number, which" >&2
-  echo "       it reports as '${NAN_MARKER}, or not-a-number)'. Every case can pass" >&2
-  echo "       while this happens, so the run is refused. The stack CoreGraphics printed" >&2
-  echo "       is in the output above. It happened during:" >&2
+# Reads a run's output; prints one line per refused warning, "<test>\t<why>", and
+# a last line "LET_THROUGH\t<count>".
+nan_warnings_judged() {
   awk -v marker="${NAN_MARKER}" '
-    index($0, marker) { print (last == "" ? "(no test had started)" : last); exit }
+    function judge() {
+      if (!open) return
+      open = 0
+      if (frames == 0) why = "no readable stack"
+      else if (ovation) why = "an Ovation frame on its stack"
+      else if (tile && draw && worker) { let_through++; return }
+      else why = "a stack outside PDFKit'"'"'s tile renderer"
+      print (owner == "" ? "(no test had started)" : owner) "\t" why
+    }
+    index($0, marker) {
+      judge(); open = 1; header = 0; frames = 0; ovation = 0; tile = 0; draw = 0; worker = 0
+      owner = last; next
+    }
+    open && !header && frames == 0 && index($0, "] Backtrace:") { header = 1; next }
+    open && header && /^[ \t]*</ {
+      rest = $0
+      while (match(rest, /<[^>]*>/)) {
+        frame = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
+        frames++
+        if (frame ~ /Ovation/) ovation = 1
+        if (index(frame, "PDFTilePool _renderTileForRequest:")) tile = 1
+        if (index(frame, "PDFPage drawWithBox:toContext:")) draw = 1
+        if (index(frame, "start_wqthread")) worker = 1
+      }
+      next
+    }
+    { judge() }
     match($0, /Test "[^"]*" started\.$/) { last = substr($0, RSTART + 6, RLENGTH - 16); next }
     match($0, /Test [A-Za-z_][A-Za-z0-9_]*\([^)]*\) started\.$/) { last = substr($0, RSTART + 5, RLENGTH - 14) }
-  ' | sed 's/^/           /' >&2
+    END { judge(); print "LET_THROUGH\t" (let_through + 0) }
+  '
+}
+# Judges a run's output on standard input. Returns 1 when the run must be refused,
+# after saying why; says how many warnings it let through when it let any.
+judge_nan_warnings() {
+  local judged refused let_through
+  judged="$(nan_warnings_judged)"
+  refused="$(grep -v '^LET_THROUGH' <<<"${judged}")"
+  let_through="$(awk -F'\t' '/^LET_THROUGH/ { print $2 }' <<<"${judged}")"
+  if [ -n "${refused}" ]; then
+    # NOT QUOTING THE MARKER, so this refusal is never itself read as a warning by
+    # anything that judges this run's output afterwards (L245).
+    echo "Error: a test handed CoreGraphics a value that is not a number (its own" >&2
+    echo "       NaN warning). Every case can pass while this happens, so the run is" >&2
+    echo "       refused. The stack CoreGraphics printed is in the output above. It" >&2
+    echo "       happened during:" >&2
+    awk -F'\t' '{ print "           " $1 ": " $2 }' <<<"${refused}" | sort -u >&2
+    return 1
+  fi
+  if [ "${let_through:-0}" -gt 0 ]; then
+    echo "==> ${let_through} CoreGraphics NaN warning(s) let through: each stack lies wholly in"
+    echo "    PDFKit's own tile renderer, with no Ovation frame (ovation#647, see run-tests.sh)."
+  fi
+  return 0
 }
 
 # Released on EVERY exit path, not only the tidy one. A directory lock left
@@ -1385,8 +1451,7 @@ else
     refuse_deleted_live_store < "${PURE_OUTPUT}"
     STATUS=7
   fi
-  if [ "${STATUS}" -eq 0 ] && grep -qF "${NAN_MARKER}" "${PURE_OUTPUT}"; then
-    refuse_nan_to_coregraphics < "${PURE_OUTPUT}"
+  if [ "${STATUS}" -eq 0 ] && ! judge_nan_warnings < "${PURE_OUTPUT}"; then
     STATUS=7
   fi
   rm -f "${PURE_OUTPUT}"
@@ -1780,8 +1845,7 @@ else
     elif grep -qF "${VNODE_MARKER}" <<<"${HOSTED_OUTPUT}"; then
       refuse_deleted_live_store <<<"${HOSTED_OUTPUT}"
       STATUS=7
-    elif grep -qF "${NAN_MARKER}" <<<"${HOSTED_OUTPUT}"; then
-      refuse_nan_to_coregraphics <<<"${HOSTED_OUTPUT}"
+    elif ! judge_nan_warnings <<<"${HOSTED_OUTPUT}"; then
       STATUS=7
     fi
 
