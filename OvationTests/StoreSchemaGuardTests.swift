@@ -222,11 +222,29 @@ struct StoreSchemaGuardTests {
         // file alone, in a directory it cannot write to. A plain read only open
         // fails there, because sqlite wants to create the shared memory file, and
         // the verdict would be `unreadable` on a perfectly good backup.
+        #expect(try inspectCopiedBackup(inFolderNamed: "read-only-vault")
+                == .ovation(upgrade: .cannotTell))
+    }
+
+    @Test("a copied backup in a folder whose name has a hash, a question mark or a percent still reads")
+    func aCopiedBackupInAnOddlyNamedFolderStillReads() throws {
+        // ovation#666 (L740). The read of a copied backup opens it through an
+        // sqlite URI, where "?" starts the options, "#" ends the path and "%"
+        // starts an escape. A path pasted into that URI unencoded is cut short
+        // at the first of them, and a good backup in a folder Dan named
+        // "Ovation #2" would be reported unreadable.
+        #expect(try inspectCopiedBackup(inFolderNamed: "Ovation backups #2 100% ?")
+                == .ovation(upgrade: .cannotTell))
+    }
+
+    /// The main file of a WAL store, alone, in a folder it cannot write to:
+    /// what ovation#57's restore hands the guard.
+    private func inspectCopiedBackup(inFolderNamed name: String) throws -> StoreSchemaGuard.Verdict {
         let scratch = try Scratch()
         let source = scratch.url("source.store")
         try makeDatabase(at: source, tables: ["ZINVOICE"], walMode: true)
 
-        let vault = scratch.url("read-only-vault")
+        let vault = scratch.url(name)
         try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
         let copy = vault.appendingPathComponent("Ovation.store")
         try FileManager.default.copyItem(at: source, to: copy)
@@ -236,9 +254,9 @@ struct StoreSchemaGuardTests {
                                                    ofItemAtPath: vault.path)
         }
 
-        #expect(StoreSchemaGuard.inspect(storeURL: copy,
-                                         ownEntityTables: ["ZINVOICE"],
-                                     runningVersion: Schema.Version(1, 0, 0)) == .ovation(upgrade: .cannotTell))
+        return StoreSchemaGuard.inspect(storeURL: copy,
+                                        ownEntityTables: ["ZINVOICE"],
+                                        runningVersion: Schema.Version(1, 0, 0))
     }
 
     // MARK: no side effects
