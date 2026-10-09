@@ -81,7 +81,7 @@ fi
 # shellcheck source=lib/file-lock.sh
 . "$PWD/scripts/lib/file-lock.sh"
 
-harness_begin "test runner lock tests" 366
+harness_begin "test runner lock tests" 368
 
 [ -x "$SUITE_FLOCK" ] || harness_cannot_measure \
     "flock is not at $SUITE_FLOCK, and the runner refuses to run without it" \
@@ -910,6 +910,15 @@ check_exit "a stack from anywhere but PDFKit's tile renderer refuses the run" \
     7 hosted_status "${NAN_ELSEWHERE}"
 check "and the refusal says the stack is outside the tile renderer" \
     "$(hosted_run "${NAN_ELSEWHERE}" | grep -c "^           the sheet floats: a stack outside PDFKit's tile renderer$")" "1"
+# NO STRANGER FRAME, NOT ONLY NO OVATION FRAME (L324). The exemption is the one
+# measured stack, so a frame that is in none of it, whatever library it names,
+# makes the stack someone else's and refuses the run, even with the tile pool,
+# the page draw and the worker thread all present.
+NAN_STRANGER="${NAN_STARTED}; ${NAN_HEAD}; ${NAN_TILE_TOP}; echo '       <-[SomePackageRenderer drawOverlay:]+52>'; ${NAN_TILE_FOOT}; ${NAN_PASSED}"
+check_exit "the tile renderer's stack with a frame from anywhere else refuses the run" \
+    7 hosted_status "${NAN_STRANGER}"
+check "and the refusal says a frame is outside PDFKit's tile renderer" \
+    "$(hosted_run "${NAN_STRANGER}" | grep -c "^           the sheet floats: a frame outside PDFKit's tile renderer$")" "1"
 NAN_MIXED="${NAN_STARTED}; ${NAN_HEAD}; ${NAN_TILE_TOP}; ${NAN_TILE_FOOT}; ${NAN_HEAD}; echo '  <-[NSView displayIfNeeded]+80>'; ${NAN_PASSED}"
 check_exit "one PDFKit warning beside one from elsewhere still refuses the run" \
     7 hosted_status "${NAN_MIXED}"

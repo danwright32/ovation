@@ -339,7 +339,8 @@ refuse_deleted_live_store() {
 # fix it, and refusing it would make CI red for a fault in Apple's framework.
 #
 # WHAT STILL REFUSES, so the exemption is no broader than its reason (L324, L362):
-# a warning with ANY frame naming Ovation, whatever else is on the stack; a stack
+# a warning with ANY frame naming Ovation, whatever else is on the stack; ANY frame
+# that is not Apple's PDF and drawing code or its worker thread plumbing; a stack
 # that does not run from a dispatch worker through the tile pool to the page's
 # draw; and a warning with no readable stack at all, which is what a run without
 # the variable, or an output that cut the stack off, looks like. Unreadable is a
@@ -354,12 +355,13 @@ nan_warnings_judged() {
       open = 0
       if (frames == 0) why = "no readable stack"
       else if (ovation) why = "an Ovation frame on its stack"
-      else if (tile && draw && worker) { let_through++; return }
-      else why = "a stack outside PDFKit'"'"'s tile renderer"
+      else if (!(tile && draw && worker)) why = "a stack outside PDFKit'"'"'s tile renderer"
+      else if (stranger) why = "a frame outside PDFKit'"'"'s tile renderer"
+      else { let_through++; return }
       print (owner == "" ? "(no test had started)" : owner) "\t" why
     }
     index($0, marker) {
-      judge(); open = 1; header = 0; frames = 0; ovation = 0; tile = 0; draw = 0; worker = 0
+      judge(); open = 1; header = 0; frames = 0; ovation = 0; tile = 0; draw = 0; worker = 0; stranger = 0
       owner = last; next
     }
     open && !header && frames == 0 && index($0, "] Backtrace:") { header = 1; next }
@@ -369,6 +371,11 @@ nan_warnings_judged() {
         frame = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
         frames++
         if (frame ~ /Ovation/) ovation = 1
+        # EVERY FRAME MUST BE PDFKIT, COREGRAPHICS OR THE SYSTEM WORKER THREAD
+        # PLUMBING, by name with the offset stripped, or the stack belongs to
+        # other code: the 50 warnings measured on run 37862426891 all match this.
+        sym = substr(frame, 2, length(frame) - 2); sub(/\+[0-9]+$/, "", sym)
+        if (sym !~ /^([-+]\[PDF[A-Za-z]* .*\]|__[0-9]+[-+]\[PDF[A-Za-z]* .*\]_block_invoke(_[0-9]+)?|CG[A-Za-z]+|pdf_[A-Za-z0-9_.]+|op_[A-Za-z0-9_.]+|_ZN12_GLOBAL__N_1[0-9]+transform_is_valid.*|_dispatch_[A-Za-z0-9_]+|_pthread_[A-Za-z0-9_]+|start_wqthread)$/) stranger = 1
         if (index(frame, "PDFTilePool _renderTileForRequest:")) tile = 1
         if (index(frame, "PDFPage drawWithBox:toContext:")) draw = 1
         if (index(frame, "start_wqthread")) worker = 1
