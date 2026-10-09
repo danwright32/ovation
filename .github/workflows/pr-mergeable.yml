@@ -33,6 +33,12 @@ permissions:
 # One question per pull request, or per push to main. It posts at most one comment
 # per pull request, found again by a marker, so cancelling a superseded run loses
 # nothing it could not post on the next (L671).
+#
+# ON MAIN TOO, unlike ci.yml (ovation#662): a run here is not a verdict on the
+# merge that started it, it asks about every open pull request, and the newer run
+# asks the same question of a newer main. scripts/check-ci-workflow.sh reads the
+# line below as that decision.
+# ovation-main-runs-superseded: a newer push to main asks every open pull request the same question
 concurrency:
   group: pr-mergeable-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -40,10 +46,10 @@ concurrency:
 jobs:
   mergeable:
     name: Whether the pull request merges with main
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       # THE NUMBER ARRIVES THROUGH AN ENVIRONMENT VARIABLE, never interpolated into
       # the script, and it is empty on a push to main, which asks about every open

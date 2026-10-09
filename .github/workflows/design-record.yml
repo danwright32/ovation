@@ -56,10 +56,10 @@ concurrency:
 jobs:
   record:
     name: The design record's open list agrees with the tracker
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       # THE THREE OUTCOMES ARE KEPT APART (L11). 0 the record agrees, 1 it calls a
       # closed issue open or leaves out a labelled decision (ovation#195), 2

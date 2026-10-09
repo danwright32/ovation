@@ -17,6 +17,7 @@ import ViewInspector
 /// cannot reach, so until this existed the list's rendering was checked nowhere
 /// and only the values behind it were (L442).
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct PopupListTests {
 
     private static let terms = [

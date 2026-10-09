@@ -97,9 +97,14 @@
    keeps to one line, which is the whole point of a short name, and Read is a
    real button, so it can be reached from the keyboard as well as pressed. The
    popover sits on the content's paper with its arrow pointing at the Read that
-   opened it, measured in the round at 300 points wide. */
-.status .fault b { white-space: nowrap; }
-.status .fault button.read { font: inherit; font-weight: 600; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
+   opened it, measured in the round at 300 points wide.
+   THE NAME GIVES WAY AND READ HOLDS ITS PLACE ("Shortened beside Read", PRD
+   44c; ovation#633). A name too long for the line used to push its Read past
+   the inset every other control in the foot keeps, 17.8px from the rail's edge
+   against 21px, because nothing let the name shrink. It now shortens with an
+   ellipsis, and Read, which never shrinks, keeps its edge. */
+.status .fault b { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.status .fault button.read { flex: none; font: inherit; font-weight: 600; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
 .app { position: relative; }
 .railpop { position: absolute; z-index: 8; width: 300px; background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.10), 0 12px 28px rgba(0,0,0,.18); }
 .railsay { font-size: 13px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
