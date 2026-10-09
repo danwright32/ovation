@@ -20,14 +20,28 @@
 //     and their receipt files are not imported (no expense export exists), so no
 //     batch holds one.
 //
-// THE JUDGEMENT IS MADE INSIDE THE OPERATION (L157). The check, the backup and the
-// delete happen on the allocator's actor under the gate every writer of money takes,
-// so no payment, refund or cancellation can land between them, and the check is
-// asked again, synchronously, after the backup and immediately before the delete.
-// What the gate does NOT exclude is stated rather than hidden (L407): a writer that
-// is not a money writer, a line or date edit through another actor, can still land
-// between that last check and the save. The window is a few instructions wide and
-// the backup taken a moment before covers it.
+// THE JUDGEMENT IS MADE INSIDE THE OPERATION (L157), AND NOTHING CAN LAND BETWEEN
+// THE LAST CHECK AND THE DELETE. The revert holds the gate every writer of an
+// invoice's rows takes (`MoneyWriteGate`) from its first read to its save, the
+// backup included, and asks the check again immediately before the delete. Every
+// writer that can change a row an import wrote takes that gate for its write:
+// payments, held money and refunds (`PaymentAllocator`, `InvoiceCloser`), a
+// discount, a line or referral credit (`InvoiceDiscountWriter`, `InvoiceLineWriter`,
+// `InvoiceReferralCreditWriter`, which is also the only caller that spends credit
+// in `ReferralLedger`), and the record of a reminder or copy (`InvoiceSender.resend`).
+// The writers that do not take it cannot reach an imported invoice at all, because
+// an imported invoice is sent from the moment it is written and each of them refuses
+// a sent one: the due date, the shoot times and `SendSettler`. A booking draft and a
+// client's standing write no row an import wrote. `QuickBooksImportRevertTests`
+// scans the app for any writer outside both groups and fails on it, so a new one
+// cannot quietly reopen the window (L613).
+//
+// EACH PASS READS THROUGH A CONTEXT MADE FOR IT, and the delete is saved in the
+// context the last check read, so the save carries exactly what that check judged
+// and nothing else the allocator's long lived context may be holding. A re-fetch in
+// a long lived context does pick up another writer's change on this OS
+// (`SwiftDataBehaviourTests`, `OvationSchemaProbe`); what clobbers is a stale
+// context SAVING, and this one saves only the delete (L443).
 //
 // A FRESH BACKUP IS TAKEN AND VERIFIED AT THE MOMENT OF THE REVERT, through the
 // closure the caller hands in, after the guard passes and before anything is
@@ -94,10 +108,11 @@ extension InvoiceNumberAllocator {
 
     /// What reverting `batch` would remove and what would stop it, read now.
     func previewRevert(of batch: UUID) throws -> ImportRevertPreview {
-        let rows = try BatchRows(batch, in: modelContext)
+        let context = ModelContext(modelContainer)
+        let rows = try BatchRows(batch, in: context)
         return ImportRevertPreview(batch: batch, invoices: rows.invoices.count,
                                    lines: rows.invoices.map(\.lineItems.count).reduce(0, +),
-                                   payments: rows.payments.count, blockers: try rows.blockers(in: modelContext))
+                                   payments: rows.payments.count, blockers: try rows.blockers(in: context))
     }
 
     /// Removes every row `batch` wrote, or refuses and names every row that stops it.
@@ -109,9 +124,10 @@ extension InvoiceNumberAllocator {
         await gate.lock()
         defer { gate.unlock() }
 
-        let rows = try BatchRows(batch, in: modelContext)
+        let first = ModelContext(modelContainer)
+        let rows = try BatchRows(batch, in: first)
         guard !rows.invoices.isEmpty || !rows.payments.isEmpty else { return .nothingToRevert }
-        let found = try rows.blockers(in: modelContext)
+        let found = try rows.blockers(in: first)
         guard found.isEmpty else { return .refused(found) }
 
         let backup: URL
@@ -121,30 +137,33 @@ extension InvoiceNumberAllocator {
             return .backupFailed(String(describing: error))
         }
 
-        // ASKED AGAIN, IMMEDIATELY BEFORE THE DELETE, with nothing in between that
-        // can suspend this actor: a decision formed before the backup and acted on
+        // ASKED AGAIN, IMMEDIATELY BEFORE THE DELETE, through a fresh context and
+        // still under the gate: a decision formed before the backup and acted on
         // after it is the race this issue is about (L157).
-        let now = try BatchRows(batch, in: modelContext)
-        let late = try now.blockers(in: modelContext)
+        let context = ModelContext(modelContainer)
+        let now = try BatchRows(batch, in: context)
+        let late = try now.blockers(in: context)
         guard late.isEmpty else { return .refused(late) }
+        if let beforeDeletingImport { await beforeDeletingImport() }
 
         // Allocations first, by name, rather than trusting the payment's cascade to
         // reach rows the invoice's nullify would otherwise orphan.
         for payment in now.payments {
-            for allocation in payment.allocations { modelContext.delete(allocation) }
-            modelContext.delete(payment)
+            for allocation in payment.allocations { context.delete(allocation) }
+            context.delete(payment)
         }
-        for invoice in now.invoices { modelContext.delete(invoice) }
+        for invoice in now.invoices { context.delete(invoice) }
         do {
-            try modelContext.save()
+            try context.save()
         } catch {
-            modelContext.rollback()
+            context.rollback()
             throw error
         }
 
-        // READ BACK (L127): a revert that reports success over rows still there would
-        // let the re-import refuse every number for a reason nobody could see.
-        let survivors = try BatchRows(batch, in: modelContext)
+        // READ BACK (L127), through yet another fresh context: a revert that reports
+        // success over rows still there would let the re-import refuse every number
+        // for a reason nobody could see.
+        let survivors = try BatchRows(batch, in: ModelContext(modelContainer))
         let left = survivors.invoices.count + survivors.payments.count
         guard left == 0 else { throw ImportRevertFailure.rowsSurvived(count: left) }
         return .reverted(invoices: now.invoices.count, payments: now.payments.count, backup: backup)

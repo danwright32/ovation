@@ -254,6 +254,19 @@ actor InvoiceSender {
         // history lists what went, never what was tried. Nothing else is written, so
         // the invoice's sent state is untouched whatever happens here.
         let sentAt = clock()
+        // UNDER THE GATE EVERY WRITER OF AN INVOICE'S ROWS TAKES (ovation#70), and
+        // the invoice found again first: the network call above is long enough for
+        // a QuickBooks import revert to have removed it, and a record pointed at a
+        // removed invoice would be saved against nothing. Never held across Gmail.
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+        let stillThere = (try? modelContext.fetch(FetchDescriptor<Invoice>()))?
+            .contains { $0.persistentModelID == invoiceID } ?? false
+        guard stillThere else {
+            return .sent(at: sentAt, to: recipients,
+                         notRecorded: InvoiceMail.notRecorded(kind.noun, "the invoice was removed while it was going"))
+        }
         let record = Self.message(SentMessageKind(kind), to: recipients, at: sentAt, subject: mail.subject,
                                   receipt: receipt)
         modelContext.insert(record)

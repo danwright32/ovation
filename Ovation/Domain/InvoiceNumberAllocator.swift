@@ -148,6 +148,18 @@ actor InvoiceNumberAllocator {
     /// actually issued is derived from the store every time.
     static let sequenceStartsAt: Int64 = 1_123
 
+    /// Run by an import revert after its last check and before its delete, and
+    /// used by nothing but the suite (ovation#70), the way `PaymentAllocator`'s
+    /// `beforeWriting` is: a window of a few instructions cannot be raced by
+    /// starting two things and looking, so this is the seam that opens it on
+    /// purpose (L157, L524). Nil in the app, where nothing suspends between the
+    /// check and the delete.
+    var beforeDeletingImport: (@Sendable () async -> Void)?
+
+    func setBeforeDeletingImport(_ hook: (@Sendable () async -> Void)?) {
+        beforeDeletingImport = hook
+    }
+
     /// Issues the next number in the sequence to a draft, recording in the same
     /// save that a review holds it (ovation#362). Review is the only caller.
     @discardableResult

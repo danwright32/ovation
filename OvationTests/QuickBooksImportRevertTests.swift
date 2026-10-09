@@ -34,6 +34,14 @@ struct QuickBooksImportRevertTests {
         }
     }
 
+    /// The writer a hook started, handed back to the case that awaits it.
+    private final class Started: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _task: Task<Void, Error>?
+        var task: Task<Void, Error>? { lock.withLock { _task } }
+        func set(_ task: Task<Void, Error>) { lock.withLock { _task = task } }
+    }
+
     private static func allocator(_ container: ModelContainer) -> InvoiceNumberAllocator {
         InvoiceNumberAllocator(modelContainer: container)
     }
@@ -143,6 +151,118 @@ struct QuickBooksImportRevertTests {
 
         #expect(outcome == .refused([.init(row: .invoice(number: 1_041),
                                            reasons: [.messageSentAboutIt, .referralCreditSpentOnIt])]))
+    }
+
+    // MARK: nothing lands between the last check and the delete (review of 3d585a0)
+
+    @Test("an edit made since the import is seen even by the allocator that wrote the batch")
+    func astaleContextDoesNotHideAnEdit() async throws {
+        // THE SAME ALLOCATOR WROTE THE BATCH, so its own context still holds those
+        // rows when another context edits one. On this OS a re-fetch there picks the
+        // edit up (`OvationSchemaProbe`), and this case passes whichever context the
+        // revert reads through; it stands so that a change to how rows are read, or
+        // an OS where the re-fetch stops refreshing, cannot let an edit compare as
+        // untouched and be deleted without a red case saying so (L443, L82).
+        let container = try Fixture.store()
+        let allocator = Self.allocator(container)
+        let batch = UUID()
+        _ = try await allocator.importInvoices(Fixture.run([Spec(number: "1041")]).candidates(), batch: batch)
+        let context = ModelContext(container)
+        let invoice = try #require(try context.fetch(FetchDescriptor<Invoice>()).first)
+        invoice.dueDate = try Self.day("2026-04-30")
+        try context.save()
+
+        let outcome = try await allocator.revertImport(batch, takeVerifiedBackup: Backups(container).take)
+
+        #expect(outcome == .refused([.init(row: .invoice(number: 1_041), reasons: [.editedSinceImport])]))
+        #expect(try Fixture.invoices(in: container).count == 1)
+    }
+
+    @Test("a writer arriving after the last check waits until the delete is saved, and finds nothing to change")
+    func awriterInTheWindowWaits() async throws {
+        // THE WINDOW, OPENED ON PURPOSE (L157): the revert has made its last check and
+        // has not deleted yet. A cancellation arriving now must not land in between,
+        // or the delete would take a decision nobody has a copy of.
+        let container = try Fixture.store()
+        let allocator = Self.allocator(container)
+        let batch = UUID()
+        _ = try await allocator.importInvoices(Fixture.run([Spec(number: "1041", paidCents: 0)]).candidates(),
+                                               batch: batch)
+        let id = try #require(try Fixture.invoices(in: container).first).persistentModelID
+        let gate = MoneyWriteGates.gate(for: container)
+        let day = try Self.day("2026-03-03")
+        let started = Started()
+        await allocator.setBeforeDeletingImport {
+            // STARTED INSIDE THE WINDOW, and held until it is demonstrably queued on
+            // the gate, so what is asserted below is a writer that waited and not one
+            // that had simply not started yet (L159).
+            started.set(Task {
+                try await InvoiceCloser(modelContainer: container).cancel(
+                    id, reason: "the show was cancelled", money: nil, on: day,
+                    now: Date(timeIntervalSince1970: 1_772_553_600))
+            })
+            // BOUNDED BY A COUNT, never a clock (L290): a revert that does not hold
+            // the gate lets the writer straight through, and this then gives up
+            // rather than spinning, so the case fails instead of hanging.
+            var yields = 0
+            while gate.waiting == 0 && yields < 100_000 { await Task.yield(); yields += 1 }
+        }
+
+        let outcome = try await allocator.revertImport(batch, takeVerifiedBackup: Backups(container).take)
+
+        guard case .reverted = outcome else {
+            Issue.record("expected the revert to go through, got \(outcome)")
+            return
+        }
+        let cancel = try #require(started.task, "the hook never ran, so the window was never opened")
+        await #expect(throws: CancellationRefusal.noSuchInvoice) { try await cancel.value }
+        #expect(try Fixture.invoices(in: container).isEmpty)
+    }
+
+    /// THE LIST OF WRITERS IS A CLAIM THE REVERT'S SAFETY RESTS ON, so it is checked
+    /// against the app rather than trusted (L96, L247). Every source that saves a
+    /// context either takes the gate the revert holds, or is named here with the
+    /// reason it cannot change a row an import wrote. A new writer that does neither
+    /// fails this until somebody decides which it is.
+    private static let writersThatCannotReachAnImportedRow: [String: String] = [
+        "Ovation/Domain/InvoiceDueDateWriter.swift": "refuses a sent invoice, and an imported one is sent",
+        "Ovation/Domain/ShootTimesWriter.swift": "refuses a sent invoice's shoots, and an imported invoice has none",
+        "Ovation/Mail/SendSettler.swift": "refuses an invoice already sent",
+        "Ovation/Booking/BookingDrafter.swift": "writes new drafts only",
+        "Ovation/Domain/ClientStandingWriter.swift": "writes a client, never an invoice's rows",
+        "Ovation/Domain/ClientTaxStatusWriter.swift": "writes a client, never an invoice's rows",
+        "Ovation/Domain/ReferralLedger.swift": "spends on an invoice only when InvoiceReferralCreditWriter calls it, under the gate",
+        "Ovation/Domain/ServiceTypeSeed.swift": "writes service types only",
+        "Ovation/Domain/ServiceTypeWriter.swift": "writes service types only",
+        "Ovation/App/OvationApp.swift": "saves only the client import at launch, before any screen",
+        "Ovation/Document/ReviewSampleWorld.swift": "an in memory sample world, never the store",
+        "Ovation/Persistence/OvationSchema.swift": "a migration stage, before the store opens",
+    ]
+
+    @Test("every writer either takes the gate the revert holds, or cannot reach an imported row")
+    func everyWriterIsAccountedFor() throws {
+        let root = Self.repository()
+        let app = root.appending(path: "Ovation")
+        let walker = try #require(FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil))
+        var savers: [String] = []
+        var ungated: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            guard text.contains(".save()") else { continue }
+            let path = "Ovation/" + url.path.dropFirst(app.path.count + 1)
+            savers.append(path)
+            if !text.contains("MoneyWriteGates.gate"), Self.writersThatCannotReachAnImportedRow[path] == nil {
+                ungated.append(path)
+            }
+        }
+        #expect(savers.count > 10, "the scan found \(savers.count) writers, so it is not reading the app")
+        #expect(ungated.isEmpty, "these save without the gate and are not accounted for: \(ungated.sorted())")
+        let stale = Self.writersThatCannotReachAnImportedRow.keys.filter { !savers.contains($0) }
+        #expect(stale.isEmpty, "named as writers but no longer saving anything: \(stale.sorted())")
+    }
+
+    private static func repository(_ file: StaticString = #filePath) -> URL {
+        URL(fileURLWithPath: "\(file)").deletingLastPathComponent().deletingLastPathComponent()
     }
 
     // MARK: the backup, at the moment of the revert
