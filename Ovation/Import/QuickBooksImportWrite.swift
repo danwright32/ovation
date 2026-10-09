@@ -93,14 +93,14 @@ extension QuickBooksImportRun {
             let paymentKeys = payments.payments.map { row in
                 QuickBooksImportCandidate.Payment(
                     key: QuickBooksImportKey(version: version, sources: [
-                        .init(fileSHA256: invoicesAndPayments.fileSHA256, rawRowSHA256: row.rawRowSHA256),
+                        .init(fileSHA256: invoicesAndPayments.fileSHA256, row: row.row, rawRowSHA256: row.rawRowSHA256),
                     ]),
                     row: row)
             }
-            let sources = [QuickBooksImportKey.Source(fileSHA256: invoiceList.fileSHA256,
+            let sources = [QuickBooksImportKey.Source(fileSHA256: invoiceList.fileSHA256, row: agreed.invoice.row,
                                                       rawRowSHA256: agreed.invoice.rawRowSHA256)]
-                + agreed.lines.map { .init(fileSHA256: salesLines.fileSHA256, rawRowSHA256: $0.rawRowSHA256) }
-                + payments.payments.map { .init(fileSHA256: invoicesAndPayments.fileSHA256,
+                + agreed.lines.map { .init(fileSHA256: salesLines.fileSHA256, row: $0.row, rawRowSHA256: $0.rawRowSHA256) }
+                + payments.payments.map { .init(fileSHA256: invoicesAndPayments.fileSHA256, row: $0.row,
                                                 rawRowSHA256: $0.rawRowSHA256) }
             return QuickBooksImportCandidate(key: QuickBooksImportKey(version: version, sources: sources),
                                              invoice: agreed.invoice, lines: agreed.lines, payments: paymentKeys)

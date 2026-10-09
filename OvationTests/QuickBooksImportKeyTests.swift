@@ -20,27 +20,38 @@ struct QuickBooksImportKeyTests {
 
     @Test("the same file, row and version make the same key, so a re-run finds what it wrote")
     func theSameInputsMakeTheSameKey() {
-        let sources = [Source(fileSHA256: "a1", rawRowSHA256: "b2")]
+        let sources = [Source(fileSHA256: "a1", row: 6, rawRowSHA256: "b2")]
         #expect(QuickBooksImportKey(version: 1, sources: sources) == QuickBooksImportKey(version: 1, sources: sources))
     }
 
     @Test("a corrected importer makes a different key over the same file and row")
     func anotherVersionIsAnotherKey() {
-        let sources = [Source(fileSHA256: "a1", rawRowSHA256: "b2")]
+        let sources = [Source(fileSHA256: "a1", row: 6, rawRowSHA256: "b2")]
         #expect(QuickBooksImportKey(version: 1, sources: sources) != QuickBooksImportKey(version: 2, sources: sources))
         #expect(QuickBooksImportKey(sources: sources).value.hasPrefix("quickbooks-v\(QuickBooksImportKey.importerVersion):"))
     }
 
     @Test("another file or another row is another key")
     func anotherFileOrRowIsAnotherKey() {
-        let base = QuickBooksImportKey(version: 1, sources: [Source(fileSHA256: "a1", rawRowSHA256: "b2")])
-        #expect(base != QuickBooksImportKey(version: 1, sources: [Source(fileSHA256: "a9", rawRowSHA256: "b2")]))
-        #expect(base != QuickBooksImportKey(version: 1, sources: [Source(fileSHA256: "a1", rawRowSHA256: "b9")]))
+        let base = QuickBooksImportKey(version: 1, sources: [Source(fileSHA256: "a1", row: 6, rawRowSHA256: "b2")])
+        #expect(base != QuickBooksImportKey(version: 1, sources: [Source(fileSHA256: "a9", row: 6, rawRowSHA256: "b2")]))
+        #expect(base != QuickBooksImportKey(version: 1, sources: [Source(fileSHA256: "a1", row: 6, rawRowSHA256: "b9")]))
         // EVERY CONTRIBUTING ROW COUNTS: an invoice whose lines changed in the
         // sales lines file is a different invoice to import, even though its row in
         // the invoice list did not move.
-        #expect(base != QuickBooksImportKey(version: 1, sources: [Source(fileSHA256: "a1", rawRowSHA256: "b2"),
-                                                                   Source(fileSHA256: "c3", rawRowSHA256: "d4")]))
+        #expect(base != QuickBooksImportKey(version: 1, sources: [Source(fileSHA256: "a1", row: 6, rawRowSHA256: "b2"),
+                                                                   Source(fileSHA256: "c3", row: 7, rawRowSHA256: "d4")]))
+    }
+
+    @Test("the same text on another row of the same file is another row")
+    func theRowNumberIsPartOfTheKey() {
+        // REVIEW OF 1e824ef (L186). Two payments with the same date and amount read
+        // as the same text, under different clients or under one; without where each
+        // sits, the second one's key is the first one's, and it is refused as
+        // already imported though it was never written.
+        let first = QuickBooksImportKey(version: 1, sources: [Source(fileSHA256: "a1", row: 8, rawRowSHA256: "b2")])
+        let second = QuickBooksImportKey(version: 1, sources: [Source(fileSHA256: "a1", row: 11, rawRowSHA256: "b2")])
+        #expect(first != second)
     }
 
     @Test("a record keeps its raw text, quotes and all, without its line ending")

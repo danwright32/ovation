@@ -15,7 +15,7 @@ struct ImportedStateTests {
         let client = Client(name: "Fictive Quartet", taxStatus: .exempt)
         let day = try #require(BusinessCalendar.day(forKey: "2026-01-19"))
         return Invoice.imported(number: 1_041,
-                                key: QuickBooksImportKey(sources: [.init(fileSHA256: "f", rawRowSHA256: "r")]),
+                                key: QuickBooksImportKey(sources: [.init(fileSHA256: "f", row: 6, rawRowSHA256: "r")]),
                                 batch: UUID(), client: client, invoiceDate: day, dueDate: day)
     }
 

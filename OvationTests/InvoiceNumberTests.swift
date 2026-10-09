@@ -37,7 +37,7 @@ struct InvoiceNumberTests {
         context.insert(client)
         let invoice = Invoice.imported(
             number: number,
-            key: QuickBooksImportKey(sources: [.init(fileSHA256: "list", rawRowSHA256: "row \(number)")]),
+            key: QuickBooksImportKey(sources: [.init(fileSHA256: "list", row: 6, rawRowSHA256: "row \(number)")]),
             batch: UUID(), client: client, invoiceDate: .stamping(day), dueDate: .stamping(day))
         context.insert(invoice)
         return invoice

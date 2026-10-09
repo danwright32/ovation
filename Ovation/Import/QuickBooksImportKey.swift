@@ -37,6 +37,12 @@ struct QuickBooksImportKey: Hashable, Sendable {
     struct Source: Hashable, Sendable {
         /// The whole file's contents, hashed.
         let fileSHA256: String
+        /// Where the row sits in that file, as a spreadsheet numbers it. PART OF THE
+        /// KEY (review of 1e824ef, L186): two payments of the same amount on the same
+        /// day read as the same text, and without their place the second's key is the
+        /// first's. It is still recomputable from the import, because the file it is
+        /// counted in is pinned by `fileSHA256`.
+        let row: Int
         /// The row exactly as the file wrote it, hashed.
         let rawRowSHA256: String
     }
@@ -45,7 +51,7 @@ struct QuickBooksImportKey: Hashable, Sendable {
     let value: String
 
     init(version: Int = importerVersion, sources: [Source]) {
-        let joined = sources.map { "\($0.fileSHA256):\($0.rawRowSHA256)" }.joined(separator: "\n")
+        let joined = sources.map { "\($0.fileSHA256):\($0.row):\($0.rawRowSHA256)" }.joined(separator: "\n")
         value = "quickbooks-v\(version):" + QuickBooksCustodyFile.sha256(of: Data(joined.utf8))
     }
 }
