@@ -187,8 +187,8 @@ color: var(--faint); }
 .status .fault .read { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .status .also, .status .looked { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
 
-.status .fault b { white-space: nowrap; }
-.status .fault button.read { font: inherit; font-weight: 600; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
+.status .fault b { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.status .fault button.read { flex: none; font: inherit; font-weight: 600; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
 .app { position: relative; }
 .railpop { position: absolute; z-index: 8; width: 300px; background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.10), 0 12px 28px rgba(0,0,0,.18); }
 .railsay { font-size: 13px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
@@ -3497,7 +3497,7 @@ function buildInvoiceScreen() {
   if (QUIET) {
     card.append(el("div", "quiet", "Nothing waiting"));
   } else {
-    [["To send", 4], ["To chase", 2], ["To confirm", 2], ["To place", 2],
+    [["To send", 3], ["To chase", 2], ["To confirm", 2], ["To place", 3],
      ["Receipts to file", 20]].forEach(function (pr) {
       var ln = el("div", "ln");
       ln.append(el("span", null, pr[0]), el("b", null, String(pr[1])));
