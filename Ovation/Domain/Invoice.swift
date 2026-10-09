@@ -484,16 +484,12 @@ extension OvationSchemaV9 {
         /// `InvoiceEditCommand.Open` is the menu's projection of this invoice and
         /// the menu has to know whether applying a credit could do anything.
         ///
-        /// IT ALSO HAS TO LIVE IN THIS FILE. Reading `client?.referralBalance`
-        /// from `Ovation/Invoices/InvoiceEditCommand.swift` makes the compiler
-        /// lose `Client`'s own `Hashable` conformance and fail three unrelated
-        /// lines of `InvoiceListPresenter`, reproducibly, from a clean build, at
-        /// every `-driver-batch-count` tried (measured 2026-09-23, Xcode 27.0).
-        /// Asking the question here compiles and is the better shape anyway, so
-        /// the workaround and the design agree; it is filed as ovation#497 so the
-        /// constraint is not rediscovered by the next reader.
+        /// The client is bound first, as in `clientTaxStatus` below and across the
+        /// app; ovation#497 holds why (a compiler fault that depends on how files
+        /// are batched) and the measurement behind it.
         var clientHasReferralCreditBanked: Bool {
-            (client?.referralBalance ?? .zero) > .zero
+            let client = self.client
+            return (client?.referralBalance ?? .zero) > .zero
         }
 
         /// What the referral credit takes off. Zero where there is none.
@@ -545,11 +541,7 @@ extension OvationSchemaV9 {
         /// different statuses (L544, L370).
         var taxStatusCharged: TaxStatus? {
             if let sentUnder = taxStatusWhenSent { return sentUnder }
-            // Bound first rather than read through the optional client: that form
-            // trips a compiler fault that depends on how files are batched
-            // (ovation#497).
-            let client = self.client
-            return client?.taxStatus
+            return clientTaxStatus
         }
 
         /// Records what a send established, and with it the tax status the invoice
@@ -733,7 +725,7 @@ extension OvationSchemaV9 {
             if subtotal >= .zero, discount?.exceeds(subtotal) == true {
                 found.insert(.discountExceedsSubtotal)
             }
-            if client?.taxStatus == .neverRecorded { found.insert(.taxStatusNeverRecorded) }
+            if clientTaxStatus == .neverRecorded { found.insert(.taxStatusNeverRecorded) }
             // ovation#458. ASKED OF THE LINES AND NEVER OF THE TOTAL, because PRD
             // 5.1b protects a zero total and a comped invoice is exactly that: a
             // line priced at zero. What cannot be sent is a document with nothing
