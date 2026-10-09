@@ -290,7 +290,7 @@ struct SharedAddressNoticeLayoutTests {
     }
 
     static func notice(_ page: ClientsPresenter.Page,
-                       placed: ((String, CGRect) -> Void)? = nil) -> some View {
+                       placed: ((SharedAddressNoticePart, CGRect) -> Void)? = nil) -> some View {
         SharedAddressNotice(said: page.sharedSaid, open: { _ in }, answer: {
             ActionWord(word: "That is correct", size: 12.5, press: {})
         }, placed: placed)
@@ -328,27 +328,78 @@ struct SharedAddressNoticeLayoutTests {
     func threeLongNamesWrap() throws {
         let page = try Self.page()
         #expect(page.sharesAddressWith.map(\.name) == Self.longNames)
-        let placed = WholeRowTests.Box<[String: CGRect]>([:])
+        let placed = WholeRowTests.Box<[SharedAddressNoticePart: CGRect]>([:])
         let width = Self.halfScreenWidth
         let window = RealClick.host(Self.notice(page) { placed.value[$0] = $1 },
                                     size: CGSize(width: width, height: 240))
         defer { window.close() }
 
-        for name in Self.longNames {
-            let frame = try #require(placed.value[name], "\(name) was not drawn")
+        for sharer in page.sharesAddressWith {
+            let name = sharer.name
+            let frame = try #require(placed.value[.name(sharer.clientID)], "\(name) was not drawn")
             let whole = NSHostingView(rootView: ActionWord(word: name, size: 13, press: {}))
                 .fittingSize.width
             #expect(frame.width >= whole - 0.5, "\(name) was cut to \(frame.width) of \(whole)")
             #expect(frame.minX >= 0 && frame.maxX <= width + 0.5, "\(name) ran off the notice")
         }
-        let answer = try #require(placed.value[SharedAddressNotice<ActionWord>.answerKey],
+        let answer = try #require(placed.value[.answer],
                                   "the answer was not drawn")
         #expect(answer.minX >= 0 && answer.maxX <= width - 12 + 0.5,
                 "the answer was pushed to \(answer.maxX) of a \(width) point notice")
         // IT WAS WRAPPING THAT MADE THE ROOM, which is the claim: three names this
         // long cannot share one line at this width.
-        let lines = Set(Self.longNames.compactMap { placed.value[$0].map { Int($0.minY) } })
+        let lines = Set(page.sharesAddressWith.compactMap {
+            placed.value[.name($0.clientID)].map { Int($0.minY) }
+        })
         #expect(lines.count > 1, "the names are all on one line, so nothing wrapped")
+    }
+
+    /// ovation#665. Two clients on one address can carry the same name, and each is
+    /// still its own control. Placements keyed by the name kept only the last.
+    @Test("two clients of one name on the address are each placed")
+    func twoClientsOfOneNameAreEachPlaced() throws {
+        let context = ModelContext(try OvationSchema.container(inMemory: true))
+        for name in ["Drayton Wind Ensemble", "Brackenridge Youth Orchestra", "Brackenridge Youth Orchestra"] {
+            let client = Client(name: name, taxStatus: .exempt)
+            client.email = "office@draytonarts.example"
+            context.insert(client)
+        }
+        let clients = try context.fetch(FetchDescriptor<Client>())
+        let page = try #require(ClientsPresenter(clients: clients)
+            .pages[try ClientsViewTests.id(of: "Drayton Wind Ensemble", in: clients)])
+        #expect(page.sharesAddressWith.count == 2, "both namesakes share the address")
+
+        let placed = WholeRowTests.Box<[SharedAddressNoticePart: CGRect]>([:])
+        let window = RealClick.host(Self.notice(page) { placed.value[$0] = $1 },
+                                    size: CGSize(width: Self.halfScreenWidth, height: 240))
+        defer { window.close() }
+
+        #expect(placed.value.count == 3, "two names and the answer, each placed on its own")
+    }
+
+    /// ovation#665. The space between the notice's words is measured once rather
+    /// than on every drawing of the page, and it is the space AppKit draws at the
+    /// notice's size, so the constant cannot drift from what a space really is.
+    @Test("the notice's word space is the space AppKit draws at its size")
+    func theWordSpaceIsTheMeasuredSpace() {
+        let measured = (" " as NSString)
+            .size(withAttributes: [.font: NSFont.systemFont(ofSize: 13)]).width
+        #expect(SharedAddressNoticeMetrics.size == 13)
+        #expect(SharedAddressNoticeMetrics.wordSpace == measured)
+        #expect(measured > 0, "AppKit measured nothing, so this compared nothing")
+    }
+
+    /// ovation#665. A single word wider than the flow is placed whole on a line of
+    /// its own, and the flow must say so: reporting only the width it was offered
+    /// tells the parent everything fits while the word runs past it.
+    @Test("a word wider than the flow reports its own width to the parent")
+    func anOverflowingWordIsReported() {
+        let flow = WordFlow(wordSpacing: 4) {
+            Color.clear.frame(width: 300, height: 16)
+        }
+        let size = NSHostingController(rootView: flow).sizeThatFits(in: CGSize(width: 100, height: 400))
+
+        #expect(size.width >= 300, "the flow reported \(size.width) for a 300 point word")
     }
 }
 

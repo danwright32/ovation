@@ -548,18 +548,13 @@ struct SharedAddressNotice<Answer: View>: View {
     let open: (UUID) -> Void
     @ViewBuilder let answer: () -> Answer
     /// Where each name and the answer were drawn, in the notice's own space, keyed
-    /// by the name or by `answerKey`. Nil in the app; a test reads it to prove no
-    /// name is cut short and the answer stays on the notice (L606).
-    var placed: ((String, CGRect) -> Void)?
+    /// by the client's id or as the answer. Nil in the app; a test reads it to prove
+    /// no name is cut short and the answer stays on the notice (L606).
+    var placed: ((SharedAddressNoticePart, CGRect) -> Void)?
 
-    static var answerKey: String { "the answer" }
     private static var space: String { "shared address notice" }
-
-    /// The notice's type size, and the space between its words at that size.
-    static var size: CGFloat { 13 }
-    static var wordSpace: CGFloat {
-        (" " as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: size)]).width
-    }
+    static var size: CGFloat { SharedAddressNoticeMetrics.size }
+    static var wordSpace: CGFloat { SharedAddressNoticeMetrics.wordSpace }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -572,8 +567,8 @@ struct SharedAddressNotice<Answer: View>: View {
                     ActionWord(word: named.sharer.name, size: Self.size,
                                press: { open(named.sharer.clientID) }, spoken: named.spoken)
                         .fixedSize()
-                        .modifier(ReportsPlacement(key: named.sharer.name, in: Self.space,
-                                                   to: placed))
+                        .modifier(ReportsPlacement(key: .name(named.sharer.clientID),
+                                                   in: Self.space, to: placed))
                     ForEach(Array(Self.words(after: named).enumerated()), id: \.offset) { _, word in
                         Text(word.text)
                             .font(.system(size: Self.size))
@@ -587,7 +582,7 @@ struct SharedAddressNotice<Answer: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             answer()
                 .fixedSize()
-                .modifier(ReportsPlacement(key: Self.answerKey, in: Self.space, to: placed))
+                .modifier(ReportsPlacement(key: .answer, in: Self.space, to: placed))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
@@ -604,15 +599,38 @@ struct SharedAddressNotice<Answer: View>: View {
     }
 }
 
+/// One part of the shared address notice whose placement a test can ask about.
+///
+/// A NAME IS KEYED BY ITS CLIENT, never by the words (ovation#665): two clients
+/// on one address can carry the same name, and keyed by it the second's placement
+/// overwrote the first's.
+enum SharedAddressNoticePart: Hashable {
+    case name(UUID)
+    case answer
+}
+
+/// The notice's type size, and the space between its words at that size.
+///
+/// MEASURED ONCE (ovation#665). The space was measured through AppKit on every
+/// drawing of the Clients page, for a value that never changes while the app
+/// runs. It lives outside the notice because a generic view cannot hold a stored
+/// static.
+enum SharedAddressNoticeMetrics {
+    static let size: CGFloat = 13
+    static let wordSpace: CGFloat =
+        (" " as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: size)]).width
+}
+
 /// Reports where a view was drawn, in a named space, to a test that asked; with
 /// nobody asking it adds nothing, so the app pays nothing for the test's seam
 /// (review of #644).
 private struct ReportsPlacement: ViewModifier {
-    let key: String
+    let key: SharedAddressNoticePart
     let space: String
-    let report: ((String, CGRect) -> Void)?
+    let report: ((SharedAddressNoticePart, CGRect) -> Void)?
 
-    init(key: String, in space: String, to report: ((String, CGRect) -> Void)?) {
+    init(key: SharedAddressNoticePart, in space: String,
+         to report: ((SharedAddressNoticePart, CGRect) -> Void)?) {
         self.key = key
         self.space = space
         self.report = report
