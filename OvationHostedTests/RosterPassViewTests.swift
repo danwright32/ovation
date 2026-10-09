@@ -18,6 +18,7 @@ import ViewInspector
 /// which is the settled screen; 25 stays as the largest pass the real roster
 /// has ever had, because a pass with work is the screen these tests exist for.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct RosterPassViewTests {
 
     /// The shape measured from the live Downbeat export on 2026-09-11 by

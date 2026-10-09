@@ -14,6 +14,7 @@ import Testing
 @testable import Ovation
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct RailFootShotTests {
 
     private static var outputDirectory: URL? {
