@@ -688,7 +688,7 @@ extension OvationSchemaV8 {
             if subtotal >= .zero, discount?.exceeds(subtotal) == true {
                 found.insert(.discountExceedsSubtotal)
             }
-            if client?.taxStatus == .neverRecorded { found.insert(.taxStatusNeverRecorded) }
+            if clientTaxStatus == .neverRecorded { found.insert(.taxStatusNeverRecorded) }
             // ovation#458. ASKED OF THE LINES AND NEVER OF THE TOTAL, because PRD
             // 5.1b protects a zero total and a comped invoice is exactly that: a
             // line priced at zero. What cannot be sent is a document with nothing
