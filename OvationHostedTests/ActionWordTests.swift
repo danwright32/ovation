@@ -9,6 +9,7 @@ import ViewInspector
 /// and this is the second: `Action.destination` can be perfectly right while the
 /// row still draws every word as a control. The whole defect was in the drawing.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct ActionWordTests {
 
     private static func buttons(in view: some View) throws -> [String] {

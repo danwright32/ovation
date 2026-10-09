@@ -16,6 +16,7 @@ import ViewInspector
 /// chosen to solve that layout problem with no alternative drawn beside it, and
 /// ovation#111 still holds that open. What is built here is what is drawn there.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct DiscountLineTests {
 
     private static func line(isPercent: Bool = true,

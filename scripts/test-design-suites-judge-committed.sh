@@ -121,7 +121,7 @@ check "the window ceiling suite goes red on the committed record when a window s
 # foot's side padding away puts it at nothing, which no exemption excuses.
 T="$WORK/inset"; copy_tree "$T"
 check "the control inset suite's damage is in its copy" \
-    "$(damage "$T" review-send.html 's|padding: 12px 20px;|padding: 12px 0px;|' 'padding: 12px 0px;')" "1"
+    "$(damage "$T" review-send.html 's|padding: 12px 24px 12px 20px;|padding: 12px 0px;|' 'padding: 12px 0px;')" "1"
 check "the control inset suite goes red on the committed record when a control meets its edge" \
     "$(judged "$T" test-design-control-inset.sh)" "1:yes"
 

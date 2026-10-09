@@ -37,6 +37,7 @@ import ViewInspector
 /// arrives as nothing while the run prints a number that looks exactly like an
 /// answer.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct RosterPassRenderTests {
 
     private static var renderDirectory: URL {
