@@ -212,4 +212,143 @@ struct InvoiceEditCommandTests {
         #expect(InvoiceEditCommand.whyTheReferralCreditCannotChange(open)
                 == InvoiceReferralCreditRefusal.invoiceWasSent.sentence)
     }
+
+    // MARK: an entry whose press would run nothing (ovation#657)
+
+    /// A command with the invoice open and, unless asked otherwise, every writer
+    /// the screen registers. The writers do nothing: what is judged is only
+    /// whether each one is there.
+    private static func command(open invoice: Invoice?, discountWriter: Bool = true,
+                                applyWriter: Bool = true,
+                                removeWriter: Bool = true) -> InvoiceEditCommand {
+        let command = InvoiceEditCommand()
+        command.open = invoice.map(InvoiceEditCommand.Open.init)
+        if discountWriter { command.addDiscount = { _, _ in } }
+        if applyWriter { command.applyReferralCredit = { _ in } }
+        if removeWriter { command.removeReferralCredit = { _ in } }
+        return command
+    }
+
+    /// The store the menu is told is open, for the cases where one is.
+    private static func store() throws -> ModelContainer {
+        try OvationSchema.container(inMemory: true)
+    }
+
+    /// THE PRESS WOULD DO NOTHING, SO THE ENTRY SAYS SO. Before ovation#657 the
+    /// entry judged only the invoice, was enabled, and a press with no registered
+    /// writer returned silently: a control that looks pressable and does nothing
+    /// leaves pressing it again as the only diagnosis (L109, L148).
+    ///
+    /// WITH A STORE OPEN IT SAYS WHAT WAS MEASURED, that nothing was registered,
+    /// never that there is no store, which was not measured here and is false
+    /// (L11, L440).
+    @Test("a store open but no discount writer registered says nothing was registered")
+    func noDiscountWriterWithAStoreSaysNothingWasRegistered() throws {
+        let command = Self.command(open: try Self.invoice(), discountWriter: false)
+
+        #expect(command.whyTheDiscountEntryIsDisabled(container: try Self.store())
+                == InvoiceEditCommand.nothingRegistered)
+    }
+
+    /// NO STORE IS ITS OWN CAUSE, and is named only where the store itself was
+    /// read and found missing, in the one sentence every no store entry says.
+    @Test("no store open and no discount writer says there is no store")
+    func noDiscountWriterWithNoStoreSaysNoStore() throws {
+        let command = Self.command(open: try Self.invoice(), discountWriter: false)
+
+        #expect(command.whyTheDiscountEntryIsDisabled(container: nil) == NoStoreOpen.sentence)
+    }
+
+    @Test("with the writer registered the same draft can have one added")
+    func withTheDiscountWriterTheEntryIsEnabled() throws {
+        let command = Self.command(open: try Self.invoice())
+
+        #expect(command.whyTheDiscountEntryIsDisabled(container: try Self.store()) == nil)
+    }
+
+    /// THE INVOICE'S OWN REASON COMES FIRST. With no writer AND a sent invoice,
+    /// the sent invoice is what would still stop it once a store was open, so
+    /// naming the store would send Dan after the wrong thing (L111).
+    @Test("the invoice's own refusal wins over the missing writer")
+    func theInvoicesOwnRefusalComesFirst() throws {
+        let command = Self.command(open: try Self.invoice(sent: true), discountWriter: false)
+
+        #expect(command.whyTheDiscountEntryIsDisabled(container: nil)
+                == InvoiceDiscountRefusal.invoiceWasSent.sentence)
+        #expect(Self.command(open: nil, discountWriter: false)
+                    .whyTheDiscountEntryIsDisabled(container: nil) == "No invoice is open.")
+    }
+
+    /// EACH DIRECTION NEEDS ITS OWN WRITER. The entry's word says which one a
+    /// press would run, so only that one's absence can make it do nothing.
+    @Test("a credit to apply with no apply writer says nothing was registered")
+    func noApplyWriterGreysTheCreditEntry() throws {
+        let command = Self.command(open: try Self.invoice(banked: Hours(whole: 2)),
+                                   applyWriter: false)
+
+        #expect(command.whyTheReferralCreditEntryIsDisabled(container: try Self.store())
+                == InvoiceEditCommand.nothingRegistered)
+    }
+
+    @Test("a credit to remove with no remove writer says nothing was registered")
+    func noRemoveWriterGreysTheCreditEntry() throws {
+        let command = Self.command(open: try Self.invoice(credited: true),
+                                   applyWriter: true, removeWriter: false)
+
+        #expect(command.whyTheReferralCreditEntryIsDisabled(container: try Self.store())
+                == InvoiceEditCommand.nothingRegistered)
+    }
+
+    @Test("a credit to remove does not need the apply writer")
+    func removingDoesNotNeedTheApplyWriter() throws {
+        let command = Self.command(open: try Self.invoice(credited: true), applyWriter: false)
+
+        #expect(command.whyTheReferralCreditEntryIsDisabled(container: try Self.store()) == nil)
+    }
+
+    /// THE CREDIT ENTRY'S ORDER, the same as the discount's (L111). With no
+    /// writer AND nothing banked, the empty balance is what would still stop it
+    /// once a store was open, so that is what it names.
+    @Test("the credit entry's own refusal wins over the missing writer")
+    func theCreditEntrysOwnRefusalComesFirst() throws {
+        let nothingBanked = Self.command(open: try Self.invoice(banked: .zero),
+                                         applyWriter: false, removeWriter: false)
+        let sent = Self.command(open: try Self.invoice(sent: true, credited: true),
+                                applyWriter: false, removeWriter: false)
+
+        #expect(nothingBanked.whyTheReferralCreditEntryIsDisabled(container: nil)
+                == InvoiceReferralCreditRefusal.noCreditToSpend.sentence)
+        #expect(sent.whyTheReferralCreditEntryIsDisabled(container: nil)
+                == InvoiceReferralCreditRefusal.invoiceWasSent.sentence)
+    }
+
+    /// ONE SENTENCE FOR ONE CONDITION, READ BY EVERY ENTRY IT GREYS (L118, L370).
+    /// The export and the draft commands said it in their own copies before
+    /// ovation#657, so this asserts what each entry actually RETURNS with no
+    /// store, not a prefix typed here, which could not fail if one drifted.
+    @Test("every menu entry with no store open says the one shared sentence")
+    func everyEntryWithNoStoreSaysTheSharedSentence() throws {
+        let export = YearEndExportCommand(directory: nil, runRecord: nil)
+        // The store is judged before the launch day (ovation#655), so an
+        // unconfirmed day in throwaway defaults reaches the same sentence.
+        let throwaway = try ThrowawayDefaults()
+        let draft = BookingDraftCommand(
+            launchCutoff: LaunchCutoffSetting(defaults: throwaway.defaults), queue: nil)
+        let discount = Self.command(open: try Self.invoice(), discountWriter: false)
+        let credit = Self.command(open: try Self.invoice(banked: Hours(whole: 2)),
+                                  applyWriter: false)
+
+        #expect(export.whyItCannotRun(container: nil) == NoStoreOpen.sentence)
+        #expect(draft.whyItCannotRun(container: nil) == NoStoreOpen.sentence)
+        #expect(discount.whyTheDiscountEntryIsDisabled(container: nil) == NoStoreOpen.sentence)
+        #expect(credit.whyTheReferralCreditEntryIsDisabled(container: nil)
+                == NoStoreOpen.sentence)
+    }
+
+    /// THE TWO CAUSES ARE TWO SENTENCES, or the wording would again claim one
+    /// cause on evidence of the other (L11).
+    @Test("nothing registered and no store open are said differently")
+    func theTwoCausesAreSaidDifferently() {
+        #expect(InvoiceEditCommand.nothingRegistered != NoStoreOpen.sentence)
+    }
 }
