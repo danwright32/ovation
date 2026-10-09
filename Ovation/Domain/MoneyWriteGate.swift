@@ -28,6 +28,13 @@
 // executor from its own context, and taking that over is what makes the context
 // safe to touch. What they can share is exclusion.
 //
+// IT ALSO EXCLUDES EVERY WRITE TO A ROW A QUICKBOOKS IMPORT WROTE (ovation#70).
+// The import revert holds it from its first read to its delete, so a write that
+// could change an imported invoice takes it too: the money writers above, the
+// discount, line and referral credit writers, and the record of a reminder or copy.
+// `QuickBooksImportRevertTests` scans for any writer that neither takes it nor is
+// named there with the reason it cannot reach an imported row.
+//
 // IT IS PER STORE, NOT GLOBAL. Two containers are two independent sets of money,
 // and a process wide gate would serialize a suite's parallel tests against each
 // other for no reason, which is a shared mutable object several tests touch

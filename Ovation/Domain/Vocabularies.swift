@@ -73,6 +73,17 @@ enum PaymentMethod: String, CaseIterable, Codable, Hashable, Sendable {
     case zelle = "zelle"
     case venmo = "venmo"
     case payPal = "paypal"
+    /// ovation#68. How money an import brought in arrived, which QuickBooks does
+    /// not export: it records the account the money went to, never the method. The
+    /// same rule as PRD 2b's kind, for the same reason (L192): naming a method
+    /// would assert a fact nobody recorded. Never offered to Dan (`recordable`).
+    case notRecorded = "not-recorded"
+
+    /// The methods a person records a payment by, in the order the payment sheet
+    /// offers them. DERIVED FROM `allCases`, as `TaxStatus.answers` is, so a new
+    /// method cannot be left off the sheet by a second hand kept list (L41, L611).
+    /// `notRecorded` is the absence of an answer, so a person never chooses it.
+    static let recordable: [PaymentMethod] = allCases.filter { $0 != .notRecorded }
 
     /// Whether this method has a cleared step after it is recorded.
     ///
@@ -83,7 +94,7 @@ enum PaymentMethod: String, CaseIterable, Codable, Hashable, Sendable {
     var gainsAClearedStep: Bool {
         switch self {
         case .check: return true
-        case .zelle, .venmo, .payPal: return false
+        case .zelle, .venmo, .payPal, .notRecorded: return false
         }
     }
 
@@ -93,6 +104,7 @@ enum PaymentMethod: String, CaseIterable, Codable, Hashable, Sendable {
         case .zelle: return "Zelle"
         case .venmo: return "Venmo"
         case .payPal: return "PayPal"
+        case .notRecorded: return "Not recorded"
         }
     }
 
@@ -100,7 +112,11 @@ enum PaymentMethod: String, CaseIterable, Codable, Hashable, Sendable {
     /// brands keep their capitals. One spelling, read by the invoice's payment line
     /// and by its history, so the two cannot word one payment differently (L118).
     var inASentence: String {
-        self == .check ? "check" : exportLabel
+        switch self {
+        case .check: return "check"
+        case .notRecorded: return "a method not recorded"
+        case .zelle, .venmo, .payPal: return exportLabel
+        }
     }
 }
 

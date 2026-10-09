@@ -38,6 +38,16 @@ actor InvoiceSender {
     typealias RecordSave = @Sendable (ModelContext) throws -> Void
     static let savingRecord: RecordSave = { try $0.save() }
 
+    /// Whether the invoice a reminder or copy is about is still in the store once
+    /// Gmail has accepted it (ovation#70). A SEAM FOR THE SAME REASON `RecordSave` is
+    /// one: a fetch that throws is a different outcome from an invoice that is gone,
+    /// and it had never once run (L11, L1). Every caller but a test takes
+    /// `findingRecordTarget`.
+    typealias RecordFind = @Sendable (ModelContext, PersistentIdentifier) throws -> Bool
+    static let findingRecordTarget: RecordFind = { context, id in
+        try context.fetch(FetchDescriptor<Invoice>()).contains { $0.persistentModelID == id }
+    }
+
     func send(_ invoiceID: PersistentIdentifier, render: RenderedInvoice, message: String,
               settings: SendingSettings, footer: InvoiceFooter, approvedRecipients: [String],
               through route: SendingRoute, clock: @Sendable () -> Date) async -> InvoiceSendOutcome {
@@ -185,7 +195,8 @@ actor InvoiceSender {
                 message: String, settings: SendingSettings, footer: InvoiceFooter,
                 approvedRecipients: [String], through route: SendingRoute,
                 clock: @Sendable () -> Date,
-                saveRecord: RecordSave = InvoiceSender.savingRecord) async -> InvoiceSendOutcome {
+                saveRecord: RecordSave = InvoiceSender.savingRecord,
+                findTarget: RecordFind = InvoiceSender.findingRecordTarget) async -> InvoiceSendOutcome {
         let sender = route.sender
         guard let invoice = try? modelContext.fetch(FetchDescriptor<Invoice>())
             .first(where: { $0.persistentModelID == invoiceID }) else {
@@ -254,6 +265,27 @@ actor InvoiceSender {
         // history lists what went, never what was tried. Nothing else is written, so
         // the invoice's sent state is untouched whatever happens here.
         let sentAt = clock()
+        // UNDER THE GATE EVERY WRITER OF AN INVOICE'S ROWS TAKES (ovation#70), and
+        // the invoice found again first: the network call above is long enough for
+        // a QuickBooks import revert to have removed it, and a record pointed at a
+        // removed invoice would be saved against nothing. Never held across Gmail.
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+        // TWO OUTCOMES, NEVER ONE (L11): a read that failed says it failed and why,
+        // and only a read that worked and found nothing says the invoice is gone.
+        let stillThere: Bool
+        do {
+            stillThere = try findTarget(modelContext, invoiceID)
+        } catch {
+            return .sent(at: sentAt, to: recipients,
+                         notRecorded: InvoiceMail.notRecorded(
+                            kind.noun, "Ovation could not read the invoice back: \(error.localizedDescription)"))
+        }
+        guard stillThere else {
+            return .sent(at: sentAt, to: recipients,
+                         notRecorded: InvoiceMail.notRecorded(kind.noun, "the invoice was removed while it was going"))
+        }
         let record = Self.message(SentMessageKind(kind), to: recipients, at: sentAt, subject: mail.subject,
                                   receipt: receipt)
         modelContext.insert(record)

@@ -93,15 +93,100 @@ struct QuickBooksImportReportTests {
         #expect(text.contains("reconciliation by invoice number: not run, the invoice list was refused"))
     }
 
-    @Test("nothing written is said as nothing written, never as a zero that reads like success")
+    @Test("a run that only read says it wrote nothing, never a zero that reads like success")
     func nothingWrittenIsSaid() {
-        // L98. This build parses and reconciles; the store write is ovation#68 to
-        // ovation#70. A report that said "0 written" would read the same as a run
-        // where everything was already imported.
+        // L98. A run that read and reconciled and never reached the store says so,
+        // because "0 written" would read the same as a run where everything was
+        // already imported.
         let text = Self.run().report.joined(separator: "\n")
-        #expect(text.contains("written: nothing, this build reads and reconciles only"))
-        #expect(text.contains("already imported: not checked, nothing reads the store yet"))
+        #expect(text.contains("written: nothing, this run read and reconciled the files and did not write"))
+        #expect(text.contains("already imported: not checked, this run did not read the store"))
         #expect(!text.contains("0 written"))
+    }
+
+    // MARK: after the write (ovation#72)
+
+    private typealias Spec = QuickBooksImportFixture.Spec
+
+    @Test("every invoice read is counted once: written, already imported or refused")
+    func theFourNumbersPartitionTheInvoices() async throws {
+        // Three agree with each other, and one of them carries a client Ovation
+        // does not hold, so it is refused at the write.
+        let container = try QuickBooksImportFixture.store()
+        let base = [Spec(number: "1041"), Spec(number: "1042", client: "Imaginary Opera"),
+                    Spec(number: "1043", paidCents: 5_000)]
+        let run = QuickBooksImportFixture.run(base)
+        let write = try await QuickBooksImportFixture.write(run, into: container)
+
+        let text = run.report(after: write).joined(separator: "\n")
+        #expect(text.contains("invoices: 3 read, 2 written, 0 already imported, 1 refused"))
+        #expect(text.contains("written: 2 invoices and 2 payments, as import batch \(write.batch.uuidString)"))
+        #expect(text.contains("  invoice list row 7: no client in Ovation carries the name QuickBooks billed"))
+    }
+
+    @Test("a second run says every invoice was already imported, never that it wrote nothing")
+    func asecondRunSaysAlreadyImported() async throws {
+        let container = try QuickBooksImportFixture.store()
+        let run = QuickBooksImportFixture.run([Spec(number: "1041"), Spec(number: "1042")])
+        try await QuickBooksImportFixture.write(run, into: container)
+        let again = try await QuickBooksImportFixture.write(run, into: container)
+
+        let text = run.report(after: again).joined(separator: "\n")
+        #expect(text.contains("invoices: 2 read, 0 written, 2 already imported, 0 refused"))
+        #expect(text.contains("written: nothing, every invoice was already imported"))
+        #expect(text.contains("already imported: invoice list rows 6, 7"))
+    }
+
+    @Test("a run that wrote nothing because everything was refused says that instead")
+    func aRunWhereEverythingWasRefusedSaysSo() async throws {
+        let container = try QuickBooksImportFixture.store(clients: [])
+        let run = QuickBooksImportFixture.run([Spec(number: "1041")])
+        let write = try await QuickBooksImportFixture.write(run, into: container)
+
+        let text = run.report(after: write).joined(separator: "\n")
+        #expect(text.contains("written: nothing, every invoice was refused"))
+    }
+
+    @Test("an invoice list refused as a whole is said as refused, never as a file with nothing in it")
+    func aRefusedListIsNotAnEmptyOne() async throws {
+        // REVIEW OF 3a6ef9e (L11): a refused file reads zero rows, and "no rows to
+        // import" would describe it as empty, which nothing measured.
+        let container = try QuickBooksImportFixture.store()
+        let good = QuickBooksImportFixture.run([Spec(number: "1041")])
+        let run = QuickBooksImportRun(invoiceList: QuickBooksExport.invoiceList("not the measured report\r\n"),
+                                      payments: good.payments, salesLines: good.salesLines,
+                                      invoicesAndPayments: good.invoicesAndPayments)
+        let write = try await QuickBooksImportFixture.write(run, into: container)
+
+        let text = run.report(after: write).joined(separator: "\n")
+        #expect(text.contains("written: nothing, the invoice list was refused as a whole, so none of it was imported"))
+        #expect(!text.contains("no rows to import"))
+    }
+
+    @Test("a number already held is named by its row, and the number itself stays off the report")
+    func aHeldNumberIsReportedByRow() async throws {
+        let container = try QuickBooksImportFixture.store()
+        let run = QuickBooksImportFixture.run([Spec(number: "1041")])
+        try await QuickBooksImportFixture.write(run, into: container, version: 1)
+        let corrected = try await QuickBooksImportFixture.write(run, into: container, version: 2)
+
+        let text = run.report(after: corrected).joined(separator: "\n")
+        #expect(text.contains("  invoice list row 6: another invoice in Ovation already holds its number"))
+        #expect(!text.contains("1041"))
+    }
+
+    @Test("the report after a write prints no client name, invoice number or amount")
+    func theReportAfterAWriteObeysThePrivacyFloor() async throws {
+        let container = try QuickBooksImportFixture.store(clients: [("Fictive Quartet", .notExempt)])
+        let run = QuickBooksImportFixture.run([Spec(number: "1041", paidCents: 4_000),
+                                               Spec(number: "1042", client: "Imaginary Opera")])
+        let write = try await QuickBooksImportFixture.write(run, into: container)
+        #expect(!write.refused.isEmpty, "a refusal with nothing to leak measures nothing")
+
+        let text = run.report(after: write).joined(separator: "\n")
+        for needle in ["Fictive", "Imaginary", "1041", "1042", "100.00", "40.00", "108.88"] {
+            #expect(!text.contains(needle), "the report printed \(needle.count) characters it must not")
+        }
     }
 
     @Test("payments are tied to an invoice only where the client holds one, and every other case is named by row")

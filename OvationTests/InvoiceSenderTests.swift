@@ -33,8 +33,13 @@ struct InvoiceSenderTests {
         /// stamped, which Ovation records as reported (L127).
         var receipt = SentReceipt(threadId: "thread-1", messageID: "<first@messages.example>")
 
+        /// Runs while the message is with Gmail, which is where a case puts whatever
+        /// happens to the store in the time a real send takes (ovation#70).
+        var whileSending: (@Sendable () -> Void)?
+
         func send(_ mail: OutgoingMail) async throws -> SentReceipt {
             sent.append(mail)
+            whileSending?()
             switch answer {
             case .accepts: return receipt
             case .refuses(let error), .neverAnswers(let error): throw error

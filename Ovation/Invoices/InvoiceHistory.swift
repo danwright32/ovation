@@ -63,10 +63,10 @@ struct InvoiceHistory: Equatable {
         switch invoice.sentStatus {
         case .sent(let route, let at):
             let more: String?
-            if route == .foundInTheMailbox {
-                more = "found in Gmail's Sent folder"
-            } else {
-                more = issuing.map { Self.goneTo($0.recipients) } ?? nil
+            switch route {
+            case .foundInTheMailbox: more = "found in Gmail's Sent folder"
+            case .billedInQuickBooks: more = "billed in QuickBooks"
+            case .ovationSentIt: more = issuing.map { Self.goneTo($0.recipients) } ?? nil
             }
             found.append(Sortable(day: .stamping(at), rank: 1, id: "sent", what: "Sent", more: more))
         case .attempting(let attempt):

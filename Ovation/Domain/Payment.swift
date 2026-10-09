@@ -23,7 +23,7 @@
 import Foundation
 import SwiftData
 
-extension OvationSchemaV8 {
+extension OvationSchemaV9 {
     @Model
     final class Payment {
         var id: UUID = UUID()
@@ -51,6 +51,15 @@ extension OvationSchemaV8 {
         /// A check number, a Zelle reference, whatever identifies it on a statement.
         var reference: String?
 
+        /// The row this payment was imported from, the batch that wrote it, and what
+        /// it said when it was written (ovation#68, ovation#69, ovation#70, schema
+        /// version 9), for the reasons `Invoice` gives for its own three. Set only by
+        /// `imported(...)` and `recordImportedState()`. Nil on every payment Dan
+        /// recorded.
+        private(set) var importKey: String?
+        private(set) var importBatchID: UUID?
+        private(set) var importedFingerprint: String?
+
         /// Deleting a payment takes its allocations with it: they are statements
         /// about money this record represents and mean nothing without it. Releasing
         /// one is a different thing entirely and does not delete anything, see
@@ -63,6 +72,28 @@ extension OvationSchemaV8 {
             self.amount = amount
             self.method = method
             self.receivedOn = receivedOn
+        }
+
+        /// A payment an import is writing (ovation#68, ovation#69).
+        ///
+        /// HOW IT ARRIVED IS NOT RECORDED. QuickBooks exports the account the money
+        /// was deposited to and never the method, and naming one would assert a fact
+        /// nobody recorded, the way PRD 2b refuses to call an imported invoice
+        /// photography (L192). A payment whose method is not recorded has no cleared
+        /// step, so it never waits on Dan to confirm it.
+        static func imported(key: QuickBooksImportKey, batch: UUID, client: Client, amount: Money,
+                             receivedOn: BusinessDate) -> Payment {
+            let payment = Payment(client: client, amount: amount, method: .notRecorded, receivedOn: receivedOn)
+            payment.importKey = key.value
+            payment.importBatchID = batch
+            return payment
+        }
+
+        /// Records what this imported payment says now (ovation#70). Does nothing to
+        /// a payment no import wrote.
+        func recordImportedState() {
+            guard importBatchID != nil else { return }
+            importedFingerprint = ImportedState.fingerprint(of: self)
         }
 
         /// What went back out of THIS payment (ovation#174, PRD 5.13).
@@ -131,7 +162,7 @@ extension OvationSchemaV8 {
 /// still exists and still arrived. Deleting the row would destroy the record of
 /// what was decided and when, which is the question an audit exists to answer
 /// (L529).
-extension OvationSchemaV8 {
+extension OvationSchemaV9 {
     @Model
     final class PaymentAllocation {
         var id: UUID = UUID()
@@ -154,6 +185,23 @@ extension OvationSchemaV8 {
         /// written since says which it is, because the initialiser has no default
         /// (L168).
         var source: AllocationSource?
+
+        /// The import run that wrote this allocation, or nil where Dan or Ovation
+        /// itself did (ovation#69, schema version 9). It is what tells a payment an
+        /// import brought with its invoice from one recorded against it since, which
+        /// a revert must refuse over (ovation#70).
+        private(set) var importBatchID: UUID?
+
+        /// The allocation an import writes with its payment, which is money
+        /// QuickBooks recorded against that invoice, so it is recorded with the
+        /// payment rather than held money applied.
+        static func imported(payment: Payment, invoice: Invoice, amount: Money,
+                             allocatedOn: BusinessDate, batch: UUID) -> PaymentAllocation {
+            let allocation = PaymentAllocation(payment: payment, invoice: invoice, amount: amount,
+                                               allocatedOn: allocatedOn, source: .recordedWithThePayment)
+            allocation.importBatchID = batch
+            return allocation
+        }
 
         /// Whether this is a client's held money applied to the invoice, which
         /// is the one allocation the invoice offers to take back off (PRD 14i).
@@ -191,7 +239,7 @@ enum AllocationSource: String, Codable, Hashable, Sendable, CaseIterable {
 /// income in the year it was issued and a refund can move in a different calendar
 /// year. How that is reported is one of the questions for the accountant recorded
 /// in PRD 9.3, so nothing here asserts a year for it.
-extension OvationSchemaV8 {
+extension OvationSchemaV9 {
     @Model
     final class Refund {
         var id: UUID = UUID()
@@ -224,6 +272,6 @@ extension OvationSchemaV8 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a newer version exists, this line moves to it and
 // every call site is already correct.
-typealias Payment = OvationSchemaV8.Payment
-typealias PaymentAllocation = OvationSchemaV8.PaymentAllocation
-typealias Refund = OvationSchemaV8.Refund
+typealias Payment = OvationSchemaV9.Payment
+typealias PaymentAllocation = OvationSchemaV9.PaymentAllocation
+typealias Refund = OvationSchemaV9.Refund
