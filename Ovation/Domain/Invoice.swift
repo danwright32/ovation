@@ -484,17 +484,9 @@ extension OvationSchemaV9 {
         /// `InvoiceEditCommand.Open` is the menu's projection of this invoice and
         /// the menu has to know whether applying a credit could do anything.
         ///
-        /// THE CLIENT IS BOUND FIRST, as in `clientTaxStatus` below, so the file
-        /// has one pattern. Reading a member straight through the optional client
-        /// can make the compiler lose `Client`'s own `Hashable` conformance and
-        /// fail three untouched lines of `InvoiceListPresenter`, but only when the
-        /// reading file and `InvoiceListPresenter` land in one batched compile job
-        /// WITHOUT this file (measured 2026-09-25 on Xcode 26.6 and 27.0). A read
-        /// in this file is always compiled with this file, so here the direct form
-        /// is safe and binding first is consistency, not a guard; that is why
-        /// `scripts/check-forbidden-constructs.sh`, which refuses the form in every
-        /// other file, need not see this one. ovation#497 holds the measurement and
-        /// a four file reproduction; it was not reported to Apple.
+        /// The client is bound first, as in `clientTaxStatus` below and across the
+        /// app; ovation#497 holds why (a compiler fault that depends on how files
+        /// are batched) and the measurement behind it.
         var clientHasReferralCreditBanked: Bool {
             let client = self.client
             return (client?.referralBalance ?? .zero) > .zero
