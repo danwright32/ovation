@@ -87,7 +87,13 @@ for f in "$WF_DIR"/*.yml; do
     fi
     judged=$((judged + 1))
     period=86400
-    state="$("$GH" api "repos/${REPO}/actions/workflows/${name}" --jq .state 2>/dev/null || true)"
+    # A FAILED READ OF ITS STATE IS NOT "active" either, or a schedule GitHub
+    # disabled passes during an outage or with an expired token (L215).
+    if ! state="$("$GH" api "repos/${REPO}/actions/workflows/${name}" --jq .state 2>/dev/null)"; then
+        echo "  CANNOT MEASURE  $name: gh could not answer for its state, so whether GitHub disabled it is unknown."
+        unreadable=$((unreadable + 1))
+        continue
+    fi
     if [ -n "$state" ] && [ "$state" != "active" ]; then
         echo "  STOPPED         $name: GitHub reports it as $state, so its schedule no longer runs."
         echo "                  Re-enable it: gh workflow enable $name"

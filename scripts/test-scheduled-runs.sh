@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "scheduled run tests" 25
+harness_begin "scheduled run tests" 27
 
 TARGET="scripts/check-scheduled-runs.sh"
 require_target "$TARGET"
@@ -34,7 +34,8 @@ case "$1" in
     case " $* " in
       *created_at*) [ -e "$FAKE/fail-created-$f" ] && { echo "HTTP 401" >&2; exit 1; }
                     cat "$FAKE/created-$f" 2>/dev/null; exit 0 ;;
-      *) cat "$FAKE/state-$f" 2>/dev/null || echo active ;;
+      *) [ -e "$FAKE/fail-state-$f" ] && { echo "HTTP 401" >&2; exit 1; }
+         cat "$FAKE/state-$f" 2>/dev/null || echo active ;;
     esac ;;
 esac
 SH
@@ -121,6 +122,14 @@ OUT="$(run_check)"; ST=$?
 check "a creation date gh could not answer for cannot be measured, not stopped" "$ST" "2"
 check "and it says gh could not answer" "$(says "$OUT" "could not answer")" "yes"
 rm -f "$WORK/fail-created-recorder.yml" "$WORK/created-recorder.yml"
+# And whether GitHub disabled the schedule: a failed read is not "active", or a
+# disabled schedule passes during an outage (L215).
+iso $((NOW - 3600)) > "$WORK/last-recorder.yml"
+touch "$WORK/fail-state-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "a workflow state gh could not answer cannot be measured, not read as active" "$ST" "2"
+check "and it says gh could not answer for its state" "$(says "$OUT" "could not answer")" "yes"
+rm -f "$WORK/fail-state-recorder.yml" "$WORK/last-recorder.yml"
 
 # 4c. WHEN IT WAS ADDED CANNOT BE READ: stopped, as before, and said so, because
 #     an unreadable date is no evidence the schedule is new (L42, L11).
