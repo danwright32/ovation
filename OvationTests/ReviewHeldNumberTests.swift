@@ -115,22 +115,21 @@ struct ReviewHeldNumberTests {
         let context = ModelContext(container)
         let reviewed = Invoice(client: nil, kind: .fromABooking, invoiceDate: .stamping(Self.noon),
                                hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
-        let imported = Invoice(client: nil, kind: .fromABooking, invoiceDate: .stamping(Self.noon),
-                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
-        imported.importKey = "qb:2026:1500"
         context.insert(reviewed)
-        context.insert(imported)
+        context.insert(Client(name: "Fictive Quartet", taxStatus: .exempt))
         try context.save()
 
         let allocator = InvoiceNumberAllocator(modelContainer: container)
         let number = try await allocator.allocate(to: reviewed.persistentModelID)
-        try await allocator.claim(1_500, for: imported.persistentModelID)
+        try await QuickBooksImportFixture.write(QuickBooksImportFixture.run([.init(number: "1500")]),
+                                                into: container)
 
         let heldRow = try Self.stored(reviewed.id, in: container)
         #expect(heldRow.number == number)
         #expect(heldRow.numberHeldByAReview, "the number went in without the record that a review holds it")
-        #expect(!(try Self.stored(imported.id, in: container)).numberHeldByAReview,
-                "a number QuickBooks issued is not a review's to give back")
+        let imported = try #require(try ModelContext(container).fetch(FetchDescriptor<Invoice>())
+            .first { $0.number == 1_500 })
+        #expect(!imported.numberHeldByAReview, "a number QuickBooks issued is not a review's to give back")
     }
 
     @Test("the send lets go of the hold in the save written before Gmail is called")

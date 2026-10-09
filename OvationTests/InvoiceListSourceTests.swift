@@ -102,6 +102,29 @@ struct InvoiceListSourceTests {
         #expect(after.query == "Cedar")
     }
 
+    /// ovation#685 (L1019). The open invoice is read again when the list's reading
+    /// changes, so every re-read a write causes must give a reading the screen has
+    /// not seen, including once the list before it has been freed and its memory
+    /// handed on. Nothing here holds an old list, which is the case the address
+    /// key got wrong.
+    @Test("every re-read after a write is a new reading, even once the list before it is gone")
+    func everyRereadIsANewReading() throws {
+        let context = ModelContext(try OvationSchema.container(inMemory: true))
+        Self.invoice(context, for: Self.client(context), sent: true)
+        let source = InvoiceListSource(
+            read: { (invoices: try context.fetch(FetchDescriptor<Invoice>()),
+                     clients: try context.fetch(FetchDescriptor<Client>())) },
+            problems: Self.problems(), now: { Self.noon })
+
+        var seen = Set<UUID>()
+        let rereads = 32
+        for _ in 0..<rereads {
+            seen.insert(try #require(source.list).reading)
+            source.reread()
+        }
+        #expect(seen.count == rereads, "a re-read came back as a reading the screen had already seen")
+    }
+
     /// A READ THAT FAILS TAKES THE LIST AWAY, and the list was the only thing
     /// holding the search. The field keeps showing Dan's words through the
     /// failure, so the next good read must narrow by them rather than bring the

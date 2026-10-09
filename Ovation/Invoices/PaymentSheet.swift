@@ -82,7 +82,7 @@ struct PaymentSheet: View {
                 GridRow {
                     label("By")
                     HStack(spacing: 4) {
-                        ForEach(PaymentMethod.allCases, id: \.self) { method($0) }
+                        ForEach(PaymentMethod.recordable, id: \.self) { method($0) }
                     }
                 }
             }

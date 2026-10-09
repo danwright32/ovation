@@ -17,6 +17,12 @@ name: Backstage release
 # THE MECHANISM IS scripts/report-finding.sh (ovation#339), as for every other
 # scheduled finding here: one issue, commented on only when the verdict changes
 # (ovation#512), and closed when the pin is current again (L393, L269).
+#
+# A WATCHER THAT CANNOT WATCH FILES ITS OWN FINDING (ovation#660). From
+# 2026-09-29 every run failed to list backstage's tags, and the only signal was a
+# red run in the Actions tab that nobody was told about. So a run that could not
+# compare now files one issue under its own title, and every run that did compare
+# closes it.
 
 on:
   schedule:
@@ -42,8 +48,14 @@ permissions:
 # its exact title, so the close step and the filing step must pass the same
 # words; a second copy that drifted would make the close match nothing, which it
 # reports as the ordinary "none was open" (L41). Its suite fails on a second copy.
+#
+# TWO FINDINGS, TWO TITLES (L53). A newer release sends somebody to backstage's
+# release notes; a comparison that could not be made sends them to this
+# workflow's own log and its token. One issue carrying both would be two
+# independent findings sharing one status field.
 env:
   FINDING_TITLE: backstage has a release newer than the one Ovation pins
+  CANNOT_COMPARE_TITLE: The backstage release watcher could not compare the pin with its releases
 
 concurrency:
   group: backstage-release
@@ -55,7 +67,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      # NO CREDENTIAL IS LEFT IN THE CHECKOUT (ovation#660). By default checkout
+      # persists this workflow's own GITHUB_TOKEN as an http extraheader, which
+      # git then sends in place of BACKSTAGE_READ_TOKEN, and that token cannot
+      # see the private backstage repository. Nothing here pushes or fetches with
+      # it: the reporting steps use GH_TOKEN through gh.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       # backstage IS PRIVATE, so its tags are read with the same token and the
       # same script the Mac jobs use to resolve it, which refuses by name when the
@@ -122,9 +141,28 @@ jobs:
             *) exit "${reported}" ;;
           esac
 
-      # AND IT IS CLOSED WHEN IT IS OVER, because a finding left open after it
-      # stops being true reads as outstanding (L269).
-      - name: Close it once the pin is current again
+          # THE PIN WAS COMPARED, so a finding that it could not be is over (L269).
+          {
+            echo "The pin was compared with backstage's releases on $(date -u +%Y-%m-%d), so this is closed."
+            echo
+            sed 's/^/    /' verdict.txt
+          } > compared-body.md
+          set +e
+          bash scripts/report-finding.sh cleared \
+            --title "${CANNOT_COMPARE_TITLE}" \
+            --comment-file compared-body.md
+          reported=$?
+          set -e
+          # 2 closed it, 3 means none was open, the ordinary state.
+          case "${reported}" in
+            2|3) ;;
+            *) exit "${reported}" ;;
+          esac
+
+      # AND EACH IS CLOSED WHEN IT IS OVER, because a finding left open after it
+      # stops being true reads as outstanding (L269). A current pin ends both: it
+      # is the newest release, and it was compared.
+      - name: Close them once the pin is current again
         if: steps.ask.outputs.status == '0'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -135,23 +173,79 @@ jobs:
             echo
             sed 's/^/    /' verdict.txt
           } > close-body.md
+          {
+            echo "The pin was compared with backstage's releases on $(date -u +%Y-%m-%d), so this is closed."
+            echo
+            sed 's/^/    /' verdict.txt
+          } > compared-body.md
+          # BOTH ARE ASKED, whatever the first answers: a refusal on the first
+          # once skipped the second and left the could-not-compare finding open
+          # on a day the pin compared fine. The step then fails with the first
+          # refusal's code, so a refusal is still a red run.
+          # 2 closed it, 3 means none was open, the ordinary state on a current day.
+          failed=0
           set +e
           bash scripts/report-finding.sh cleared \
             --title "${FINDING_TITLE}" \
             --comment-file close-body.md
           reported=$?
+          case "${reported}" in 2|3) ;; *) failed="${reported}" ;; esac
+          bash scripts/report-finding.sh cleared \
+            --title "${CANNOT_COMPARE_TITLE}" \
+            --comment-file compared-body.md
+          reported=$?
+          case "${reported}" in 2|3) ;; *) [ "${failed}" -ne 0 ] || failed="${reported}" ;; esac
           set -e
-          # 2 closed it, 3 means none was open, the ordinary state on a current day.
+          exit "${failed}"
+
+      # A FAILURE TO MEASURE, OR A PIN NAMING NO TAG, FILES A FINDING AND FAILS
+      # THE JOB (ovation#660). It used to only fail the job, on the reasoning
+      # that "a fetch failed" is not a finding anybody can act on a day later;
+      # then every run failed for a week and nobody was told. The verdict now
+      # carries what the listing said, masked, so the issue is actionable. p1:
+      # either the watcher is blind, or CI's next build cannot resolve the pin.
+      - name: Say so when the pin could not be compared
+        if: steps.ask.outputs.status == '1' || steps.ask.outputs.status == '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          {
+            echo "Still true on $(date -u +%Y-%m-%d):"
+            echo
+            sed 's/^/    /' verdict.txt
+          } > comment-body.md
+          {
+            echo "Opened automatically by the Backstage release workflow (ovation#660)."
+            echo
+            sed 's/^/    /' verdict.txt
+            echo
+            echo "The watcher could not compare project.yml's backstage pin with"
+            echo "backstage's releases, so nothing is known about whether a newer one"
+            echo "exists. CANNOT MEASURE means the tags or the pin could not be read;"
+            echo "the lines above carry what the listing said, with credentials masked."
+            echo "REFUSED means the pin names a version backstage never tagged, so the"
+            echo "next CI build cannot resolve it."
+            echo
+            echo "This issue is commented on rather than duplicated while it is open,"
+            echo "and closed by this workflow on the first run that compares."
+          } > issue-body.md
+
+          set +e
+          bash scripts/report-finding.sh stands \
+            --title "${CANNOT_COMPARE_TITLE}" \
+            --body-file issue-body.md \
+            --comment-file comment-body.md \
+            --milestone Ungrouped \
+            --label priority-p1 --label ci-hygiene --label monitoring \
+            --verdict-file verdict.txt
+          reported=$?
+          set -e
+          # 0 filed, 1 commented, 9 unchanged; anything else is a refusal the
+          # script has explained, and fails with its own code (L184).
           case "${reported}" in
-            2|3) ;;
+            0|1|9) ;;
             *) exit "${reported}" ;;
           esac
-
-      # A FAILURE TO MEASURE, OR A PIN NAMING NO TAG, FAILS THE JOB and opens
-      # nothing: both are states to look at in this run's own log, and "a fetch
-      # failed" is not a finding anybody can act on a day later (L98, L11).
-      - name: Refuse a run that could not compare
-        if: steps.ask.outputs.status == '1' || steps.ask.outputs.status == '2'
-        run: |
           echo "::error::The backstage pin could not be compared with its releases. See the log above."
           exit 1

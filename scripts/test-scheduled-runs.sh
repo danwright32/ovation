@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "scheduled run tests" 10
+harness_begin "scheduled run tests" 27
 
 TARGET="scripts/check-scheduled-runs.sh"
 require_target "$TARGET"
@@ -19,14 +19,24 @@ WF="$WORK/workflows"; mkdir -p "$WF"
 daily() { printf 'name: %s\non:\n  schedule:\n    - cron: %s\n' "$1" "'17 13 * * *'" > "$WF/$1.yml"; }
 printf 'name: pushed\non:\n  push:\n    branches: [main]\n' > "$WF/pushed.yml"
 
-# A STAND IN FOR gh, answering from files by workflow file name (L2). `last-<f>`
-# holds the newest scheduled run's time, `state-<f>` the workflow's state.
+# A STAND IN FOR gh, answering from files by workflow file name (L2). A missing
+# file is an EMPTY answer with exit 0, which is what the real gh gives for a
+# workflow with no runs; only a `fail-` marker makes it fail, as an outage does. `last-<f>`
+# holds the newest scheduled run's time, `state-<f>` the workflow's state, and
+# `created-<f>` when GitHub first saw the workflow, in the shape its API gives it.
 cat > "$WORK/gh" <<'SH'
 #!/bin/bash
 for a in "$@"; do case "$a" in *.yml) f="${a##*/}" ;; esac; done
 case "$1" in
-  run) cat "$FAKE/last-$f" 2>/dev/null ;;
-  api) cat "$FAKE/state-$f" 2>/dev/null || echo active ;;
+  run) [ -e "$FAKE/fail-run-$f" ] && { echo "HTTP 502" >&2; exit 1; }
+       cat "$FAKE/last-$f" 2>/dev/null; exit 0 ;;
+  api)
+    case " $* " in
+      *created_at*) [ -e "$FAKE/fail-created-$f" ] && { echo "HTTP 401" >&2; exit 1; }
+                    cat "$FAKE/created-$f" 2>/dev/null; exit 0 ;;
+      *) [ -e "$FAKE/fail-state-$f" ] && { echo "HTTP 401" >&2; exit 1; }
+         cat "$FAKE/state-$f" 2>/dev/null || echo active ;;
+    esac ;;
 esac
 SH
 chmod +x "$WORK/gh"
@@ -58,10 +68,76 @@ check "a schedule GitHub disabled is reported" "$ST" "1"
 check "and it says GitHub disabled it" "$(says "$OUT" "disabled_inactivity")" "yes"
 rm -f "$WORK/state-recorder.yml"
 
-# 4. NEVER RAN AT ALL is stopped too, never "nothing to judge" (L557).
+# THE SHAPE GITHUB'S WORKFLOW API RETURNS, measured 2026-10-08: milliseconds and
+# an offset, not the Z form runs carry, so the parse is driven by the real one.
+api_time() { python3 -c 'import sys,datetime; print(datetime.datetime.fromtimestamp(int(sys.argv[1]), datetime.timezone(datetime.timedelta(hours=-4))).strftime("%Y-%m-%dT%H:%M:%S.000-04:00"))' "$1"; }
+
+# 4. NEVER RAN AT ALL is stopped too, never "nothing to judge" (L557), once it
+#    has been there long enough that it should have run: here, added a month
+#    ago, so it is the old schedule that is judged and not an unreadable date
+#    (4c covers that path).
 rm -f "$WORK/last-recorder.yml"
+api_time $((NOW - 30 * 86400)) > "$WORK/created-recorder.yml"
 OUT="$(run_check)"; ST=$?
-check "a schedule with no run on record is reported" "$ST" "1"
+check "a schedule added a month ago with no run on record is reported" "$ST" "1"
+check "and it is stopped for having been added long ago, not for an unreadable date" \
+    "$(says "$OUT" "could not be read")" "no"
+
+# 4b. A SCHEDULE TOO NEW TO HAVE RUN YET (ovation#661). On 2026-09-29 two new
+#     daily workflows each turned CI liveness red for most of a day before their
+#     first scheduled run, which is the alarm firing on a normal event. Until the
+#     workflow is older than one period plus the grace for GitHub's lateness, no
+#     run on record is NOT YET DUE, its own outcome. The window is read from the
+#     script rather than written here, so moving the grace moves both sides of
+#     these fixtures with it (L401).
+GRACE_HOURS="$(sed -nE 's/^GRACE_SECONDS=\$\(\(([0-9]+) \* 3600\)\)$/\1/p' "$TARGET")"
+check "the grace this reads from the script is a number of hours" \
+    "$(grep -cE '^[0-9]+$' <<< "${GRACE_HOURS:-}")" "1"
+WINDOW=$((86400 + ${GRACE_HOURS:-0} * 3600))
+api_time $((NOW - WINDOW + 3600)) > "$WORK/created-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "a schedule added inside its first window with no run yet does not fail the check" "$ST" "0"
+check "and it is reported as not yet due, its own outcome" "$(says "$OUT" "NOT YET DUE")" "yes"
+check "and not as stopped" "$(says "$OUT" "STOPPED")" "no"
+check "and the summary does not claim every schedule ran" "$(says "$OUT" "not yet due")" "yes"
+
+api_time $((NOW - WINDOW - 3600)) > "$WORK/created-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "the same schedule an hour past its first window with still no run is stopped" "$ST" "1"
+check "and it says how long ago it was added" "$(says "$OUT" "added")" "yes"
+
+# 4d. GH COULD NOT ANSWER is not "no run on record" (L215). A failed run list
+#     read as empty made a schedule added in the last day and a half NOT YET
+#     DUE, so an outage or an expired token passed as healthy; and a failed read
+#     of when it was added read as an unreadable date. Both are CANNOT MEASURE.
+api_time $((NOW - WINDOW + 3600)) > "$WORK/created-recorder.yml"
+touch "$WORK/fail-run-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "a run list gh could not answer cannot be measured" "$ST" "2"
+check "and it is not reported as not yet due" "$(says "$OUT" "NOT YET DUE")" "no"
+check "and it says gh could not answer" "$(says "$OUT" "could not answer")" "yes"
+rm -f "$WORK/fail-run-recorder.yml"
+touch "$WORK/fail-created-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "a creation date gh could not answer for cannot be measured, not stopped" "$ST" "2"
+check "and it says gh could not answer" "$(says "$OUT" "could not answer")" "yes"
+rm -f "$WORK/fail-created-recorder.yml" "$WORK/created-recorder.yml"
+# And whether GitHub disabled the schedule: a failed read is not "active", or a
+# disabled schedule passes during an outage (L215).
+iso $((NOW - 3600)) > "$WORK/last-recorder.yml"
+touch "$WORK/fail-state-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "a workflow state gh could not answer cannot be measured, not read as active" "$ST" "2"
+check "and it says gh could not answer for its state" "$(says "$OUT" "could not answer")" "yes"
+rm -f "$WORK/fail-state-recorder.yml" "$WORK/last-recorder.yml"
+
+# 4c. WHEN IT WAS ADDED CANNOT BE READ: stopped, as before, and said so, because
+#     an unreadable date is no evidence the schedule is new (L42, L11).
+echo "not a date" > "$WORK/created-recorder.yml"
+OUT="$(run_check)"; ST=$?
+check "a schedule with no run whose added date cannot be read is still stopped" "$ST" "1"
+check "and it says the date could not be read" "$(says "$OUT" "could not be read")" "yes"
+rm -f "$WORK/created-recorder.yml"
 iso $((NOW - 3600)) > "$WORK/last-recorder.yml"
 
 # 5. A SCHEDULE THIS CANNOT READ is refused rather than guessed at.

@@ -50,6 +50,15 @@ struct WordFlowTests {
         #expect(laid.size.width == 300)
     }
 
+    /// ovation#665. A line starts at a word's INDEX on it, not at an x of zero, so
+    /// a first word that draws nothing still has its space after it.
+    @Test("a word after a zero width first word keeps its space")
+    func aWordAfterAZeroWidthWordKeepsItsSpace() {
+        let laid = Self.arrange([0, 30], width: 200)
+
+        #expect(laid.origins == [CGPoint(x: 0, y: 0), CGPoint(x: 4, y: 0)])
+    }
+
     @Test("with no width to fit, everything is one line")
     func withNoWidthItIsOneLine() {
         let laid = Self.arrange([60, 60, 60], width: nil)

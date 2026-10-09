@@ -161,6 +161,19 @@ final class InvoiceListPresenter {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Which reading of the store this list is: a new one every time the list is
+    /// built, which is on every committed write, and never the same twice.
+    ///
+    /// STORED, NOT THE LIST'S ADDRESS (ovation#685, L1019). The invoice screen
+    /// reads its invoice again when this changes. It used to key on the list's
+    /// `ObjectIdentifier`, and an address names an object only while it lives:
+    /// once the old list is freed the allocator hands its address to the next,
+    /// so a list built after a write could compare equal to the one before it and
+    /// the open invoice would go on showing what it said before the write. That
+    /// held only because SwiftUI happened to keep the old list alive until the
+    /// comparison, which nothing promised.
+    let reading = UUID()
+
     /// - Parameters:
     ///   - invoices: every invoice in the store, in whatever order it came back.
     ///     The order is declared here and never inherited (L343).

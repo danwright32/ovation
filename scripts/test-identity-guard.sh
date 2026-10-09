@@ -27,7 +27,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "identity guard tests" 82
+harness_begin "identity guard tests" 84
 
 TARGET="scripts/check-identity-leaks.sh"
 require_target "$TARGET"
@@ -348,6 +348,17 @@ OUT23B="$(run_guard "$T23B" "$EXPORT" "" "$STORE23/Ovation.store")"; ST23B=$?
 check "a client name in Ovation's own store is a needle" "$ST23B" "1"
 check "and the file that carries it is named" "$(says "$OUT23B" "a.txt")" "yes"
 check "and the name itself is NOT printed" "$(says "$OUT23B" "Wwfixture")" "no"
+
+# A STORE WHOSE NAME A URL WOULD CUT (ovation#666, L740). The copy is opened
+# through an sqlite URI, where "#" ends the path and "?" starts the options, so a
+# path pasted in unencoded opens a different, empty file and the store's names
+# are never read.
+STORE23H="$WORK/store23 #2"; rm -rf "$STORE23H"; mkdir -p "$STORE23H"
+make_store "$STORE23H/Ovation #2 100% ?.store"
+OUT23H="$(run_guard "$T23B" "$EXPORT" "" "$STORE23H/Ovation #2 100% ?.store")"; ST23H=$?
+check "a store under a name with a hash, a percent and a question mark is still read" "$ST23H" "1"
+check "and the leak it finds is the client name, in the file that carries it" \
+    "$(says "$OUT23H" "a.txt")" "yes"
 
 T23C="$(tree vendorleak)"; printf 'bought from Vvfixture Camera Supply\n' > "$T23C/a.txt"
 OUT23C="$(run_guard "$T23C" "$EXPORT" "" "$STORE23/Ovation.store")"; ST23C=$?

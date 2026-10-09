@@ -170,7 +170,7 @@ enum InvoiceRefusal: String, CaseIterable, Codable, Hashable, Sendable {
 
 }
 
-extension OvationSchemaV8 {
+extension OvationSchemaV9 {
     @Model
     final class Invoice {
         /// Ovation's own identity, minted fresh and never derived from anything
@@ -316,9 +316,59 @@ extension OvationSchemaV8 {
         /// here by itself and offers `Use it` instead, and pressing that clears it.
         var heldMoneyRemovedOn: BusinessDate?
 
-        /// The QuickBooks row this was imported from, for lookup only. ovation#68
-        /// owns what goes in it.
-        var importKey: String?
+        /// The rows this was imported from and the importer that read them, for
+        /// lookup only (ovation#68): `QuickBooksImportKey`, which a re-run checks
+        /// before writing so an interrupted import started again writes nothing
+        /// twice. Nil on every invoice not imported.
+        ///
+        /// PRIVATE TO SET, with the two fields below, so the only way to have any of
+        /// them is `imported(...)`, which sets all three at construction (L384, L593).
+        private(set) var importKey: String?
+
+        /// The import run that wrote this invoice (ovation#69, schema version 9).
+        ///
+        /// NOT THE KEY. The key answers "have I seen this row before"; this answers
+        /// "which run wrote it", and a corrected re-import has a new key AND a new
+        /// batch. It is what a revert finds a batch by (ovation#70), and what makes
+        /// "where did this invoice come from" answerable months later. NIL ON EVERY
+        /// INVOICE WRITTEN BEFORE VERSION 9, and nil is the truth: no import wrote
+        /// any of them.
+        private(set) var importBatchID: UUID?
+
+        /// What this invoice and its lines said when the import wrote them, hashed
+        /// (`ImportedState`), so a revert can tell an untouched imported invoice from
+        /// one Dan has worked on since (ovation#70). Stamped by the import in the
+        /// save that writes it.
+        private(set) var importedFingerprint: String?
+
+        /// An invoice an import is writing (ovation#68, ovation#69).
+        ///
+        /// THE KEY AND THE BATCH ARE TAKEN HERE AND NOWHERE ELSE, so an imported
+        /// invoice cannot exist without either: provenance stamped on the path that
+        /// constructs the row, not on a later write a new path could skip (L384).
+        ///
+        /// THE KIND IS NOT RECORDED (PRD 2b), and so is the day it was created:
+        /// QuickBooks exports neither, and a value standing in for one nobody
+        /// recorded would be a fact the history could not support (L192). The rate
+        /// is zero for the same reason: QuickBooks records each line's price, never
+        /// an invoice's rate.
+        static func imported(number: Int64, key: QuickBooksImportKey, batch: UUID, client: Client,
+                             invoiceDate: BusinessDate, dueDate: BusinessDate) -> Invoice {
+            let invoice = Invoice(client: client, kind: .fromAnImport, invoiceDate: invoiceDate,
+                                  hourlyRate: .zero, taxRate: .newYorkCity, createdOn: nil)
+            invoice.number = number
+            invoice.dueDate = dueDate
+            invoice.importKey = key.value
+            invoice.importBatchID = batch
+            return invoice
+        }
+
+        /// Records what this imported invoice says now, as the state a revert
+        /// compares against (ovation#70). Does nothing to an invoice no import wrote.
+        func recordImportedState() {
+            guard importBatchID != nil else { return }
+            importedFingerprint = ImportedState.fingerprint(of: self)
+        }
 
         @Relationship(deleteRule: .cascade, inverse: \Shoot.invoice)
         var shoots: [Shoot] = []
@@ -727,6 +777,6 @@ extension OvationSchemaV8 {
 // in force, so it says the bare name and this is what points that name at the
 // version in force. When a newer version exists, this line moves to it and
 // every call site is already correct.
-typealias Invoice = OvationSchemaV8.Invoice
+typealias Invoice = OvationSchemaV9.Invoice
 
-extension OvationSchemaV8.Invoice: SentTaxStamping {}
+extension OvationSchemaV9.Invoice: SentTaxStamping {}

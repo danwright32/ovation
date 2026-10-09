@@ -261,7 +261,10 @@ final class InvoiceReview: Identifiable {
     private let performSend: @MainActor (InvoiceReview) async -> Void
     private let performSettle: @MainActor (InvoiceReview) async -> String?
 
-    nonisolated var id: ObjectIdentifier { ObjectIdentifier(self) }
+    /// STORED, NOT THE REVIEW'S ADDRESS (ovation#685, L1019): an address is handed
+    /// to the next object once this one is freed, so anything keyed on it, a
+    /// sheet presented by item included, would take a new review for the old one.
+    nonisolated let id = UUID()
 
     init(invoiceID: PersistentIdentifier, number: Int64, numberTakenHere: Int64?, presenter: ReviewSheetPresenter,
          subject: String, message: String, destinationWarning: String?, goingTo: [String],
