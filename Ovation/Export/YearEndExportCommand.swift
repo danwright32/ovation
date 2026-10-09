@@ -116,8 +116,7 @@ final class YearEndExportCommand {
     /// sentence beside its own copy of the condition.
     func whyItCannotRun(container: ModelContainer?) -> String? {
         if container == nil {
-            return "There is no store open on this launch, so there is nothing to "
-                + "export from. The launch sequence either refused or has not run."
+            return NoStoreOpen.sentence
         }
         if case .running(let since) = progress {
             return "An export started at \(BusinessCalendar.dayKey(for: since)) is still "

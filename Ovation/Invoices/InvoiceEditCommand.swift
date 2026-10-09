@@ -74,16 +74,6 @@ final class InvoiceEditCommand {
     var applyReferralCredit: ((PersistentIdentifier) -> Void)?
     var removeReferralCredit: ((PersistentIdentifier) -> Void)?
 
-    /// What an entry says when the screen registered nothing for it to run.
-    ///
-    /// IN THE SAME WORDS AS THE MENU'S OTHER NO STORE REFUSALS, the export's and
-    /// the draft's (L118). It names the store because that is the only way the
-    /// writers end up absent: the app builds each one from the open store, and
-    /// gives none where this launch has no store (`OvationApp`, `opened.map`),
-    /// while the invoice itself can still be read and shown.
-    static let nowhereToSave = "There is no store open on this launch, so there is "
-        + "nowhere to save this change. The launch sequence either refused or has not run."
-
     /// The entry's words, the design record's own.
     static let addDiscountTitle = "Add a discount"
 
@@ -198,7 +188,7 @@ final class InvoiceEditCommand {
     /// press once a store was open (L111).
     var whyTheDiscountEntryIsDisabled: String? {
         if let why = Self.whyADiscountCannotBeAdded(open) { return why }
-        return addDiscount == nil ? Self.nowhereToSave : nil
+        return addDiscount == nil ? NoStoreOpen.sentence : nil
     }
 
     /// Why pressing the credit entry would do nothing right now, or nil when a
@@ -209,6 +199,6 @@ final class InvoiceEditCommand {
         // remover and nothing else, so a missing applier must not grey it.
         let writer = open?.hasReferralCredit == true
             ? removeReferralCredit : applyReferralCredit
-        return writer == nil ? Self.nowhereToSave : nil
+        return writer == nil ? NoStoreOpen.sentence : nil
     }
 }

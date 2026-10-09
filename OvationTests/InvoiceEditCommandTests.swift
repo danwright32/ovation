@@ -237,7 +237,7 @@ struct InvoiceEditCommandTests {
     func noDiscountWriterGreysTheEntry() throws {
         let command = Self.command(open: try Self.invoice(), discountWriter: false)
 
-        #expect(command.whyTheDiscountEntryIsDisabled == InvoiceEditCommand.nowhereToSave)
+        #expect(command.whyTheDiscountEntryIsDisabled == NoStoreOpen.sentence)
     }
 
     @Test("with the writer registered the same draft can have one added")
@@ -267,7 +267,7 @@ struct InvoiceEditCommandTests {
         let command = Self.command(open: try Self.invoice(banked: Hours(whole: 2)),
                                    applyWriter: false)
 
-        #expect(command.whyTheReferralCreditEntryIsDisabled == InvoiceEditCommand.nowhereToSave)
+        #expect(command.whyTheReferralCreditEntryIsDisabled == NoStoreOpen.sentence)
     }
 
     @Test("a credit to remove with no remove writer greys the entry with a reason")
@@ -275,7 +275,7 @@ struct InvoiceEditCommandTests {
         let command = Self.command(open: try Self.invoice(credited: true),
                                    applyWriter: true, removeWriter: false)
 
-        #expect(command.whyTheReferralCreditEntryIsDisabled == InvoiceEditCommand.nowhereToSave)
+        #expect(command.whyTheReferralCreditEntryIsDisabled == NoStoreOpen.sentence)
     }
 
     @Test("a credit to remove does not need the apply writer")
@@ -285,10 +285,37 @@ struct InvoiceEditCommandTests {
         #expect(command.whyTheReferralCreditEntryIsDisabled == nil)
     }
 
-    /// SAID IN THE SAME WORDS AS THE MENU'S OTHER NO STORE REFUSALS, the export's
-    /// and the draft's, so one condition has one vocabulary (L118).
-    @Test("the no writer sentence names the store, as the menu's other entries do")
-    func theNoWriterSentenceNamesTheStore() {
-        #expect(InvoiceEditCommand.nowhereToSave.hasPrefix("There is no store open on this launch"))
+    /// THE CREDIT ENTRY'S ORDER, the same as the discount's (L111). With no
+    /// writer AND nothing banked, the empty balance is what would still stop it
+    /// once a store was open, so that is what it names.
+    @Test("the credit entry's own refusal wins over the missing writer")
+    func theCreditEntrysOwnRefusalComesFirst() throws {
+        let nothingBanked = Self.command(open: try Self.invoice(banked: .zero),
+                                         applyWriter: false, removeWriter: false)
+        let sent = Self.command(open: try Self.invoice(sent: true, credited: true),
+                                applyWriter: false, removeWriter: false)
+
+        #expect(nothingBanked.whyTheReferralCreditEntryIsDisabled
+                == InvoiceReferralCreditRefusal.noCreditToSpend.sentence)
+        #expect(sent.whyTheReferralCreditEntryIsDisabled
+                == InvoiceReferralCreditRefusal.invoiceWasSent.sentence)
+    }
+
+    /// ONE SENTENCE FOR ONE CONDITION, READ BY EVERY ENTRY IT GREYS (L118, L370).
+    /// The export and the draft commands said it in their own copies before
+    /// ovation#657, so this asserts what each entry actually RETURNS with no
+    /// store, not a prefix typed here, which could not fail if one drifted.
+    @Test("every menu entry with no store open says the one shared sentence")
+    func everyEntryWithNoStoreSaysTheSharedSentence() throws {
+        let export = YearEndExportCommand(directory: nil, runRecord: nil)
+        let draft = BookingDraftCommand(queue: nil)
+        let discount = Self.command(open: try Self.invoice(), discountWriter: false)
+        let credit = Self.command(open: try Self.invoice(banked: Hours(whole: 2)),
+                                  applyWriter: false)
+
+        #expect(export.whyItCannotRun(container: nil) == NoStoreOpen.sentence)
+        #expect(draft.whyItCannotRun(container: nil) == NoStoreOpen.sentence)
+        #expect(discount.whyTheDiscountEntryIsDisabled == NoStoreOpen.sentence)
+        #expect(credit.whyTheReferralCreditEntryIsDisabled == NoStoreOpen.sentence)
     }
 }

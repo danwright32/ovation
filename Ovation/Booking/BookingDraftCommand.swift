@@ -85,8 +85,7 @@ final class BookingDraftCommand {
     /// worded differently because each needs different work (L11).
     func whyItCannotRun(container: ModelContainer?) -> String? {
         if container == nil {
-            return "There is no store open on this launch, so there is nowhere to "
-                + "put a draft. The launch sequence either refused or has not run."
+            return NoStoreOpen.sentence
         }
         if case .running(let since) = progress {
             return "A run started at \(BusinessCalendar.dayKey(for: since)) has not "
