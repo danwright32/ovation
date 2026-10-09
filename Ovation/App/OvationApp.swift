@@ -855,8 +855,8 @@ struct OvationApp: App {
                     // that would do nothing is greyed with its reason rather than
                     // pressable and silent (L109).
                     Button(InvoiceEditCommand.addDiscountTitle) { addADiscount() }
-                        .disabled(edits.whyTheDiscountEntryIsDisabled != nil)
-                    if let why = edits.whyTheDiscountEntryIsDisabled {
+                        .disabled(edits.whyTheDiscountEntryIsDisabled(container: opened) != nil)
+                    if let why = edits.whyTheDiscountEntryIsDisabled(container: opened) {
                         Text(why).font(.footnote)
                     }
                 }
@@ -868,8 +868,8 @@ struct OvationApp: App {
                 Button(InvoiceEditCommand.referralCreditTitle(edits.open)) {
                     changeTheReferralCredit()
                 }
-                .disabled(edits.whyTheReferralCreditEntryIsDisabled != nil)
-                if let why = edits.whyTheReferralCreditEntryIsDisabled {
+                .disabled(edits.whyTheReferralCreditEntryIsDisabled(container: opened) != nil)
+                if let why = edits.whyTheReferralCreditEntryIsDisabled(container: opened) {
                     Text(why).font(.footnote)
                 }
             }
@@ -894,7 +894,7 @@ struct OvationApp: App {
     private func addADiscount() {
         guard let open = edits.open,
               InvoiceEditCommand.offersToAddADiscount(open),
-              edits.whyTheDiscountEntryIsDisabled == nil,
+              edits.whyTheDiscountEntryIsDisabled(container: opened) == nil,
               let add = edits.addDiscount else { return }
         add(open.id, InvoiceEditCommand.whatItAdds)
     }
@@ -907,7 +907,7 @@ struct OvationApp: App {
     /// also asks whether the writer its word points at is there (ovation#657).
     private func changeTheReferralCredit() {
         guard let open = edits.open,
-              edits.whyTheReferralCreditEntryIsDisabled == nil else { return }
+              edits.whyTheReferralCreditEntryIsDisabled(container: opened) == nil else { return }
         if open.hasReferralCredit {
             edits.removeReferralCredit?(open.id)
         } else {

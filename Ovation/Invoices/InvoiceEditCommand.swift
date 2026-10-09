@@ -177,28 +177,52 @@ final class InvoiceEditCommand {
 
     // MARK: what the menu draws (ovation#657)
 
+    /// What an entry says when a store IS open and the invoice's screen has not
+    /// given the menu anything to run for it.
+    ///
+    /// SAID BY WHAT WAS MEASURED, a writer missing, never as no store, which is
+    /// a different cause read from a different thing (L11, L440). The app builds
+    /// every writer from the open store, so with a store open this should not
+    /// happen; if it does, it is a fault in what the screen published, and the
+    /// sentence says only that the press would do nothing and why.
+    static let nothingRegistered = "The invoice on screen has not given the menu "
+        + "anything to run for this, so pressing it would do nothing."
+
     /// Why adding a discount from the menu would do nothing right now, or nil
     /// when a press will run.
     ///
-    /// THE INVOICE'S OWN REASON FIRST, THEN WHETHER THE SCREEN GAVE US ANYTHING
-    /// TO RUN. Before ovation#657 the entry judged only the invoice, so with an
-    /// invoice open and no writer registered it was enabled and a press returned
-    /// silently, leaving pressing it again as the only diagnosis (L109, L148).
-    /// The invoice's reason wins because it is the one that would still stop the
-    /// press once a store was open (L111).
-    var whyTheDiscountEntryIsDisabled: String? {
+    /// THE INVOICE'S OWN REASON FIRST, THEN WHY NOTHING WOULD RUN. Before
+    /// ovation#657 the entry judged only the invoice, so with an invoice open and
+    /// no writer registered it was enabled and a press returned silently, leaving
+    /// pressing it again as the only diagnosis (L109, L148). The invoice's reason
+    /// wins because it would still stop the press once the rest was fixed (L111).
+    ///
+    /// IT TAKES THE STORE, as the export's and the draft's `whyItCannotRun` do,
+    /// so that "no store" is said only where the store itself was read and found
+    /// missing. A missing writer with a store open is the other sentence.
+    func whyTheDiscountEntryIsDisabled(container: ModelContainer?) -> String? {
         if let why = Self.whyADiscountCannotBeAdded(open) { return why }
-        return addDiscount == nil ? NoStoreOpen.sentence : nil
+        return Self.whyNothingWouldRun(writerIsThere: addDiscount != nil,
+                                       container: container)
     }
 
     /// Why pressing the credit entry would do nothing right now, or nil when a
-    /// press will run. The same order as the discount's.
-    var whyTheReferralCreditEntryIsDisabled: String? {
+    /// press will run. The same order and the same two causes as the discount's.
+    func whyTheReferralCreditEntryIsDisabled(container: ModelContainer?) -> String? {
         if let why = Self.whyTheReferralCreditCannotChange(open) { return why }
         // ONLY THE WRITER THE WORD POINTS AT. A credit to remove needs the
         // remover and nothing else, so a missing applier must not grey it.
         let writer = open?.hasReferralCredit == true
             ? removeReferralCredit : applyReferralCredit
-        return writer == nil ? NoStoreOpen.sentence : nil
+        return Self.whyNothingWouldRun(writerIsThere: writer != nil, container: container)
+    }
+
+    /// Nil while the writer is there, because then a press runs; otherwise the
+    /// cause that was actually read: no store, or a store with nothing
+    /// registered. One place, so the two entries cannot word it differently.
+    private static func whyNothingWouldRun(writerIsThere: Bool,
+                                           container: ModelContainer?) -> String? {
+        if writerIsThere { return nil }
+        return container == nil ? NoStoreOpen.sentence : nothingRegistered
     }
 }

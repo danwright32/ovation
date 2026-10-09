@@ -8,9 +8,11 @@
 // it does, so the sentence only has to say why it cannot, and that is the same
 // for all of them (L118).
 //
-// It names the store because that is the only way any of these ends up with
-// nothing to run: the app builds every writer from the open store, and builds
-// none where this launch has no store (`OvationApp`, `opened.map`).
+// SAID ONLY WHERE THE STORE ITSELF WAS READ AND FOUND MISSING: each caller takes
+// the container and checks it for nil. A missing invoice writer with a store open
+// is a different cause and has its own sentence
+// (`InvoiceEditCommand.nothingRegistered`), because a message may claim only what
+// its check measured (L11, L440).
 enum NoStoreOpen {
     static let sentence = "There is no store open on this launch. "
         + "The launch sequence either refused or has not run."

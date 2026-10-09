@@ -213,7 +213,7 @@ struct InvoiceEditCommandTests {
                 == InvoiceReferralCreditRefusal.invoiceWasSent.sentence)
     }
 
-    // MARK: an entry whose screen registered nothing to run (ovation#657)
+    // MARK: an entry whose press would run nothing (ovation#657)
 
     /// A command with the invoice open and, unless asked otherwise, every writer
     /// the screen registers. The writers do nothing: what is judged is only
@@ -229,22 +229,41 @@ struct InvoiceEditCommandTests {
         return command
     }
 
+    /// The store the menu is told is open, for the cases where one is.
+    private static func store() throws -> ModelContainer {
+        try OvationSchema.container(inMemory: true)
+    }
+
     /// THE PRESS WOULD DO NOTHING, SO THE ENTRY SAYS SO. Before ovation#657 the
     /// entry judged only the invoice, was enabled, and a press with no registered
     /// writer returned silently: a control that looks pressable and does nothing
     /// leaves pressing it again as the only diagnosis (L109, L148).
-    @Test("an open draft whose screen registered no discount writer greys the entry with a reason")
-    func noDiscountWriterGreysTheEntry() throws {
+    ///
+    /// WITH A STORE OPEN IT SAYS WHAT WAS MEASURED, that nothing was registered,
+    /// never that there is no store, which was not measured here and is false
+    /// (L11, L440).
+    @Test("a store open but no discount writer registered says nothing was registered")
+    func noDiscountWriterWithAStoreSaysNothingWasRegistered() throws {
         let command = Self.command(open: try Self.invoice(), discountWriter: false)
 
-        #expect(command.whyTheDiscountEntryIsDisabled == NoStoreOpen.sentence)
+        #expect(command.whyTheDiscountEntryIsDisabled(container: try Self.store())
+                == InvoiceEditCommand.nothingRegistered)
+    }
+
+    /// NO STORE IS ITS OWN CAUSE, and is named only where the store itself was
+    /// read and found missing, in the one sentence every no store entry says.
+    @Test("no store open and no discount writer says there is no store")
+    func noDiscountWriterWithNoStoreSaysNoStore() throws {
+        let command = Self.command(open: try Self.invoice(), discountWriter: false)
+
+        #expect(command.whyTheDiscountEntryIsDisabled(container: nil) == NoStoreOpen.sentence)
     }
 
     @Test("with the writer registered the same draft can have one added")
     func withTheDiscountWriterTheEntryIsEnabled() throws {
         let command = Self.command(open: try Self.invoice())
 
-        #expect(command.whyTheDiscountEntryIsDisabled == nil)
+        #expect(command.whyTheDiscountEntryIsDisabled(container: try Self.store()) == nil)
     }
 
     /// THE INVOICE'S OWN REASON COMES FIRST. With no writer AND a sent invoice,
@@ -254,35 +273,37 @@ struct InvoiceEditCommandTests {
     func theInvoicesOwnRefusalComesFirst() throws {
         let command = Self.command(open: try Self.invoice(sent: true), discountWriter: false)
 
-        #expect(command.whyTheDiscountEntryIsDisabled
+        #expect(command.whyTheDiscountEntryIsDisabled(container: nil)
                 == InvoiceDiscountRefusal.invoiceWasSent.sentence)
-        #expect(Self.command(open: nil, discountWriter: false).whyTheDiscountEntryIsDisabled
-                == "No invoice is open.")
+        #expect(Self.command(open: nil, discountWriter: false)
+                    .whyTheDiscountEntryIsDisabled(container: nil) == "No invoice is open.")
     }
 
     /// EACH DIRECTION NEEDS ITS OWN WRITER. The entry's word says which one a
     /// press would run, so only that one's absence can make it do nothing.
-    @Test("a credit to apply with no apply writer greys the entry with a reason")
+    @Test("a credit to apply with no apply writer says nothing was registered")
     func noApplyWriterGreysTheCreditEntry() throws {
         let command = Self.command(open: try Self.invoice(banked: Hours(whole: 2)),
                                    applyWriter: false)
 
-        #expect(command.whyTheReferralCreditEntryIsDisabled == NoStoreOpen.sentence)
+        #expect(command.whyTheReferralCreditEntryIsDisabled(container: try Self.store())
+                == InvoiceEditCommand.nothingRegistered)
     }
 
-    @Test("a credit to remove with no remove writer greys the entry with a reason")
+    @Test("a credit to remove with no remove writer says nothing was registered")
     func noRemoveWriterGreysTheCreditEntry() throws {
         let command = Self.command(open: try Self.invoice(credited: true),
                                    applyWriter: true, removeWriter: false)
 
-        #expect(command.whyTheReferralCreditEntryIsDisabled == NoStoreOpen.sentence)
+        #expect(command.whyTheReferralCreditEntryIsDisabled(container: try Self.store())
+                == InvoiceEditCommand.nothingRegistered)
     }
 
     @Test("a credit to remove does not need the apply writer")
     func removingDoesNotNeedTheApplyWriter() throws {
         let command = Self.command(open: try Self.invoice(credited: true), applyWriter: false)
 
-        #expect(command.whyTheReferralCreditEntryIsDisabled == nil)
+        #expect(command.whyTheReferralCreditEntryIsDisabled(container: try Self.store()) == nil)
     }
 
     /// THE CREDIT ENTRY'S ORDER, the same as the discount's (L111). With no
@@ -295,9 +316,9 @@ struct InvoiceEditCommandTests {
         let sent = Self.command(open: try Self.invoice(sent: true, credited: true),
                                 applyWriter: false, removeWriter: false)
 
-        #expect(nothingBanked.whyTheReferralCreditEntryIsDisabled
+        #expect(nothingBanked.whyTheReferralCreditEntryIsDisabled(container: nil)
                 == InvoiceReferralCreditRefusal.noCreditToSpend.sentence)
-        #expect(sent.whyTheReferralCreditEntryIsDisabled
+        #expect(sent.whyTheReferralCreditEntryIsDisabled(container: nil)
                 == InvoiceReferralCreditRefusal.invoiceWasSent.sentence)
     }
 
@@ -315,7 +336,15 @@ struct InvoiceEditCommandTests {
 
         #expect(export.whyItCannotRun(container: nil) == NoStoreOpen.sentence)
         #expect(draft.whyItCannotRun(container: nil) == NoStoreOpen.sentence)
-        #expect(discount.whyTheDiscountEntryIsDisabled == NoStoreOpen.sentence)
-        #expect(credit.whyTheReferralCreditEntryIsDisabled == NoStoreOpen.sentence)
+        #expect(discount.whyTheDiscountEntryIsDisabled(container: nil) == NoStoreOpen.sentence)
+        #expect(credit.whyTheReferralCreditEntryIsDisabled(container: nil)
+                == NoStoreOpen.sentence)
+    }
+
+    /// THE TWO CAUSES ARE TWO SENTENCES, or the wording would again claim one
+    /// cause on evidence of the other (L11).
+    @Test("nothing registered and no store open are said differently")
+    func theTwoCausesAreSaidDifferently() {
+        #expect(InvoiceEditCommand.nothingRegistered != NoStoreOpen.sentence)
     }
 }
