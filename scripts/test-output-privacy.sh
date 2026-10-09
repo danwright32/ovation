@@ -33,7 +33,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "output privacy tests" 152
+harness_begin "output privacy tests" 154
 
 require_target "scripts/check-identity-leaks.sh"
 harness_temp_dir WORK
@@ -1190,6 +1190,22 @@ check "the whole target check prints no identity from the file it refuses" \
     "$(leaks_in "$TARGET_OUT")" "clean"
 check "and it really did refuse, so the case reached the lines that name a file" \
     "$(printf '%s' "$TARGET_OUT" | grep -c 'REFUSED')" "1"
+
+# ---------------------------------------------------------------------------
+# THE HOSTED TIME LIMIT CHECK (ovation#652). It reads every hosted test file and
+# prints the PATH, LINE and TYPE NAME of a suite with no time limit. It must never
+# print a test's display name or anything beside it: a hosted test's name and its
+# fixtures are where a client's name and venue sit.
+# ---------------------------------------------------------------------------
+LIMIT_TREE="$WORK/hosted-limit-tree"
+mkdir -p "$LIMIT_TREE/OvationHostedTests"
+printf '// drawn for %s at %s\nstruct RowTests {\n    @Test("%s pays at %s") func pays() {}\n}\n' \
+    "$CLIENT" "$VENUE" "$CLIENT" "$VENUE" > "$LIMIT_TREE/OvationHostedTests/RowTests.swift"
+LIMIT_OUT="$(OVATION_REPO_ROOT="$LIMIT_TREE" ./scripts/check-hosted-time-limits.sh 2>&1)"
+check "the hosted time limit check prints no identity from the file it refuses" \
+    "$(leaks_in "$LIMIT_OUT")" "clean"
+check "and it really did refuse, so the case reached the lines that name a suite" \
+    "$(printf '%s' "$LIMIT_OUT" | grep -c 'REFUSED')" "1"
 
 # ---------------------------------------------------------------------------
 # THE WAITING SENTENCE GUARD (ovation#117). Its whole subject is COPY: the

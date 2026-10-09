@@ -29,6 +29,7 @@ import ViewInspector
 @testable import Ovation
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct InvoiceSettingsPaneTests {
 
     @Test("what is typed into the payment box is stored")
@@ -86,7 +87,9 @@ struct InvoiceSettingsPaneTests {
                 problems: ProblemsStore(journal: InMemoryProblemsJournal()),
                 now: Date.init,
                 askForAFolder: { nil }),
-            invoiceFooter: InvoiceFooterSetting(defaults: throwaway.defaults))
+            invoiceFooter: InvoiceFooterSetting(defaults: throwaway.defaults),
+            launchCutoff: LaunchCutoffSetting(defaults: throwaway.defaults),
+            today: { BusinessDate.stamping(Date()) })
 
         #expect(throws: Never.self) {
             try view.inspect().find(text: "Invoices")
@@ -109,6 +112,7 @@ struct InvoiceSettingsPaneTests {
 /// the pane CONTAINS the word "Payment" is answered by the heading that was always
 /// there, and would have passed on the broken arrangement (L178).
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct InvoiceSettingsAccessibilityTests {
 
     @Test("each box announces which field it is")
@@ -207,6 +211,7 @@ struct InvoiceSettingsAccessibilityTests {
 /// them then carry a warning line the filled pane does not, so it is the state that
 /// needs the most room, and it is what a fresh Mac shows (L101).
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct SettingsWindowSizeTests {
 
     @Test("the window is tall enough for the whole invoices pane, at its tallest")

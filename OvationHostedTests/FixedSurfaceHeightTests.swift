@@ -24,6 +24,7 @@ import ViewInspector
 /// you want to be" with the frame's own height, and a ScrollView with whatever it is
 /// given, so either would measure the window rather than what it holds (L63).
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct FixedSurfaceHeightTests {
 
     // MARK: the backups pane, captured directly
@@ -113,6 +114,47 @@ struct FixedSurfaceHeightTests {
         try second.find(button: "Restore").tap()
 
         #expect(asked == ["Ovation-backup-2"])
+    }
+
+    // MARK: the launch day pane (ovation#655)
+
+    /// EVERY STATE THE PANE CAN REACH, rather than one called its tallest. Which is
+    /// tallest depends on wording that changes: the unreadable warning wraps to two
+    /// lines, while a press just made draws its outcome under the control, and the
+    /// pane draws that outcome ONLY while the control still shows the confirmed day.
+    /// A fixture pairing an outcome with a state that never draws one measures a
+    /// pane nobody can see (L485), so each case also asserts what it draws.
+    static let launchDayStates: [(name: String, view: LaunchDaySettingsView, drawsOutcome: Bool)] = {
+        let today = LaunchDay(dayKey: "2026-10-08")!
+        let earlier = LaunchDay(dayKey: "2026-10-01")!
+        let said = "Launch day confirmed as 8 Oct 2026."
+        return [
+            ("not confirmed", LaunchDaySettingsView(cutoff: .notConfirmed, chosen: .constant(today),
+                                                    outcome: nil, confirm: {}), false),
+            ("unreadable", LaunchDaySettingsView(cutoff: .unreadable(stored: "x"), chosen: .constant(today),
+                                                 outcome: nil, confirm: {}), false),
+            ("just confirmed", LaunchDaySettingsView(cutoff: .confirmed(today), chosen: .constant(today),
+                                                     outcome: said, confirm: {}), true),
+            ("confirmed, then moved", LaunchDaySettingsView(cutoff: .confirmed(today),
+                                                            chosen: .constant(earlier),
+                                                            outcome: said, confirm: {}), false),
+        ]
+    }()
+
+    @Test("the Settings window fits the launch day pane in every state it can reach",
+          arguments: 0..<4)
+    func theWindowFitsTheLaunchDayPane(index: Int) throws {
+        #expect(Self.launchDayStates.count == 4, "a state was added without widening the arguments")
+        let state = Self.launchDayStates[index]
+        let outcomeIsDrawn = (try? state.view.inspect().find(text: "Launch day confirmed as 8 Oct 2026.")) != nil
+        #expect(outcomeIsDrawn == state.drawsOutcome,
+                "\(state.name): the fixture is not a state the pane draws")
+
+        let needed = Self.height(of: state.view, width: SettingsView.minimumWidth)
+
+        #expect(needed > 0, "\(state.name): the pane reported no height at all, so nothing was measured")
+        #expect(SettingsView.minimumHeight >= needed + SettingsView.chromeAllowance,
+                "\(state.name): the launch day pane needs \(needed) plus \(SettingsView.chromeAllowance) of chrome")
     }
 
     // MARK: the review sheet, at its own size

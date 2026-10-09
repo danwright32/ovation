@@ -10,6 +10,7 @@ import ViewInspector
 /// only in the presenter: what a rule COMPUTES and what a person SEES are two
 /// testable surfaces and a screen can be wrong while the value is right (L442).
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct ShellViewTests {
 
     private static func noProblems() -> ProblemsStore {

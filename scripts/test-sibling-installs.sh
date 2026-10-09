@@ -6,7 +6,7 @@
 # about apps it does not build: the installed Overture must contain the widened
 # version gate `bdd85404`, or it refuses a version 3 Downbeat export outright and
 # loses its client roster on the first action of the plan; and the installed
-# Downbeat must actually be writing a version 3 export, which is the file that
+# Downbeat must actually be writing a version 3 export or newer, 3 being the first that
 # carries shoot times.
 #
 # BOTH WERE TRUE WHEN THIS WAS WRITTEN, which is exactly why the guard needs its

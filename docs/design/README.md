@@ -101,6 +101,16 @@ at all: PRD 14h is about OPEN invoices. The fixture now carries one client with 
 invoices, which this list had none of, because a branch no fixture can reach is the branch that
 ships untested.
 
+**That reading was reversed on 2026-09-23, and the fixture now draws the reversal** (ovation#453,
+ovation#656, PRD 14j). Dan decided a draft counts as an open invoice for 14j: a client with money
+on account and more than one open invoice, drafts included, has it applied to none of them, and
+their drafts join this group. The built list moved Cedar Hill's draft, `Side by Side concert`, into
+the group from then on, while this file went on drawing it below as a draft to send, because the
+file named its waiting rows by invoice number and a draft has none. It now names them by client
+and shoot, the group holds three, and the card follows from the same rows: `To place 3` and
+`To send 3` on all five screens that draw the rail. An unpriced draft still stays out (ovation#595),
+and one whose send could not be settled is neither a draft nor sent and is not counted.
+
 **Money held against a client with NO open invoice gets nothing here, and that is a decision**
 (second round, same day, PRD 46e). It has no invoice to group, so the candidates were different:
 nothing at all, a second quiet line under the rail's `Money held` figure naming the part with no
@@ -496,6 +506,23 @@ sheet's `Cancel` starts further in than `Send` ends (ovation#635). Each is exemp
 `scripts/design-inset-exemptions.tsv` under its issue, and the check refuses the line as stale the
 day its difference is gone.
 
+**The rail foot is fixed** (ovation#633, 2026-10-08). The name running long was the second one,
+`Backup 3 days behind`, not the first: nothing let a name shrink, so it pushed its `Read` 3.2px
+past the 21px the foot's other controls keep. The name now gives way with an ellipsis and `Read`
+does not shrink, which is "Shortened beside Read" (PRD 44c) as decided, in `shell/window.css` and
+so in every file that draws the rail, and the four exemption lines went with it. The app's rail
+does not have the fault, for a stronger reason: every short name it can draw is measured to fit
+whole beside `Read`, by `RailFootTests` in the foot's face against the column it really has and by
+`ShellViewTests`, which lays `RailFootLine` out for each name, so no name has to give way there.
+
+**The review sheet's page fits its column** (ovation#634, 2026-10-08). The page is 380px, 816 at
+47% (PRD 52b), in a 402px column with a 1px rule on its right, and the column's 18px sides left it
+365px, so it ran 14px into the right padding. The page was not shrunk and the column was not
+widened, since both numbers were settled: the column's sides are now what the page leaves,
+10.5px each, which is where the app already puts it, a 380 point page centred in its 402 point
+stage (`ReviewSheet`, `measured 2026-10-08` by reading its frame, not by a rendering). Its
+exemption line went with it.
+
 ## The page's theme stops at the screen, and something measures it
 
 **Each design file is a record page drawn around an app screen, and only the page follows the
@@ -819,6 +846,23 @@ further down this same file, and the same drift put a false claim into an issue 
 ovation#172, which is why this paragraph sits ABOVE the heading rather than inside it. The check
 runs in CI rather than on every push, because it asks GitHub and a gate that refuses on every
 machine without a network is one people learn to skip.
+
+## A decision of 2026-10-08, and where it is drawn
+
+**Both ends of the review sheet's foot sit 24px in** (`ovation#635`, PRD 48c). The control inset
+check found `Cancel`'s letters 24px from the foot's left edge and `Send`'s edge 20px from its right,
+and which way it resolved was a look, so it was Dan's. Three options, only the foot moving between
+them, rendered at 1330 and 868 wide: "Both at 20", where Cancel's letters move out; "Both at 24",
+where the foot's right padding grows so Send's edge comes in; and "As today", the control. **Dan
+chose both at 24.** Cancel does not move, which also leaves `Start over` alone, since the outcome
+draws it with the same class. It is drawn in `review-send.html`'s `.rs-foot`, with the question
+beside the rule, and `check-design-control-inset.sh` now holds the two ends equal, its exemption
+line gone (`asserted by check-design-control-inset.sh`).
+
+**The app has no such foot yet.** The shipping `ReviewSheet` puts `Send` under the message in its
+right column, 20 points in like the rest of that column, and has `Close` in its head rather than
+`Cancel` in a foot, so there was nothing there to move without first building the foot this file
+draws, which is ovation#695.
 
 ## Two decisions of 2026-09-29, and where each is drawn
 

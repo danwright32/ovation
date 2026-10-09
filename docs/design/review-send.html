@@ -177,8 +177,8 @@ color: var(--faint); }
 .status .fault .read { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .status .also, .status .looked { font-size: 11.5px; color: var(--faint); line-height: 1.4; }
 
-.status .fault b { white-space: nowrap; }
-.status .fault button.read { font: inherit; font-weight: 600; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
+.status .fault b { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.status .fault button.read { flex: none; font: inherit; font-weight: 600; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
 .app { position: relative; }
 .railpop { position: absolute; z-index: 8; width: 300px; background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.10), 0 12px 28px rgba(0,0,0,.18); }
 .railsay { font-size: 13px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
@@ -257,10 +257,24 @@ color: var(--faint); }
             box-shadow: 0 18px 44px rgba(0,0,0,.34); overflow: hidden; }
 .rs-sheetin { display: grid; grid-template-columns: 402px minmax(0,1fr);
               flex: 1 1 auto; min-height: 0; overflow: auto; }
+/* THE PAGE FITS ITS COLUMN, CENTRED (ovation#634, PRD 48c). The page is 380px
+   (816px at 47%, PRD 52b) in a 402px column with a 1px rule on its right, and the
+   column's 18px sides left it 365px, so the page ran 14px into the right padding
+   and sat 18px from one edge and under 3px from the other. The sides are now
+   what the page leaves, 10.5px each, which is where the app's ReviewSheet puts
+   it too: a 380 point page centred in its 402 point stage. Neither settled
+   number moved. */
 .rs-stagearea { background: var(--sunk); border-right: 1px solid var(--rule);
-                padding: 18px; }
+                padding: 18px 10.5px; }
 .rs-rail { padding: 16px 20px; }
-.rs-foot { display: flex; align-items: center; gap: 8px; padding: 12px 20px;
+/* BOTH ENDS OF THE FOOT AT 24 (Dan, 2026-10-08, ovation#635, PRD 48c), from a
+   rendered round of three options moving only the foot: "Both at 20", "Both at
+   24" and "As today". Cancel is a plain word and Send a filled button, so the eye
+   lines up Cancel's first letter against Send's edge; they sat 24px and 20px
+   from the foot's two edges. Dan chose both at 24: the right padding grows so
+   Send's edge comes in to 24px, and Cancel does not move, since .rs-cancel is
+   also Start over in the outcome. */
+.rs-foot { display: flex; align-items: center; gap: 8px; padding: 12px 24px 12px 20px;
            border-top: 1px solid var(--rule); background: var(--chrome); }
 
 .rs-bar { display: flex; align-items: baseline; gap: 14px; padding: 14px 24px 12px;
@@ -868,7 +882,7 @@ function shell(main, extra) {
   if (QUIET) {
     card.append(rsEl("quiet", "Nothing waiting"));
   } else {
-    [["To send", 4], ["To chase", 2], ["To confirm", 2], ["To place", 2],
+    [["To send", 3], ["To chase", 2], ["To confirm", 2], ["To place", 3],
      ["Receipts to file", 20]]
       .forEach(function (pr) {
         var ln = rsEl("ln");
