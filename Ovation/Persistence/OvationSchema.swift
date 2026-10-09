@@ -33,7 +33,7 @@ enum OvationSchema {
         SentMessage.self,
     ]
 
-    static var schema: Schema { Schema(models, version: OvationSchemaV8.versionIdentifier) }
+    static var schema: Schema { Schema(models, version: OvationSchemaV9.versionIdentifier) }
 
     /// Today's shape, with a NAME (ovation#105).
     ///
@@ -47,7 +47,7 @@ enum OvationSchema {
     ///
     /// It delegates to `models` rather than repeating the list, so the two
     /// cannot drift into disagreement about what the store holds (L41).
-    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV8.self }
+    static var versionedSchema: any VersionedSchema.Type { OvationSchemaV9.self }
 
     /// A container over a store file, or an in memory one for tests.
     ///
@@ -401,23 +401,68 @@ enum OvationSchemaV7: VersionedSchema {
 /// `sharedAddressAcknowledgedOn` have been stored since version 1, recorded against
 /// the address, and every frozen copy carries them.
 ///
-/// ITS TYPES ARE THE APP'S OWN, in `Ovation/Domain`, declared in extensions of
-/// THIS version with a `typealias` in each file pointing the bare name here. That
-/// is what makes "the shape in force" and "version 8" one thing rather than two
-/// that can drift.
-///
-/// WHAT THE NEXT VERSION COSTS, said here so it is not rediscovered. Version 9
-/// means taking a frozen copy of these eleven classes the way the seven shape files
-/// hold versions 1 to 7, because a version cannot reuse another's types for
-/// anything it is related to. That is measured rather than assumed; the
-/// measurement and its error message are on `OvationSchemaV1.models`.
+/// ITS CLASSES ARE IN `OvationSchemaV8Shape.swift`, frozen, moved there the day
+/// version 9 existed (ovation#68), for the reason every older version's were.
+/// VERSION 8 WAS WRITTEN TO DISK by the installed app, so its frozen copy is held
+/// to the fingerprint `SchemaFingerprintTests` pinned rather than to anybody's
+/// reading.
 enum OvationSchemaV8: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(8, 0, 0) }
 
     /// What version 8 holds, said by version 8.
     ///
+    /// NOT `OvationSchema.models`, for the reason version 1's list records.
+    static var models: [any PersistentModel.Type] { [
+        Client.self,
+        Invoice.self,
+        Shoot.self,
+        LineItem.self,
+        ServiceType.self,
+        Payment.self,
+        PaymentAllocation.self,
+        Refund.self,
+        Expense.self,
+        ReferralLedgerEntry.self,
+        SentMessage.self,
+    ] }
+}
+
+/// Version 9: version 8 plus where an imported row came from and which import wrote
+/// it (ovation#68, ovation#69).
+///
+/// THE ONLY DIFFERENCES ARE ADDED OPTIONAL FIELDS, which is why the stage below is
+/// lightweight, measured for the earlier additive changes in `SchemaMigrationTests`
+/// and for this one there too:
+///
+///   - `Invoice.importBatchID` and `Invoice.importedFingerprint`. The invoice
+///     already carried `importKey` (since version 1, written by nothing until now).
+///   - `Payment.importKey`, `Payment.importBatchID` and `Payment.importedFingerprint`,
+///     because a QuickBooks invoice arrives with the payments QuickBooks recorded
+///     against it, and those are imported rows too.
+///   - `PaymentAllocation.importBatchID`, which is what tells a payment an import
+///     brought from one recorded against an imported invoice since.
+///
+/// NOTHING IS FILLED FOR ROWS ALREADY THERE, and nil is the truth: no import ever
+/// wrote a row before this version, so a batch appearing on one would be invented
+/// provenance, and a revert keyed on it would delete Dan's own work (L192).
+///
+/// ITS TYPES ARE THE APP'S OWN, in `Ovation/Domain`, declared in extensions of
+/// THIS version with a `typealias` in each file pointing the bare name here. That
+/// is what makes "the shape in force" and "version 9" one thing rather than two
+/// that can drift.
+///
+/// WHAT THE NEXT VERSION COSTS, said here so it is not rediscovered. Version 10
+/// means taking a frozen copy of these eleven classes the way the eight shape files
+/// hold versions 1 to 8, because a version cannot reuse another's types for
+/// anything it is related to. That is measured rather than assumed; the
+/// measurement and its error message are on `OvationSchemaV1.models`.
+enum OvationSchemaV9: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(9, 0, 0) }
+
+    /// What version 9 holds, said by version 9.
+    ///
     /// NOT `OvationSchema.models`, for the reason version 1's list records. This
-    /// one and the app's list DO agree today, because version 8 is the shape in
+    /// one and the app's list DO agree today, because version 9 is the shape in
     /// force, and `check-schema-registered.sh` holds the NEWEST version to the app
     /// for exactly that reason.
     static var models: [any PersistentModel.Type] { [
@@ -460,7 +505,8 @@ enum OvationSchemaV8: VersionedSchema {
 enum OvationMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [OvationSchemaV1.self, OvationSchemaV2.self, OvationSchemaV3.self, OvationSchemaV4.self,
-         OvationSchemaV5.self, OvationSchemaV6.self, OvationSchemaV7.self, OvationSchemaV8.self]
+         OvationSchemaV5.self, OvationSchemaV6.self, OvationSchemaV7.self, OvationSchemaV8.self,
+         OvationSchemaV9.self]
     }
 
     /// THE FIRST FOUR ARE LIGHTWEIGHT, AND THAT IS A MEASUREMENT RATHER THAN A HOPE.
@@ -495,6 +541,11 @@ enum OvationMigrationPlan: SchemaMigrationPlan {
             // `OvationSchemaV8`. `SchemaMigrationTests` carries a real version 7 store
             // across.
             .lightweight(fromVersion: OvationSchemaV7.self, toVersion: OvationSchemaV8.self),
+            // ADDED OPTIONAL FIELDS ONLY (ovation#68, ovation#69), so lightweight, and
+            // nothing is filled: no row was imported before version 9. See
+            // `OvationSchemaV9`. `SchemaMigrationTests` carries a real version 8 store
+            // across.
+            .lightweight(fromVersion: OvationSchemaV8.self, toVersion: OvationSchemaV9.self),
         ]
     }
 }

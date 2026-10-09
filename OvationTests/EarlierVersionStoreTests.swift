@@ -172,7 +172,7 @@ struct EarlierVersionStoreTests {
             ("an earlier version's classes", "let s = Schema«[OvationSchemaV2.Invoice.self,\n OvationSchemaV2.Client.self])", 1),
             ("a container over its classes", "_ = try ModelContainer«\n    for: OvationSchemaV4.Invoice.self,\n    configurations: c)", 1),
             ("a version held in a variable", "_ = try ModelContainer«for: Schema«versionedSchema: version),\n configurations: c)", 1),
-            ("the current version by the back door", "let s = Schema«versionedSchema: OvationSchemaV8.self)", 1),
+            ("the current version by the back door", "let s = Schema«versionedSchema: OvationSchemaV9.self)", 1),
             ("a probe dressed up", "let s = Schema«versionedSchema: flag ? ProbeSchemaV1.self : OvationSchemaV1.self)", 1),
             ("a probe schema", "let s = Schema«versionedSchema: ProbeSchemaV1.self)", 0),
             ("the current models", "let s = Schema«[Client.self])\n_ = try ModelContainer«for: s, configurations: c)", 0),

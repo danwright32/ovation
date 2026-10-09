@@ -20,9 +20,18 @@
 // BOTH WRITERS ARE IN HERE, and that is the point rather than a convenience. A
 // rule enforced at one site is not enforced by the system, because every other
 // writer can produce the same state (L280). `allocate` issues the next number
-// and `claim` takes the one QuickBooks issued, and neither can reach the field
-// without the other's ceiling having been consulted, in whichever order the two
-// happen to run.
+// and `importInvoices` writes the ones QuickBooks issued, and neither can reach
+// the field without the other's ceiling having been consulted, in whichever order
+// the two happen to run.
+//
+// THE IMPORT WRITES HERE, WHOLE, RATHER THAN CLAIMING A NUMBER FOR AN INVOICE
+// WRITTEN ELSEWHERE (ovation#68). There used to be a `claim` taking a number for
+// an unnumbered imported invoice somebody else had saved. Called by nothing but
+// its tests, it needed an imported invoice to exist without its number between
+// two saves, which is a state no import should ever leave behind, and a check on
+// the number made in one save while the invoice was written in another is the
+// race L157 describes. So the number, the key, the client and the rows are
+// decided and written in one save on this actor, and `claim` is gone.
 //
 // AN IMPORTED INVOICE KEEPS ITS ORIGINAL NUMBER (ovation#71). That number is
 // what the client has, what the accountant has, and what a bank reference points
@@ -72,10 +81,6 @@ enum InvoiceNumberRefusal: Error, Equatable {
     /// Renumbering an invoice that already has one would break the link to every
     /// record outside Ovation, so it is refused and the existing number is named.
     case alreadyNumbered(existing: Int64)
-    /// The number an import asked for is already held. Carries it so the report
-    /// can name both invoices (ovation#72).
-    case numberAlreadyHeld(number: Int64)
-    case numberIsNotPositive(asked: Int64)
     /// The write went in and came back as something else. It has never been seen
     /// and it is not ignorable: it means the store did not hold what this actor
     /// believes, which is the one assumption everything above rests on.
@@ -127,7 +132,7 @@ extension InvoiceNumberRefusal {
     var keptByRule: Bool {
         switch self {
         case .readBackDisagreed: return false
-        case .noSuchInvoice, .alreadyNumbered, .numberAlreadyHeld, .numberIsNotPositive,
+        case .noSuchInvoice, .alreadyNumbered,
              .notTheNumberHeld, .notTheHighest, .invoiceWasSent, .sendCouldNotBeDetermined,
              .sendIsInFlight, .importedNumber, .invoiceIsClosed, .notHeldByAReview:
             return true
@@ -141,6 +146,15 @@ actor InvoiceNumberAllocator {
     /// Where the sequence starts. It is a FLOOR, not a counter: the number
     /// actually issued is derived from the store every time.
     static let sequenceStartsAt: Int64 = 1_123
+
+    /// Run by an import after its save and before its read back, by nothing but
+    /// the suite, so a read back that disagrees can be produced on purpose rather
+    /// than waited for (L1). Nil in the app.
+    var afterImportSave: (@Sendable () async -> Void)?
+
+    func setAfterImportSave(_ hook: (@Sendable () async -> Void)?) {
+        afterImportSave = hook
+    }
 
     /// Issues the next number in the sequence to a draft, recording in the same
     /// save that a review holds it (ovation#362). Review is the only caller.
@@ -166,25 +180,94 @@ actor InvoiceNumberAllocator {
         return next
     }
 
-    /// Takes the number an import's source already issued, or refuses.
+    /// Writes every invoice the QuickBooks exports agree about, with its lines and
+    /// its payments, under the number QuickBooks issued (ovation#68, ovation#69,
+    /// ovation#71).
     ///
-    /// It does NOT renumber on a collision. See the header.
-    func claim(_ number: Int64, for invoiceID: PersistentIdentifier) throws {
-        guard number > 0 else {
-            throw InvoiceNumberRefusal.numberIsNotPositive(asked: number)
-        }
-        let all = try allInvoices()
-        guard let invoice = all.first(where: { $0.persistentModelID == invoiceID }) else {
-            throw InvoiceNumberRefusal.noSuchInvoice
-        }
-        if let existing = invoice.number {
-            throw InvoiceNumberRefusal.alreadyNumbered(existing: existing)
-        }
-        guard !Set(all.compactMap(\.number)).contains(number) else {
-            throw InvoiceNumberRefusal.numberAlreadyHeld(number: number)
+    /// READ, DECIDE AND WRITE ON THIS ACTOR, IN ONE SAVE, under the gate every
+    /// writer of money takes (ovation#175), because it writes payments. So an
+    /// allocation cannot land on a number this is about to write, a re-run cannot
+    /// find a key half written, and a crash leaves either the whole batch or none
+    /// of it (L33).
+    ///
+    /// EACH INVOICE IS DECIDED IN THIS ORDER, and each refusal names its reason
+    /// (L11): a key the store already holds is ALREADY IMPORTED, which is not a
+    /// refusal; then the number (ovation#71), which is never renumbered, because
+    /// the client, the accountant and the bank all have it; then a payment row an
+    /// earlier batch wrote; then the client, which must be exactly one Ovation
+    /// client of that name (L521); then whether Ovation's own arithmetic arrives at
+    /// QuickBooks' total.
+    ///
+    /// EVERY ROW IT WRITES CARRIES `batch` FROM CONSTRUCTION (ovation#69), and the
+    /// state a revert compares against is recorded in the same save (ovation#70).
+    func importInvoices(_ candidates: [QuickBooksImportCandidate], batch: UUID) async throws
+        -> QuickBooksImportWrite {
+        let gate = MoneyWriteGates.gate(for: modelContainer)
+        await gate.lock()
+        defer { gate.unlock() }
+
+        let invoices = try allInvoices()
+        var taken = Set(invoices.compactMap(\.number))
+        var keys = Set(invoices.compactMap(\.importKey))
+        let paymentKeys = Set(try modelContext.fetch(FetchDescriptor<Payment>()).compactMap(\.importKey))
+        let clients = Dictionary(grouping: try modelContext.fetch(FetchDescriptor<Client>()), by: \.name)
+
+        var written: [Int] = []
+        var writtenModels: [Invoice] = []
+        var payments: [Payment] = []
+        var already: [Int] = []
+        var refused: [QuickBooksImportWrite.Refusal] = []
+        func refuse(_ candidate: QuickBooksImportCandidate, _ reason: QuickBooksImportWrite.Reason) {
+            refused.append(.init(invoiceRow: candidate.invoice.row, reason: reason))
         }
 
-        try write(number, onto: invoice, heldByAReview: false)
+        for candidate in candidates.sorted(by: { $0.invoice.row < $1.invoice.row }) {
+            let number = candidate.invoice.number
+            if keys.contains(candidate.key.value) { already.append(candidate.invoice.row); continue }
+            guard number > 0 else { refuse(candidate, .numberIsNotPositive); continue }
+            guard !taken.contains(number) else { refuse(candidate, .numberAlreadyHeld(number: number)); continue }
+            if let repeated = candidate.payments.first(where: { paymentKeys.contains($0.key.value) }) {
+                refuse(candidate, .paymentAlreadyImported(ledgerRow: repeated.row.row))
+                continue
+            }
+            let named = clients[candidate.invoice.name] ?? []
+            guard let client = named.first else { refuse(candidate, .clientNotInOvation); continue }
+            guard named.count == 1 else { refuse(candidate, .clientNameHeldBySeveral(count: named.count)); continue }
+
+            let invoice = QuickBooksImportBuilder.invoice(candidate, client: client, batch: batch, in: modelContext)
+            guard invoice.total == candidate.invoice.amount else {
+                refuse(candidate, .totalDiffers(ovation: invoice.total, quickBooks: candidate.invoice.amount))
+                // Deleted before any save, so nothing of it reaches the store.
+                modelContext.delete(invoice)
+                continue
+            }
+            payments += QuickBooksImportBuilder.payments(candidate, onto: invoice, client: client,
+                                                         batch: batch, in: modelContext)
+            taken.insert(number)
+            keys.insert(candidate.key.value)
+            written.append(candidate.invoice.row)
+            writtenModels.append(invoice)
+        }
+
+        for invoice in writtenModels { invoice.recordImportedState() }
+        for payment in payments { payment.recordImportedState() }
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+
+        if let afterImportSave { await afterImportSave() }
+
+        // READ BACK (L127). A batch the store does not hold in full is one the
+        // report would describe as written while it is not.
+        let stored = try allInvoices().filter { $0.importBatchID == batch }.count
+        guard stored == written.count else {
+            throw QuickBooksImportWriteFailure.readBackDisagreed(batch: batch, wrote: written.count, found: stored)
+        }
+        return QuickBooksImportWrite(batch: batch, written: written, paymentsWritten: payments.count,
+                                     alreadyImported: already, refused: refused)
     }
 
     /// Gives back the number a review took, when the sheet closes without sending.

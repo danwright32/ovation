@@ -134,15 +134,20 @@ struct SentStatusTests {
         #expect(decoded == expected)
     }
 
-    @Test("there are exactly two routes, and neither of them is Dan saying so")
-    func thereAreOnlyTwoRoutes() {
-        #expect(Set(SentRoute.allCases) == [.ovationSentIt, .foundInTheMailbox])
+    /// THE DECISION THIS DEFENDS IS THE SECOND HALF: no route means Dan said so.
+    /// The third route (ovation#68) is QuickBooks' own record of an invoice it
+    /// billed, read from its export, which is an observation of another system and
+    /// not a person's word, so the count moved and the decision did not.
+    @Test("there are exactly three routes, and none of them is Dan saying so")
+    func thereAreOnlyThreeRoutes() {
+        #expect(Set(SentRoute.allCases) == [.ovationSentIt, .foundInTheMailbox, .billedInQuickBooks])
     }
 
     @Test("each route stores as a stable string and says which one established the send")
     func eachRouteIsDistinguishableAfterTheFact() {
         #expect(SentRoute.ovationSentIt.rawValue == "ovation-sent-it")
         #expect(SentRoute.foundInTheMailbox.rawValue == "found-in-the-mailbox")
+        #expect(SentRoute.billedInQuickBooks.rawValue == "billed-in-quickbooks")
     }
 
     // MARK: what the export selects on (PRD 24, 24b)

@@ -1,0 +1,214 @@
+// ovation#68 and ovation#69. WHAT VERSION 8 HELD, frozen, so version 9 has
+// something to migrate FROM.
+//
+// THIS FILE IS HISTORY AND IS NEVER EDITED TO MATCH THE APP, for the reason
+// `OvationSchemaV1Shape.swift` sets out in full: adding a field the app grew, or
+// deleting one it dropped, makes this version describe the current one and leaves
+// the stage between them with nothing to carry (L70, L1010). The only legitimate
+// change is a correction where it fails to describe what was actually on disk.
+//
+// VERSION 8 WAS WRITTEN TO DISK, by the app built from ovation#362 on, so its
+// shape is not only a ratchet: `SchemaFingerprintTests` pins what it writes, and
+// this copy passes that pin, which is the proof it describes the stores already
+// out there rather than a guess at them.
+//
+// WHY ALL ELEVEN, for the reason version 1's copy records: SwiftData keys an
+// entity by its CLASS NAME, so a version that reuses another version's type for
+// anything it is related to dies casting the model, and every one of Ovation's
+// models sits in one relationship graph.
+//
+// THE DIFFERENCE FROM VERSION 7 is `Invoice.numberHeldByAReview`, which
+// ovation#362 added. The difference from version 9 is the absence of the import
+// provenance version 9 added: `Invoice.importBatchID` and `importedFingerprint`,
+// `Payment.importKey`, `importBatchID` and `importedFingerprint`, and
+// `PaymentAllocation.importBatchID` (ovation#68, ovation#69).
+//
+// THE VALUE TYPES ARE NOT FROZEN WITH IT, the same stated limitation every older
+// copy carries: `Money`, `BusinessDate`, `ClockTime`, `SentStatus`, `TaxStatus`,
+// `AllocationSource`, `SentMessageKind` and the vocabularies are shared by every
+// version, so a change to one of THEM changes what this file describes, and the
+// fingerprint pin is what would say so.
+//
+// NOTHING HERE HAS BEHAVIOUR, for the reason version 1's copy gives.
+import Foundation
+import SwiftData
+
+extension OvationSchemaV8 {
+
+    @Model final class Client {
+        var id: UUID = UUID()
+        var name: String = ""
+        var taxStatus: TaxStatus = TaxStatus.neverRecorded
+        var email: String = ""
+        var contractEmail: String?
+        var sharedAddressAcknowledgedFor: String?
+        var sharedAddressAcknowledgedOn: BusinessDate?
+        var downbeatClientID: UUID?
+        var paymentTermDays: Int?
+
+        @Relationship(deleteRule: .nullify, inverse: \Invoice.client)
+        var invoices: [Invoice] = []
+        @Relationship(deleteRule: .nullify, inverse: \Payment.client)
+        var payments: [Payment] = []
+        @Relationship(deleteRule: .nullify, inverse: \ReferralLedgerEntry.client)
+        var referralEntries: [ReferralLedgerEntry] = []
+
+        init() {}
+    }
+
+    @Model final class Invoice {
+        var id: UUID = UUID()
+        var number: Int64?
+        var numberHeldByAReview: Bool = false
+        var kind: InvoiceKind = InvoiceKind.photography
+        var client: Client?
+        var invoiceDate: BusinessDate?
+        var dueDate: BusinessDate?
+        var hourlyRate: Money = Money.zero
+        var taxRate: TaxRate = TaxRate.newYorkCity
+        var discount: Discount?
+        var referralCredit: ReferralCredit?
+        var sentStatus: SentStatus = SentStatus.notSent
+        var taxStatusWhenSent: TaxStatus?
+        var closure: InvoiceClosure?
+        var bookingKey: String?
+        var createdOn: BusinessDate?
+        var heldMoneyRemovedOn: BusinessDate?
+        var importKey: String?
+
+        @Relationship(deleteRule: .cascade, inverse: \Shoot.invoice)
+        var shoots: [Shoot] = []
+        @Relationship(deleteRule: .cascade, inverse: \LineItem.invoice)
+        var lineItems: [LineItem] = []
+        @Relationship(deleteRule: .nullify, inverse: \PaymentAllocation.invoice)
+        var allocations: [PaymentAllocation] = []
+        @Relationship(deleteRule: .cascade, inverse: \Refund.invoice)
+        var refunds: [Refund] = []
+        @Relationship(deleteRule: .cascade, inverse: \SentMessage.invoice)
+        var sentMessages: [SentMessage] = []
+
+        init() {}
+    }
+
+    @Model final class Shoot {
+        var id: UUID = UUID()
+        var name: String = ""
+        var when: ShootWhen?
+        var venue: String?
+        var bookingKey: String?
+        var sortIndex: Int = 0
+        var invoice: Invoice?
+        var shotFrom: ClockTime?
+        var shotUntil: ClockTime?
+
+        init() {}
+    }
+
+    @Model final class LineItem {
+        var id: UUID = UUID()
+        var sortIndex: Int = 0
+        var summary: String = ""
+        var hours: Hours?
+        var unitAmount: Money = Money.zero
+        var serviceType: ServiceType?
+        var shoot: Shoot?
+        var invoice: Invoice?
+
+        init() {}
+    }
+
+    @Model final class ServiceType {
+        var id: UUID = UUID()
+        var name: String = ""
+        var role: ServiceRole = ServiceRole.ordinary
+        var defaultUnitAmount: Money?
+        var retiredOn: BusinessDate?
+
+        init() {}
+    }
+
+    @Model final class Payment {
+        var id: UUID = UUID()
+        var client: Client?
+        var amount: Money = Money.zero
+        var receivedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        var method: PaymentMethod = PaymentMethod.zelle
+        var clearedOn: BusinessDate?
+        var reference: String?
+
+        @Relationship(deleteRule: .cascade, inverse: \PaymentAllocation.payment)
+        var allocations: [PaymentAllocation] = []
+        @Relationship(deleteRule: .nullify, inverse: \Refund.payment)
+        var refunds: [Refund] = []
+
+        init() {}
+    }
+
+    @Model final class PaymentAllocation {
+        var id: UUID = UUID()
+        var payment: Payment?
+        var invoice: Invoice?
+        var amount: Money = Money.zero
+        var allocatedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        var releasedOn: BusinessDate?
+        var source: AllocationSource?
+
+        init() {}
+    }
+
+    @Model final class Refund {
+        var id: UUID = UUID()
+        var invoice: Invoice?
+        var payment: Payment?
+        var amount: Money = Money.zero
+        var refundedOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        var method: PaymentMethod?
+        var note: String?
+
+        init() {}
+    }
+
+    @Model final class Expense {
+        var id: UUID = UUID()
+        var amount: Money = Money.zero
+        var incurredOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        var vendor: String?
+        var category: ExpenseCategory?
+        var assetJudgement: AssetJudgement = AssetJudgement.notDecided
+        var bothAreRealAcknowledgedOn: BusinessDate?
+        var receipt: ReceiptEvidence = ReceiptEvidence.noneRecorded
+        var note: String?
+        var gmailMessageKey: String?
+        var attachmentPartIndex: Int?
+        var gmailAttachmentID: String?
+        var importKey: String?
+
+        init() {}
+    }
+
+    @Model final class ReferralLedgerEntry {
+        var id: UUID = UUID()
+        var client: Client?
+        var hours: Hours = Hours.zero
+        var occurredOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        var earnedFromBookingKey: String?
+        var spentOnInvoiceID: UUID?
+        var note: String?
+
+        init() {}
+    }
+
+    @Model final class SentMessage {
+        var id: UUID = UUID()
+        var kind: SentMessageKind = SentMessageKind.invoice
+        var recipients: [String] = []
+        var sentAt: Date = Date.distantPast
+        var sentOn: BusinessDate = BusinessDate(storedInstant: .distantPast, storedDayKey: "")
+        var subject: String?
+        var gmailThreadID: String?
+        var messageID: String?
+        var invoice: Invoice?
+
+        init() {}
+    }
+}

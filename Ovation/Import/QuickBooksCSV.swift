@@ -15,6 +15,11 @@
 // Everything after it is inside that one runaway field, so the rows after it
 // were never reached, and a reader that returned what it had would report a
 // short read as a complete one (ovation#72, L211).
+//
+// AND IT KEEPS THE RECORD AS IT WAS WRITTEN (ovation#68). The import key hashes
+// the RAW row, quotes and all, before anything is unquoted or read, because two
+// rows that read alike are still two rows, and a key over the parsed values would
+// move whenever the parser changed while the importer's version did not.
 import Foundation
 
 struct QuickBooksCSV: Equatable, Sendable {
@@ -28,6 +33,10 @@ struct QuickBooksCSV: Equatable, Sendable {
         /// Text followed a closing quote inside a field. The field is not
         /// guessed at: the record is marked, and the caller refuses the row.
         let malformed: Bool
+        /// The record exactly as the file wrote it, without its line ending: the
+        /// quotes and doubled quotes are still there, and so is any line break
+        /// inside a quoted field (ovation#68).
+        let raw: String
     }
 
     let records: [Record]
@@ -47,6 +56,7 @@ struct QuickBooksCSV: Equatable, Sendable {
         var malformed = false
         var lineIsEmpty = true
         var row = 1
+        var raw = String.UnicodeScalarView()
 
         func endField() {
             fields.append(String(field))
@@ -55,11 +65,12 @@ struct QuickBooksCSV: Equatable, Sendable {
         }
         func endRecord() {
             if lineIsEmpty && fields.isEmpty && field.isEmpty {
-                records.append(Record(row: row, fields: [], malformed: false))
+                records.append(Record(row: row, fields: [], malformed: false, raw: String(raw)))
             } else {
                 endField()
-                records.append(Record(row: row, fields: fields, malformed: malformed))
+                records.append(Record(row: row, fields: fields, malformed: malformed, raw: String(raw)))
             }
+            raw = String.UnicodeScalarView()
             fields = []
             malformed = false
             lineIsEmpty = true
@@ -72,9 +83,11 @@ struct QuickBooksCSV: Equatable, Sendable {
             let scalar = scalars[index]
             index += 1
             if inQuotes {
+                raw.append(scalar)
                 if scalar == "\"" {
                     if index < scalars.count && scalars[index] == "\"" {
                         field.append("\"")
+                        raw.append("\"")
                         index += 1
                     } else {
                         inQuotes = false
@@ -85,6 +98,9 @@ struct QuickBooksCSV: Equatable, Sendable {
                 }
                 continue
             }
+            // Everything outside quotes is the record's own text, except the line
+            // ending that closes it.
+            if scalar != "\r" && scalar != "\n" { raw.append(scalar) }
             switch scalar {
             case ",":
                 lineIsEmpty = false

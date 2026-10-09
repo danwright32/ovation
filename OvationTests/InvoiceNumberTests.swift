@@ -20,13 +20,25 @@ struct InvoiceNumberTests {
     }
 
     @discardableResult
-    private static func invoice(
-        _ context: ModelContext, number: Int64? = nil, importKey: String? = nil
-    ) -> Invoice {
+    private static func invoice(_ context: ModelContext, number: Int64? = nil) -> Invoice {
         let invoice = Invoice(client: nil, kind: .fromABooking, invoiceDate: .stamping(day),
                               hourlyRate: Money(dollars: 250), taxRate: .newYorkCity, createdOn: nil)
         invoice.number = number
-        invoice.importKey = importKey
+        context.insert(invoice)
+        return invoice
+    }
+
+    /// An invoice a QuickBooks import wrote, numbered as QuickBooks numbered it.
+    /// Built the one way an imported invoice can be (ovation#69), so it carries a
+    /// key and a batch exactly as a real one does.
+    @discardableResult
+    private static func imported(_ context: ModelContext, number: Int64) -> Invoice {
+        let client = Client(name: "Fictive Quartet", taxStatus: .exempt)
+        context.insert(client)
+        let invoice = Invoice.imported(
+            number: number,
+            key: QuickBooksImportKey(sources: [.init(fileSHA256: "list", row: 6, rawRowSHA256: "row \(number)")]),
+            batch: UUID(), client: client, invoiceDate: .stamping(day), dueDate: .stamping(day))
         context.insert(invoice)
         return invoice
     }
@@ -82,8 +94,8 @@ struct InvoiceNumberTests {
         // issued anything. A constant floor of 1123 would hand out 1123 here.
         let container = try Self.store()
         let context = ModelContext(container)
-        Self.invoice(context, number: 1_057, importKey: "qb:2026:1057")
-        Self.invoice(context, number: 1_204, importKey: "qb:2026:1204")
+        Self.imported(context, number: 1_057)
+        Self.imported(context, number: 1_204)
         let draft = Self.invoice(context)
         try context.save()
 
@@ -99,7 +111,7 @@ struct InvoiceNumberTests {
         // pull the sequence back down into numbers a client has already seen.
         let container = try Self.store()
         let context = ModelContext(container)
-        Self.invoice(context, number: 42, importKey: "qb:2019:42")
+        Self.imported(context, number: 42)
         let draft = Self.invoice(context)
         try context.save()
 
@@ -166,78 +178,13 @@ struct InvoiceNumberTests {
     }
 
     // MARK: the OTHER writer, which is the import
-
-    @Test("an import CLAIMS the number QuickBooks issued rather than being allocated one")
-    func animportKeepsItsOwnNumber() async throws {
-        // An imported invoice keeps its original number, because that number is
-        // what the client has, what the accountant has, and what a bank reference
-        // points at (ovation#71).
-        let container = try Self.store()
-        let context = ModelContext(container)
-        let imported = Self.invoice(context, importKey: "qb:2026:1057")
-        try context.save()
-
-        let allocator = InvoiceNumberAllocator(modelContainer: container)
-        try await allocator.claim(1_057, for: imported.persistentModelID)
-
-        let reader = ModelContext(container)
-        let read = try #require(try reader.fetch(FetchDescriptor<Invoice>()).first)
-        #expect(read.number == 1_057)
-    }
-
-    @Test("an import cannot take a number the allocator already issued")
-    func animportCannotTakeAnAllocatedNumber() async throws {
-        // The mirror of the derived floor. A rule enforced at one site is not
-        // enforced by the system, because every other writer can produce the same
-        // state (L280), so BOTH writers go through the same serialized actor.
-        let container = try Self.store()
-        let context = ModelContext(container)
-        let native = Self.invoice(context)
-        let imported = Self.invoice(context, importKey: "qb:2026:1123")
-        try context.save()
-
-        let allocator = InvoiceNumberAllocator(modelContainer: container)
-        let taken = try await allocator.allocate(to: native.persistentModelID)
-        await #expect(throws: InvoiceNumberRefusal.numberAlreadyHeld(number: taken)) {
-            try await allocator.claim(taken, for: imported.persistentModelID)
-        }
-
-        let reader = ModelContext(container)
-        let read = try #require(try reader.fetch(FetchDescriptor<Invoice>())
-            .first { $0.importKey != nil })
-        #expect(read.number == nil, "the refused claim wrote nothing at all")
-    }
-
-    @Test("and the allocator cannot take a number an import already brought in")
-    func theallocatorCannotTakeAnImportedNumber() async throws {
-        // The same assertion from the other side, in the ORDER that puts the
-        // import first, because both orders must be safe and a check that happens
-        // to run first is not a guarantee (ovation#71).
-        let container = try Self.store()
-        let context = ModelContext(container)
-        let imported = Self.invoice(context, importKey: "qb:2026:1123")
-        let native = Self.invoice(context)
-        try context.save()
-
-        let allocator = InvoiceNumberAllocator(modelContainer: container)
-        try await allocator.claim(1_123, for: imported.persistentModelID)
-        let allocated = try await allocator.allocate(to: native.persistentModelID)
-
-        #expect(allocated == 1_124, "it went above the imported one rather than onto it")
-    }
-
-    @Test("a claim of a number at or below zero is refused, because no invoice carries one")
-    func aclaimMustBeARealNumber() async throws {
-        let container = try Self.store()
-        let context = ModelContext(container)
-        let imported = Self.invoice(context, importKey: "qb:bad")
-        try context.save()
-
-        let allocator = InvoiceNumberAllocator(modelContainer: container)
-        await #expect(throws: InvoiceNumberRefusal.numberIsNotPositive(asked: 0)) {
-            try await allocator.claim(0, for: imported.persistentModelID)
-        }
-    }
+    //
+    // ITS CASES MOVED TO `QuickBooksImportWriterTests` (ovation#68), where they run
+    // through the import's real write rather than through `claim`, which is gone:
+    // an import keeps the number QuickBooks issued (`anAgreedInvoiceIsWritten`), it
+    // cannot take a number the allocator issued (`animportCannotTakeAnAllocatedNumber`),
+    // the allocator cannot take one it brought in (`theallocatorSkipsAnImportedNumber`),
+    // and a number at or below zero is refused (`anumberMustBeReal`).
 
     // MARK: the race, held open rather than hoped for
 
@@ -282,17 +229,18 @@ struct InvoiceNumberTests {
         // allocator's return values, because the question is what is stored (L225).
         let container = try Self.store()
         let context = ModelContext(container)
-        Self.invoice(context, number: 1_123, importKey: "qb:2026:1123")
+        Self.imported(context, number: 1_123)
         let a = Self.invoice(context)
         let b = Self.invoice(context)
-        let c = Self.invoice(context, importKey: "qb:2026:1500")
         try context.save()
 
         let allocator = InvoiceNumberAllocator(modelContainer: container)
         _ = try await allocator.allocate(to: a.persistentModelID)
         try Self.cancel(a.id, in: container, on: Self.day)
         _ = try await allocator.allocate(to: b.persistentModelID)
-        try await allocator.claim(1_500, for: c.persistentModelID)
+        // THE CLIENT IS THE ONE `imported` ALREADY MADE, so the import resolves it.
+        try await QuickBooksImportFixture.write(QuickBooksImportFixture.run([.init(number: "1500")]),
+                                                into: container)
 
         let reader = ModelContext(container)
         let numbers = try reader.fetch(FetchDescriptor<Invoice>()).compactMap(\.number)
@@ -373,12 +321,14 @@ struct InvoiceNumberTests {
         let container = try Self.store()
         let context = ModelContext(container)
         let reviewed = Self.invoice(context)
-        let imported = Self.invoice(context, importKey: "qb:2026:1500")
+        context.insert(Client(name: "Fictive Quartet", taxStatus: .exempt))
         try context.save()
 
         let allocator = InvoiceNumberAllocator(modelContainer: container)
         let shown = try await allocator.allocate(to: reviewed.persistentModelID)
-        try await allocator.claim(1_500, for: imported.persistentModelID)
+        // IMPORTED AFTER THE REVIEW TOOK ITS NUMBER, through the import's own write.
+        try await QuickBooksImportFixture.write(QuickBooksImportFixture.run([.init(number: "1500")]),
+                                                into: container)
 
         await #expect(throws: InvoiceNumberRefusal.notTheHighest(number: shown, highest: 1_500)) {
             try await allocator.release(shown, from: reviewed.persistentModelID)
@@ -475,11 +425,10 @@ struct InvoiceNumberTests {
         // (ovation#71). Being the highest does not make it Ovation's to return.
         let container = try Self.store()
         let context = ModelContext(container)
-        let imported = Self.invoice(context, importKey: "qb:2026:1500")
+        let imported = Self.imported(context, number: 1_500)
         try context.save()
 
         let allocator = InvoiceNumberAllocator(modelContainer: container)
-        try await allocator.claim(1_500, for: imported.persistentModelID)
 
         await #expect(throws: InvoiceNumberRefusal.importedNumber(number: 1_500)) {
             try await allocator.release(1_500, from: imported.persistentModelID)

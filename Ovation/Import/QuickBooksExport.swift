@@ -179,6 +179,11 @@ struct QuickBooksRowRefusal: Equatable, Sendable {
 
 /// A file read: its own refusals, and every data row either accepted or refused.
 struct QuickBooksFileRead<Row: Sendable>: Sendable {
+    /// The file's contents hashed, which is the file's identity in an import key
+    /// (ovation#68). Its contents rather than its name or where it sits, because a
+    /// key derived from a path stops resolving when the file moves (L565). Empty
+    /// on a file refused before it was read, which never feeds a write.
+    let fileSHA256: String
     let fileRefusals: [QuickBooksFileRefusal]
     /// Data rows reached, which is accepted plus refused. Headings, group totals
     /// and empty lines are structure, counted apart.
@@ -199,13 +204,15 @@ struct QuickBooksFileRead<Row: Sendable>: Sendable {
     }
 
     static func refused(_ refusal: QuickBooksFileRefusal) -> QuickBooksFileRead {
-        QuickBooksFileRead(fileRefusals: [refusal], rowsRead: 0, accepted: [], refused: [],
+        QuickBooksFileRead(fileSHA256: "", fileRefusals: [refusal], rowsRead: 0, accepted: [], refused: [],
                            structureRows: 0, totalCheck: .noTotal)
     }
 }
 
 struct QuickBooksInvoiceRow: Equatable, Sendable {
     let row: Int
+    /// The raw row, as the file wrote it, hashed (ovation#68).
+    let rawRowSHA256: String
     let date: BusinessDate
     let number: Int64
     let name: String
@@ -217,6 +224,7 @@ struct QuickBooksInvoiceRow: Equatable, Sendable {
 
 struct QuickBooksPaymentRow: Equatable, Sendable {
     let row: Int
+    let rawRowSHA256: String
     let date: BusinessDate
     /// Empty on every measured payment, so nothing ties a payment to an invoice.
     let number: String?
@@ -233,6 +241,7 @@ struct QuickBooksLedgerRow: Equatable, Sendable {
     enum Kind: Equatable, Sendable { case invoice, payment }
 
     let row: Int
+    let rawRowSHA256: String
     /// The client heading this row sits under, which is the only thing tying a
     /// payment to anything: payments carry no transaction number.
     let groupRow: Int
@@ -247,6 +256,7 @@ struct QuickBooksLedgerRow: Equatable, Sendable {
 
 struct QuickBooksLineRow: Equatable, Sendable {
     let row: Int
+    let rawRowSHA256: String
     let date: BusinessDate
     let number: Int64
     let clientName: String
@@ -344,10 +354,14 @@ enum QuickBooksExport {
         /// The first column of the report timestamp line, which carries the basis.
         var timestamp: String?
         var headerAsMeasured = false
+        /// The whole text hashed, BEFORE the byte order mark is stripped, so it is
+        /// the hash of the file's own bytes (ovation#68).
+        var fileSHA256 = ""
     }
 
     private static func frame(_ text: String, report: QuickBooksReport) -> Frame {
         var frame = Frame()
+        frame.fileSHA256 = QuickBooksCustodyFile.sha256(of: Data(text.utf8))
         var trimmed = text
         if trimmed.hasPrefix("\u{FEFF}") { trimmed.removeFirst() }
         let csv = QuickBooksCSV.parse(trimmed)
@@ -406,6 +420,11 @@ enum QuickBooksExport {
         while end > 0 && isBlank(records[end - 1]) { end -= 1 }
         frame.body = Array(records[..<end])
         return frame
+    }
+
+    /// The raw record hashed, for the import key (ovation#68).
+    private static func rawHash(_ record: QuickBooksCSV.Record) -> String {
+        QuickBooksCustodyFile.sha256(of: Data(record.raw.utf8))
     }
 
     private static func isBlank(_ record: QuickBooksCSV.Record) -> Bool {
@@ -468,7 +487,8 @@ enum QuickBooksExport {
         }
         var refusals = frame.refusals
         refusals += basisRefusals(frame, report: report)
-        return QuickBooksFileRead(fileRefusals: refusals, rowsRead: accepted.count + refused.count,
+        return QuickBooksFileRead(fileSHA256: frame.fileSHA256, fileRefusals: refusals,
+                                  rowsRead: accepted.count + refused.count,
                                   accepted: accepted, refused: refused, structureRows: structure,
                                   totalCheck: totalCheck(frame, report: report, amounts: amounts))
     }
@@ -496,7 +516,7 @@ enum QuickBooksExport {
         let due = try readDate(f[5], field: "Due date")
         let total = try readAmount(f[6], field: "Amount")
         let open = try readAmount(f[7], field: "Open balance")
-        return QuickBooksInvoiceRow(row: record.row, date: date, number: number, name: name, memo: f[4],
+        return QuickBooksInvoiceRow(row: record.row, rawRowSHA256: rawHash(record), date: date, number: number, name: name, memo: f[4],
                                     dueDate: due, amount: total, openBalance: open)
     }
 
@@ -514,7 +534,7 @@ enum QuickBooksExport {
         let account = try required(f[6], field: "Account name")
         let split = try required(f[7], field: "Split")
         let total = try readAmount(f[8], field: "Amount")
-        return QuickBooksPaymentRow(row: record.row, date: date, number: f[2].isEmpty ? nil : f[2],
+        return QuickBooksPaymentRow(row: record.row, rawRowSHA256: rawHash(record), date: date, number: f[2].isEmpty ? nil : f[2],
                                     posting: posting, name: name, memo: f[5], account: account,
                                     split: split, amount: total)
     }
@@ -535,7 +555,7 @@ enum QuickBooksExport {
             refused += numbers.map { QuickBooksRowRefusal(row: $0, reason: .duplicateInvoiceNumber(rows: numbers)) }
         }
         return QuickBooksFileRead(
-            fileRefusals: read.fileRefusals, rowsRead: read.rowsRead,
+            fileSHA256: read.fileSHA256, fileRefusals: read.fileRefusals, rowsRead: read.rowsRead,
             accepted: read.accepted.filter { shared[$0.number] == nil },
             refused: refused.sorted { $0.row < $1.row }, structureRows: read.structureRows,
             totalCheck: read.totalCheck)
@@ -596,7 +616,8 @@ enum QuickBooksExport {
         if let total = frame.total, !groups.isEmpty { breakNesting(at: total.row) }
         refusals += basisRefusals(frame, report: report)
 
-        return QuickBooksFileRead(fileRefusals: refusals, rowsRead: accepted.count + refused.count,
+        return QuickBooksFileRead(fileSHA256: frame.fileSHA256, fileRefusals: refusals,
+                                  rowsRead: accepted.count + refused.count,
                                   accepted: accepted, refused: refused, structureRows: structure,
                                   totalCheck: totalCheck(frame, report: report, amounts: amounts))
     }
@@ -629,7 +650,7 @@ enum QuickBooksExport {
             quantity = hundredths
             price = rate
         }
-        return QuickBooksLineRow(row: record.row, date: date, number: number, clientName: client, product: product,
+        return QuickBooksLineRow(row: record.row, rawRowSHA256: rawHash(record), date: date, number: number, clientName: client, product: product,
                                  description: f[5], quantityHundredths: quantity, salesPrice: price, amount: total)
     }
 
@@ -675,7 +696,8 @@ enum QuickBooksExport {
                 refused.append(QuickBooksRowRefusal(row: record.row, reason: rowRefusalReason(for: error)))
             }
         }
-        return QuickBooksFileRead(fileRefusals: frame.refusals, rowsRead: accepted.count + refused.count,
+        return QuickBooksFileRead(fileSHA256: frame.fileSHA256, fileRefusals: frame.refusals,
+                                  rowsRead: accepted.count + refused.count,
                                   accepted: accepted, refused: refused, structureRows: structure,
                                   totalCheck: totalCheck(frame, report: report, amounts: []))
     }
@@ -698,7 +720,7 @@ enum QuickBooksExport {
             number = try invoiceNumber(f[4], field: "Transaction number")
         }
         let amount = try readAmount(f[5], field: "Amount")
-        return QuickBooksLedgerRow(row: record.row, groupRow: group.row, client: group.client, date: date,
+        return QuickBooksLedgerRow(row: record.row, rawRowSHA256: rawHash(record), groupRow: group.row, client: group.client, date: date,
                                    kind: kind, number: number, memo: f[3], amount: amount)
     }
 
