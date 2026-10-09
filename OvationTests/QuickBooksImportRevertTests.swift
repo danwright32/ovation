@@ -38,8 +38,12 @@ struct QuickBooksImportRevertTests {
     private final class Started: @unchecked Sendable {
         private let lock = NSLock()
         private var _task: Task<Void, Error>?
+        private var _parked = false
         var task: Task<Void, Error>? { lock.withLock { _task } }
+        /// Whether the writer was seen queued on the gate before the window closed.
+        var parked: Bool { lock.withLock { _parked } }
         func set(_ task: Task<Void, Error>) { lock.withLock { _task = task } }
+        func markParked(_ parked: Bool) { lock.withLock { _parked = parked } }
     }
 
     private static func allocator(_ container: ModelContainer) -> InvoiceNumberAllocator {
@@ -183,6 +187,7 @@ struct QuickBooksImportRevertTests {
             // rather than spinning, so the case fails instead of hanging.
             var yields = 0
             while gate.waiting == 0 && yields < 100_000 { await Task.yield(); yields += 1 }
+            started.markParked(gate.waiting > 0)
         }
 
         let outcome = try await allocator.revertImport(batch, takeVerifiedBackup: Backups(container).take)
@@ -192,6 +197,10 @@ struct QuickBooksImportRevertTests {
             return
         }
         let cancel = try #require(started.task, "the hook never ran, so the window was never opened")
+        // THE WRITER WAS IN THE WINDOW, or nothing below says anything about it
+        // (L475): one that never reached the gate before the delete ran afterwards,
+        // and its refusal would read exactly like one that waited.
+        #expect(started.parked, "the cancellation never queued on the gate, so the window was not tested")
         await #expect(throws: CancellationRefusal.noSuchInvoice) { try await cancel.value }
         #expect(try Fixture.invoices(in: container).isEmpty)
     }
@@ -218,14 +227,22 @@ struct QuickBooksImportRevertTests {
             "numbers a draft for allocate, which refuses an invoice already numbered, and an imported one always is",
         "Ovation/Domain/InvoiceNumberAllocator.swift#release":
             "refuses an imported invoice's number before it writes anything",
-        "Ovation/Domain/ClientStandingWriter.swift": "writes a client, never an invoice's rows",
-        "Ovation/Domain/ClientTaxStatusWriter.swift": "writes a client, never an invoice's rows",
-        "Ovation/Domain/ReferralLedger.swift":
-            "spends on an invoice only when InvoiceReferralCreditWriter calls it, which holds the gate",
-        "Ovation/Domain/ServiceTypeSeed.swift": "writes service types only",
-        "Ovation/Domain/ServiceTypeWriter.swift": "writes service types only",
+        "Ovation/Domain/ClientStandingWriter.swift#setPaymentTerm": "writes a client, never an invoice's rows",
+        "Ovation/Domain/ClientStandingWriter.swift#acknowledgeSharedAddress":
+            "writes a client, never an invoice's rows",
+        "Ovation/Domain/ClientTaxStatusWriter.swift#setTaxStatus": "writes a client, never an invoice's rows",
+        "Ovation/Domain/ReferralLedger.swift#earn":
+            "writes an earning against a client and a booking, never an invoice, and nothing in the app calls it",
+        "Ovation/Domain/ReferralLedger.swift#withdrawEarning":
+            "withdraws an earning by its booking, never an invoice's, and nothing in the app calls it",
+        "Ovation/Domain/ReferralLedger.swift#spend":
+            "called only by InvoiceReferralCreditWriter, which holds the gate while it calls",
+        "Ovation/Domain/ReferralLedger.swift#returnSpend":
+            "called only by InvoiceReferralCreditWriter, which holds the gate while it calls",
+        "Ovation/Domain/ServiceTypeSeed.swift#seedIfEmpty": "writes service types only",
+        "Ovation/Domain/ServiceTypeWriter.swift#create": "writes service types only",
         "Ovation/App/OvationApp.swift#startLaunch": "saves only the client import at launch, before any screen",
-        "Ovation/Document/ReviewSampleWorld.swift": "an in memory sample world, never the store",
+        "Ovation/Document/ReviewSampleWorld.swift#presenter": "an in memory sample world, never the store",
         "Ovation/Persistence/OvationSchema.swift#run": "a migration stage, before the store opens",
     ]
 
@@ -264,12 +281,13 @@ struct QuickBooksImportRevertTests {
     func everyWriterIsAccountedFor() throws {
         let sites = try Self.saveSites(in: Self.repository().appending(path: "Ovation"))
         let exempt = Self.savesThatCannotReachAnImportedRow
-        let unaccounted = sites.filter { site in
-            !site.gated && exempt[site.site] == nil && exempt[site.file] == nil
-        }.map(\.site)
+        // BY DECLARATION ONLY, never a whole file (L362): an exemption names the one
+        // place it reasons about, so a new save added beside it is a new site.
+        #expect(exempt.keys.allSatisfy { $0.contains("#") }, "an exemption names a whole file")
+        let unaccounted = sites.filter { !$0.gated && exempt[$0.site] == nil }.map(\.site)
         #expect(sites.count > 20, "the scan found \(sites.count) saves, so it is not reading the app")
         #expect(unaccounted.isEmpty, "these save without the gate and are not accounted for: \(unaccounted.sorted())")
-        let named = Set(sites.map(\.site)).union(sites.map(\.file))
+        let named = Set(sites.map(\.site))
         let stale = exempt.keys.filter { !named.contains($0) }
         #expect(stale.isEmpty, "named as saving but no save sits there any more: \(stale.sorted())")
     }
