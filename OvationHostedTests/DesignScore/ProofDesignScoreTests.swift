@@ -13,7 +13,7 @@
 // A real screen with words on it meets that the first time it is scored.
 //
 // THE CAPTURE IS OPT IN, AND IT SAYS WHEN IT DID NOTHING (L98). It needs the design
-// side drawn first, which only the runner does. The two tests above it always run,
+// side drawn first, which only the runner does. The three tests above it always run,
 // and hold the part that is Ovation's own: that the spec is read the way the
 // settled file maker reads it, and that a view lands in the chrome's slot.
 import AppKit
