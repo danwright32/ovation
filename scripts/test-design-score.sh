@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . "$(dirname "$0")/lib/test-harness.sh"
-harness_begin "design score runner tests" 24
+harness_begin "design score runner tests" 25
 
 TARGET="scripts/design-score.sh"
 require_target "$TARGET"
@@ -126,7 +126,13 @@ check "with a pull request named, this run's score is posted on it" \
     "$ST $(grep -c "^score-tool post $CAPTURE/score.json --repo danwright32/ovation --pr 12$" "$LOG")" "1 1"
 OUT="$(FAKE_SCORE_EXIT=2 run proof --pr 12)"; ST=$?
 check "and no score is never posted as one" "$ST $(grep -c 'score-tool post' "$LOG")" "2 0"
+# design_score.py post exits 0 posted on both, 1 posted on the pull request only
+# (no Match issue in its milestone), 2 nothing posted. Found on #764: the proof's
+# score posted and the runner said it could not be, because it read 1 as failure.
 OUT="$(FAKE_SCORE_EXIT=0 FAKE_POST_EXIT=1 run proof --pr 12)"; ST=$?
+check "a score posted on the pull request only is still the score, and says where it went" \
+    "$ST $(grep -c 'could not be posted' <<< "$OUT") $(grep -c 'on #12 only' <<< "$OUT")" "0 0 1"
+OUT="$(FAKE_SCORE_EXIT=0 FAKE_POST_EXIT=2 run proof --pr 12)"; ST=$?
 check "a post that failed is said, not passed off as the score" "$ST $(grep -c 'could not be posted' <<< "$OUT")" "2 1"
 
 OUT="$(run proof --design elsewhere/other.html)"; ST=$?

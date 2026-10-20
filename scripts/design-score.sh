@@ -29,8 +29,10 @@
 # --pr posts the score on that pull request (and on its design milestone's Match
 # issue, which design_score.py finds), as every pull request in a design milestone
 # must. A run with no score posts nothing: an unmeasured run is not a score. A post
-# that fails is said and exits 2, because a score nobody can see on the pull request
-# is the absence the close gate reads.
+# that reached nothing is said and exits 2, because a score nobody can see on the
+# pull request is the absence the close gate reads. One that reached the pull
+# request but found no Match issue is the score, and says so: on #764, the first
+# real post, the runner called exactly that a failure.
 #
 # THE ADAPTER IS A COPY. vendor/design-score/DesignScoreCapture.swift is
 # claude-config's file verbatim, because a test target cannot depend on ~/.claude
@@ -113,8 +115,16 @@ SCORE=$?
 if [ -n "${PR}" ]; then
   if [ "${SCORE}" -eq 2 ]; then
     echo "design-score: nothing was posted on #${PR}, because an unmeasured run is not a score"
-  elif ! python3 "${TOOLS}/design_score.py" post "${CAPTURE}/score.json" --repo "${REPO_SLUG}" --pr "${PR}"; then
-    no_score "the score was measured (exit ${SCORE}) but could not be posted on #${PR} (above)"
+  else
+    # post's own exits: 0 posted on the pull request and its Match issue, 1 on the
+    # pull request only (its milestone holds no Match issue for this design), 2
+    # nothing posted. 1 is a score that reached the pull request, not a failure.
+    python3 "${TOOLS}/design_score.py" post "${CAPTURE}/score.json" --repo "${REPO_SLUG}" --pr "${PR}"
+    case $? in
+      0) ;;
+      1) echo "design-score: posted on #${PR} only, since its milestone holds no Match issue for this design" ;;
+      *) no_score "the score was measured (exit ${SCORE}) but could not be posted on #${PR} (above)" ;;
+    esac
   fi
 fi
 exit "${SCORE}"
