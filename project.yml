@@ -381,7 +381,7 @@ targets:
       # there imports the app module (test-project-configuration.sh), and adding
       # that import would make it a copy that differs, which design-score.sh
       # refuses.
-      - path: vendor/design-score/DesignScoreCapture.swift
+      - path: vendor/design-score
     dependencies:
       - target: Ovation
       - package: ViewInspector
