@@ -1,0 +1,26 @@
+{
+  "title": "Design score proof",
+  "chrome": {
+    "captured": "chrome.png",
+    "from": "drawn for the proof screen on 2026-10-20 (ovation#760): it is no product screen and has no window of its own, so its chrome is a plain picture in OvationPalette's accent and chrome colours, and the snapshot draws this same picture",
+    "slot": [16, 32, 208, 72],
+    "width": 240
+  },
+  "builder": "builder.js",
+  "fixture": "fixture.json",
+  "frames": [
+    {"id": "bands", "title": "The two bands", "width": 240, "height": 120, "variant": {}}
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "The light band sits above the dark band",
+      "why": "Any order would do; the proof needs one decision a check can verify",
+      "noCode": "The proof screen ships nowhere: it exists to prove the design score runs in Ovation (ovation#760)",
+      "verify": "check",
+      "frames": ["bands"],
+      "check": "the first band drawn is the fixture's light band"
+    }
+  ],
+  "idioms": []
+}

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Design score proof, the settled design</title>
+<style>
+  body { margin: 0; background: #F4F1ED; color: #1B1613; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .dr-doc { max-width: 1400px; margin: 0 auto; padding: 32px 24px 64px; }
+  .dr-doc h1 { font-size: 28px; margin: 0 0 6px; }
+  .dr-doc h2 { font-size: 18px; margin: 36px 0 10px; }
+  .dr-doc h3 { font-size: 15px; margin: 24px 0 8px; }
+  .dr-meta { color: #6E6259; font-size: 13px; margin: 0; }
+  .dr-decisions li { margin: 0 0 10px; }
+  .dr-how { color: #6E6259; font-size: 13px; }
+  .dr-frame { border: 1px solid #DDD5CD; background: #fff; display: block; }
+</style></head>
+<body><div class="dr-doc">
+<h1>Design score proof</h1>
+<p class="dr-meta">The settled design. Every frame is drawn inside the product's real chrome, captured from drawn for the proof screen on 2026-10-20 (ovation#760): it is no product screen and has no window of its own, so its chrome is a plain picture in OvationPalette&#x27;s accent and chrome colours, and the snapshot draws this same picture, from the committed fixture the built page renders too. The build is done when it scores 100% against this file on both halves.</p>
+<h2>Decisions</h2>
+<ol class="dr-decisions"><li id="D1"><strong>D1</strong> The light band sits above the dark band. Any order would do; the proof needs one decision a check can verify <span class="dr-how">No code: The proof screen ships nowhere: it exists to prove the design score runs in Ovation (ovation#760). Checked on bands: the first band drawn is the fixture&#x27;s light band.</span></li></ol>
+<h2>Exceptions Dan approved</h2>
+<p>None. A deliberate difference from this design is a new design round, or an exception Dan approves in his own words, recorded here.</p>
+<h2>Frames</h2>
+<h3>The two bands <span class="dr-meta">bands, 240 wide</span></h3><iframe class="dr-frame" data-frame="bands" title="The two bands" style="width:240px;height:120px"></iframe>
+
+</div>
+<script type="application/json" id="decision-map">
+{
+ "decisions": [
+  {
+   "id": "D1",
+   "decision": "The light band sits above the dark band",
+   "why": "Any order would do; the proof needs one decision a check can verify",
+   "noCode": "The proof screen ships nowhere: it exists to prove the design score runs in Ovation (ovation#760)",
+   "verify": "check",
+   "frames": [
+    "bands"
+   ],
+   "check": "the first band drawn is the fixture's light band"
+  }
+ ]
+}
+</script>
+<script type="application/json" id="design-frames">
+{
+ "frames": [
+  {
+   "id": "bands",
+   "title": "The two bands",
+   "width": 240,
+   "height": 120
+  }
+ ]
+}
+</script>
+<script type="application/json" id="design-exceptions">
+{
+ "exceptions": []
+}
+</script>
+<script>
+var DR_TEMPLATE = "<!doctype html>\n<html><head><meta charset=\"utf-8\">\n<style>\nhtml, body { margin: 0; }\n.dr-chrome { position: relative; width: 240px; height: 120px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAAB4CAYAAADMtn8nAAABgklEQVR4nO3ToQ2AQBAAwWsFTQn0XwkGRwn/PWDIJiPGr9m5zmMBTfN3APCdgSHMwBBmYAgzMIQZGMIMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCEGRjCDAxh8z73ApoMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCEGRjCDAxhBoYwA0OYgSHMwBBmYAgzMIQZGMIMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCEGRjCDAxhBoYwA0OYgSHMwBBmYAgzMIQZGMIMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCEGRjCDAxhBoYwA0OYgSHMwBBmYAgzMIQZGMIMDGEGhjADQ5iBIczAEGZgCDMwhBkYwgwMYQaGMANDmIEhzMAQZmAIMzCEGRjCDAxhBoYwA0OYgSHMwBBmYAgzMIRtLbRmoC0TJ6EAAAAASUVORK5CYII=) no-repeat; }\n#dr-slot { position: absolute; left: 16px; top: 32px; width: 208px; height: 72px; overflow: hidden; }\n<\/style>\n<\/head><body><div class=\"dr-chrome\"><div id=\"dr-slot\"><\/div><\/div>\n<script>window.DESIGN_FIXTURE = {\"bands\": [{\"name\": \"light\", \"red\": 251, \"green\": 244, \"blue\": 239, \"height\": 36}, {\"name\": \"dark\", \"red\": 59, \"green\": 43, \"blue\": 33, \"height\": 36}]};<\/script>\n<script>\n// The proof screen's builder (ovation#760): each band the fixture names, top to\n// bottom, at its own height and colour. Colour only, because text drawn by Chrome\n// and by SwiftUI differs at the glyph edges however exactly it is built.\nfunction buildScreen(variant) {\n  var root = document.createElement(\"div\");\n  window.DESIGN_FIXTURE.bands.forEach(function (band) {\n    var row = document.createElement(\"div\");\n    row.dataset.band = band.name;\n    row.style.height = band.height + \"px\";\n    row.style.background = \"rgb(\" + band.red + \", \" + band.green + \", \" + band.blue + \")\";\n    root.appendChild(row);\n  });\n  return root;\n}\n\n<\/script>\n<script>\n(function () {\n  \"use strict\";\n  var V = \"__DR_VARIANT__\";\n  var slot = document.getElementById(\"dr-slot\");\n  var report = { built: false, why: \"\" };\n  /* A slot the captured page's text names but its document does not hold (an id inside a comment)\n     is said as that, never as the builder throwing (lessons review of #1364). */\n  if (!slot) {\n    window.DR_FRAME = { built: false, noSlot: true, why: \"the captured page holds no element \" + \"dr-slot\" };\n    return;\n  }\n  try {\n    var node = buildScreen(V);\n    if (!node || !node.nodeType) throw new Error(\"buildScreen returned no element\");\n    slot.replaceChildren(node);\n    report.built = true;\n  } catch (err) {\n    report.why = String(err && err.message ? err.message : err);\n  }\n  window.DR_FRAME = report;\n  if (report.built && typeof screenShown === \"function\") {\n    try { screenShown(V, slot.firstElementChild); } catch (err) { report.shownWhy = String(err && err.message ? err.message : err); }\n  }\n  /* A key pressed while this frame has the focus goes to the page around it, unless the design took\n     it or it was typed into a field, as the switcher's own keys yield (claude-config#356). */\n  document.addEventListener(\"keydown\", function (event) {\n    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;\n    var t = event.target;\n    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT|OPTION)$/.test(t.tagName || \"\"))) return;\n    if (window.parent && window.parent !== window) window.parent.postMessage({ drKey: event.key }, \"*\");\n  });\n})();\n<\/script>\n<\/body><\/html>\n";
+var DR_VARIANTS = {"bands": "{}"};
+/* A frame's whole document: the captured chrome with the round drawn in it from the fixture. The web
+   adapter of the design match score draws it as a page of its own at the frame's width. The template
+   holds the variant as the quoted token make-settled.py wrote, replaced here by the frame's own. */
+function designFrameDocument(id) {
+  if (!Object.prototype.hasOwnProperty.call(DR_VARIANTS, id)) throw new Error("this design has no frame " + id);
+  return DR_TEMPLATE.split("\"__DR_VARIANT__\"").join(DR_VARIANTS[id]);
+}
+Array.prototype.forEach.call(document.querySelectorAll("iframe[data-frame]"), function (frame) {
+  frame.addEventListener("load", function () {
+    var fixed = {"bands": true};
+    var d = frame.contentDocument;
+    if (d && !fixed[frame.dataset.frame]) frame.style.height = d.documentElement.scrollHeight + "px";
+  });
+  frame.srcdoc = designFrameDocument(frame.dataset.frame);
+});
+</script>
+</body></html>

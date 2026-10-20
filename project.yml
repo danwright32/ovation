@@ -363,12 +363,25 @@ targets:
     platform: macOS
     sources:
       - path: OvationHostedTests
+        # A SETTLED DESIGN'S MATERIALS ARE NOT TEST RESOURCES (ovation#760). Each
+        # screen the design score draws keeps its spec, builder, fixture, chrome
+        # picture and settled file in a folder under DesignScore, read from the
+        # checkout by path; left in, they would be copied into the test bundle,
+        # and the settled file would be a second copy of the design to drift.
+        excludes:
+          - "DesignScore/*/**"
       # SHARED WITH THE PURE SUITE, not copied (ovation#319). Both targets need a
       # settings store a test can write to and leave nothing behind, and a second
       # implementation of that rule is how two suites come to disagree about what
       # isolation means (L370, L613). Only the helper is shared; its own tests stay
       # in OvationTests, so they run once rather than twice.
       - path: OvationTests/ThrowawayDefaults.swift
+      # THE DESIGN SCORE'S SWIFTUI ADAPTER, claude-config's file verbatim
+      # (ovation#760). It lives outside OvationHostedTests because every file in
+      # there imports the app module (test-project-configuration.sh), and adding
+      # that import would make it a copy that differs, which design-score.sh
+      # refuses.
+      - path: vendor/design-score/DesignScoreCapture.swift
     dependencies:
       - target: Ovation
       - package: ViewInspector

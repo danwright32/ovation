@@ -50,6 +50,32 @@ CI because GitHub switching schedules off for inactivity switches off whatever i
 CI would notice. STOPPED names the workflow and, where GitHub disabled it, the
 command that re-enables it.
 
+## Scoring a screen against its settled design
+
+A screen settled with the design rounds skill is done when the build matches its settled
+design at 100% on both halves (ovation#760; the skill's "Scoring the build against the settled
+design" is the full reference). One command draws both sides and scores them:
+
+    bash scripts/design-score.sh <screen> [--design <settled file>] [--pr <number>]
+
+It exits with the score's own code: 0 matched, 1 not matched yet, 2 no score. With `--pr` it
+posts the score on that pull request, which every pull request in a design milestone does. Its
+header says what it runs in what order and why each stop is a 2.
+
+- Each screen needs its settled file (`docs/design/<screen>.html` by default), its round's
+  materials in `OvationHostedTests/DesignScore/<Screen>/` (the spec, builder, fixture and chrome
+  picture, kept out of the test bundle by `project.yml`), and a hosted suite named
+  `<Screen>DesignScoreTests` that draws each frame through `DesignScoreSpec`. The proof screen,
+  `ProofDesignScoreTests`, is the worked example.
+- `vendor/design-score/DesignScoreCapture.swift` is claude-config's file verbatim,
+  and the runner refuses while it differs, naming the `cp` that refreshes it.
+- The design side needs the shared Playwright, once per Mac:
+  `bash ~/.claude/skills/design-rounds/score/install-playwright.sh`.
+- Text does not match across engines: one line drawn by Chrome and by SwiftUI matched 96.9%
+  (measured 2026-10-20), so the first real screen scored will meet that.
+- A Match issue filed by hand carries the design score issue mark naming the design file; its
+  form is at the top of `~/.claude/skills/design-rounds/score/score_github.py`.
+
 ## What to know before editing
 
 - Needs xcodegen and flock (`brew install xcodegen flock`) and the Xcode named in `.xcode-version`,

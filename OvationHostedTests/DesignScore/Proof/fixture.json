@@ -1,0 +1,6 @@
+{
+  "bands": [
+    {"name": "light", "red": 251, "green": 244, "blue": 239, "height": 36},
+    {"name": "dark", "red": 59, "green": 43, "blue": 33, "height": 36}
+  ]
+}
